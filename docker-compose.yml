@@ -1,0 +1,104 @@
+services:
+  gma:
+    build:
+      context: .
+      dockerfile: agents/gma/Dockerfile
+    container_name: dagents-gma
+    environment:
+      GMA_APP_ENV: cloud
+      GMA_API_PORT: 8020
+    ports:
+      - "8020:8020"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8020/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  lma:
+    build:
+      context: .
+      dockerfile: agents/lma/Dockerfile
+    container_name: dagents-lma
+    environment:
+      LMA_APP_ENV: cloud
+      LMA_API_PORT: 8010
+      LMA_GMA_ENDPOINT: http://gma:8020
+    depends_on:
+      gma:
+        condition: service_healthy
+    ports:
+      - "8010:8010"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8010/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  model-service:
+    build:
+      context: ./services/model-service
+      dockerfile: Dockerfile
+    container_name: dagents-model-service
+    environment:
+      APP_ENV: cloud
+      API_PORT: 8000
+      MODEL_ARTIFACT_DIR: artifacts
+      RAW_DATA_DIR: data/raw
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  pipeline-service:
+    build:
+      context: ./services/pipeline-service
+      dockerfile: Dockerfile
+    container_name: dagents-pipeline-service
+    environment:
+      APP_ENV: cloud
+      API_PORT: 8030
+    ports:
+      - "8030:8030"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8030/api/v1/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  core-service:
+    build:
+      context: ./services/core-service
+      dockerfile: Dockerfile
+    container_name: dagents-core-service
+    environment:
+      APP_ENV: cloud
+      API_PORT: 8040
+      LMA_URL: http://lma:8010
+      GMA_URL: http://gma:8020
+      MODEL_SERVICE_URL: http://model-service:8000
+      PIPELINE_SERVICE_URL: http://pipeline-service:8030
+    depends_on:
+      gma:
+        condition: service_healthy
+      lma:
+        condition: service_healthy
+      model-service:
+        condition: service_healthy
+      pipeline-service:
+        condition: service_healthy
+    ports:
+      - "8040:8040"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8040/api/v1/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s

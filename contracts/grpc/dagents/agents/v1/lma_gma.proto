@@ -1,0 +1,99 @@
+syntax = "proto3";
+
+package dagents.agents.v1;
+
+option go_package = "github.com/pradyunuydarp/Dagents/contracts/grpc/dagents/agents/v1;agentsv1";
+
+message AgentIdentity {
+  string agent_id = 1;
+  string workspace_id = 2;
+  string name = 3;
+  string agent_type = 4;
+}
+
+message RegisterRequest {
+  AgentIdentity agent = 1;
+  map<string, string> scope = 2;
+  string version = 3;
+  repeated string capabilities = 4;
+}
+
+message RegisterResponse {
+  bool accepted = 1;
+  string deployment_plan_id = 2;
+  repeated string capabilities = 3;
+}
+
+message HeartbeatRequest {
+  AgentIdentity agent = 1;
+  string status = 2;
+  int64 timestamp = 3;
+}
+
+message HeartbeatResponse {
+  bool ack = 1;
+  string desired_state = 2;
+}
+
+message TelemetryPoint {
+  string key = 1;
+  double value = 2;
+  map<string, string> labels = 3;
+  int64 observed_at = 4;
+}
+
+message TelemetryEnvelope {
+  AgentIdentity agent = 1;
+  repeated TelemetryPoint metrics = 2;
+  map<string, string> pointers = 3;
+}
+
+message TelemetryAck {
+  bool ack = 1;
+  string ingestion_id = 2;
+}
+
+message DeploymentSyncRequest {
+  AgentIdentity agent = 1;
+  string bundle_id = 2;
+  string bundle_version = 3;
+}
+
+message DeploymentSyncResponse {
+  bool up_to_date = 1;
+  string plan_token = 2;
+  string config_digest = 3;
+}
+
+message DeployBundleCommand {
+  AgentIdentity agent = 1;
+  string bundle_id = 2;
+  string bundle_version = 3;
+  string bundle_uri = 4;
+  bytes signature = 5;
+}
+
+message TriggerRunCommand {
+  AgentIdentity agent = 1;
+  string correlation_id = 2;
+  string bundle_id = 3;
+  string bundle_version = 4;
+  map<string, string> scope = 5;
+}
+
+message CommandStatus {
+  bool accepted = 1;
+  string message = 2;
+}
+
+service GMAControl {
+  rpc RegisterAgent (RegisterRequest) returns (RegisterResponse);
+  rpc SendHeartbeat (HeartbeatRequest) returns (HeartbeatResponse);
+  rpc PushTelemetry (TelemetryEnvelope) returns (TelemetryAck);
+  rpc SyncDeployment (DeploymentSyncRequest) returns (DeploymentSyncResponse);
+}
+
+service LMAControl {
+  rpc DeployBundle (DeployBundleCommand) returns (CommandStatus);
+  rpc TriggerRun (TriggerRunCommand) returns (CommandStatus);
+}

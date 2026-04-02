@@ -1,0 +1,1 @@
+"""Global Monitoring Agent package."""
