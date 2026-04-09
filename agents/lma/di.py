@@ -1,9 +1,14 @@
 """Dependency container for the Local Monitoring Agent."""
 
+from agents.common.infrastructure.sources import DefaultSourceResolver
 from agents.lma.adapters.runner import InMemoryMonitoringRunner
 from agents.lma.application.monitoring_service import MonitoringService
 from agents.lma.infrastructure.messaging import InMemoryTelemetryPublisher
-from agents.lma.infrastructure.state import InMemoryBundleRepository, InMemoryRunHistoryRepository
+from agents.lma.infrastructure.state import (
+    InMemoryBundleRepository,
+    InMemoryModelRunRepository,
+    InMemoryRunHistoryRepository,
+)
 
 
 def build_monitoring_service() -> MonitoringService:
@@ -12,4 +17,6 @@ def build_monitoring_service() -> MonitoringService:
         publisher=InMemoryTelemetryPublisher(),
         bundles=InMemoryBundleRepository(),
         runs=InMemoryRunHistoryRepository(),
+        model_runs=InMemoryModelRunRepository(),
+        source_resolver=DefaultSourceResolver(),
     )

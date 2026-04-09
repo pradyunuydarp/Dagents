@@ -2,9 +2,14 @@
 
 from __future__ import annotations
 
+from agents.common.application.ports import SourceResolver
+from agents.common.application.ml_orchestration import build_dataset_profile, execute_model_run
+from agents.common.infrastructure.sources import DefaultSourceResolver
 from agents.gma.domain.models import (
     AgentSnapshot,
     CommandStatus,
+    DatasetProfile,
+    DatasetProfileRequest,
     DeploymentPlan,
     DeploymentSyncRequest,
     DeploymentSyncResponse,
@@ -13,6 +18,9 @@ from agents.gma.domain.models import (
     FleetOverview,
     HeartbeatRequest,
     HeartbeatResponse,
+    ModelExecutionRequest,
+    ModelExecutionResponse,
+    ModelRunRecord,
     RegisterRequest,
     RegisterResponse,
     RunDispatchRequest,
@@ -20,7 +28,12 @@ from agents.gma.domain.models import (
     TelemetryEnvelope,
     TelemetrySummary,
 )
-from agents.gma.infrastructure.persistence import AgentRegistryRepository, ControlPlaneRepository, TelemetryRepository
+from agents.gma.infrastructure.persistence import (
+    AgentRegistryRepository,
+    ControlPlaneRepository,
+    ModelRunRepository,
+    TelemetryRepository,
+)
 
 
 class AggregationService:
@@ -31,10 +44,14 @@ class AggregationService:
         registry: AgentRegistryRepository,
         telemetry_repository: TelemetryRepository,
         control_plane: ControlPlaneRepository,
+        model_runs: ModelRunRepository,
+        source_resolver: SourceResolver | None = None,
     ) -> None:
         self._registry = registry
         self._telemetry_repository = telemetry_repository
         self._control_plane = control_plane
+        self._model_runs = model_runs
+        self._source_resolver = source_resolver or DefaultSourceResolver()
 
     def register(self, request: RegisterRequest) -> RegisterResponse:
         self._registry.upsert(request)
@@ -103,6 +120,19 @@ class AggregationService:
     def list_agents(self) -> list[AgentSnapshot]:
         return self._registry.list()
 
+    def profile_assimilated_dataset(self, request: DatasetProfileRequest) -> DatasetProfile:
+        aggregate_request = request.model_copy(update={"scope_kind": "assimilated"})
+        return build_dataset_profile(aggregate_request, source_resolver=self._source_resolver)
+
+    def run_assimilated_model(self, request: ModelExecutionRequest) -> ModelExecutionResponse:
+        aggregate_request = request.model_copy(update={"scope_kind": "assimilated"})
+        response = execute_model_run(aggregate_request, agent_role="GMA", source_resolver=self._source_resolver)
+        self._model_runs.append(response.run)
+        return response
+
+    def list_model_runs(self, limit: int = 20) -> list[ModelRunRecord]:
+        return self._model_runs.list_recent(limit=limit)
+
     def recent_telemetry(self, limit: int = 20) -> list[TelemetryEnvelope]:
         return self._telemetry_repository.list_recent(limit=limit)
 
@@ -115,6 +145,21 @@ class AggregationService:
     def list_dispatched_runs(self, limit: int = 20) -> list[DispatchedRun]:
         return self._control_plane.list_runs(limit=limit)
 
+    def get_agent(self, agent_id: str) -> AgentSnapshot | None:
+        return self._registry.get(agent_id)
+
+    def register_source(self, source):
+        return self._source_resolver.register(source)
+
+    def get_source(self, source_id: str):
+        return self._source_resolver.get(source_id)
+
+    def list_sources(self):
+        return self._source_resolver.list()
+
+    def validate_source(self, source_id: str):
+        return self._source_resolver.validate(source_id)
+
     def overview(self) -> FleetOverview:
         snapshots = self._registry.list()
         telemetry_events = len(self._telemetry_repository.list_recent(limit=100_000))
@@ -125,7 +170,7 @@ class AggregationService:
             active_agents=active_agents,
             telemetry_events=telemetry_events,
             pending_deployments=pending_deployments,
-            dispatched_runs=len(self._control_plane.list_runs(limit=100_000)),
+            dispatched_runs=len(self._control_plane.list_runs(limit=100_000)) + len(self._model_runs.list_recent(limit=100_000)),
         )
 
     @staticmethod

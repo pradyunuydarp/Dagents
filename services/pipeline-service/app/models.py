@@ -6,6 +6,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+from agents.common.domain.models import DatasetInput
+
 
 class HealthResponse(BaseModel):
     status: str
@@ -28,7 +30,14 @@ class AggregationSpec(BaseModel):
 
 class PipelineStep(BaseModel):
     step_id: str
-    kind: Literal["enrich_context", "filter_items", "summarize_items", "project_fields"]
+    kind: Literal[
+        "enrich_context",
+        "filter_items",
+        "summarize_items",
+        "project_fields",
+        "profile_dataset",
+        "run_model_job",
+    ]
     depends_on: list[str] = Field(default_factory=list)
     config: dict[str, Any] = Field(default_factory=dict)
 
@@ -54,6 +63,7 @@ class StepRunResult(BaseModel):
 
 
 class PipelineRunRequest(BaseModel):
+    pipeline_id: str | None = None
     payload: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -65,7 +75,12 @@ class PipelineRunResponse(BaseModel):
     completed_at: int
     final_payload: dict[str, Any] = Field(default_factory=dict)
     step_results: list[StepRunResult] = Field(default_factory=list)
+    error: str | None = None
 
 
 class PipelineRunCatalogResponse(BaseModel):
     runs: list[PipelineRunResponse]
+
+
+class SourceRegistrationRequest(BaseModel):
+    source: DatasetInput | None = None

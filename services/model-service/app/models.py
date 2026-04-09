@@ -4,17 +4,23 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from agents.common.domain.models import DatasetInput
 
 
-class HealthResponse(BaseModel):
+class AppModel(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
+
+
+class HealthResponse(AppModel):
     status: str
     service: str
     environment: str
     transport: str
 
 
-class DatasetDescriptorResponse(BaseModel):
+class DatasetDescriptorResponse(AppModel):
     name: str
     source: str
     source_url: str
@@ -24,16 +30,19 @@ class DatasetDescriptorResponse(BaseModel):
     features: int | None = None
 
 
-class DatasetCatalogResponse(BaseModel):
+class DatasetCatalogResponse(AppModel):
     datasets: list[DatasetDescriptorResponse]
 
 
-class HyperparameterSearchRequest(BaseModel):
+class HyperparameterSearchRequest(AppModel):
     values: dict[str, list[Any]] = Field(default_factory=dict)
 
 
-class TrainRequest(BaseModel):
-    dataset_name: str
+class TrainRequest(AppModel):
+    dataset_name: str | None = None
+    dataset: DatasetInput | None = None
+    feature_fields: list[str] = Field(default_factory=list)
+    label_field: str | None = None
     model_family: str = Field(default="autoencoder")
     max_rows: int | None = Field(default=20_000, ge=100)
     test_size: float = Field(default=0.2, gt=0.05, lt=0.5)
@@ -45,8 +54,14 @@ class TrainRequest(BaseModel):
     use_pca: bool = True
     search: HyperparameterSearchRequest = Field(default_factory=HyperparameterSearchRequest)
 
+    @model_validator(mode="after")
+    def validate_source(self) -> "TrainRequest":
+        if not self.dataset_name and self.dataset is None:
+            raise ValueError("TrainRequest requires dataset_name or dataset")
+        return self
 
-class MetricSummary(BaseModel):
+
+class MetricSummary(AppModel):
     roc_auc: float
     average_precision: float
     f1: float
@@ -59,7 +74,7 @@ class MetricSummary(BaseModel):
     threshold: float
 
 
-class CrossValidationSummary(BaseModel):
+class CrossValidationSummary(AppModel):
     strategy: str
     folds: int
     metric_mean: float
@@ -67,7 +82,7 @@ class CrossValidationSummary(BaseModel):
     best_params: dict[str, Any]
 
 
-class TrainResponse(BaseModel):
+class TrainResponse(AppModel):
     dataset_name: str
     model_family: str
     artifact_path: str
@@ -78,3 +93,17 @@ class TrainResponse(BaseModel):
     best_params: dict[str, Any]
     cross_validation: CrossValidationSummary
     metrics: MetricSummary
+
+
+class ModelJobResponse(AppModel):
+    job_id: str
+    status: str
+    submitted_at: int
+    started_at: int | None = None
+    completed_at: int | None = None
+    result: TrainResponse | None = None
+    error: str | None = None
+
+
+class ModelJobCatalogResponse(AppModel):
+    jobs: list[ModelJobResponse]

@@ -1,50 +1,32 @@
-"""Pydantic API models for the core service."""
+"""Workload planning and manifest contracts."""
+
+from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import Field
+
+from agents.common.domain.base import DagentsModel
 
 
-class HealthResponse(BaseModel):
-    status: str
-    service: str
-    environment: str
-    transport: str
-
-
-class ServiceDescriptor(BaseModel):
-    name: str
-    kind: str
-    base_url: str
-
-
-class ServiceCatalogResponse(BaseModel):
-    services: list[ServiceDescriptor]
-
-
-class TopologyResponse(BaseModel):
-    framework: str
-    services: list[ServiceDescriptor]
-
-
-class WorkloadEnvironmentVariable(BaseModel):
+class WorkloadEnvironmentVariable(DagentsModel):
     name: str
     value: str
 
 
-class WorkloadPort(BaseModel):
+class WorkloadPort(DagentsModel):
     name: str = "http"
     container_port: int
 
 
-class WorkloadResources(BaseModel):
+class WorkloadResources(DagentsModel):
     cpu_request: str = "250m"
     cpu_limit: str = "1"
     memory_request: str = "256Mi"
     memory_limit: str = "1Gi"
 
 
-class WorkloadComponent(BaseModel):
+class WorkloadComponent(DagentsModel):
     name: str
     image: str
     kind: Literal["Deployment", "Job", "CronJob"] = "Deployment"
@@ -56,36 +38,36 @@ class WorkloadComponent(BaseModel):
     resources: WorkloadResources = Field(default_factory=WorkloadResources)
 
 
-class WorkloadManifestRequest(BaseModel):
-    namespace: str = "dagents"
-    components: list[WorkloadComponent] = Field(default_factory=list)
-    include_services: bool = True
-
-
-class WorkloadManifest(BaseModel):
-    component_name: str
-    kind: str = "Deployment"
-    deployment_yaml: str
-    service_yaml: str | None = None
-    config_map_yaml: str | None = None
-
-
-class WorkloadManifestResponse(BaseModel):
-    namespace: str
-    manifests: list[WorkloadManifest] = Field(default_factory=list)
-    combined_yaml: str
-
-
-class WorkloadCompileRequest(BaseModel):
-    plan_id: str | None = None
+class WorkloadSpec(DagentsModel):
+    plan_id: str
     namespace: str = "dagents"
     components: list[WorkloadComponent] = Field(default_factory=list)
     include_services: bool = True
     include_config_maps: bool = False
 
 
-class WorkloadPlanResponse(BaseModel):
+class WorkloadManifest(DagentsModel):
+    component_name: str
+    kind: str
+    deployment_yaml: str
+    service_yaml: str | None = None
+    config_map_yaml: str | None = None
+
+
+class WorkloadPlan(DagentsModel):
     plan_id: str
+    namespace: str
+    manifests: list[WorkloadManifest] = Field(default_factory=list)
+    combined_yaml: str
+
+
+class WorkloadManifestRequest(DagentsModel):
+    namespace: str = "dagents"
+    components: list[WorkloadComponent] = Field(default_factory=list)
+    include_services: bool = True
+
+
+class WorkloadManifestResponse(DagentsModel):
     namespace: str
     manifests: list[WorkloadManifest] = Field(default_factory=list)
     combined_yaml: str

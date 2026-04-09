@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 import unittest
 
 from app.models import PipelineDefinition, PipelineRunRequest, PipelineStep
@@ -54,6 +55,30 @@ class PipelineServiceTests(unittest.TestCase):
                         ],
                     },
                 ),
+                PipelineStep(
+                    step_id="profile",
+                    kind="profile_dataset",
+                    depends_on=["summarize"],
+                    config={
+                        "items_field": "items",
+                        "target_field": "dataset_profile",
+                        "feature_fields": ["severity", "score"],
+                    },
+                ),
+                PipelineStep(
+                    step_id="model",
+                    kind="run_model_job",
+                    depends_on=["profile"],
+                    config={
+                        "items_field": "items",
+                        "target_field": "model_run",
+                        "feature_fields": ["severity", "score"],
+                        "model_family": "autoencoder",
+                        "task_type": "anomaly_detection",
+                        "scope_kind": "source",
+                        "artifact_prefix": "artifacts/runs",
+                    },
+                ),
             ],
         )
 
@@ -76,6 +101,8 @@ class PipelineServiceTests(unittest.TestCase):
         self.assertEqual(len(result.final_payload["items"]), 2)
         self.assertEqual(result.final_payload["summary"]["incident_count"], 2)
         self.assertAlmostEqual(result.final_payload["summary"]["avg_score"], 0.8)
+        self.assertEqual(result.final_payload["dataset_profile"]["record_count"], 2)
+        self.assertEqual(result.final_payload["model_run"]["model_family"], "autoencoder")
 
     def test_rejects_unknown_dependency(self) -> None:
         pipeline = PipelineDefinition(
@@ -92,6 +119,40 @@ class PipelineServiceTests(unittest.TestCase):
 
         with self.assertRaises(ValueError):
             self.service.register_pipeline(pipeline)
+
+    def test_submits_async_pipeline_run(self) -> None:
+        self.service.register_pipeline(
+            PipelineDefinition(
+                pipeline_id="async-pipeline",
+                steps=[
+                    PipelineStep(
+                        step_id="enrich",
+                        kind="enrich_context",
+                        config={"target_field": "context", "values": {"tenant": "alpha"}},
+                    )
+                ],
+            )
+        )
+
+        queued = self.service.submit_pipeline_run(
+            PipelineRunRequest(
+                pipeline_id="async-pipeline",
+                payload={"items": []},
+            )
+        )
+        self.assertEqual(queued.status, "queued")
+
+        completed = None
+        for _ in range(20):
+            time.sleep(0.01)
+            completed = self.service.get_run(queued.run_id)
+            if completed and completed.status == "completed":
+                break
+
+        self.assertIsNotNone(completed)
+        assert completed is not None
+        self.assertEqual(completed.status, "completed")
+        self.assertEqual(completed.final_payload["context"]["tenant"], "alpha")
 
 
 if __name__ == "__main__":

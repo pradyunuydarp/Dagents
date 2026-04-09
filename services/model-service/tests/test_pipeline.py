@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
@@ -9,10 +10,14 @@ import unittest
 import numpy as np
 import pandas as pd
 
-from app.ml.pipeline import PipelineConfig, UnifiedAnomalyTrainingPipeline
+TORCH_AVAILABLE = importlib.util.find_spec("torch") is not None
+
+if TORCH_AVAILABLE:
+    from app.ml.pipeline import PipelineConfig, UnifiedAnomalyTrainingPipeline
 
 
 class UnifiedAnomalyTrainingPipelineTests(unittest.TestCase):
+    @unittest.skipUnless(TORCH_AVAILABLE, "torch is required for model-service training smoke tests")
     def test_pipeline_trains_and_persists_artifact(self) -> None:
         rng = np.random.default_rng(42)
         normal = rng.normal(0, 1, size=(200, 6))
