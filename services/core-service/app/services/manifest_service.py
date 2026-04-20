@@ -24,22 +24,52 @@ class WorkloadPlanRepository(Protocol):
 
 
 class InMemoryWorkloadPlanRepository:
+    """Store compiled workload plans in memory for development and tests."""
+
     def __init__(self) -> None:
         self._plans: dict[str, WorkloadPlanResponse] = {}
 
     def save(self, plan: WorkloadPlanResponse) -> WorkloadPlanResponse:
+        """Persist one plan and return it unchanged."""
         self._plans[plan.plan_id] = plan
         return plan
 
     def get(self, plan_id: str) -> WorkloadPlanResponse | None:
+        """Load one plan by id if it exists."""
         return self._plans.get(plan_id)
 
 
 class ManifestService:
+    """Compile workload requests into concrete Kubernetes manifest bundles.
+
+    Params:
+    - `plans`: repository used to persist compiled workload plans for later lookup.
+
+    What it does:
+    - Converts high-level workload requests into rendered YAML strings.
+    - Persists compiled plans so callers can retrieve them later by `plan_id`.
+
+    Returns:
+    - The service instance is used through `generate`, `compile`, and `get_plan`.
+    """
+
     def __init__(self, plans: WorkloadPlanRepository | None = None) -> None:
         self._plans = plans or InMemoryWorkloadPlanRepository()
 
     def generate(self, request: WorkloadManifestRequest) -> WorkloadManifestResponse:
+        """Render a one-shot manifest response without exposing plan lookup.
+
+        Params:
+        - `request`: high-level manifest request with namespace, components, and
+          global generation flags.
+
+        What it does:
+        - Delegates to `compile` so both endpoints share the same rendering logic.
+        - Drops the `plan_id` and returns only the manifest payload.
+
+        Returns:
+        - `WorkloadManifestResponse`.
+        """
         compiled = self.compile(
             WorkloadCompileRequest(
                 namespace=request.namespace,
@@ -54,11 +84,29 @@ class ManifestService:
         )
 
     def compile(self, request: WorkloadCompileRequest) -> WorkloadPlanResponse:
+        """Compile a workload request into a persisted plan.
+
+        Params:
+        - `request`: full workload compilation request, including optional
+          component-level generated resources.
+
+        What it does:
+        - Generates the primary workload YAML for each component.
+        - Optionally adds generated `Service`, `ConfigMap`, and `ServiceAccount`
+          resources.
+        - Concatenates all rendered sections into `combined_yaml`.
+        - Persists the result in the configured plan repository.
+
+        Returns:
+        - `WorkloadPlanResponse`.
+        """
         manifests: list[WorkloadManifest] = []
         rendered_sections: list[str] = []
         plan_id = request.plan_id or f"workload-plan-{int(time.time() * 1000)}"
 
         for component in request.components:
+            # Each component yields one primary workload plus zero or more
+            # generated companion resources.
             deployment_yaml = self._workload_yaml(request.namespace, component)
             service_yaml = self._service_yaml(request.namespace, component) if self._generate_service(component, request.include_services) else None
             config_map_yaml = (
@@ -98,9 +146,11 @@ class ManifestService:
         return self._plans.save(plan)
 
     def get_plan(self, plan_id: str) -> WorkloadPlanResponse | None:
+        """Return a previously compiled workload plan by id."""
         return self._plans.get(plan_id)
 
     def _workload_yaml(self, namespace: str, component: WorkloadComponent) -> str:
+        """Dispatch to the correct workload renderer based on `component.kind`."""
         if component.kind == "Job":
             return self._job_yaml(namespace, component)
         if component.kind == "CronJob":
@@ -108,6 +158,7 @@ class ManifestService:
         return self._deployment_yaml(namespace, component)
 
     def _deployment_yaml(self, namespace: str, component: WorkloadComponent) -> str:
+        """Render one `Deployment` manifest for a workload component."""
         env_lines = self._env_lines(component)
         port_lines = self._port_lines(component)
         arg_lines = self._arg_lines(component)
@@ -147,6 +198,7 @@ class ManifestService:
         )
 
     def _job_yaml(self, namespace: str, component: WorkloadComponent) -> str:
+        """Render one batch `Job` manifest for a workload component."""
         env_lines = self._env_lines(component)
         arg_lines = self._arg_lines(component)
         service_account_lines = self._service_account_name_lines(component, indent="      ")
@@ -181,6 +233,7 @@ class ManifestService:
         )
 
     def _cron_job_yaml(self, namespace: str, component: WorkloadComponent) -> str:
+        """Render one `CronJob` manifest for a scheduled workload component."""
         env_lines = self._env_lines(component)
         arg_lines = self._arg_lines(component)
         service_account_lines = self._service_account_name_lines(component, indent="          ")
@@ -219,6 +272,19 @@ class ManifestService:
         )
 
     def _service_yaml(self, namespace: str, component: WorkloadComponent) -> str | None:
+        """Render a companion `Service` when the component exposes ports.
+
+        Params:
+        - `namespace`: Kubernetes namespace for the generated resource.
+        - `component`: workload definition containing port and service settings.
+
+        What it does:
+        - Skips generation when no ports are defined.
+        - Uses `component.service_type` to control the service exposure mode.
+
+        Returns:
+        - YAML string for a `Service`, or `None`.
+        """
         if not component.ports:
             return None
         lines = [
@@ -244,6 +310,7 @@ class ManifestService:
         return "\n".join(lines)
 
     def _config_map_yaml(self, namespace: str, component: WorkloadComponent) -> str:
+        """Render a companion `ConfigMap` for component metadata or custom data."""
         data = component.config_map_data or {
             "component-kind": component.kind,
             "image": component.image,
@@ -261,6 +328,7 @@ class ManifestService:
         )
 
     def _service_account_yaml(self, namespace: str, component: WorkloadComponent) -> str:
+        """Render a companion `ServiceAccount` for one workload component."""
         return "\n".join(
             [
                 "apiVersion: v1",
@@ -272,12 +340,14 @@ class ManifestService:
         )
 
     def _service_account_name_lines(self, component: WorkloadComponent, *, indent: str) -> list[str]:
+        """Return the pod-spec line that binds a workload to a service account."""
         service_account_name = self._service_account_name(component)
         if not service_account_name:
             return []
         return [f"{indent}serviceAccountName: {service_account_name}"]
 
     def _service_account_name(self, component: WorkloadComponent) -> str | None:
+        """Resolve the effective service account name for one component."""
         if component.service_account_name:
             return component.service_account_name
         if "ServiceAccount" in component.generated_resources:
@@ -285,15 +355,19 @@ class ManifestService:
         return None
 
     def _generate_service(self, component: WorkloadComponent, include_services: bool) -> bool:
+        """Decide whether to generate a companion `Service` resource."""
         return "Service" in component.generated_resources or include_services
 
     def _generate_config_map(self, component: WorkloadComponent, include_config_maps: bool) -> bool:
+        """Decide whether to generate a companion `ConfigMap` resource."""
         return "ConfigMap" in component.generated_resources or include_config_maps
 
     def _generate_service_account(self, component: WorkloadComponent) -> bool:
+        """Decide whether to generate a companion `ServiceAccount` resource."""
         return self._service_account_name(component) is not None
 
     def _env_lines(self, component: WorkloadComponent) -> list[str]:
+        """Render environment variables into container YAML lines."""
         if not component.env:
             return []
         lines = ["        env:"]
@@ -302,6 +376,7 @@ class ManifestService:
         return lines
 
     def _port_lines(self, component: WorkloadComponent) -> list[str]:
+        """Render container ports into YAML lines for pod specs."""
         if not component.ports:
             return []
         lines = ["        ports:"]
@@ -310,6 +385,7 @@ class ManifestService:
         return lines
 
     def _arg_lines(self, component: WorkloadComponent) -> list[str]:
+        """Render container args into YAML lines for pod specs."""
         if not component.args:
             return []
         lines = ["        args:"]

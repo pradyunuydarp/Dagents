@@ -45,11 +45,14 @@ class ModelJobRepository(Protocol):
 
 
 class InMemoryModelJobRepository:
+    """Development repository for async model-job state."""
+
     def __init__(self) -> None:
         self._jobs: dict[str, ModelJobResponse] = {}
         self._ordered_ids: list[str] = []
 
     def save(self, job: ModelJobResponse) -> ModelJobResponse:
+        """Persist a new job and keep insertion order for recent-job listing."""
         self._jobs[job.job_id] = job
         if job.job_id in self._ordered_ids:
             self._ordered_ids.remove(job.job_id)
@@ -57,20 +60,39 @@ class InMemoryModelJobRepository:
         return job
 
     def update(self, job: ModelJobResponse) -> ModelJobResponse:
+        """Overwrite a job record in place and keep it discoverable."""
         self._jobs[job.job_id] = job
         if job.job_id not in self._ordered_ids:
             self._ordered_ids.append(job.job_id)
         return job
 
     def get(self, job_id: str) -> ModelJobResponse | None:
+        """Fetch one job by id if it exists."""
         return self._jobs.get(job_id)
 
     def list_recent(self, limit: int = 20) -> list[ModelJobResponse]:
+        """Return the newest jobs first."""
         ordered = [self._jobs[job_id] for job_id in self._ordered_ids]
         return list(reversed(ordered[-limit:]))
 
 
 class ModelTrainingService:
+    """Application façade for dataset loading, checks, and model-job execution.
+
+    Params:
+    - `jobs`: repository that stores async job state.
+    - `source_resolver`: shared resolver used for source-backed datasets.
+    - `executor`: background executor for async job submission.
+
+    What it does:
+    - Exposes synchronous training and evaluation methods.
+    - Wraps those operations in queued/running/completed job semantics.
+    - Bridges Dagents source adapters into the model pipeline.
+
+    Returns:
+    - The service is consumed through its public methods rather than direct data.
+    """
+
     def __init__(
         self,
         *,
@@ -83,6 +105,18 @@ class ModelTrainingService:
         self._executor = executor or ThreadPoolExecutor(max_workers=2, thread_name_prefix="dagents-models")
 
     def list_datasets(self) -> list[DatasetDescriptorResponse]:
+        """List bundled benchmark datasets with lightweight shape metadata.
+
+        Params:
+        - None.
+
+        What it does:
+        - Loads each registered benchmark dataset with a small row cap.
+        - Returns enough metadata for UI/API clients to inspect available datasets.
+
+        Returns:
+        - `list[DatasetDescriptorResponse]`.
+        """
         catalog = []
         for descriptor in list_datasets():
             dataset = load_dataset(descriptor.name, max_rows=256, random_seed=settings.random_seed)
@@ -100,6 +134,20 @@ class ModelTrainingService:
         return catalog
 
     def train(self, request: TrainRequest) -> TrainResponse:
+        """Run the full synchronous anomaly-training pipeline.
+
+        Params:
+        - `request`: training configuration, including dataset selection,
+          model family, tuning strategy, and artifact naming.
+
+        What it does:
+        - Resolves the dataset from either a benchmark name or Dagents source input.
+        - Builds the unified anomaly training pipeline.
+        - Trains the requested model family and persists the artifact.
+
+        Returns:
+        - `TrainResponse` with artifact metadata and evaluation summaries.
+        """
         from app.ml.pipeline import PipelineConfig, UnifiedAnomalyTrainingPipeline
 
         dataset = self._load_dataset(request)
@@ -158,6 +206,7 @@ class ModelTrainingService:
         )
 
     def classification_check(self, request: MLCheckRequest) -> ClassificationCheckResponse:
+        """Evaluate a classification model family against a resolved dataset."""
         features, labels, feature_fields, dataset_name = self._load_check_dataset(request, target_dtype="int64")
         result = run_classification_check(
             features.to_numpy(dtype=np.float32),
@@ -177,6 +226,7 @@ class ModelTrainingService:
         )
 
     def regression_check(self, request: MLCheckRequest) -> RegressionCheckResponse:
+        """Evaluate a regression model family against a resolved dataset."""
         features, labels, feature_fields, dataset_name = self._load_check_dataset(request, target_dtype="float64")
         result = run_regression_check(
             features.to_numpy(dtype=np.float32),
@@ -196,6 +246,7 @@ class ModelTrainingService:
         )
 
     def forecasting_check(self, request: MLCheckRequest) -> ForecastingCheckResponse:
+        """Evaluate an LSTM/GRU-style forecasting model against ordered data."""
         features, labels, feature_fields, dataset_name = self._load_check_dataset(request, target_dtype="float64")
         result = run_forecasting_check(
             features.to_numpy(dtype=np.float32),
@@ -217,6 +268,18 @@ class ModelTrainingService:
         )
 
     def submit_job(self, request: TrainRequest) -> ModelJobResponse:
+        """Queue a background training job and return its initial status.
+
+        Params:
+        - `request`: the same training payload accepted by `train`.
+
+        What it does:
+        - Creates a queued job record.
+        - Schedules `_run_async` on the thread pool.
+
+        Returns:
+        - Initial `ModelJobResponse` with status `queued`.
+        """
         job_id = f"model-job-{int(time.time() * 1000)}"
         queued = ModelJobResponse(
             job_id=job_id,
@@ -228,11 +291,14 @@ class ModelTrainingService:
         return queued
 
     def _run_async(self, job_id: str, request: TrainRequest) -> None:
+        """Drive the queued job through running/completed/failed transitions."""
         current = self._jobs.get(job_id)
         if current is None:
             return
         self._jobs.update(current.model_copy(update={"status": "running", "started_at": int(time.time())}))
         try:
+            # Reuse the synchronous training implementation so the async path and
+            # direct API path stay behaviorally identical.
             result = self.train(request)
             current = self._jobs.get(job_id)
             if current is None:
@@ -261,24 +327,44 @@ class ModelTrainingService:
             )
 
     def get_job(self, job_id: str) -> ModelJobResponse | None:
+        """Return one stored model job by id."""
         return self._jobs.get(job_id)
 
     def list_jobs(self, limit: int = 20) -> list[ModelJobResponse]:
+        """List recent model jobs, newest first."""
         return self._jobs.list_recent(limit=limit)
 
     def register_source(self, source):
+        """Store a reusable source definition for later training or checks."""
         return self._source_resolver.register(source)
 
     def get_source(self, source_id: str):
+        """Fetch one registered source definition by id."""
         return self._source_resolver.get(source_id)
 
     def list_sources(self):
+        """List all registered source definitions."""
         return self._source_resolver.list()
 
     def validate_source(self, source_id: str):
+        """Validate one stored source definition through the shared resolver."""
         return self._source_resolver.validate(source_id)
 
     def _load_dataset(self, request: TrainRequest) -> TabularDataset:
+        """Resolve a `TrainRequest` into a `TabularDataset`.
+
+        Params:
+        - `request`: training request that may reference a benchmark dataset or a
+          Dagents `DatasetInput`.
+
+        What it does:
+        - Uses benchmark loaders when `dataset_name` is provided.
+        - Otherwise materializes source-backed records through Dagents adapters.
+        - Builds numeric feature matrices and labels expected by the training pipeline.
+
+        Returns:
+        - `TabularDataset`.
+        """
         if request.dataset_name:
             return load_dataset(request.dataset_name, max_rows=request.max_rows, random_seed=settings.random_seed)
 
@@ -290,6 +376,8 @@ class ModelTrainingService:
         label_field = request.label_field
         feature_fields = request.feature_fields or [field for field in records[0] if field != label_field]
         frame = pd.DataFrame(records)
+        # Non-numeric values are coerced and filled so upstream heterogeneous
+        # sources do not explode the training pipeline.
         features = frame[feature_fields].apply(pd.to_numeric, errors="coerce").fillna(0.0).astype("float32")
         if label_field and label_field in frame:
             labels = frame[label_field].fillna(0).astype(int).to_numpy(dtype=np.int64)
@@ -310,6 +398,20 @@ class ModelTrainingService:
         *,
         target_dtype: str,
     ) -> tuple[pd.DataFrame, np.ndarray, list[str], str]:
+        """Resolve a check request into numeric features and labels.
+
+        Params:
+        - `request`: classification/regression/forecasting check payload.
+        - `target_dtype`: numeric dtype expected by the downstream evaluator.
+
+        What it does:
+        - Loads benchmark data or source-backed records.
+        - Validates that the target label field exists.
+        - Produces numeric features and label arrays for metric computation.
+
+        Returns:
+        - Tuple of `(features, labels, feature_fields, dataset_name)`.
+        """
         if request.dataset_name:
             dataset = load_dataset(request.dataset_name, max_rows=request.max_rows, random_seed=settings.random_seed)
             feature_fields = request.feature_fields or list(dataset.features.columns)
@@ -331,6 +433,19 @@ class ModelTrainingService:
         return features.reset_index(drop=True), labels, feature_fields, "source-backed"
 
     def _resolve_source_records(self, dataset_input, max_rows: int | None) -> list[dict[str, object]]:
+        """Materialize all records referenced by a Dagents `DatasetInput`.
+
+        Params:
+        - `dataset_input`: inline records, embedded source spec, or stored source id.
+        - `max_rows`: optional cap applied after batch materialization.
+
+        What it does:
+        - Iterates through all `RecordBatch` objects returned by the resolver.
+        - Flattens them into one record list for the current model-service implementation.
+
+        Returns:
+        - `list[dict[str, object]]` records.
+        """
         records: list[dict[str, object]] = []
         for batch in self._source_resolver.materialize(dataset_input):
             records.extend(batch.records)
