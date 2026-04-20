@@ -1,0 +1,5 @@
+(executable
+ (name dagentsc)
+ (public_name dagentsc)
+ (libraries dagents.common_ir dagents.dataset_compiler dagents.pipeline_compiler dagents.model_router dagents.manifest_compiler))
+

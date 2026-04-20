@@ -1,0 +1,13 @@
+opam-version: "2.0"
+synopsis: "Dagents OCaml compiler workspace"
+maintainer: "Dagents"
+authors: "Dagents"
+license: "MIT"
+depends: [
+  "ocaml" {>= "5.0"}
+  "dune" {>= "3.21"}
+  "yojson"
+]
+build: [
+  ["dune" "build" "-p" name "-j" jobs]
+]

@@ -1,0 +1,5 @@
+(library
+ (name dagents_pipeline_compiler)
+ (public_name dagents.pipeline_compiler)
+ (libraries dagents.common_ir))
+

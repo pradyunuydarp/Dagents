@@ -8,6 +8,8 @@
 **/venv/
 **/dist/
 **/build/
+**/target/
+**/_build/
 **/*.pyc
 *.log
 

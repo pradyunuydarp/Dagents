@@ -1,0 +1,12 @@
+server:
+  port: 8060
+
+dagents:
+  core:
+    app-name: dagents-spring-core-service
+    environment: development
+    control-service-url: http://spring-control-service:8050
+    lma-url: http://lma:8010
+    gma-url: http://gma:8020
+    model-service-url: http://model-service:8000
+    pipeline-service-url: http://pipeline-service:8030

@@ -1,0 +1,5 @@
+(library
+ (name dagents_manifest_compiler)
+ (public_name dagents.manifest_compiler)
+ (libraries dagents.common_ir))
+

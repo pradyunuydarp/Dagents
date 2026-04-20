@@ -7,6 +7,8 @@
 **/venv/
 **/*.pyc
 **/.DS_Store
+**/target/
+**/_build/
 services/model-service/artifacts/*.pt
 services/model-service/data/raw/*
 !services/model-service/data/raw/.gitkeep

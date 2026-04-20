@@ -1,0 +1,7 @@
+server:
+  port: 8050
+
+dagents:
+  control:
+    app-name: dagents-spring-control-service
+    environment: development

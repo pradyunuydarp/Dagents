@@ -1,0 +1,5 @@
+(library
+ (name dagents_model_router)
+ (public_name dagents.model_router)
+ (libraries dagents.common_ir))
+

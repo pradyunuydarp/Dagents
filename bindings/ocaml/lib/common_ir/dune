@@ -1,0 +1,5 @@
+(library
+ (name dagents_common_ir)
+ (public_name dagents.common_ir)
+ (wrapped false)
+ (libraries yojson))
