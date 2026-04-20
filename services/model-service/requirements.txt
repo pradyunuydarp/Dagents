@@ -2,6 +2,7 @@ fastapi==0.115.0
 uvicorn==0.30.6
 pydantic>=2.11,<3
 httpx<1
+psycopg[binary]>=3.2,<3.4
 torch>=2.9,<2.11
 numpy>=2,<3
 pandas>=2.2,<3.1

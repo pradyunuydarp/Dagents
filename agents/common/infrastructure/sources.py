@@ -7,6 +7,13 @@ import json
 from pathlib import Path
 from typing import Any
 
+try:  # pragma: no cover - exercised indirectly by integration tests when installed
+    import psycopg
+    from psycopg.rows import dict_row
+except ModuleNotFoundError:  # pragma: no cover - dependency is optional in some local environments
+    psycopg = None
+    dict_row = None
+
 from agents.common.application.ports import ConnectionResolver, SourceAdapter, SourceCatalog, SourceResolver
 from agents.common.domain.sources import (
     ConnectionRef,
@@ -132,7 +139,15 @@ class PostgresSourceAdapter:
             return list(source.options["rows"])
         if "rows" in resolved_connection:
             return list(resolved_connection["rows"])
-        raise ValueError("Postgres adapter requires resolved rows or a live connector implementation")
+        if psycopg is None or dict_row is None:
+            raise ValueError("Postgres adapter requires psycopg to execute live SQL scans")
+        connection_args = _postgres_connection_args(resolved_connection)
+        query = _postgres_query(source)
+        with psycopg.connect(row_factory=dict_row, **connection_args) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(query)
+                rows = cursor.fetchall()
+        return [dict(row) for row in rows]
 
 
 class MongoSourceAdapter:
@@ -322,3 +337,43 @@ def _chunk_records(records: list[dict[str, Any]], batch_size: int, max_records: 
             )
         )
     return chunks
+
+
+def _postgres_connection_args(resolved_connection: dict[str, Any]) -> dict[str, Any]:
+    connection_args: dict[str, Any] = {}
+    aliases = {
+        "dbname": ("dbname", "database"),
+        "user": ("user", "username"),
+        "password": ("password",),
+        "host": ("host",),
+        "port": ("port",),
+        "sslmode": ("sslmode",),
+    }
+    for target, keys in aliases.items():
+        for key in keys:
+            value = resolved_connection.get(key)
+            if value not in (None, ""):
+                connection_args[target] = value
+                break
+    if "port" in connection_args:
+        connection_args["port"] = int(connection_args["port"])
+    return connection_args
+
+
+def _postgres_query(source: PostgresSourceSpec) -> str:
+    if source.selection.sql:
+        return source.selection.sql
+
+    table = source.selection.table
+    if not table:
+        raise ValueError("Postgres selection requires sql or table")
+
+    columns = source.selection.columns or ["*"]
+    query = f"SELECT {', '.join(columns)} FROM {table}"
+    if source.selection.where:
+        query += f" WHERE {source.selection.where}"
+    if source.selection.order_by:
+        query += f" ORDER BY {', '.join(source.selection.order_by)}"
+    if source.batching.max_records is not None:
+        query += f" LIMIT {int(source.batching.max_records)}"
+    return query
