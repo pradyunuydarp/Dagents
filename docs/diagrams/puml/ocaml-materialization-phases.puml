@@ -1,0 +1,41 @@
+@startuml
+title Dagents OCaml Adoption - Materialization Phases
+
+skinparam backgroundColor white
+skinparam shadowing false
+
+start
+:Phase 1\nCreate OCaml common IR\nfor dataset, model, and workload specs;
+:Add language-neutral contract tests\nfor Python, Spring Boot, and OCaml;
+
+if (Shared IR stable?) then (yes)
+  :Phase 2\nImplement manifest-compiler;
+  :Integrate core-service\nwith manifest generation API;
+else (no)
+  :Refine contracts;
+endif
+
+if (Manifest compiler accepted?) then (yes)
+  :Phase 3\nImplement pipeline-compiler;
+  :Integrate pipeline-service\nwith compiled execution plans;
+else (no)
+  :Expand workload spec model;
+endif
+
+if (Pipeline planning stable?) then (yes)
+  :Phase 4\nImplement dataset-compiler\nand model-router;
+  :Integrate LMA for source-level plans;
+  :Integrate GMA for assimilated-data plans;
+else (no)
+  :Refine step IR and model capability rules;
+endif
+
+if (Agent planning unified?) then (yes)
+  :Phase 5\nEmit Kubernetes manifests\nfor model jobs, deployments,\nand cron workloads;
+  :Apply through GitOps or platform orchestrators;
+else (no)
+  :Harden routing and dataset contracts;
+endif
+
+stop
+@enduml

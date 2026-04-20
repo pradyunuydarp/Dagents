@@ -1,0 +1,62 @@
+@startuml
+title Dagents OCaml Adoption - Component Placement
+
+skinparam backgroundColor white
+skinparam componentStyle rectangle
+skinparam shadowing false
+
+package "Dagents Services" {
+  package "Spring Boot" {
+    component "Core API\n(auth, policy, orchestration)" as CoreApi
+  }
+
+  package "Python Services" {
+    component "Pipeline API\n(workflow registration)" as PipelineApi
+    component "Pipeline Runtime\n(step execution)" as PipelineRuntime
+    component "Model Service\n(train/infer)" as ModelService
+    component "LMA API\n(source execution)" as LmaApi
+    component "GMA API\n(aggregate execution)" as GmaApi
+  }
+
+  package "OCaml Bindings Layer" {
+    component "common-ir" as Ir
+    component "pipeline-compiler" as PipelineCompiler
+    component "dataset-compiler" as DatasetCompiler
+    component "model-router" as ModelRouter
+    component "manifest-compiler" as ManifestCompiler
+  }
+}
+
+CoreApi --> ManifestCompiler : WorkloadSpec
+ManifestCompiler --> CoreApi : ManifestBundle
+ManifestCompiler --> Ir
+
+PipelineApi --> PipelineCompiler : PipelineDefinition
+PipelineCompiler --> PipelineApi : ExecutionPlan
+PipelineCompiler --> Ir
+
+LmaApi --> DatasetCompiler : SourceDatasetRequest
+DatasetCompiler --> LmaApi : DatasetProfile
+LmaApi --> ModelRouter : SourceDatasetProfile
+ModelRouter --> LmaApi : ModelPlan
+
+GmaApi --> DatasetCompiler : AssimilatedDatasetRequest
+DatasetCompiler --> GmaApi : DatasetProfile
+GmaApi --> ModelRouter : AssimilatedDatasetProfile
+ModelRouter --> GmaApi : ModelPlan
+
+PipelineRuntime --> ModelService : execute model jobs
+LmaApi --> ModelService : execute source jobs
+GmaApi --> ModelService : execute aggregate jobs
+
+note right of ManifestCompiler
+Best first OCaml target:
+high leverage, low ML coupling
+end note
+
+note bottom of PipelineCompiler
+Compiles declarative ML workflows
+into runtime-friendly plans
+end note
+
+@enduml

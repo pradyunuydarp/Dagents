@@ -1,5 +1,6 @@
 package io.dagents.spring.core.config;
 
+import java.util.Objects;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 @ConfigurationProperties(prefix = "dagents.core")
@@ -15,10 +16,10 @@ public record CoreServiceProperties(
   public CoreServiceProperties {
     appName = appName == null ? "dagents-spring-core-service" : appName;
     environment = environment == null ? "development" : environment;
-    controlServiceUrl = controlServiceUrl == null ? "http://spring-control-service:8050" : controlServiceUrl;
-    lmaUrl = lmaUrl == null ? "http://lma:8010" : lmaUrl;
-    gmaUrl = gmaUrl == null ? "http://gma:8020" : gmaUrl;
-    modelServiceUrl = modelServiceUrl == null ? "http://model-service:8000" : modelServiceUrl;
-    pipelineServiceUrl = pipelineServiceUrl == null ? "http://pipeline-service:8030" : pipelineServiceUrl;
+    controlServiceUrl = Objects.requireNonNull(controlServiceUrl, "dagents.core.control-service-url is required");
+    lmaUrl = Objects.requireNonNull(lmaUrl, "dagents.core.lma-url is required");
+    gmaUrl = Objects.requireNonNull(gmaUrl, "dagents.core.gma-url is required");
+    modelServiceUrl = Objects.requireNonNull(modelServiceUrl, "dagents.core.model-service-url is required");
+    pipelineServiceUrl = Objects.requireNonNull(pipelineServiceUrl, "dagents.core.pipeline-service-url is required");
   }
 }

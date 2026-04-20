@@ -36,6 +36,10 @@ class WorkloadComponent(DagentsModel):
     env: list[WorkloadEnvironmentVariable] = Field(default_factory=list)
     args: list[str] = Field(default_factory=list)
     resources: WorkloadResources = Field(default_factory=WorkloadResources)
+    generated_resources: list[Literal["Service", "ConfigMap", "ServiceAccount"]] = Field(default_factory=list)
+    service_account_name: str | None = None
+    service_type: Literal["ClusterIP", "NodePort", "LoadBalancer"] = "ClusterIP"
+    config_map_data: dict[str, str] = Field(default_factory=dict)
 
 
 class WorkloadSpec(DagentsModel):
@@ -52,6 +56,7 @@ class WorkloadManifest(DagentsModel):
     deployment_yaml: str
     service_yaml: str | None = None
     config_map_yaml: str | None = None
+    service_account_yaml: str | None = None
 
 
 class WorkloadPlan(DagentsModel):

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from agents.lma.domain.models import BundleRecord, DeployBundleCommand, RunRecord
+from agents.lma.domain.models import BundleRecord, DeployBundleCommand, ModelRunRecord, RunRecord
 
 
 class BundleRepository(Protocol):
@@ -27,6 +27,14 @@ class RunHistoryRepository(Protocol):
 
     def list_recent(self, limit: int = 20) -> list[RunRecord]:
         """Return the most recent runs."""
+
+
+class ModelRunRepository(Protocol):
+    def append(self, record: ModelRunRecord) -> None:
+        """Persist a completed model run."""
+
+    def list_recent(self, limit: int = 20) -> list[ModelRunRecord]:
+        """Return the most recent model runs."""
 
 
 class InMemoryBundleRepository:
@@ -74,4 +82,17 @@ class InMemoryRunHistoryRepository:
         self._runs.append(record)
 
     def list_recent(self, limit: int = 20) -> list[RunRecord]:
+        return list(reversed(self._runs[-limit:]))
+
+
+class InMemoryModelRunRepository:
+    """Stores recent model runs for local source execution."""
+
+    def __init__(self) -> None:
+        self._runs: list[ModelRunRecord] = []
+
+    def append(self, record: ModelRunRecord) -> None:
+        self._runs.append(record)
+
+    def list_recent(self, limit: int = 20) -> list[ModelRunRecord]:
         return list(reversed(self._runs[-limit:]))

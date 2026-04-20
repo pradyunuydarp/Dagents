@@ -5,6 +5,7 @@ from pathlib import Path
 import sys
 
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
+current = Path(__file__).resolve()
+REPO_ROOT = next((parent for parent in current.parents if (parent / "agents").exists()), current.parents[1])
 if str(REPO_ROOT) not in sys.path:
     sys.path.append(str(REPO_ROOT))

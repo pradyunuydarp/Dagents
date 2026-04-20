@@ -1,7 +1,7 @@
 server:
-  port: 8050
+  port: ${SERVER_PORT}
 
 dagents:
   control:
-    app-name: dagents-spring-control-service
-    environment: development
+    app-name: ${DAGENTS_CONTROL_APP_NAME}
+    environment: ${DAGENTS_CONTROL_ENVIRONMENT}

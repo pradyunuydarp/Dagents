@@ -1,13 +1,13 @@
 # Local Monitoring Agent (LMA)
 
-The LMA is the local execution agent. It mirrors the role that product-local monitoring or execution agents play in larger agent fleets.
+The LMA is the local execution agent. Its primary role is to run models over per-source data close to the originating source boundary.
 
 ## Responsibilities
 
-- execute local monitoring runs for a scoped boundary
-- register and heartbeat with the GMA
-- invoke local supporting services or product adapters
-- emit telemetry, findings, and artifact pointers upward to the GMA
+- extract and profile source-scoped datasets
+- run source-level models over local data partitions
+- invoke supporting services or product adapters
+- publish model outputs and artifact pointers upward to the GMA or downstream systems
 
 ## Layered Structure
 
@@ -23,5 +23,9 @@ The current implementation supports an in-memory developer flow:
 - health endpoint
 - bundle deployment endpoint
 - run trigger endpoint
-- local bundle and run inspection endpoints
-- in-memory telemetry publisher
+- source registration and validation endpoints
+- source dataset profiling endpoint
+- source model execution endpoint
+- local bundle, model-run, and run inspection endpoints
+
+Runtime settings are loaded from `env/.env.shared` and `env/.env.lma`.

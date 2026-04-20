@@ -11,12 +11,20 @@ import numpy as np
 import pandas as pd
 from agents.common.infrastructure.sources import DefaultSourceResolver
 from app.core.config import settings
+from app.ml.checks import run_classification_check, run_forecasting_check, run_regression_check
 from app.ml.datasets import DatasetDescriptor, TabularDataset, load_dataset, list_datasets
 from app.models import (
+    ClassificationCheckResponse,
+    ClassificationMetrics,
     CrossValidationSummary,
     DatasetDescriptorResponse,
+    ForecastingCheckResponse,
+    ForecastingMetrics,
     MetricSummary,
+    MLCheckRequest,
     ModelJobResponse,
+    RegressionCheckResponse,
+    RegressionMetrics,
     TrainRequest,
     TrainResponse,
 )
@@ -149,6 +157,65 @@ class ModelTrainingService:
             ),
         )
 
+    def classification_check(self, request: MLCheckRequest) -> ClassificationCheckResponse:
+        features, labels, feature_fields, dataset_name = self._load_check_dataset(request, target_dtype="int64")
+        result = run_classification_check(
+            features.to_numpy(dtype=np.float32),
+            labels.astype(np.int64),
+            model_family=request.model_family,
+            test_size=request.test_size,
+            random_seed=settings.random_seed,
+        )
+        return ClassificationCheckResponse(
+            dataset_name=dataset_name,
+            model_family=request.model_family,
+            feature_fields=feature_fields,
+            label_field=request.label_field,
+            train_rows=result.train_rows,
+            test_rows=result.test_rows,
+            metrics=ClassificationMetrics(**result.metrics),
+        )
+
+    def regression_check(self, request: MLCheckRequest) -> RegressionCheckResponse:
+        features, labels, feature_fields, dataset_name = self._load_check_dataset(request, target_dtype="float64")
+        result = run_regression_check(
+            features.to_numpy(dtype=np.float32),
+            labels.astype(np.float64),
+            model_family=request.model_family,
+            test_size=request.test_size,
+            random_seed=settings.random_seed,
+        )
+        return RegressionCheckResponse(
+            dataset_name=dataset_name,
+            model_family=request.model_family,
+            feature_fields=feature_fields,
+            label_field=request.label_field,
+            train_rows=result.train_rows,
+            test_rows=result.test_rows,
+            metrics=RegressionMetrics(**result.metrics),
+        )
+
+    def forecasting_check(self, request: MLCheckRequest) -> ForecastingCheckResponse:
+        features, labels, feature_fields, dataset_name = self._load_check_dataset(request, target_dtype="float64")
+        result = run_forecasting_check(
+            features.to_numpy(dtype=np.float32),
+            labels.astype(np.float64),
+            model_family=request.model_family,
+            test_size=request.test_size,
+            random_seed=settings.random_seed,
+            sequence_length=request.sequence_length,
+        )
+        return ForecastingCheckResponse(
+            dataset_name=dataset_name,
+            model_family=request.model_family,
+            feature_fields=feature_fields,
+            label_field=request.label_field,
+            sequence_length=request.sequence_length,
+            train_rows=result.train_rows,
+            test_rows=result.test_rows,
+            metrics=ForecastingMetrics(**result.metrics),
+        )
+
     def submit_job(self, request: TrainRequest) -> ModelJobResponse:
         job_id = f"model-job-{int(time.time() * 1000)}"
         queued = ModelJobResponse(
@@ -215,14 +282,9 @@ class ModelTrainingService:
         if request.dataset_name:
             return load_dataset(request.dataset_name, max_rows=request.max_rows, random_seed=settings.random_seed)
 
-        dataset_input = request.dataset
-        if dataset_input is None:
+        if request.dataset is None:
             raise ValueError("dataset input is required")
-        records: list[dict[str, object]] = []
-        for batch in self._source_resolver.materialize(dataset_input):
-            records.extend(batch.records)
-        if request.max_rows is not None:
-            records = records[: request.max_rows]
+        records = self._resolve_source_records(request.dataset, request.max_rows)
         if not records:
             raise ValueError("Dataset input resolved to no records")
         label_field = request.label_field
@@ -241,6 +303,40 @@ class ModelTrainingService:
             anomaly_label="1",
         )
         return TabularDataset(descriptor=descriptor, features=features.reset_index(drop=True), labels=labels)
+
+    def _load_check_dataset(
+        self,
+        request: MLCheckRequest,
+        *,
+        target_dtype: str,
+    ) -> tuple[pd.DataFrame, np.ndarray, list[str], str]:
+        if request.dataset_name:
+            dataset = load_dataset(request.dataset_name, max_rows=request.max_rows, random_seed=settings.random_seed)
+            feature_fields = request.feature_fields or list(dataset.features.columns)
+            if not feature_fields:
+                raise ValueError("feature_fields are required for dataset_name-backed checks")
+            return dataset.features[feature_fields], dataset.labels.astype(target_dtype), feature_fields, request.dataset_name
+
+        if request.dataset is None:
+            raise ValueError("dataset input is required")
+        records = self._resolve_source_records(request.dataset, request.max_rows)
+        if not records:
+            raise ValueError("Dataset input resolved to no records")
+        feature_fields = request.feature_fields or [field for field in records[0] if field != request.label_field]
+        frame = pd.DataFrame(records)
+        features = frame[feature_fields].apply(pd.to_numeric, errors="coerce").fillna(0.0).astype("float32")
+        if request.label_field not in frame:
+            raise ValueError(f"Label field {request.label_field} was not found in dataset")
+        labels = frame[request.label_field].apply(pd.to_numeric, errors="coerce").fillna(0.0).astype(target_dtype).to_numpy()
+        return features.reset_index(drop=True), labels, feature_fields, "source-backed"
+
+    def _resolve_source_records(self, dataset_input, max_rows: int | None) -> list[dict[str, object]]:
+        records: list[dict[str, object]] = []
+        for batch in self._source_resolver.materialize(dataset_input):
+            records.extend(batch.records)
+        if max_rows is not None:
+            records = records[:max_rows]
+        return records
 
 
 training_service = ModelTrainingService()

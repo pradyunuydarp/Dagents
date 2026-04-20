@@ -61,6 +61,23 @@ class TrainRequest(AppModel):
         return self
 
 
+class MLCheckRequest(AppModel):
+    dataset_name: str | None = None
+    dataset: DatasetInput | None = None
+    feature_fields: list[str] = Field(default_factory=list)
+    label_field: str
+    model_family: str = Field(default="random_forest")
+    max_rows: int | None = Field(default=20_000, ge=100)
+    test_size: float = Field(default=0.2, gt=0.05, lt=0.5)
+    sequence_length: int = Field(default=12, ge=2, le=256)
+
+    @model_validator(mode="after")
+    def validate_source(self) -> "MLCheckRequest":
+        if not self.dataset_name and self.dataset is None:
+            raise ValueError("MLCheckRequest requires dataset_name or dataset")
+        return self
+
+
 class MetricSummary(AppModel):
     roc_auc: float
     average_precision: float
@@ -107,3 +124,59 @@ class ModelJobResponse(AppModel):
 
 class ModelJobCatalogResponse(AppModel):
     jobs: list[ModelJobResponse]
+
+
+class ClassificationMetrics(AppModel):
+    accuracy: float
+    precision: float
+    recall: float
+    f1: float
+    balanced_accuracy: float
+    matthews_corrcoef: float
+    roc_auc: float | None = None
+    average_precision: float | None = None
+
+
+class RegressionMetrics(AppModel):
+    mae: float
+    mse: float
+    rmse: float
+    r2: float
+
+
+class ClassificationCheckResponse(AppModel):
+    dataset_name: str
+    model_family: str
+    feature_fields: list[str]
+    label_field: str
+    train_rows: int
+    test_rows: int
+    metrics: ClassificationMetrics
+
+
+class RegressionCheckResponse(AppModel):
+    dataset_name: str
+    model_family: str
+    feature_fields: list[str]
+    label_field: str
+    train_rows: int
+    test_rows: int
+    metrics: RegressionMetrics
+
+
+class ForecastingMetrics(AppModel):
+    mae: float
+    mse: float
+    rmse: float
+    r2: float
+
+
+class ForecastingCheckResponse(AppModel):
+    dataset_name: str
+    model_family: str
+    feature_fields: list[str]
+    label_field: str
+    sequence_length: int
+    train_rows: int
+    test_rows: int
+    metrics: ForecastingMetrics

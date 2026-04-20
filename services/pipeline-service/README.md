@@ -1,6 +1,6 @@
 # Dagents Pipeline Service
 
-Reusable pipeline orchestration service for Dagents consumers.
+Reusable ML pipeline orchestration service for Dagents consumers.
 
 ## Purpose
 
@@ -9,7 +9,7 @@ This service provides a lightweight execution layer for repeatable multi-step da
 - register named pipelines
 - execute stored pipelines against JSON payloads
 - inspect recent runs
-- apply simple data-analysis steps such as filtering, projection, and summarization
+- apply data-analysis and ML steps such as filtering, projection, profiling, summarization, and model execution
 
 ## Built-in Step Kinds
 
@@ -17,6 +17,8 @@ This service provides a lightweight execution layer for repeatable multi-step da
 - `filter_items`
 - `summarize_items`
 - `project_fields`
+- `profile_dataset`
+- `run_model_job`
 
 ## API
 
@@ -26,3 +28,16 @@ This service provides a lightweight execution layer for repeatable multi-step da
 - `POST /api/v1/pipelines/{pipeline_id}/runs`
 - `GET /api/v1/runs`
 - `GET /api/v1/runs/{run_id}`
+- `GET /api/v1/pipeline-definitions`
+- `POST /api/v1/pipeline-definitions`
+- `GET /api/v1/pipeline-definitions/{pipeline_id}`
+- `POST /api/v1/pipeline-definitions/{pipeline_id}:validate`
+- `POST /api/v1/pipeline-runs`
+- `GET /api/v1/pipeline-runs`
+- `GET /api/v1/pipeline-runs/{run_id}`
+- `POST /api/v1/sources`
+- `GET /api/v1/sources`
+- `GET /api/v1/sources/{source_id}`
+- `POST /api/v1/sources/{source_id}:validate`
+
+Runtime settings are loaded from `env/.env.shared` and `env/.env.pipeline-service`.

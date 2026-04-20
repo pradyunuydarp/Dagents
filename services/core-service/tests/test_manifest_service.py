@@ -59,6 +59,33 @@ class ManifestServiceTests(unittest.TestCase):
         self.assertIn("kind: CronJob", plan.combined_yaml)
         self.assertIsNotNone(service.get_plan(plan.plan_id))
 
+    def test_generates_component_level_resources(self) -> None:
+        service = ManifestService()
+        plan = service.compile(
+            WorkloadCompileRequest(
+                namespace="watchdog",
+                include_services=False,
+                include_config_maps=False,
+                components=[
+                    WorkloadComponent(
+                        name="scheduler",
+                        image="ghcr.io/example/scheduler:latest",
+                        kind="CronJob",
+                        schedule="*/5 * * * *",
+                        generated_resources=["ConfigMap", "ServiceAccount"],
+                        service_account_name="scheduler-runner",
+                        config_map_data={"mode": "scheduled", "team": "ml"},
+                    )
+                ],
+            )
+        )
+
+        self.assertIn("kind: CronJob", plan.combined_yaml)
+        self.assertIn("kind: ConfigMap", plan.combined_yaml)
+        self.assertIn("kind: ServiceAccount", plan.combined_yaml)
+        self.assertIn("serviceAccountName: scheduler-runner", plan.combined_yaml)
+        self.assertIn('mode: "scheduled"', plan.combined_yaml)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -4,13 +4,15 @@ services:
       context: .
       dockerfile: agents/gma/Dockerfile
     container_name: dagents-gma
+    env_file:
+      - ./env/.env.shared
+      - ./env/.env.gma
     environment:
       GMA_APP_ENV: cloud
-      GMA_API_PORT: 8020
     ports:
-      - "8020:8020"
+      - "${GMA_HOST_PORT}:${GMA_API_PORT}"
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8020/health')"]
+      test: ["CMD-SHELL", "python -c 'import os, urllib.request; urllib.request.urlopen(\"http://127.0.0.1:%s/health\" % os.environ[\"GMA_API_PORT\"])'"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -21,17 +23,18 @@ services:
       context: .
       dockerfile: agents/lma/Dockerfile
     container_name: dagents-lma
+    env_file:
+      - ./env/.env.shared
+      - ./env/.env.lma
     environment:
       LMA_APP_ENV: cloud
-      LMA_API_PORT: 8010
-      LMA_GMA_ENDPOINT: http://gma:8020
     depends_on:
       gma:
         condition: service_healthy
     ports:
-      - "8010:8010"
+      - "${LMA_HOST_PORT}:${LMA_API_PORT}"
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8010/health')"]
+      test: ["CMD-SHELL", "python -c 'import os, urllib.request; urllib.request.urlopen(\"http://127.0.0.1:%s/health\" % os.environ[\"LMA_API_PORT\"])'"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -42,15 +45,15 @@ services:
       context: ./services/model-service
       dockerfile: Dockerfile
     container_name: dagents-model-service
+    env_file:
+      - ./env/.env.shared
+      - ./env/.env.model-service
     environment:
       APP_ENV: cloud
-      API_PORT: 8000
-      MODEL_ARTIFACT_DIR: artifacts
-      RAW_DATA_DIR: data/raw
     ports:
-      - "8000:8000"
+      - "${MODEL_SERVICE_HOST_PORT}:${MODEL_SERVICE_CONTAINER_PORT}"
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health')"]
+      test: ["CMD-SHELL", "python -c 'import os, urllib.request; urllib.request.urlopen(\"http://127.0.0.1:%s/api/v1/health\" % os.environ[\"API_PORT\"])'"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -61,13 +64,15 @@ services:
       context: ./services/pipeline-service
       dockerfile: Dockerfile
     container_name: dagents-pipeline-service
+    env_file:
+      - ./env/.env.shared
+      - ./env/.env.pipeline-service
     environment:
       APP_ENV: cloud
-      API_PORT: 8030
     ports:
-      - "8030:8030"
+      - "${PIPELINE_SERVICE_HOST_PORT}:${PIPELINE_SERVICE_CONTAINER_PORT}"
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8030/api/v1/health')"]
+      test: ["CMD-SHELL", "python -c 'import os, urllib.request; urllib.request.urlopen(\"http://127.0.0.1:%s/api/v1/health\" % os.environ[\"API_PORT\"])'"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -75,16 +80,14 @@ services:
 
   core-service:
     build:
-      context: ./services/core-service
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: services/core-service/Dockerfile
     container_name: dagents-core-service
+    env_file:
+      - ./env/.env.shared
+      - ./env/.env.core-service
     environment:
       APP_ENV: cloud
-      API_PORT: 8040
-      LMA_URL: http://lma:8010
-      GMA_URL: http://gma:8020
-      MODEL_SERVICE_URL: http://model-service:8000
-      PIPELINE_SERVICE_URL: http://pipeline-service:8030
     depends_on:
       gma:
         condition: service_healthy
@@ -95,9 +98,9 @@ services:
       pipeline-service:
         condition: service_healthy
     ports:
-      - "8040:8040"
+      - "${CORE_SERVICE_HOST_PORT}:${CORE_SERVICE_CONTAINER_PORT}"
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8040/api/v1/health')"]
+      test: ["CMD-SHELL", "python -c 'import os, urllib.request; urllib.request.urlopen(\"http://127.0.0.1:%s/api/v1/health\" % os.environ[\"API_PORT\"])'"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -108,12 +111,14 @@ services:
       context: .
       dockerfile: services/spring-services/spring-control-service/Dockerfile
     container_name: dagents-spring-control-service
+    env_file:
+      - ./env/.env.spring-control-service
     environment:
-      SERVER_PORT: 8050
+      DAGENTS_CONTROL_ENVIRONMENT: cloud
     ports:
-      - "8050:8050"
+      - "${SPRING_CONTROL_SERVICE_HOST_PORT}:${SPRING_CONTROL_SERVICE_CONTAINER_PORT}"
     healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8050/api/v1/health >/dev/null"]
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:$$SERVER_PORT/api/v1/health >/dev/null"]
       interval: 30s
       timeout: 5s
       retries: 5
@@ -124,14 +129,11 @@ services:
       context: .
       dockerfile: services/spring-services/spring-core-service/Dockerfile
     container_name: dagents-spring-core-service
+    env_file:
+      - ./env/.env.shared
+      - ./env/.env.spring-core-service
     environment:
-      SERVER_PORT: 8060
-      DAGENTS_CORE_CONTROL_SERVICE_URL: http://spring-control-service:8050
-      DAGENTS_CORE_LMA_URL: http://lma:8010
-      DAGENTS_CORE_GMA_URL: http://gma:8020
-      DAGENTS_CORE_MODEL_SERVICE_URL: http://model-service:8000
-      DAGENTS_CORE_PIPELINE_SERVICE_URL: http://pipeline-service:8030
-      DAGENTS_OCAML_MANIFEST_CLI: /usr/local/bin/dagentsc
+      DAGENTS_CORE_ENVIRONMENT: cloud
     depends_on:
       spring-control-service:
         condition: service_healthy
@@ -144,9 +146,9 @@ services:
       pipeline-service:
         condition: service_healthy
     ports:
-      - "8060:8060"
+      - "${SPRING_CORE_SERVICE_HOST_PORT}:${SPRING_CORE_SERVICE_CONTAINER_PORT}"
     healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8060/api/v1/health >/dev/null"]
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:$$SERVER_PORT/api/v1/health >/dev/null"]
       interval: 30s
       timeout: 5s
       retries: 5

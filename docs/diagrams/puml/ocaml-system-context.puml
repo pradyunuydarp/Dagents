@@ -1,0 +1,58 @@
+@startuml
+title Dagents OCaml Adoption - System Context
+
+skinparam backgroundColor white
+skinparam componentStyle rectangle
+skinparam shadowing false
+
+actor "Watchdog" as Watchdog
+actor "Datalytics" as Datalytics
+
+rectangle "Dagents Framework" {
+  component "Spring Boot\nCore Service" as Core
+  component "Python\nPipeline Service" as Pipeline
+  component "Python\nModel Service" as Model
+  component "LMA\n(source-level model runs)" as LMA
+  component "GMA\n(assimilated-data model runs)" as GMA
+
+  package "OCaml Functional Kernel" {
+    component "Pipeline Compiler" as OCamlPipeline
+    component "Dataset Compiler" as OCamlDataset
+    component "Model Router" as OCamlRouter
+    component "Manifest Compiler" as OCamlManifest
+  }
+}
+
+cloud "Kubernetes Cluster" as K8s
+
+Watchdog --> Core : parameterized workload intents
+Watchdog --> LMA : source data + source policies
+Watchdog --> GMA : aggregate data + global policies
+
+Datalytics --> Core : workload intents
+Datalytics --> LMA : source data
+Datalytics --> GMA : aggregate data
+
+Core --> OCamlManifest : compile workload specs
+Pipeline --> OCamlPipeline : compile DAGs
+LMA --> OCamlDataset : profile source datasets
+LMA --> OCamlRouter : choose source models
+GMA --> OCamlDataset : profile assimilated datasets
+GMA --> OCamlRouter : choose aggregate models
+
+Pipeline --> Model : execute planned ML jobs
+LMA --> Model : run source-level jobs
+GMA --> Model : run aggregate jobs
+Core --> K8s : emit manifests for Deployments/Jobs/CronJobs
+
+note right of OCamlManifest
+Deterministic manifest generation
+from typed workload specs
+end note
+
+note bottom of OCamlRouter
+One routing engine shared by
+LMA and GMA
+end note
+
+@enduml

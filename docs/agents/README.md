@@ -1,6 +1,6 @@
 # Agent Architecture Docs
 
-This directory captures the reusable agentic control-plane patterns in Dagents.
+This directory captures the reusable agentic ML orchestration patterns in Dagents.
 
 ## Documents
 
@@ -8,8 +8,9 @@ This directory captures the reusable agentic control-plane patterns in Dagents.
 
 ## Current Implementation Notes
 
-- the LMA now supports in-memory bundle deployment, run execution, and telemetry inspection
-- the GMA now supports registration, heartbeat tracking, deployment planning, deployment sync, telemetry aggregation, and run dispatch inspection
+- the LMA now supports source dataset profiling and source-level model execution
+- the GMA now supports assimilated dataset profiling, aggregate model execution, and deployment planning
+- agent runtime startup is env-driven through committed files under `env/`
 
 ## Conventions
 

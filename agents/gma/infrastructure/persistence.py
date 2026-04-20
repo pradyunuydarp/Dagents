@@ -8,11 +8,13 @@ from typing import Protocol
 
 from agents.gma.domain.models import (
     AgentSnapshot,
+    DatasetProfile,
     DeploymentPlan,
     DeploymentSyncRequest,
     DesiredDeploymentRequest,
     DispatchedRun,
     HeartbeatRequest,
+    ModelRunRecord,
     RegisterRequest,
     RunDispatchRequest,
     TelemetryEnvelope,
@@ -69,6 +71,14 @@ class ControlPlaneRepository(Protocol):
 
     def list_runs(self, limit: int = 20) -> list[DispatchedRun]:
         """List recent run dispatches."""
+
+
+class ModelRunRepository(Protocol):
+    def append(self, record: ModelRunRecord) -> None:
+        """Persist one aggregate model run."""
+
+    def list_recent(self, limit: int = 20) -> list[ModelRunRecord]:
+        """Return recent aggregate model runs."""
 
 
 class InMemoryAgentRegistryRepository:
@@ -236,4 +246,17 @@ class InMemoryControlPlaneRepository:
         return dispatched
 
     def list_runs(self, limit: int = 20) -> list[DispatchedRun]:
+        return list(reversed(self._runs[-limit:]))
+
+
+class InMemoryModelRunRepository:
+    """Stores aggregate model runs executed by the GMA."""
+
+    def __init__(self) -> None:
+        self._runs: list[ModelRunRecord] = []
+
+    def append(self, record: ModelRunRecord) -> None:
+        self._runs.append(record)
+
+    def list_recent(self, limit: int = 20) -> list[ModelRunRecord]:
         return list(reversed(self._runs[-limit:]))

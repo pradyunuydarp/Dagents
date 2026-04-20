@@ -1,8 +1,8 @@
-# LMA/GMA Architecture for Dagents
+# LMA/GMA ML Architecture for Dagents
 
 ## Summary
 
-Dagents defines a reusable agentic control plane built around:
+Dagents defines a reusable ML orchestration layer built around:
 
 - **LMA**: Local Monitoring Agent
 - **GMA**: Global Monitoring Agent
@@ -11,21 +11,21 @@ The LMA is the local execution boundary. The GMA is the aggregation and coordina
 
 ## Why This Exists
 
-Consumer products such as Watchdog and Datalytics need a control plane that can:
+Consumer products such as Watchdog and Datalytics need a framework that can:
 
-- execute local monitoring close to sources
-- aggregate findings globally
-- keep service roles clean and decoupled
+- execute source-level models close to data sources
+- run aggregate models on assimilated datasets
+- automate deployment of model workloads into Kubernetes
 
 ## Preserved Product-specific Services
 
 The introduction of LMAs and a GMA does **not** replace product-specific services.
 
-The agent layer wraps around those services as a monitoring and coordination plane.
+The agent layer wraps around those services as an ML execution and coordination plane.
 
 ## LMA Responsibilities
 
-An LMA should operate near a local monitoring scope, for example:
+An LMA should operate near a local source scope, for example:
 
 - a tenant
 - a service cluster
@@ -34,42 +34,40 @@ An LMA should operate near a local monitoring scope, for example:
 
 Responsibilities:
 
-- register with the GMA
-- send heartbeat and local status
-- sync monitoring bundles/configuration
-- execute monitoring runs for a local scope
+- profile source-scoped datasets
+- partition source data for large-scale model execution
+- execute source-level models for anomaly detection, classification, or forecasting
 - invoke supporting product services
-- publish telemetry, summaries, and artifact pointers
+- publish model summaries and artifact pointers
 
 Expected service interactions:
 
-- ingestion services: consume normalized events or submit scoped triggers
-- analysis services: classify or enrich local signals
+- ingestion services: provide source-scoped data extraction
+- analysis services: enrich local source records
 - orchestration systems: publish governed outputs and actions
 
 ## GMA Responsibilities
 
-The GMA is the fleet-wide coordinator.
+The GMA is the fleet-wide aggregate execution agent.
 
 Responsibilities:
 
 - register and track deployed LMAs
-- accept telemetry and heartbeat streams
-- distribute bundle/config updates
-- trigger or coordinate local runs
-- accumulate outputs from many LMAs
-- correlate cross-LMA incidents and patterns
-- forward actionable outputs to a downstream orchestration or case-management system
+- assimilate source-level outputs and shared datasets
+- execute global models on multi-source or tenant-level data
+- coordinate aggregate workloads and downstream automation
+- correlate cross-source incidents and patterns
+- forward actionable outputs to downstream orchestration or case-management systems
 
 ## Communication Model
 
-The intended control contract follows the same shape across consumers:
+The intended shared contract now centers on:
 
-- agent registration
-- heartbeat
-- telemetry push
-- deployment/bundle sync
-- run trigger/dispatch
+- dataset profiling
+- model execution
+- deployment planning
+- workload generation
+- source registration and validation
 
 In Dagents, the shared contract lives at:
 
@@ -81,9 +79,10 @@ In Dagents, the shared contract lives at:
 2. LMA receives or syncs a bundle/config revision.
 3. LMA executes a local run over its local scope.
 4. LMA optionally calls local product services.
-5. LMA pushes telemetry and summarized findings to GMA.
-6. GMA correlates outputs across agents.
-7. GMA forwards incident-level outcomes into a downstream orchestration system.
+5. LMA pushes source-level model outputs to GMA or downstream storage.
+6. GMA runs aggregate models over assimilated datasets.
+7. Core-service generates Kubernetes manifests for the required workloads.
+8. Downstream orchestration systems apply the manifests and consume the model outcomes.
 
 ## Repository Shape
 
@@ -108,12 +107,14 @@ agents/
 - keep messaging and persistence behind interfaces
 - add broker-backed infrastructure later
 - integrate with consumer-specific services after the contracts stabilize
+- keep network settings and service URLs env-driven rather than hardcoded
 
 ## Current In-memory Delivery
 
 The current framework implementation now includes:
 
-- LMA bundle deployment and local run history
-- GMA deployment planning and sync evaluation
-- telemetry rollups and fleet overview inspection
-- run dispatch recording for downstream execution orchestration
+- LMA source dataset profiling and model execution
+- GMA assimilated dataset profiling and aggregate model execution
+- pipeline-level dataset profiling and model job steps
+- core-service Kubernetes manifest generation for workload deployment
+- env-driven Docker and compose startup for agents and services

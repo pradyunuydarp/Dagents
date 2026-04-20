@@ -1,29 +1,34 @@
 # Global Monitoring Agent (GMA)
 
-The GMA is the global accumulation and coordination agent. It accepts telemetry and control-plane updates from one or more LMAs and produces global conclusions for downstream systems.
+The GMA is the global accumulation and coordination agent. Its primary role is to run models over assimilated data collected across multiple sources or local agents.
 
 ## Responsibilities
 
-- register and track LMAs
-- receive heartbeats and telemetry
-- coordinate bundle deployment and run dispatch
-- accumulate outputs into cross-LMA findings
+- register and track LMA capabilities
+- profile assimilated datasets
+- run aggregate models across multi-source data
+- accumulate outputs into cross-source findings
 - prepare outputs for downstream orchestration in consumer systems
 
 ## Layered Structure
 
 - `domain/`: pure models
 - `application/`: aggregation and control use-cases
-- `adapters/`: interfaces for telemetry/control ingress
+- `adapters/`: interfaces for aggregate data and control ingress
 - `infrastructure/`: persistence and in-memory repos
 
 ## Current State
 
-The current implementation supports an in-memory control plane with:
+The current implementation supports an in-memory orchestration surface with:
 
 - registration endpoint
 - heartbeat endpoint
+- telemetry ingestion endpoint
 - deployment planning and sync endpoints
-- telemetry ingestion and summary endpoints
+- agent inspection endpoints
+- assimilated dataset profiling endpoint
+- aggregate model execution endpoint
 - run dispatch tracking
-- in-memory storage of agent registrations and telemetry events
+- in-memory storage of agent registrations and model-run history
+
+Runtime settings are loaded from `env/.env.shared` and `env/.env.gma`.

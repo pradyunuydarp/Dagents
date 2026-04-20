@@ -60,8 +60,17 @@ class ManifestService:
 
         for component in request.components:
             deployment_yaml = self._workload_yaml(request.namespace, component)
-            service_yaml = self._service_yaml(request.namespace, component) if request.include_services else None
-            config_map_yaml = self._config_map_yaml(request.namespace, component) if request.include_config_maps else None
+            service_yaml = self._service_yaml(request.namespace, component) if self._generate_service(component, request.include_services) else None
+            config_map_yaml = (
+                self._config_map_yaml(request.namespace, component)
+                if self._generate_config_map(component, request.include_config_maps)
+                else None
+            )
+            service_account_yaml = (
+                self._service_account_yaml(request.namespace, component)
+                if self._generate_service_account(component)
+                else None
+            )
             manifests.append(
                 WorkloadManifest(
                     component_name=component.name,
@@ -69,6 +78,7 @@ class ManifestService:
                     deployment_yaml=deployment_yaml,
                     service_yaml=service_yaml,
                     config_map_yaml=config_map_yaml,
+                    service_account_yaml=service_account_yaml,
                 )
             )
             rendered_sections.append(deployment_yaml)
@@ -76,6 +86,8 @@ class ManifestService:
                 rendered_sections.append(service_yaml)
             if config_map_yaml:
                 rendered_sections.append(config_map_yaml)
+            if service_account_yaml:
+                rendered_sections.append(service_account_yaml)
 
         plan = WorkloadPlanResponse(
             plan_id=plan_id,
@@ -99,6 +111,7 @@ class ManifestService:
         env_lines = self._env_lines(component)
         port_lines = self._port_lines(component)
         arg_lines = self._arg_lines(component)
+        service_account_lines = self._service_account_name_lines(component, indent="      ")
         return "\n".join(
             [
                 "apiVersion: apps/v1",
@@ -116,6 +129,7 @@ class ManifestService:
                 "      labels:",
                 f"        app: {component.name}",
                 "    spec:",
+                *service_account_lines,
                 "      containers:",
                 "      - name: main",
                 f"        image: {component.image}",
@@ -135,6 +149,7 @@ class ManifestService:
     def _job_yaml(self, namespace: str, component: WorkloadComponent) -> str:
         env_lines = self._env_lines(component)
         arg_lines = self._arg_lines(component)
+        service_account_lines = self._service_account_name_lines(component, indent="      ")
         return "\n".join(
             [
                 "apiVersion: batch/v1",
@@ -149,6 +164,7 @@ class ManifestService:
                 f"        app: {component.name}",
                 "    spec:",
                 "      restartPolicy: Never",
+                *service_account_lines,
                 "      containers:",
                 "      - name: main",
                 f"        image: {component.image}",
@@ -167,6 +183,7 @@ class ManifestService:
     def _cron_job_yaml(self, namespace: str, component: WorkloadComponent) -> str:
         env_lines = self._env_lines(component)
         arg_lines = self._arg_lines(component)
+        service_account_lines = self._service_account_name_lines(component, indent="          ")
         schedule = component.schedule or "0 * * * *"
         return "\n".join(
             [
@@ -185,6 +202,7 @@ class ManifestService:
                 f"            app: {component.name}",
                 "        spec:",
                 "          restartPolicy: Never",
+                *service_account_lines,
                 "          containers:",
                 "          - name: main",
                 f"            image: {component.image}",
@@ -210,6 +228,7 @@ class ManifestService:
             f"  name: {component.name}",
             f"  namespace: {namespace}",
             "spec:",
+            f"  type: {component.service_type}",
             "  selector:",
             f"    app: {component.name}",
             "  ports:",
@@ -225,6 +244,10 @@ class ManifestService:
         return "\n".join(lines)
 
     def _config_map_yaml(self, namespace: str, component: WorkloadComponent) -> str:
+        data = component.config_map_data or {
+            "component-kind": component.kind,
+            "image": component.image,
+        }
         return "\n".join(
             [
                 "apiVersion: v1",
@@ -233,9 +256,42 @@ class ManifestService:
                 f"  name: {component.name}-config",
                 f"  namespace: {namespace}",
                 "data:",
-                f"  component-kind: \"{component.kind}\"",
+                *[f"  {key}: \"{value}\"" for key, value in data.items()],
             ]
         )
+
+    def _service_account_yaml(self, namespace: str, component: WorkloadComponent) -> str:
+        return "\n".join(
+            [
+                "apiVersion: v1",
+                "kind: ServiceAccount",
+                "metadata:",
+                f"  name: {self._service_account_name(component)}",
+                f"  namespace: {namespace}",
+            ]
+        )
+
+    def _service_account_name_lines(self, component: WorkloadComponent, *, indent: str) -> list[str]:
+        service_account_name = self._service_account_name(component)
+        if not service_account_name:
+            return []
+        return [f"{indent}serviceAccountName: {service_account_name}"]
+
+    def _service_account_name(self, component: WorkloadComponent) -> str | None:
+        if component.service_account_name:
+            return component.service_account_name
+        if "ServiceAccount" in component.generated_resources:
+            return component.name
+        return None
+
+    def _generate_service(self, component: WorkloadComponent, include_services: bool) -> bool:
+        return "Service" in component.generated_resources or include_services
+
+    def _generate_config_map(self, component: WorkloadComponent, include_config_maps: bool) -> bool:
+        return "ConfigMap" in component.generated_resources or include_config_maps
+
+    def _generate_service_account(self, component: WorkloadComponent) -> bool:
+        return self._service_account_name(component) is not None
 
     def _env_lines(self, component: WorkloadComponent) -> list[str]:
         if not component.env:

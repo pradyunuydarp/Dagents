@@ -7,7 +7,18 @@ from pydantic import TypeAdapter
 
 from agents.common.domain.models import SourceSpec
 from app.core.config import Settings, settings
-from app.models import DatasetCatalogResponse, HealthResponse, ModelJobCatalogResponse, ModelJobResponse, TrainRequest, TrainResponse
+from app.models import (
+    ClassificationCheckResponse,
+    DatasetCatalogResponse,
+    ForecastingCheckResponse,
+    HealthResponse,
+    MLCheckRequest,
+    ModelJobCatalogResponse,
+    ModelJobResponse,
+    RegressionCheckResponse,
+    TrainRequest,
+    TrainResponse,
+)
 from app.services.training_service import ModelTrainingService, training_service
 
 router = APIRouter(prefix="/api/v1", tags=["model-service"])
@@ -37,6 +48,30 @@ def train(
     service: ModelTrainingService = Depends(get_training_service),
 ) -> TrainResponse:
     return service.train(request)
+
+
+@router.post("/checks/classification", response_model=ClassificationCheckResponse)
+def classification_check(
+    request: MLCheckRequest,
+    service: ModelTrainingService = Depends(get_training_service),
+) -> ClassificationCheckResponse:
+    return service.classification_check(request)
+
+
+@router.post("/checks/regression", response_model=RegressionCheckResponse)
+def regression_check(
+    request: MLCheckRequest,
+    service: ModelTrainingService = Depends(get_training_service),
+) -> RegressionCheckResponse:
+    return service.regression_check(request)
+
+
+@router.post("/checks/forecasting", response_model=ForecastingCheckResponse)
+def forecasting_check(
+    request: MLCheckRequest,
+    service: ModelTrainingService = Depends(get_training_service),
+) -> ForecastingCheckResponse:
+    return service.forecasting_check(request)
 
 
 @router.post("/model-jobs", response_model=ModelJobResponse, status_code=202)
