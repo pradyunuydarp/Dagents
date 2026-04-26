@@ -8,9 +8,7 @@ import io.dagents.spring.common.contracts.WorkloadResources;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
-import org.springframework.stereotype.Component;
 
-@Component
 public class JavaManifestCompiler implements ManifestCompilerGateway {
   @Override
   public WorkloadPlanResponse compile(WorkloadCompileRequest request) {

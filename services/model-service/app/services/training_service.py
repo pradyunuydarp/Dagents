@@ -105,33 +105,28 @@ class ModelTrainingService:
         self._executor = executor or ThreadPoolExecutor(max_workers=2, thread_name_prefix="dagents-models")
 
     def list_datasets(self) -> list[DatasetDescriptorResponse]:
-        """List bundled benchmark datasets with lightweight shape metadata.
+        """List bundled benchmark datasets without forcing materialization.
 
         Params:
         - None.
 
         What it does:
-        - Loads each registered benchmark dataset with a small row cap.
-        - Returns enough metadata for UI/API clients to inspect available datasets.
+        - Returns the static registry metadata for each bundled dataset.
+        - Avoids downloading or materializing datasets in request/health paths.
 
         Returns:
         - `list[DatasetDescriptorResponse]`.
         """
-        catalog = []
-        for descriptor in list_datasets():
-            dataset = load_dataset(descriptor.name, max_rows=256, random_seed=settings.random_seed)
-            catalog.append(
-                DatasetDescriptorResponse(
-                    name=descriptor.name,
-                    source=descriptor.source,
-                    source_url=descriptor.source_url,
-                    description=descriptor.description,
-                    anomaly_label=descriptor.anomaly_label,
-                    rows=len(dataset.features),
-                    features=dataset.features.shape[1],
-                )
+        return [
+            DatasetDescriptorResponse(
+                name=descriptor.name,
+                source=descriptor.source,
+                source_url=descriptor.source_url,
+                description=descriptor.description,
+                anomaly_label=descriptor.anomaly_label,
             )
-        return catalog
+            for descriptor in list_datasets()
+        ]
 
     def train(self, request: TrainRequest) -> TrainResponse:
         """Run the full synchronous anomaly-training pipeline.

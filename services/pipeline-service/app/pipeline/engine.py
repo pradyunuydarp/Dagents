@@ -14,6 +14,13 @@ from app.models import AggregationSpec, PipelineCondition, PipelineDefinition, P
 
 
 class StepHandler:
+    """Abstract execution contract for one pipeline step kind.
+
+    Each handler owns the runtime behavior for a single `kind` value from the
+    pipeline definition, which keeps the main engine focused on orchestration
+    instead of embedding step-specific branching.
+    """
+
     kind: str
 
     def execute(
@@ -23,6 +30,16 @@ class StepHandler:
         *,
         source_resolver: SourceResolver | None = None,
     ) -> dict[str, Any]:
+        """Execute one step against the mutable pipeline payload.
+
+        Params:
+        - `payload`: shared JSON-like pipeline payload that handlers may mutate.
+        - `config`: per-step configuration dictionary.
+        - `source_resolver`: optional shared resolver for source-backed steps.
+
+        Returns:
+        - Dict describing the step output that is stored in run history.
+        """
         raise NotImplementedError
 
 
@@ -30,6 +47,7 @@ class EnrichContextHandler(StepHandler):
     kind = "enrich_context"
 
     def execute(self, payload: dict[str, Any], config: dict[str, Any], *, source_resolver: SourceResolver | None = None) -> dict[str, Any]:
+        """Merge static context values into a target payload object."""
         del source_resolver
         target_field = str(config.get("target_field", "context"))
         values = dict(config.get("values", {}))
@@ -45,6 +63,7 @@ class FilterItemsHandler(StepHandler):
     kind = "filter_items"
 
     def execute(self, payload: dict[str, Any], config: dict[str, Any], *, source_resolver: SourceResolver | None = None) -> dict[str, Any]:
+        """Filter an item collection using declarative conditions."""
         del source_resolver
         items_field = str(config.get("items_field", "items"))
         items = list(PipelineExecutionEngine._get_path(payload, items_field, default=[]))
@@ -58,6 +77,7 @@ class SummarizeItemsHandler(StepHandler):
     kind = "summarize_items"
 
     def execute(self, payload: dict[str, Any], config: dict[str, Any], *, source_resolver: SourceResolver | None = None) -> dict[str, Any]:
+        """Aggregate numeric fields from an item collection into a summary object."""
         del source_resolver
         items_field = str(config.get("items_field", "items"))
         target_field = str(config.get("target_field", "summary"))
@@ -75,6 +95,7 @@ class ProjectFieldsHandler(StepHandler):
     kind = "project_fields"
 
     def execute(self, payload: dict[str, Any], config: dict[str, Any], *, source_resolver: SourceResolver | None = None) -> dict[str, Any]:
+        """Project selected payload paths into a smaller target object."""
         del source_resolver
         target_field = str(config.get("target_field", "projection"))
         fields = list(config.get("fields", []))
@@ -91,6 +112,23 @@ class ProfileDatasetHandler(StepHandler):
     kind = "profile_dataset"
 
     def execute(self, payload: dict[str, Any], config: dict[str, Any], *, source_resolver: SourceResolver | None = None) -> dict[str, Any]:
+        """Profile inline or source-backed data inside a pipeline step.
+
+        Params:
+        - `payload`: pipeline payload containing inline items or contextual fields.
+        - `config`: step configuration, including dataset input, feature fields,
+          label field, and profile output target.
+        - `source_resolver`: optional shared source resolver used for source-backed
+          dataset materialization.
+
+        What it does:
+        - Builds a `DatasetProfileRequest` from the step config.
+        - Calls the shared profiling utility used elsewhere in the framework.
+        - Stores the resulting profile back into the pipeline payload.
+
+        Returns:
+        - Dict summarizing profile target and resulting dimensions.
+        """
         items_field = str(config.get("items_field", "items"))
         target_field = str(config.get("target_field", "dataset_profile"))
         label_field = config.get("label_field")
@@ -118,6 +156,23 @@ class RunModelJobHandler(StepHandler):
     kind = "run_model_job"
 
     def execute(self, payload: dict[str, Any], config: dict[str, Any], *, source_resolver: SourceResolver | None = None) -> dict[str, Any]:
+        """Execute a shared model run from within a pipeline step.
+
+        Params:
+        - `payload`: mutable pipeline payload.
+        - `config`: model-run configuration, including dataset source, model family,
+          task type, and output target.
+        - `source_resolver`: optional shared source resolver used for source-backed
+          datasets.
+
+        What it does:
+        - Builds a `ModelExecutionRequest`.
+        - Delegates to the shared orchestration utility used by other services.
+        - Writes the resulting run metadata back into the pipeline payload.
+
+        Returns:
+        - Dict summarizing the produced model run.
+        """
         items_field = str(config.get("items_field", "items"))
         target_field = str(config.get("target_field", "model_run"))
         dataset_input = _dataset_input_from_config(config)
@@ -148,6 +203,12 @@ class PipelineExecutionEngine:
     """Executes registered pipeline definitions against JSON-like payloads."""
 
     def __init__(self, handlers: list[StepHandler] | None = None) -> None:
+        """Create an engine with the default or injected step-handler registry.
+
+        Params:
+        - `handlers`: optional handler instances. When omitted, the engine
+          registers the built-in Dagents step kinds.
+        """
         registered = handlers or [
             EnrichContextHandler(),
             FilterItemsHandler(),
@@ -165,7 +226,25 @@ class PipelineExecutionEngine:
         *,
         source_resolver: SourceResolver | None = None,
     ) -> PipelineRunResponse:
+        """Execute a pipeline definition from start to finish.
+
+        Params:
+        - `definition`: validated pipeline definition containing ordered steps and
+          dependencies.
+        - `payload`: initial JSON-like payload provided by the caller.
+        - `source_resolver`: optional shared source resolver for source-backed steps.
+
+        What it does:
+        - Deep-copies the input payload to keep caller-owned data untouched.
+        - Resolves dependency order.
+        - Executes each step in sequence while collecting step-level history.
+
+        Returns:
+        - `PipelineRunResponse` with final payload and per-step results.
+        """
         started_at = int(time.time())
+        # Handlers mutate the payload in place, so execution starts from a deep
+        # copy to preserve request immutability at the API boundary.
         working_payload = deepcopy(payload)
         step_results: list[StepRunResult] = []
 
@@ -195,9 +274,28 @@ class PipelineExecutionEngine:
         )
 
     def validate(self, definition: PipelineDefinition) -> None:
+        """Validate structural correctness using the OCaml binding layer and resolve dependency order."""
+        from agents.common.infrastructure.dagents_runner import run_dagentsc
+        try:
+            run_dagentsc(["pipeline", "compile", "--input", "-", "--output", "json"], definition.model_dump(by_alias=False))
+        except (RuntimeError, FileNotFoundError):
+            pass # Fallback to builtin validaton layer
         self._resolve_step_order(definition)
 
     def _resolve_step_order(self, definition: PipelineDefinition):
+        """Topologically sort the step graph and detect invalid dependencies.
+
+        Params:
+        - `definition`: pipeline definition to validate and order.
+
+        What it does:
+        - Rejects duplicate step ids.
+        - Rejects missing dependencies.
+        - Rejects cycles through a depth-first traversal.
+
+        Returns:
+        - Ordered list of steps ready for execution.
+        """
         steps_by_id = {}
         for step in definition.steps:
             if step.step_id in steps_by_id:
@@ -217,6 +315,8 @@ class PipelineExecutionEngine:
                 raise ValueError(f"Unknown dependency step id: {step_id}")
             visiting.add(step_id)
             step = steps_by_id[step_id]
+            # Dependencies are visited first so the resulting list is safe for
+            # single-pass execution.
             for dependency in step.depends_on:
                 visit(dependency)
             visiting.remove(step_id)
@@ -235,6 +335,7 @@ class PipelineExecutionEngine:
         *,
         source_resolver: SourceResolver | None = None,
     ) -> dict[str, Any]:
+        """Dispatch execution to the registered handler for one step kind."""
         handler = self._handlers.get(kind)
         if handler is None:
             raise ValueError(f"Unsupported step kind: {kind}")
@@ -242,10 +343,12 @@ class PipelineExecutionEngine:
 
     @staticmethod
     def _matches_all(item: Any, conditions: list[PipelineCondition]) -> bool:
+        """Return `True` only when every declarative condition matches."""
         return all(PipelineExecutionEngine._matches(item, condition) for condition in conditions)
 
     @staticmethod
     def _matches(item: Any, condition: PipelineCondition) -> bool:
+        """Evaluate one declarative filter condition against one payload item."""
         exists, actual = PipelineExecutionEngine._maybe_get_path(item, condition.field)
         if not exists:
             return False
@@ -270,6 +373,11 @@ class PipelineExecutionEngine:
 
     @staticmethod
     def _apply_aggregation(items: list[Any], aggregation: AggregationSpec) -> Any:
+        """Apply a simple aggregate function to a collection of payload items.
+
+        Supported operations are intentionally small and deterministic so the
+        pipeline layer remains easy to reason about and test.
+        """
         if aggregation.operation == "count":
             return len(items)
 
@@ -296,11 +404,13 @@ class PipelineExecutionEngine:
 
     @staticmethod
     def _get_path(payload: Any, path: str, default: Any = None) -> Any:
+        """Resolve a dotted path and fall back to `default` when missing."""
         exists, value = PipelineExecutionEngine._maybe_get_path(payload, path)
         return value if exists else default
 
     @staticmethod
     def _maybe_get_path(payload: Any, path: str) -> tuple[bool, Any]:
+        """Resolve a dotted path without raising when any segment is absent."""
         current = payload
         for segment in path.split("."):
             if isinstance(current, dict) and segment in current:
@@ -311,6 +421,7 @@ class PipelineExecutionEngine:
 
     @staticmethod
     def _set_path(payload: dict[str, Any], path: str, value: Any) -> None:
+        """Write a value into a dotted payload path, creating parent objects."""
         current = payload
         parts = path.split(".")
         for segment in parts[:-1]:
@@ -323,12 +434,14 @@ class PipelineExecutionEngine:
 
     @staticmethod
     def _infer_feature_fields(records: list[dict[str, Any]], label_field: str | None) -> list[str]:
+        """Infer feature fields from the first record while excluding the label."""
         if not records:
             return []
         return [field for field in records[0].keys() if field != label_field]
 
 
 def _dataset_input_from_config(config: dict[str, Any]) -> DatasetInput | None:
+    """Parse optional `dataset_input` config into the shared Dagents model."""
     payload = config.get("dataset_input")
     if payload is None:
         return None

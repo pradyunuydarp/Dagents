@@ -117,6 +117,82 @@ type source_metadata = {
   estimated_records : int option;
 }
 
+type schema_contract = {
+  required_fields : record_schema_field list;
+  optional_fields : record_schema_field list;
+  allow_extra_fields : bool;
+}
+
+type schema_validation_issue = {
+  issue_field : string;
+  expected_dtype : string;
+  actual_dtype : string option;
+}
+
+type schema_validation_report = {
+  schema_valid : bool;
+  missing_fields : record_schema_field list;
+  type_mismatches : schema_validation_issue list;
+  extra_fields : record_schema_field list;
+  schema_warnings : string list;
+}
+
+type quality_operator =
+  | NonNull
+  | Unique
+  | MinValue of float
+  | MaxValue of float
+  | RegexMatch of string
+  | AllowedValues of string list
+
+type quality_severity = Info | Warning | Error
+
+type quality_rule = {
+  rule_id : string;
+  field : string;
+  operator : quality_operator;
+  severity : quality_severity;
+}
+
+type quality_result = {
+  quality_rule_id : string;
+  passed : bool;
+  violations : int;
+  quality_message : string;
+}
+
+type partition_strategy =
+  | SinglePartition
+  | FixedSize of int
+  | HashPartition of string * int
+  | TimeWindow of string * string
+
+type extraction_plan = {
+  extraction_source_id : string;
+  extraction_source_kind : source_kind;
+  extraction_format : string;
+  selected_fields : string list;
+  predicates : string list;
+  ordering : string list;
+  partition_strategy : partition_strategy;
+  extraction_batch_size : int;
+  extraction_max_records : int option;
+  extraction_checkpoint : Yojson.Safe.t option;
+}
+
+type transform_operation =
+  | SelectFields of string list
+  | DropFields of string list
+  | RenameFields of (string * string) list
+  | FilterNonNull of string list
+  | CastFields of (string * string) list
+
+type transform_plan = {
+  transform_plan_id : string;
+  operations : transform_operation list;
+  output_schema : record_schema_field list;
+}
+
 type dataset_profile = {
   scope_id : string;
   scope_kind : scope_kind;
@@ -259,9 +335,12 @@ val string_of_job_status : job_status -> string
 val string_of_packaging_mode : packaging_mode -> string
 val string_of_source_kind : source_kind -> string
 val string_of_execution_target : pipeline_execution_target -> string
+val string_of_quality_severity : quality_severity -> string
+val string_of_quality_operator : quality_operator -> string
+val string_of_partition_strategy : partition_strategy -> string
 val extraction_strategy_of_string : string -> extraction_strategy
 val model_family_of_string : string -> model_family
 val step_kind_of_string : string -> step_kind
 val workload_kind_of_string : string -> workload_kind
 val source_kind_of_string : string -> source_kind
-
+val quality_severity_of_string : string -> quality_severity

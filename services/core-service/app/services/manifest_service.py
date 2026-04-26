@@ -84,29 +84,23 @@ class ManifestService:
         )
 
     def compile(self, request: WorkloadCompileRequest) -> WorkloadPlanResponse:
-        """Compile a workload request into a persisted plan.
+        """Compile a workload request into a persisted plan using the OCaml binding layer."""
+        import os
+        
+        # Fallback to local python generation if dagentsc isn't installed (e.g. tests running locally without the container)
+        from agents.common.infrastructure.dagents_runner import run_dagentsc
+        try:
+            result_dict = run_dagentsc(["manifest", "compile", "--input", "-", "--output", "json"], request.model_dump(by_alias=False))
+            plan = WorkloadPlanResponse.model_validate(result_dict)
+            return self._plans.save(plan)
+        except (RuntimeError, FileNotFoundError):
+            pass # Fallback to python below if the binary is missing outside containers
 
-        Params:
-        - `request`: full workload compilation request, including optional
-          component-level generated resources.
-
-        What it does:
-        - Generates the primary workload YAML for each component.
-        - Optionally adds generated `Service`, `ConfigMap`, and `ServiceAccount`
-          resources.
-        - Concatenates all rendered sections into `combined_yaml`.
-        - Persists the result in the configured plan repository.
-
-        Returns:
-        - `WorkloadPlanResponse`.
-        """
         manifests: list[WorkloadManifest] = []
         rendered_sections: list[str] = []
         plan_id = request.plan_id or f"workload-plan-{int(time.time() * 1000)}"
 
         for component in request.components:
-            # Each component yields one primary workload plus zero or more
-            # generated companion resources.
             deployment_yaml = self._workload_yaml(request.namespace, component)
             service_yaml = self._service_yaml(request.namespace, component) if self._generate_service(component, request.include_services) else None
             config_map_yaml = (

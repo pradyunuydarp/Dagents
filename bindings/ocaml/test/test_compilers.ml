@@ -36,6 +36,85 @@ let test_dataset_profile () =
   assert_true "dataset profile should exclude label from feature fields"
     (profile.feature_fields = [ "value"; "score" ])
 
+let test_dataset_source_and_extraction_plan () =
+  let source =
+    {
+      source_id = "orders";
+      source_kind = Postgres;
+      connection_ref = Some { connection_id = "warehouse"; connection_options = [] };
+      selection =
+        PostgresSelection
+          {
+            sql = None;
+            table = Some "public.orders";
+            columns = [ "tenant_id"; "amount"; "status" ];
+            where_clause = Some "amount > 0";
+            order_by = [ "tenant_id" ];
+          };
+      format = "rows";
+      schema_hint = [];
+      batching = { batch_size = 500; max_records = Some 2500 };
+      checkpoint = None;
+      options = [ ("partitionField", "tenant_id") ];
+    }
+  in
+  let validation = Dagents_dataset_compiler.validate_source source in
+  assert_true "postgres source should validate" validation.valid;
+  let plan = Dagents_dataset_compiler.compile_extraction_plan ~partition_count:4 source in
+  assert_true "extraction plan should keep selected columns"
+    (plan.selected_fields = [ "tenant_id"; "amount"; "status" ]);
+  assert_true "extraction plan should compile hash partition"
+    (plan.partition_strategy = HashPartition ("tenant_id", 4))
+
+let test_schema_quality_and_transform_apis () =
+  let records =
+    [
+      [ ("id", VString "a"); ("amount", VString "1.5"); ("status", VString "paid") ];
+      [ ("id", VString "b"); ("amount", VString "3.0"); ("status", VString "paid") ];
+      [ ("id", VString "b"); ("amount", VString "-1.0"); ("status", VNull) ];
+    ]
+  in
+  let contract =
+    {
+      required_fields = [ { field_name = "id"; dtype = "string" }; { field_name = "amount"; dtype = "string" } ];
+      optional_fields = [ { field_name = "status"; dtype = "string" } ];
+      allow_extra_fields = false;
+    }
+  in
+  let report =
+    Dagents_dataset_compiler.validate_schema_contract contract
+      (Dagents_dataset_compiler.infer_schema records)
+  in
+  assert_true "schema contract should pass declared fields" report.schema_valid;
+  let quality_results =
+    Dagents_dataset_compiler.evaluate_quality_rules records
+      [
+        { rule_id = "id_unique"; field = "id"; operator = Unique; severity = Error };
+        { rule_id = "status_present"; field = "status"; operator = NonNull; severity = Error };
+        { rule_id = "amount_non_negative"; field = "amount"; operator = MinValue 0.0; severity = Error };
+      ]
+  in
+  assert_true "quality rule should detect duplicate id"
+    ((List.nth quality_results 0).violations = 1);
+  assert_true "quality rule should detect null status"
+    ((List.nth quality_results 1).violations = 1);
+  assert_true "quality rule should detect negative amount"
+    ((List.nth quality_results 2).violations = 1);
+  let plan =
+    Dagents_dataset_compiler.compile_transform_plan ~plan_id:"normalize-orders"
+      [ CastFields [ ("amount", "float") ]; DropFields [ "status" ]; RenameFields [ ("amount", "amount_usd") ] ]
+      records
+  in
+  assert_true "transform plan should expose normalized schema"
+    (plan.output_schema
+    = [ { field_name = "amount_usd"; dtype = "float" }; { field_name = "id"; dtype = "string" } ]);
+  let transformed = Dagents_dataset_compiler.apply_transform_plan plan records in
+  let first = List.hd transformed in
+  assert_true "transform plan should cast and rename values"
+    (List.assoc "amount_usd" first = VFloat 1.5);
+  assert_true "transform plan should drop fields"
+    (Option.is_none (List.assoc_opt "status" first))
+
 let test_pipeline_compiler_orders_and_lowers () =
   let compiled =
     Dagents_pipeline_compiler.compile
@@ -207,6 +286,8 @@ let test_json_codec_roundtrip () =
 
 let () =
   test_dataset_profile ();
+  test_dataset_source_and_extraction_plan ();
+  test_schema_quality_and_transform_apis ();
   test_pipeline_compiler_orders_and_lowers ();
   test_pipeline_compiler_rejects_cycles ();
   test_model_router ();

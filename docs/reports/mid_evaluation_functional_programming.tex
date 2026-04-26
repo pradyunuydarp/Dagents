@@ -1,0 +1,451 @@
+\documentclass[conference]{IEEEtran}
+
+\usepackage{cite}
+\usepackage{amsmath,amssymb}
+\usepackage{url}
+\usepackage{listings}
+\usepackage{xcolor}
+
+\lstdefinestyle{ocamlstyle}{
+  basicstyle=\ttfamily\footnotesize,
+  breaklines=true,
+  columns=fullflexible,
+  frame=single,
+  numbers=left,
+  numberstyle=\tiny,
+  keywordstyle=\color{blue},
+  stringstyle=\color{teal}
+  commentstyle=\color{gray},
+}
+
+\title{Mid-Evaluation Report: Functional Planner Kernels for Dagents}
+
+\author{
+\IEEEauthorblockN{Pradyun Devarakonda \quad Dheeraj Rajanala}
+\IEEEauthorblockA{
+Course Project for Programming Languages\\
+Roll Number: IMT2022525, IMT2022093}
+}
+
+\begin{document}
+\maketitle
+
+% \begin{abstract}
+% This report presents the mid-evaluation status of the functional programming
+% component of Dagents, a reusable agentic framework for machine learning
+% automation, data engineering, model routing, pipeline planning, and workload
+% manifest generation. The functional programming side of the project focuses on
+% using OCaml as a typed planner layer rather than as a replacement
+% for Python or Spring Boot services. The current work implements deterministic
+% functional kernels for shared intermediate representations, dataset schema
+% planning, source validation, extraction planning, data quality checks, pipeline
+% DAG planning, model routing, and Kubernetes manifest generation. The main
+% programming languages objective is to evaluate how algebraic data types,
+% pattern matching, immutability, and pure transformations can improve reliability
+% in data engineering and ML orchestration workflows.
+% \end{abstract}
+
+\begin{IEEEkeywords}
+functional programming, OCaml, domain-specific planning, data engineering,
+pipeline planning, type systems, ML orchestration, Kubernetes
+\end{IEEEkeywords}
+
+\section{Problem Description}
+
+Dagents is a shared framework intended to support reusable agentic services for
+machine learning automation. Its broader architecture contains Local Monitoring
+Agents (LMA), Global Monitoring Agents (GMA), model execution services, pipeline
+services, and core orchestration services. The functional programming part of
+this project addresses a specific problem inside that architecture: many
+orchestration decisions are currently expressed as ad hoc service logic, even
+though they are better understood as deterministic planning, translation, and
+validation problems.
+
+The core problem is to design a functional programming module that can translate
+declarative specifications into execution-ready plans. Examples include
+lowering a data source specification into an extraction plan, lowering a
+pipeline definition into a topologically ordered execution graph, routing a
+dataset profile to candidate model families, and rendering workload
+descriptions as Kubernetes manifests. These tasks are not primarily concerned
+with stateful I/O. They are transformations from one structured representation
+to another, which makes them a natural fit for functional programming.
+
+In this report, the term ``compiler'' is used only in the domain-specific sense:
+it means a planner or translator from one Dagents representation to another.
+It does not mean a programming-language compiler that parses a source language,
+performs semantic analysis for a general-purpose language, or generates machine
+code. The implemented OCaml modules are closer to typed validators, planners,
+and renderers for data engineering workflows. \\
+
+Repo Link: \url{https://github.com/pradyunuydarp/Dagents.git}
+
+\subsection{Learning Objectives}
+
+The project has the following learning objectives from the perspective of a
+Programming Languages course:
+
+\begin{itemize}
+  \item Study how algebraic data types can model domain concepts such as source
+  kinds, task types, pipeline steps, model families, data quality operators, and
+  workload kinds.
+  \item Use pattern matching to make planning decisions explicit and exhaustive.
+  \item Apply immutability and pure functions to build reproducible planning
+  logic for data engineering and ML workflows.
+  \item Separate pure planning logic from runtime effects such as database
+  access, model training, API routing, and Kubernetes deployment.
+  \item Evaluate how a typed functional kernel can coexist with Python and Java
+  services through process-level JSON contracts.
+\end{itemize}
+
+\subsection{Intended Outcomes}
+
+By the end of the project, the functional programming side should provide:
+
+\begin{itemize}
+  \item A documented OCaml codebase containing reusable functional planner modules.
+  \item A common intermediate representation (IR) for datasets, sources,
+  pipelines, models, and workloads.
+  \item A dataset planner for schema inference, source validation, extraction
+  planning, quality rule evaluation, and transform planning.
+  \item A pipeline planner for dependency validation, cycle detection, and
+  execution target assignment.
+  \item A model router that maps dataset profiles to model families and
+  packaging strategies.
+  \item A manifest renderer that generates deterministic Kubernetes YAML from
+  typed workload specifications.
+  \item A command-line boundary, \texttt{dagentsc}, that exposes the OCaml
+  functional kernels to other services without requiring direct FFI.
+\end{itemize}
+
+\section{Solution Outline}
+
+The solution is structured around the idea that OCaml should be used for
+functional kernels rather than for the entire distributed system. Python remains
+appropriate for numerical model training and data science libraries. Spring
+Boot remains appropriate for API orchestration and external integration.
+OCaml is used where the project benefits from typed, deterministic, and
+planner-like transformations.
+
+\subsection{Architecture}
+
+The current OCaml workspace is organized as follows:
+
+\begin{lstlisting}[style=ocamlstyle]
+bindings/ocaml
+|-- lib/common_ir
+|-- lib/dataset_compiler
+|-- lib/pipeline_compiler
+|-- lib/model_router
+|-- lib/manifest_compiler
+|-- bin/dagentsc.ml
+`-- test/test_compilers.ml
+\end{lstlisting}
+
+The \texttt{common\_ir} module defines shared types. These include source
+specifications, schema contracts, dataset profiles, quality rules, transform
+operations, pipeline definitions, model route plans, and workload manifests.
+The individual planner modules consume these typed structures and emit
+normalized plans. The directory names use \texttt{compiler} because the modules
+perform domain-specific lowering, but the work is not about implementing a
+general-purpose programming-language compiler.
+
+\subsection{Common Intermediate Representation}
+
+The IR is the foundation of the functional design. Instead of passing loosely
+structured maps between modules, the project defines explicit types such as:
+
+\begin{itemize}
+  \item \texttt{source\_kind}: inline, Postgres, MongoDB, or object storage.
+  \item \texttt{task\_type}: anomaly detection, classification, forecasting,
+  embedding, or regression.
+  \item \texttt{step\_kind}: enrichment, filtering, projection, profiling, or
+  model execution.
+  \item \texttt{quality\_operator}: non-null, unique, minimum value, maximum
+  value, glob-style match, or allowed values.
+  \item \texttt{workload\_kind}: Deployment, Job, CronJob, Service, or
+  ConfigMap.
+\end{itemize}
+
+This is important for programming language design because domain rules are
+encoded in the type structure. When new source kinds or pipeline steps are
+added, pattern matches in the planner modules reveal the places that must be
+updated.
+
+\subsection{Dataset Planner}
+
+The dataset planner is the main data engineering module. It currently
+supports:
+
+\begin{itemize}
+  \item \textbf{Schema inference}: derive stable field names and scalar data
+  types from inline records.
+  \item \textbf{Source validation}: reject malformed source specifications,
+  such as external sources without connection references or Postgres sources
+  without either SQL or table selection.
+  \item \textbf{Extraction planning}: lower source-specific selections into a
+  normalized extraction plan containing selected fields, predicates, ordering,
+  batch size, checkpoint, and partition strategy.
+  \item \textbf{Schema contract validation}: compare actual schemas against
+  required and optional fields.
+  \item \textbf{Quality rule evaluation}: count violations for rules such as
+  non-null, uniqueness, numeric bounds, pattern match, and allowed values.
+  \item \textbf{Transform planning}: lower declarative operations such as
+  select, drop, rename, cast, and non-null filtering into an output schema.
+  \item \textbf{Transform execution}: apply simple record-level transformations
+  for local or test-time data engineering workflows.
+\end{itemize}
+
+A key design decision is that the dataset planner does not open database
+connections or object storage readers. It only validates and plans. Runtime
+adapters in Python, LMA, GMA, or pipeline services perform actual I/O. This
+preserves functional purity and keeps failure isolation clear.
+
+\subsection{Pipeline Planner}
+
+The pipeline planner treats a workflow as a directed acyclic graph (DAG). It
+performs the following checks and transformations:
+
+\begin{itemize}
+  \item reject duplicate step identifiers;
+  \item reject unknown dependencies;
+  \item detect cyclic dependencies;
+  \item produce a topologically ordered step list;
+  \item assign execution targets such as local process or Python service.
+\end{itemize}
+
+This module shows planner-style use of functional programming: the input is a
+high-level declarative pipeline, and the output is a lower-level execution plan.
+
+\subsection{Model Router}
+
+The model router maps a \texttt{dataset\_profile} and a \texttt{task\_type} to
+a route plan. The route plan contains candidate model families, the selected
+default model, and a packaging mode. For example, forecasting routes toward
+sequence models and long-running deployment, while tabular anomaly detection can
+route toward autoencoders or Kubernetes job execution for large datasets.
+
+\subsection{Manifest Renderer}
+
+The manifest renderer converts typed workload specifications into deterministic
+Kubernetes YAML. It supports Deployments, Jobs, CronJobs, Services, and
+ConfigMaps. The renderer applies defaults for resources, ports, environment
+variables, and labels. This module demonstrates how functional programming can
+be used for infrastructure synthesis: a structured workload specification is
+rendered into deployment artifacts.
+
+\subsection{Command-Line Boundary}
+
+The \texttt{dagentsc} executable exposes the OCaml modules over a process
+boundary. Example commands include:
+
+\begin{lstlisting}[style=ocamlstyle]
+dagentsc dataset source validate --input source.json
+dagentsc dataset source extract --input source.json
+dagentsc dataset schema validate --records records.json --contract contract.json
+dagentsc dataset quality evaluate --records records.json --rules rules.json
+dagentsc dataset transform apply --records records.json --operations operations.json
+dagentsc pipeline compile --input pipeline.json --output json
+dagentsc manifest compile --input workload.json --output json
+\end{lstlisting}
+
+This avoids direct runtime embedding of OCaml into Python or Java. It also makes
+the contract explicit and testable.
+
+\section{Expected Deliverables}
+
+The final deliverables are expected to include:
+
+\begin{itemize}
+  \item \textbf{Codebase}: OCaml modules under \texttt{bindings/ocaml} for IR,
+  dataset planning, pipeline planning, model routing, manifest rendering, JSON
+  codecs, CLI integration, and tests.
+  \item \textbf{Study report}: explanation of why functional programming is
+  suitable for deterministic planning in Dagents.
+  \item \textbf{Algorithms}: DAG validation and ordering, schema inference,
+  source validation, extraction plan generation, quality rule evaluation, and
+  transform planning.
+  \item \textbf{Conceptual framework}: a plan-then-execute architecture for
+  data engineering and ML orchestration.
+  \item \textbf{Documentation}: module design notes, CLI examples, extension
+  guidelines, and report material for evaluation.
+\end{itemize}
+
+\section{Main References}
+
+The project uses the following key references. Tutorials and videos are
+intentionally excluded.
+
+\begin{enumerate}
+  \item \textbf{Milner, ``A Theory of Type Polymorphism in Programming,'' 1978}
+  \cite{milner1978}. This paper is relevant because the project depends on the
+  idea that static type systems can express generic and reusable program
+  structure. The OCaml kernels use types to represent reusable planner
+  contracts.
+
+  \item \textbf{Leroy et al., ``The OCaml System: Documentation and User's
+  Manual''} \cite{ocamlmanual}. This is the primary tool reference for the
+  language used in the functional module. It supports the project's use of
+  algebraic data types, modules, pattern matching, and compiled native
+  executables.
+
+  \item \textbf{Dean and Ghemawat, ``MapReduce: Simplified Data Processing on
+  Large Clusters,'' 2004} \cite{mapreduce}. This paper motivates the data
+  engineering side of the project. Although Dagents is not implementing
+  MapReduce directly, the paper frames large-scale data processing as planned,
+  partitioned, deterministic transformations.
+
+  \item \textbf{Kubernetes Documentation, ``Workloads''} \cite{kubernetes}.
+  Kubernetes is relevant because Dagents renders typed workload specifications
+  into Deployment, Job, CronJob, Service, and ConfigMap manifests. This
+  reference defines the target infrastructure concepts generated by the
+  manifest renderer.
+\end{enumerate}
+
+\section{Team Progress}
+
+\subsection{Completed Milestones}
+
+The team has completed the following milestones by mid-evaluation:
+
+\begin{itemize}
+  \item Established an OCaml workspace using Dune.
+  \item Implemented a shared \texttt{common\_ir} module containing typed
+  contracts for source specs, dataset profiles, pipelines, models, quality
+  rules, transforms, and workload manifests.
+  \item Implemented JSON codecs for the command-line and service boundary.
+  \item Implemented source validation and extraction planning for inline,
+  Postgres, MongoDB, and object storage source types.
+  \item Implemented schema inference and schema contract validation.
+  \item Implemented quality rule evaluation for common data engineering checks.
+  \item Implemented transform planning and local transform application.
+  \item Implemented pipeline DAG validation, cycle detection, and topological
+  ordering.
+  \item Implemented model routing from dataset profiles to model families and
+  packaging modes.
+  \item Implemented Kubernetes manifest generation for common workload kinds.
+  \item Added a process-boundary CLI, \texttt{dagentsc}, for service
+  integration.
+  \item Added OCaml tests covering planner behavior and verified them using
+  \texttt{opam exec -- dune test}.
+  \item Added design documentation for the OCaml functional modules.
+\end{itemize}
+
+\subsection{Achievements}
+
+The main achievement is that the functional programming module is no longer
+only a conceptual plan. It is now a working codebase with typed contracts,
+planner functions, CLI integration, and tests. The system demonstrates how
+functional programming can simplify orchestration logic by moving decision
+rules into small deterministic modules.
+
+Another achievement is the separation of pure logic from effects. For example,
+the source planner validates and plans a Postgres extraction, but it does not
+connect to Postgres. This separation makes the OCaml layer easier to test and
+allows runtime services to evolve independently.
+
+\subsection{Challenges}
+
+Several challenges were encountered:
+
+\begin{itemize}
+  \item Designing IR types that are general enough for future services but not
+  so abstract that they become hard to test.
+  \item Keeping JSON contracts compatible with Python and Java service
+  boundaries while still preserving typed OCaml internals.
+  \item Deciding which data engineering tasks should remain in OCaml and which
+  should remain in Python runtime adapters.
+  \item Balancing report-level conceptual clarity with practical code
+  implementation.
+  \item Avoiding direct FFI complexity by using a process boundary while still
+  making the CLI ergonomic.
+\end{itemize}
+
+\section{Work Distribution}
+
+There are two team members in the project.
+
+\subsection{Dheeraj: Functional Core and Planner Design}
+
+Dheeraj is responsible for the functional programming core:
+
+\begin{itemize}
+  \item designing the OCaml intermediate representation;
+  \item implementing algebraic data types for sources, schemas, pipelines,
+  model families, quality rules, transforms, and workload specs;
+  \item implementing the dataset planner;
+  \item implementing schema inference, schema validation, quality evaluation,
+  and transform planning;
+  \item writing OCaml unit tests for planner correctness;
+  \item ensuring that the code follows functional programming principles such
+  as immutability, pattern matching, and pure transformations.
+\end{itemize}
+
+\subsection{Pradyun: Integration, Service Boundary, and Documentation}
+
+Pradyun is responsible for integration and project framing:
+
+\begin{itemize}
+  \item designing the \texttt{dagentsc} command-line interface;
+  \item implementing JSON input and output contracts for service integration;
+  \item connecting the OCaml planner concept to the broader Dagents
+  architecture involving LMA, GMA, pipeline service, model service, and core
+  service;
+  \item documenting the module responsibilities, CLI examples, extension
+  guidelines, and architecture decisions;
+  \item validating the manifest renderer and process-boundary integration
+  strategy;
+  \item writing OCaml grey box and black box tests for planner correctness;
+  \item preparing report material and aligning the project with Programming
+  Languages course objectives.
+\end{itemize}
+
+\section{Next Steps}
+
+The remaining work focuses on hardening the module and improving the evaluation
+story:
+
+\begin{itemize}
+  \item Add more negative tests for invalid source specs, invalid schemas, and
+  cyclic pipelines.
+  \item Expand quality rules with severity-aware blocking decisions.
+  \item Add richer partition planning, especially time-window partitioning.
+  \item Connect more service calls to \texttt{dagentsc} in a controlled way.
+  \item Compare equivalent planning logic in Python and OCaml to evaluate
+  readability, safety, and maintainability.
+  \item Finalize the end-term report with examples, test evidence, and
+  discussion of programming language tradeoffs.
+\end{itemize}
+
+\section{Conclusion}
+
+At mid-evaluation, the functional programming side of Dagents has produced a
+working OCaml-based planner layer. The project uses functional
+programming not as a general replacement for all services, but as a precise tool
+for typed transformations. This makes the project suitable for a Programming
+Languages course because it demonstrates practical use of algebraic data types,
+pattern matching, pure functions, domain-specific lowering, and process-boundary
+language integration in a realistic data engineering and ML automation system.
+
+\begin{thebibliography}{1}
+
+\bibitem{milner1978}
+R. Milner, ``A theory of type polymorphism in programming,'' \emph{Journal of
+Computer and System Sciences}, vol. 17, no. 3, pp. 348--375, 1978.
+
+\bibitem{ocamlmanual}
+X. Leroy, D. Doligez, A. Frisch, J. Garrigue, D. Remy, and J. Vouillon,
+\emph{The OCaml System: Documentation and User's Manual}. OCaml.org.
+[Online]. Available: \url{https://ocaml.org/manual/}
+
+\bibitem{mapreduce}
+J. Dean and S. Ghemawat, ``MapReduce: Simplified data processing on large
+clusters,'' in \emph{Proc. 6th USENIX Symposium on Operating Systems Design and
+Implementation (OSDI)}, 2004, pp. 137--150.
+
+\bibitem{kubernetes}
+The Kubernetes Authors, ``Workloads,'' Kubernetes Documentation. [Online].
+Available: \url{https://kubernetes.io/docs/concepts/workloads/}
+
+\end{thebibliography}
+
+\end{document}

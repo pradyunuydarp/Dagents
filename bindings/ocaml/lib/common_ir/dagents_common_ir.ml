@@ -118,6 +118,82 @@ type source_metadata = {
   estimated_records : int option;
 }
 
+type schema_contract = {
+  required_fields : record_schema_field list;
+  optional_fields : record_schema_field list;
+  allow_extra_fields : bool;
+}
+
+type schema_validation_issue = {
+  issue_field : string;
+  expected_dtype : string;
+  actual_dtype : string option;
+}
+
+type schema_validation_report = {
+  schema_valid : bool;
+  missing_fields : record_schema_field list;
+  type_mismatches : schema_validation_issue list;
+  extra_fields : record_schema_field list;
+  schema_warnings : string list;
+}
+
+type quality_operator =
+  | NonNull
+  | Unique
+  | MinValue of float
+  | MaxValue of float
+  | RegexMatch of string
+  | AllowedValues of string list
+
+type quality_severity = Info | Warning | Error
+
+type quality_rule = {
+  rule_id : string;
+  field : string;
+  operator : quality_operator;
+  severity : quality_severity;
+}
+
+type quality_result = {
+  quality_rule_id : string;
+  passed : bool;
+  violations : int;
+  quality_message : string;
+}
+
+type partition_strategy =
+  | SinglePartition
+  | FixedSize of int
+  | HashPartition of string * int
+  | TimeWindow of string * string
+
+type extraction_plan = {
+  extraction_source_id : string;
+  extraction_source_kind : source_kind;
+  extraction_format : string;
+  selected_fields : string list;
+  predicates : string list;
+  ordering : string list;
+  partition_strategy : partition_strategy;
+  extraction_batch_size : int;
+  extraction_max_records : int option;
+  extraction_checkpoint : Yojson.Safe.t option;
+}
+
+type transform_operation =
+  | SelectFields of string list
+  | DropFields of string list
+  | RenameFields of (string * string) list
+  | FilterNonNull of string list
+  | CastFields of (string * string) list
+
+type transform_plan = {
+  transform_plan_id : string;
+  operations : transform_operation list;
+  output_schema : record_schema_field list;
+}
+
 type dataset_profile = {
   scope_id : string;
   scope_kind : scope_kind;
@@ -313,6 +389,25 @@ let string_of_source_kind = function
   | Mongodb -> "mongodb"
   | ObjectStorage -> "object_storage"
 
+let string_of_quality_severity = function
+  | Info -> "info"
+  | Warning -> "warning"
+  | Error -> "error"
+
+let string_of_quality_operator = function
+  | NonNull -> "non_null"
+  | Unique -> "unique"
+  | MinValue value -> "min_value:" ^ string_of_float value
+  | MaxValue value -> "max_value:" ^ string_of_float value
+  | RegexMatch pattern -> "regex_match:" ^ pattern
+  | AllowedValues values -> "allowed_values:" ^ String.concat "," values
+
+let string_of_partition_strategy = function
+  | SinglePartition -> "single"
+  | FixedSize size -> "fixed_size:" ^ string_of_int size
+  | HashPartition (field, partitions) -> "hash:" ^ field ^ ":" ^ string_of_int partitions
+  | TimeWindow (field, window) -> "time_window:" ^ field ^ ":" ^ window
+
 let string_of_execution_target = function
   | LocalProcess -> "local_process"
   | PythonService -> "python_service"
@@ -361,3 +456,9 @@ let source_kind_of_string = function
   | "mongodb" -> Mongodb
   | "object_storage" -> ObjectStorage
   | value -> invalid_arg ("Unknown source kind: " ^ value)
+
+let quality_severity_of_string = function
+  | "info" -> Info
+  | "warning" -> Warning
+  | "error" -> Error
+  | value -> invalid_arg ("Unknown quality severity: " ^ value)

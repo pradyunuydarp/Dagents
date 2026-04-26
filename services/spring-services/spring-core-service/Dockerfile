@@ -2,11 +2,7 @@ FROM maven:3.9.11-eclipse-temurin-25 AS spring-builder
 
 WORKDIR /workspace
 
-COPY services/spring-services/pom.xml services/spring-services/pom.xml
-COPY services/spring-services/dagents-spring-common/pom.xml services/spring-services/dagents-spring-common/pom.xml
-COPY services/spring-services/spring-core-service/pom.xml services/spring-services/spring-core-service/pom.xml
-COPY services/spring-services/dagents-spring-common/src services/spring-services/dagents-spring-common/src
-COPY services/spring-services/spring-core-service/src services/spring-services/spring-core-service/src
+COPY services/spring-services services/spring-services
 
 RUN mvn -q -f services/spring-services/pom.xml -pl spring-core-service -am -DskipTests package
 

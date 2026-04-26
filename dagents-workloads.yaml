@@ -1,0 +1,341 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gma
+  namespace: dagents-dev
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gma
+  template:
+    metadata:
+      labels:
+        app: gma
+    spec:
+      containers:
+      - name: main
+        image: dagents-gma:latest
+        ports:
+        - name: http
+          containerPort: 8020
+        env:
+        - name: GMA_API_HOST
+          value: "0.0.0.0"
+        - name: GMA_API_PORT
+          value: "8020"
+        resources:
+          requests:
+            cpu: 250m
+            memory: 256Mi
+          limits:
+            cpu: 1
+            memory: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gma
+  namespace: dagents-dev
+spec:
+  type: ClusterIP
+  selector:
+    app: gma
+  ports:
+  - name: http
+    port: 8020
+    targetPort: 8020
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: lma
+  namespace: dagents-dev
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: lma
+  template:
+    metadata:
+      labels:
+        app: lma
+    spec:
+      containers:
+      - name: main
+        image: dagents-lma:latest
+        ports:
+        - name: http
+          containerPort: 8010
+        env:
+        - name: LMA_API_HOST
+          value: "0.0.0.0"
+        - name: LMA_API_PORT
+          value: "8010"
+        resources:
+          requests:
+            cpu: 250m
+            memory: 256Mi
+          limits:
+            cpu: 1
+            memory: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: lma
+  namespace: dagents-dev
+spec:
+  type: ClusterIP
+  selector:
+    app: lma
+  ports:
+  - name: http
+    port: 8010
+    targetPort: 8010
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: model-service
+  namespace: dagents-dev
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: model-service
+  template:
+    metadata:
+      labels:
+        app: model-service
+    spec:
+      containers:
+      - name: main
+        image: dagents-model-service:latest
+        ports:
+        - name: http
+          containerPort: 8000
+        env:
+        - name: API_HOST
+          value: "0.0.0.0"
+        - name: API_PORT
+          value: "8000"
+        - name: APP_ENV
+          value: "cloud"
+        resources:
+          requests:
+            cpu: 250m
+            memory: 256Mi
+          limits:
+            cpu: 1
+            memory: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: model-service
+  namespace: dagents-dev
+spec:
+  type: ClusterIP
+  selector:
+    app: model-service
+  ports:
+  - name: http
+    port: 8000
+    targetPort: 8000
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pipeline-service
+  namespace: dagents-dev
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: pipeline-service
+  template:
+    metadata:
+      labels:
+        app: pipeline-service
+    spec:
+      containers:
+      - name: main
+        image: dagents-pipeline-service:latest
+        ports:
+        - name: http
+          containerPort: 8030
+        env:
+        - name: API_HOST
+          value: "0.0.0.0"
+        - name: API_PORT
+          value: "8030"
+        - name: APP_ENV
+          value: "cloud"
+        resources:
+          requests:
+            cpu: 250m
+            memory: 256Mi
+          limits:
+            cpu: 1
+            memory: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pipeline-service
+  namespace: dagents-dev
+spec:
+  type: ClusterIP
+  selector:
+    app: pipeline-service
+  ports:
+  - name: http
+    port: 8030
+    targetPort: 8030
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: core-service
+  namespace: dagents-dev
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: core-service
+  template:
+    metadata:
+      labels:
+        app: core-service
+    spec:
+      containers:
+      - name: main
+        image: dagents-core-service:latest
+        ports:
+        - name: http
+          containerPort: 8040
+        env:
+        - name: API_HOST
+          value: "0.0.0.0"
+        - name: API_PORT
+          value: "8040"
+        - name: APP_ENV
+          value: "cloud"
+        resources:
+          requests:
+            cpu: 250m
+            memory: 256Mi
+          limits:
+            cpu: 1
+            memory: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: core-service
+  namespace: dagents-dev
+spec:
+  type: ClusterIP
+  selector:
+    app: core-service
+  ports:
+  - name: http
+    port: 8040
+    targetPort: 8040
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: spring-control-service
+  namespace: dagents-dev
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: spring-control-service
+  template:
+    metadata:
+      labels:
+        app: spring-control-service
+    spec:
+      containers:
+      - name: main
+        image: dagents-spring-control-service:latest
+        ports:
+        - name: http
+          containerPort: 8050
+        env:
+        - name: SERVER_PORT
+          value: "8050"
+        - name: DAGENTS_CONTROL_ENVIRONMENT
+          value: "cloud"
+        resources:
+          requests:
+            cpu: 250m
+            memory: 256Mi
+          limits:
+            cpu: 1
+            memory: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: spring-control-service
+  namespace: dagents-dev
+spec:
+  type: ClusterIP
+  selector:
+    app: spring-control-service
+  ports:
+  - name: http
+    port: 8050
+    targetPort: 8050
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: spring-core-service
+  namespace: dagents-dev
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: spring-core-service
+  template:
+    metadata:
+      labels:
+        app: spring-core-service
+    spec:
+      containers:
+      - name: main
+        image: dagents-spring-core-service:latest
+        ports:
+        - name: http
+          containerPort: 8060
+        env:
+        - name: SERVER_PORT
+          value: "8060"
+        - name: DAGENTS_CORE_ENVIRONMENT
+          value: "cloud"
+        resources:
+          requests:
+            cpu: 250m
+            memory: 256Mi
+          limits:
+            cpu: 1
+            memory: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: spring-core-service
+  namespace: dagents-dev
+spec:
+  type: ClusterIP
+  selector:
+    app: spring-core-service
+  ports:
+  - name: http
+    port: 8060
+    targetPort: 8060
