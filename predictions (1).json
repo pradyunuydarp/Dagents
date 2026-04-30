@@ -1,0 +1,502 @@
+[
+    {
+        "question": "how many extra points were there when the score was 48",
+        "predicted_sql": "SELECT SUM(CAST(table_14070062_4.points AS INTEGER)) AS total_points FROM table_14070062_4 WHERE CAST(table_14070062_4.points AS INTEGER) > 48",
+        "ground_truth": "SELECT try_bonus FROM table_14070062_4 WHERE points = \"48\""
+    },
+    {
+        "question": "What is the highest score in those games where the average is 9.88?",
+        "predicted_sql": "SELECT MAX(highest_score) AS highest_score FROM table_28547332_4 WHERE average = '9.88';",
+        "ground_truth": "SELECT MIN(highest_score) FROM table_28547332_4 WHERE average = \"9.88\""
+    },
+    {
+        "question": "What is the 3rd Edition for Episode 4?",
+        "predicted_sql": "SELECT t.episode FROM table_name_90 t WHERE t.episode = 'Episode 4' ORDER BY t.episode ASC LIMIT 1 OFFSET 2",
+        "ground_truth": "SELECT 3 AS rd_edition FROM table_name_90 WHERE episode = \"4\""
+    },
+    {
+        "question": "What is the 1913 Class of the d32 LNER Class?",
+        "predicted_sql": "SELECT lner_class FROM table_name_68 WHERE lner_class = '1913 Class'",
+        "ground_truth": "SELECT 1913 AS _class FROM table_name_68 WHERE lner_class = \"d32\""
+    },
+    {
+        "question": "what's the\u00a0song title\u00a0with\u00a0artbeingt\u00a0being pat boone",
+        "predicted_sql": "SELECT t.song_title FROM table_13805432_2 t WHERE LOWER(t.artist) = 'pat boone'",
+        "ground_truth": "SELECT song_title FROM table_13805432_2 WHERE artist = \"Pat Boone\""
+    },
+    {
+        "question": "Find the number of medications prescribed for each brand.",
+        "predicted_sql": "SELECT m.brand, COUNT(*) AS number_of_prescriptions FROM medication m JOIN prescribes p ON m.name = p.medication GROUP BY m.brandassistant",
+        "ground_truth": "SELECT COUNT(*), T1.name FROM medication AS T1 JOIN prescribes AS T2 ON T1.code = T2.medication GROUP BY T1.brand"
+    },
+    {
+        "question": "Which Player has a Round smaller than 4, and a College/junior/club team (league) of usa u-18?",
+        "predicted_sql": "SELECT t.player FROM table_name_48 t WHERE t.round < '4' AND t.college_junior_club_team__league_ = 'usa u-18' ORDER BY t.player NULLS LAST;",
+        "ground_truth": "SELECT player FROM table_name_48 WHERE round < 4 AND college_junior_club_team__league_ = \"usa u-18\""
+    },
+    {
+        "question": "All high points were record by corey maggette (25).",
+        "predicted_sql": "SELECT t.high_points FROM table_17080868_8 t WHERE t.record = 'Corey Maggette'",
+        "ground_truth": "SELECT record FROM table_17080868_8 WHERE high_points = \"Corey Maggette (25)\""
+    },
+    {
+        "question": "What is every example for the equivalent of NTE160?",
+        "predicted_sql": "SELECT t.example FROM table_30011_2 t WHERE t.equivalent = 'NTE160'",
+        "ground_truth": "SELECT example FROM table_30011_2 WHERE equivalent = \"NTE160\""
+    },
+    {
+        "question": "What is the Team Classification if the Winner is Cyril Dessel?",
+        "predicted_sql": "SELECT t.team_classification FROM table_name_30 t WHERE t.winner = 'Cyril Dessel'",
+        "ground_truth": "SELECT team_classification FROM table_name_30 WHERE winner = \"cyril dessel\""
+    },
+    {
+        "question": "What is the total number of heats with a finisher named Gregor Tait in lanes over 6?",
+        "predicted_sql": "SELECT COUNT(*) FROM table_name_38 t WHERE t.name = 'Gregor Tait' AND CAST(t.lane AS INTEGER) > 6;",
+        "ground_truth": "SELECT COUNT(heat) FROM table_name_38 WHERE name = \"gregor tait\" AND lane > 6"
+    },
+    {
+        "question": "Against Opponent in the Final Ivan Lendl, on a Surface of clay, with an Outcome of runner-up, where was the Championship?",
+        "predicted_sql": "SELECT t.championship FROM table_name_89 t WHERE t.opponent_in_the_final = 'Ivan Lendl' AND t.surface = 'clay' AND t.outcome = 'runner-up'assistant",
+        "ground_truth": "SELECT championship FROM table_name_89 WHERE outcome = \"runner-up\" AND surface = \"clay\" AND opponent_in_the_final = \"ivan lendl\""
+    },
+    {
+        "question": "Which original artist had 5 as their order #?",
+        "predicted_sql": "SELECT t.original_artist FROM table_name_89 t WHERE t.order__number = '5'",
+        "ground_truth": "SELECT original_artist FROM table_name_89 WHERE order__number = 5"
+    },
+    {
+        "question": "What is Tournament, when 2012 is \"A\", when 2011 is \"A\", and when 2008 is \"A\"?",
+        "predicted_sql": "SELECT t.tournament, CASE WHEN t.tournament = '2012' THEN 'A' WHEN t.tournament = '2011' THEN 'A' WHEN t.tournament = '2008' THEN 'A' ELSE 'B' END AS category FROM table_name_16 t",
+        "ground_truth": "SELECT tournament FROM table_name_16 WHERE 2012 = \"a\" AND 2011 = \"a\" AND 2008 = \"a\""
+    },
+    {
+        "question": "what is the mascot for moores hill that joined later than 1952?",
+        "predicted_sql": "SELECT t.mascot FROM table_name_19 t WHERE t.year_joined > '1952' AND t.school = 'Moores Hill'",
+        "ground_truth": "SELECT mascot FROM table_name_19 WHERE year_joined > 1952 AND school = \"moores hill\""
+    },
+    {
+        "question": "Which Goals For has a Team of congleton town, and a Lost larger than 11?",
+        "predicted_sql": "SELECT t.goals_for FROM table_name_27 t WHERE t.team = 'congleton town' AND t.lost > 11",
+        "ground_truth": "SELECT MAX(goals_for) FROM table_name_27 WHERE team = \"congleton town\" AND lost > 11"
+    },
+    {
+        "question": "What is the Hangul of the Province with a Kana of \u3061\u3085\u3046\u305b\u3044\u306a\u3093\u3069\u3046?",
+        "predicted_sql": "SELECT t.hangul FROM table_name_3 t WHERE t.kana = '\u3061\u3085\u3046\u305b\u3044\u306a\u3093\u3069\u3046';",
+        "ground_truth": "SELECT hangul FROM table_name_3 WHERE kana = \"\u3061\u3085\u3046\u305b\u3044\u306a\u3093\u3069\u3046\""
+    },
+    {
+        "question": "List the id, country, city and name of the airports ordered alphabetically by the name.",
+        "predicted_sql": "SELECT a.id, a.country, a.city, a.name FROM airport a ORDER BY a.name ASCassistant",
+        "ground_truth": "SELECT id, country, city, name FROM airport ORDER BY name"
+    },
+    {
+        "question": "What is the highest overall number one(s)?",
+        "predicted_sql": "SELECT MAX(number_one_s) AS highest_number_one FROM table_19542477_8;",
+        "ground_truth": "SELECT MAX(number_one_s_) FROM table_19542477_8"
+    },
+    {
+        "question": "What is the carrier of the most expensive phone?",
+        "predicted_sql": "SELECT p.Carrier FROM phone p ORDER BY p.Price DESC LIMIT 1;",
+        "ground_truth": "SELECT Carrier FROM phone ORDER BY Price DESC LIMIT 1"
+    },
+    {
+        "question": "what was the primary conference when joining the csfl for the institution that joined in 2004-05? ",
+        "predicted_sql": "SELECT t.primary_conference_when_joining_the_csfl FROM table_262501_1 t WHERE t.joined = '2004-05';",
+        "ground_truth": "SELECT primary_conference_when_joining_the_csfl FROM table_262501_1 WHERE joined = \"2004-05\""
+    },
+    {
+        "question": "What is Date, when High Rebounds is \"Yao Ming (10)\"?",
+        "predicted_sql": "SELECT t.date FROM table_name_86 t WHERE t.high_rebounds = 'Yao Ming (10)';",
+        "ground_truth": "SELECT date FROM table_name_86 WHERE high_rebounds = \"yao ming (10)\""
+    },
+    {
+        "question": "Which circuit did alfa romeo win?",
+        "predicted_sql": "SELECT t.circuit FROM table_name_41 t WHERE t.winning_constructor = 'Alfa Romeo'",
+        "ground_truth": "SELECT circuit FROM table_name_41 WHERE winning_constructor = \"alfa romeo\""
+    },
+    {
+        "question": "When the rank is 11, and bronze a smaller than 1 what is the lowest total?",
+        "predicted_sql": "SELECT MIN(t.total) FROM table_name_5 t WHERE t.rank = '11' AND t.bronze < '1';",
+        "ground_truth": "SELECT MIN(total) FROM table_name_5 WHERE rank = \"11\" AND bronze < 1"
+    },
+    {
+        "question": "What is To Par, when Country is \"United States\", when Place is \"T4\", and when Score is \"71-68=139\"?",
+        "predicted_sql": "SELECT t.to_par FROM table_name_75 t WHERE t.country = 'United States' AND t.place = 'T4' AND t.score = '71-68=139';",
+        "ground_truth": "SELECT to_par FROM table_name_75 WHERE country = \"united states\" AND place = \"t4\" AND score = 71 - 68 = 139"
+    },
+    {
+        "question": "What is the number of position where the pick number is 43?",
+        "predicted_sql": "SELECT COUNT(*) AS number_of_positions FROM table_10975034_5 WHERE pick__number = '43';",
+        "ground_truth": "SELECT COUNT(position) FROM table_10975034_5 WHERE pick__number = 43"
+    },
+    {
+        "question": "What is the mountain classification of Mario Cipollini, who has a general classification of Pavel tonkov?",
+        "predicted_sql": "SELECT t.mountains_classification FROM table_name_60 t WHERE t.winner = 'Mario Cipollini' AND t.general_classification = 'Pavel Tonkov';",
+        "ground_truth": "SELECT mountains_classification FROM table_name_60 WHERE winner = \"mario cipollini\" AND general_classification = \"pavel tonkov\""
+    },
+    {
+        "question": "When parnell dickinson was the player and the rounds were under 7, what's the highest pick?",
+        "predicted_sql": "SELECT MAX(t.pick) AS highest_pick FROM table_name_57 t WHERE t.player = 'Parnell Dickinson' AND CAST(t.round AS INTEGER) < 7;",
+        "ground_truth": "SELECT MAX(pick) FROM table_name_57 WHERE player = \"parnell dickinson\" AND round < 7"
+    },
+    {
+        "question": "What predecessor has a district less than 11, 68th as the Congress, and may 1, 1923 as the date?",
+        "predicted_sql": "SELECT t.predecessor FROM table_name_54 t WHERE t.district < 11 AND t.congress = '68' AND t.date = '1923-05-01'assistant",
+        "ground_truth": "SELECT predecessor FROM table_name_54 WHERE district < 11 AND congress = \"68th\" AND date = \"may 1, 1923\""
+    },
+    {
+        "question": "What was the final score of the game on November 24 with the visiting team the Indianapolis Colts?",
+        "predicted_sql": "SELECT t.final_score FROM table_name_23 t WHERE t.visiting_team = 'Indianapolis Colts' AND t.date = 'November 24';",
+        "ground_truth": "SELECT final_score FROM table_name_23 WHERE visiting_team = \"indianapolis colts\" AND date = \"november 24\""
+    },
+    {
+        "question": "what is the college/junior/club team (league) when the round is higher than 1, the nationality is canada and the position is (d)?",
+        "predicted_sql": "SELECT t.college_junior_club_team__league_ FROM table_name_27 t WHERE t.round > '1' AND t.nationality = 'canada' AND t.position = 'd'",
+        "ground_truth": "SELECT college_junior_club_team__league_ FROM table_name_27 WHERE round > 1 AND nationality = \"canada\" AND position = \"(d)\""
+    },
+    {
+        "question": "What shows for 2013 when 2012 is 2r?",
+        "predicted_sql": "SELECT t.Id, t.Id::INTEGER AS integer_id FROM table_name_16 t WHERE (t.Id::INTEGER - 2012) * 3 = 2013assistant",
+        "ground_truth": "SELECT 2013 FROM table_name_16 WHERE 2012 = \"2r\""
+    },
+    {
+        "question": "What is the total for the place when the singer is Mariza Ikonomi when points are larger than 20?",
+        "predicted_sql": "SELECT SUM(CAST(t.points AS INTEGER)) AS total_points FROM table_name_88 t WHERE t.singer = 'Mariza Ikonomi' AND CAST(t.points AS INTEGER) > 20;",
+        "ground_truth": "SELECT COUNT(place) FROM table_name_88 WHERE singer = \"mariza ikonomi\" AND points > 20"
+    },
+    {
+        "question": "What is the total time of the vehicle having a navigator of Vandenberg?",
+        "predicted_sql": "SELECT SUM(CAST(t.total_time AS INTEGER)) AS total_time FROM table_name_79 t WHERE LOWER(t.navigator) = 'vandenberg';",
+        "ground_truth": "SELECT total_time FROM table_name_79 WHERE navigator = \"vandenberg\""
+    },
+    {
+        "question": "What is the high silver total for nations with 3 golds and under 5 bronzes?",
+        "predicted_sql": "SELECT SUM(t.silver) AS total_silver FROM table_name_61 t WHERE t.gold = '3' AND t.bronze < '5';",
+        "ground_truth": "SELECT MAX(silver) FROM table_name_61 WHERE gold = 3 AND bronze < 5"
+    },
+    {
+        "question": "Which Years in Orlando has a Nationality of united states, and a School/Club Team of illinois?",
+        "predicted_sql": "SELECT years_in_orlando FROM table_name_23 WHERE nationality = 'united states' AND school_club_team = 'illinois'",
+        "ground_truth": "SELECT years_in_orlando FROM table_name_23 WHERE nationality = \"united states\" AND school_club_team = \"illinois\""
+    },
+    {
+        "question": "What chassis did Jolly Club Spa used after 1985?",
+        "predicted_sql": "SELECT t.chassis FROM table_name_22 t WHERE t.entrant = 'Jolly Club Spa' AND t.year > '1985' ORDER BY t.year DESC NULLS LAST LIMIT 1;",
+        "ground_truth": "SELECT chassis FROM table_name_22 WHERE year > 1985 AND entrant = \"jolly club spa\""
+    },
+    {
+        "question": "What is Karl Wendlinger's total grid #?",
+        "predicted_sql": "SELECT SUM(CAST(t.grid AS INTEGER)) AS total_grid FROM table_name_57 t WHERE t.driver = 'Karl Wendlinger';",
+        "ground_truth": "SELECT COUNT(grid) FROM table_name_57 WHERE driver = \"karl wendlinger\""
+    },
+    {
+        "question": "What is Date Sent, when Signal Power ( kW ) is less than 126, when Arrival Date is \"January 2059\", and when HD Designation is \"HD193664\"?",
+        "predicted_sql": "SELECT t.date_sent FROM table_name_75 t WHERE t.signal_power___kw__ < '126' AND t.arrival_date = 'January 2059' AND t.hd_designation = 'HD193664'",
+        "ground_truth": "SELECT date_sent FROM table_name_75 WHERE signal_power___kw__ < 126 AND arrival_date = \"january 2059\" AND hd_designation = \"hd193664\""
+    },
+    {
+        "question": "What is the gold when silver is less than 1, rank is 12, and total is less than 3?",
+        "predicted_sql": "SELECT t.gold FROM table_name_68 t WHERE t.silver < '1' AND t.rank = '12' AND t.total < '3'assistant",
+        "ground_truth": "SELECT MAX(gold) FROM table_name_68 WHERE silver < 1 AND rank = 12 AND total < 3"
+    },
+    {
+        "question": "What is the categorization in 2009 when it was 2R in 2008 and 2011?",
+        "predicted_sql": "SELECT t.Id, t.Id AS categorization, lag(t.Id, 1) OVER (ORDER BY t.Id) AS previous_year, lead(t.Id, 1) OVER (ORDER BY t.Id) AS next_year FROM table_name_14 t WHERE t.Id IN ('2008', '2009', '2011') ORDER BY t.Idassistant",
+        "ground_truth": "SELECT 2009 FROM table_name_14 WHERE 2008 = \"2r\" AND 2011 = \"2r\""
+    },
+    {
+        "question": "During what period did Ricky Ponting play?",
+        "predicted_sql": "SELECT t.period FROM table_21100348_10 t WHERE t.player = 'Ricky Ponting'",
+        "ground_truth": "SELECT period FROM table_21100348_10 WHERE player = \"Ricky Ponting\""
+    },
+    {
+        "question": "What is the lowest Finished, when Post is less than 2?",
+        "predicted_sql": "SELECT MIN(t.finished) FROM table_name_70 t WHERE t.post < 2;",
+        "ground_truth": "SELECT MIN(finished) FROM table_name_70 WHERE post < 2"
+    },
+    {
+        "question": "How many airlines are from USA?",
+        "predicted_sql": "SELECT COUNT(*) FROM AIRLINES a WHERE a.Country = 'USA';",
+        "ground_truth": "SELECT COUNT(*) FROM AIRLINES WHERE Country = \"USA\""
+    },
+    {
+        "question": "What district has 98 constituencies?",
+        "predicted_sql": "SELECT t.district FROM table_name_54 t WHERE t.constituency_number = '98';",
+        "ground_truth": "SELECT district FROM table_name_54 WHERE constituency_number = \"98\""
+    },
+    {
+        "question": "Which Home team has an Away team of collingwood?",
+        "predicted_sql": "SELECT t.home_team FROM table_name_25 t WHERE t.away_team = 'collingwood'",
+        "ground_truth": "SELECT home_team FROM table_name_25 WHERE away_team = \"collingwood\""
+    },
+    {
+        "question": "Name the laid down for completed of 22 october 1934",
+        "predicted_sql": "SELECT t.laid_down FROM table_name_67 t WHERE t.completed = '22 October 1934';",
+        "ground_truth": "SELECT laid_down FROM table_name_67 WHERE completed = \"22 october 1934\""
+    },
+    {
+        "question": "How many games does novica veli\u010dkovi\u0107 have when there's more than 24 rebounds?",
+        "predicted_sql": "SELECT SUM(CAST(t.rebounds AS INTEGER)) AS total_rebounds FROM table_name_57 t WHERE CAST(t.rebounds AS INTEGER) > 24 AND t.name = 'Novica Veliki\u0107';",
+        "ground_truth": "SELECT COUNT(games) FROM table_name_57 WHERE name = \"novica veli\u010dkovi\u0107\" AND rebounds > 24"
+    },
+    {
+        "question": "Which country is Pete Cooper, who made $816, from?",
+        "predicted_sql": "SELECT t.country FROM table_name_32 t WHERE t.player = 'Pete Cooper' AND t.money___$__ = '816';",
+        "ground_truth": "SELECT country FROM table_name_32 WHERE money___$__ = 816 AND player = \"pete cooper\""
+    },
+    {
+        "question": "What racing team/s had the 92nd position?",
+        "predicted_sql": "SELECT t.team_s_ FROM table_2190919_1 t WHERE t.position = '92';",
+        "ground_truth": "SELECT team_s_ FROM table_2190919_1 WHERE position = \"92nd\""
+    },
+    {
+        "question": "Which Played has a Position larger than 5, a Points larger than 0, and a Drawn smaller than 0?",
+        "predicted_sql": "SELECT t.played FROM table_name_26 t WHERE t.position > 5 AND t.points > 0 AND t.drawn < 0 ORDER BY t.played NULLS LAST;",
+        "ground_truth": "SELECT MAX(played) FROM table_name_26 WHERE position > 5 AND points > 0 AND drawn < 0"
+    },
+    {
+        "question": "What is Goals, when Assists is greater than 28, and when Player is Steve Walker?",
+        "predicted_sql": "SELECT t.goals FROM table_name_89 t WHERE t.assists > 28 AND t.player = 'Steve Walker'",
+        "ground_truth": "SELECT goals FROM table_name_89 WHERE assists > 28 AND player = \"steve walker\""
+    },
+    {
+        "question": "what is the round wher the fabien foret had the fastest lap and david salom was the pole position?",
+        "predicted_sql": "SELECT t.round FROM table_29686983_1 t WHERE t.fastest_lap = 'Fabien Foret' AND t.pole_position = 'David Salom'",
+        "ground_truth": "SELECT round FROM table_29686983_1 WHERE fastest_lap = \"Fabien Foret\" AND pole_position = \"David Salom\""
+    },
+    {
+        "question": "What is the lowest heat number for a swimmer with a time of 2:34.94?",
+        "predicted_sql": "SELECT MIN(t.heat) AS lowest_heat FROM table_name_5 t WHERE t.time = '2:34.94';",
+        "ground_truth": "SELECT MIN(heat) FROM table_name_5 WHERE time = \"2:34.94\""
+    },
+    {
+        "question": "What County has Dublin as the Opposition?",
+        "predicted_sql": "SELECT t.county FROM table_name_78 t WHERE t.opposition = 'Dublin'",
+        "ground_truth": "SELECT county FROM table_name_78 WHERE opposition = \"dublin\""
+    },
+    {
+        "question": "How many games did whitehaven win?",
+        "predicted_sql": "SELECT SUM(t.won) AS total_wins FROM table_13018091_1 t",
+        "ground_truth": "SELECT MIN(won) FROM table_13018091_1 WHERE club = \"Whitehaven\""
+    },
+    {
+        "question": "How many wins were listed when he had 112 points? ",
+        "predicted_sql": "SELECT COUNT(*) FROM table_24998088_1 WHERE points = '112';",
+        "ground_truth": "SELECT wins FROM table_24998088_1 WHERE points = \"112\""
+    },
+    {
+        "question": "What was the score of the game when team 2 was club valencia?",
+        "predicted_sql": "SELECT t.score FROM table_name_70 t WHERE t.team_2 = 'club valencia'",
+        "ground_truth": "SELECT score FROM table_name_70 WHERE team_2 = \"club valencia\""
+    },
+    {
+        "question": "What is the name of the institution with the mascot of blue devils?",
+        "predicted_sql": "SELECT t.institution FROM table_12434380_1 t WHERE t.mascot = 'Blue Devils'",
+        "ground_truth": "SELECT institution FROM table_12434380_1 WHERE mascot = \"Blue Devils\""
+    },
+    {
+        "question": "Name the country which has prix uip venezia",
+        "predicted_sql": "SELECT t.country FROM table_name_9 t WHERE t.nominating_festival = 'Prix UIP Venice'",
+        "ground_truth": "SELECT country FROM table_name_9 WHERE nominating_festival = \"prix uip venezia\""
+    },
+    {
+        "question": "What is the Block A value for an El NOSAWA Mendoza value of kondo (7:08)?",
+        "predicted_sql": "SELECT t.block_a FROM table_name_14 t WHERE t.el_nosawa_mendoza = 'kondo (7:08)';",
+        "ground_truth": "SELECT block_a FROM table_name_14 WHERE el_nosawa_mendoza = \"kondo (7:08)\""
+    },
+    {
+        "question": "What was the highest average attendance in the 2009 season?",
+        "predicted_sql": "SELECT MAX(t.average_attendance) AS highest_average_attendance FROM table_name_94 t WHERE t.season = '2009';",
+        "ground_truth": "SELECT MAX(average_attendance) FROM table_name_94 WHERE season = \"2009\""
+    },
+    {
+        "question": "Which episode's segment b is s hacksaw?",
+        "predicted_sql": "SELECT t.episode FROM table_name_67 t WHERE t.segment_b ='s hacksaw';",
+        "ground_truth": "SELECT episode FROM table_name_67 WHERE segment_b = \"s hacksaw\""
+    },
+    {
+        "question": "List the number of runners up when albertina fransisca mailoa won the putri pariwisata contest?",
+        "predicted_sql": "SELECT COUNT(*) AS number_of_runners_up FROM table_24014744_1 WHERE table_24014744_1.putri_pariwisata_indonesia!= 'albertina fransisca mailoa'",
+        "ground_truth": "SELECT COUNT(3 AS rd_runner_up) FROM table_24014744_1 WHERE putri_pariwisata_indonesia = \"Albertina Fransisca Mailoa\""
+    },
+    {
+        "question": "Which player has an Other of 3 (15)?",
+        "predicted_sql": "SELECT t.name FROM table_name_7 t WHERE t.other = '3'",
+        "ground_truth": "SELECT name FROM table_name_7 WHERE other = \"3 (15)\""
+    },
+    {
+        "question": "What surface has 2 as a cage dive?",
+        "predicted_sql": "SELECT t.surface FROM table_name_5 t WHERE t.cage_dive = '2';",
+        "ground_truth": "SELECT surface FROM table_name_5 WHERE cage_dive = \"2\""
+    },
+    {
+        "question": "Who plays for Zimbabwe?",
+        "predicted_sql": "SELECT t.player FROM table_name_7 t WHERE LOWER(t.country) = 'zimbabwe'",
+        "ground_truth": "SELECT player FROM table_name_7 WHERE country = \"zimbabwe\""
+    },
+    {
+        "question": "What is the largest copa sudamericana number when the others number is less than 0?",
+        "predicted_sql": "SELECT MAX(t.copa_sudamericana) AS max_copa_sudamericana FROM table_name_80 t WHERE t.others < 0;",
+        "ground_truth": "SELECT MAX(copa_sudamericana) FROM table_name_80 WHERE others < 0"
+    },
+    {
+        "question": "How many different part 3 verbs are there that mean to freeze?",
+        "predicted_sql": "SELECT COUNT(DISTINCT t.part_3) FROM table_1745843_6 t WHERE t.verb_meaning = 'to freeze';",
+        "ground_truth": "SELECT COUNT(part_3) FROM table_1745843_6 WHERE verb_meaning = \"to freeze\""
+    },
+    {
+        "question": "Which Constructor has the goodwood circuit?",
+        "predicted_sql": "SELECT t.constructor FROM table_name_53 t WHERE t.circuit = 'goodwood'",
+        "ground_truth": "SELECT constructor FROM table_name_53 WHERE circuit = \"goodwood\""
+    },
+    {
+        "question": "What is the maximum download speed for the Internet basic plan with 3G?",
+        "predicted_sql": "SELECT MAX(t.maximum_download_speed__kbps) AS maximum_download_speed FROM table_name_24 t WHERE t.plan_name = 'Internet basic' AND t.technology = '3G';",
+        "ground_truth": "SELECT maximum_download_speed__kbps FROM table_name_24 WHERE technology = \"3g\" AND plan_name = \"internet basic\""
+    },
+    {
+        "question": "Which Gold is the lowest one that has a Bronze of 14, and a Total larger than 42?",
+        "predicted_sql": "SELECT t.gold FROM table_name_47 t WHERE t.bronze = '14' AND CAST(t.total AS INTEGER) > 42 ORDER BY t.gold ASC LIMIT 1;",
+        "ground_truth": "SELECT MIN(gold) FROM table_name_47 WHERE bronze = 14 AND total > 42"
+    },
+    {
+        "question": "How much attendance has a Loss of roloson (11\u20135)?",
+        "predicted_sql": "SELECT SUM(t.attendance) AS total_attendance FROM table_name_70 t WHERE t.loss >= '11-5' AND t.loss <= '11-5';",
+        "ground_truth": "SELECT SUM(attendance) FROM table_name_70 WHERE loss = \"roloson (11\u20135)\""
+    },
+    {
+        "question": "who is the reader on the download/cd format of the title written by author lidster, joseph joseph lidster? ",
+        "predicted_sql": "SELECT t.reader FROM table_20174050_23 t WHERE t.author = 'Lidster, Joseph Joseph Lidster' AND t.format = 'download/cd'",
+        "ground_truth": "SELECT reader FROM table_20174050_23 WHERE format = \"Download/CD\" AND author = \"Lidster, Joseph Joseph Lidster\""
+    },
+    {
+        "question": "Which opponent played on July 15?",
+        "predicted_sql": "SELECT t.opponent FROM table_name_3 t WHERE t.date = 'July 15';",
+        "ground_truth": "SELECT opponent FROM table_name_3 WHERE date = \"july 15\""
+    },
+    {
+        "question": "What was the recorded flaps of HBR Motorsport team?",
+        "predicted_sql": "SELECT t.f_laps FROM table_25369796_1 t WHERE t.team = 'HBR Motorsport'",
+        "ground_truth": "SELECT f_laps FROM table_25369796_1 WHERE team = \"HBR Motorsport\""
+    },
+    {
+        "question": "Which Played is the lowest one that has a Team of vasco da gama, and an Against smaller than 11?",
+        "predicted_sql": "SELECT MIN(t.played) FROM table_name_54 t WHERE t.team = 'vasco da gama' AND t.against < 11;",
+        "ground_truth": "SELECT MIN(played) FROM table_name_54 WHERE team = \"vasco da gama\" AND against < 11"
+    },
+    {
+        "question": "Average total for jim furyk?",
+        "predicted_sql": "SELECT AVG(t.total) AS average_total FROM table_name_33 t WHERE t.player = 'Jim Furyk';",
+        "ground_truth": "SELECT AVG(total) FROM table_name_33 WHERE player = \"jim furyk\""
+    },
+    {
+        "question": "What NFL team did the Tight End position belong to?",
+        "predicted_sql": "SELECT t.nfl_team FROM table_name_62 t WHERE LOWER(t.position) = 'tight end';",
+        "ground_truth": "SELECT nfl_team FROM table_name_62 WHERE position = \"tight end\""
+    },
+    {
+        "question": "What is the 2nd party in the 1874 election?",
+        "predicted_sql": "SELECT t.election, t.party FROM table_name_16 t WHERE t.election = '1874' ORDER BY t.party LIMIT 1 OFFSET 1",
+        "ground_truth": "SELECT 2 AS nd_party FROM table_name_16 WHERE election = \"1874\""
+    },
+    {
+        "question": "What Tejano webcast has a callsign of KBDR?",
+        "predicted_sql": "SELECT t2.webcast FROM table_name_2 t2 WHERE t2.callsign = 'KBDR' AND t2.format = 'Tejano'",
+        "ground_truth": "SELECT webcast FROM table_name_2 WHERE format = \"tejano\" AND callsign = \"kbdr\""
+    },
+    {
+        "question": "What college team did draft pick 18 come from?",
+        "predicted_sql": "SELECT t1.college_junior_club_team FROM table_2850912_1 t1 WHERE t1.pick__number = '18';",
+        "ground_truth": "SELECT college_junior_club_team FROM table_2850912_1 WHERE pick__number = 18"
+    },
+    {
+        "question": "Which Game has an Opponent of @ carolina hurricanes?",
+        "predicted_sql": "SELECT t.game FROM table_name_94 t WHERE t.opponent = '@ carolina hurricanes'",
+        "ground_truth": "SELECT SUM(game) FROM table_name_94 WHERE opponent = \"@ carolina hurricanes\""
+    },
+    {
+        "question": "When the United Kingdom had a time of 1:30.51.2, what was the lowest that they ranked?",
+        "predicted_sql": "SELECT MIN(rank) AS lowest_rank FROM table_name_8 WHERE country = 'United Kingdom' AND time = '1:30.51.2';",
+        "ground_truth": "SELECT MIN(place) FROM table_name_8 WHERE country = \"united kingdom\" AND time = \"1:30.51.2\""
+    },
+    {
+        "question": "Name the date for chicago",
+        "predicted_sql": "SELECT t.date FROM table_17355408_4 t WHERE t.team = 'Chicago'",
+        "ground_truth": "SELECT date FROM table_17355408_4 WHERE team = \"Chicago\""
+    },
+    {
+        "question": "What is the sum of top-10 values for the Open Championship and less than 3 in the top-25?",
+        "predicted_sql": "SELECT SUM(t.top_10) AS total_top_10 FROM table_name_61 t WHERE t.tournament = 'Open Championship' AND CAST(t.top_25 AS INTEGER) < 3;",
+        "ground_truth": "SELECT SUM(top_10) FROM table_name_61 WHERE tournament = \"the open championship\" AND top_25 < 3"
+    },
+    {
+        "question": "What date did the Boston Celtics play at Richfield Coliseum?",
+        "predicted_sql": "SELECT t.date FROM table_name_99 t WHERE t.location = 'Richfield Coliseum' AND t.date LIKE '%Boston Celtics%';",
+        "ground_truth": "SELECT date FROM table_name_99 WHERE location = \"richfield coliseum\""
+    },
+    {
+        "question": "Tell me the player with econ of 4.23",
+        "predicted_sql": "SELECT t.player FROM table_name_40 t WHERE t.econ = '4.23'",
+        "ground_truth": "SELECT player FROM table_name_40 WHERE econ = \"4.23\""
+    },
+    {
+        "question": "What is the least amount of league of communists where municipality is mojkovac",
+        "predicted_sql": "SELECT MIN(t.league_of_communists) AS min_league_of_communists FROM table_15306124_1 t WHERE LOWER(t.municipality) ='mojkovac'",
+        "ground_truth": "SELECT MIN(league_of_communists) FROM table_15306124_1 WHERE municipality = \"Mojkovac\""
+    },
+    {
+        "question": "Which premiere had languages in danish?",
+        "predicted_sql": "SELECT t.premiere FROM table_11323532_2 t WHERE t.languages LIKE '%danish%'",
+        "ground_truth": "SELECT premiere FROM table_11323532_2 WHERE languages = \"Danish\""
+    },
+    {
+        "question": "What is the Location for Belshina?",
+        "predicted_sql": "SELECT t.location FROM table_name_99 t WHERE t.team = 'Belshina'",
+        "ground_truth": "SELECT location FROM table_name_99 WHERE team = \"belshina\""
+    },
+    {
+        "question": "WHAT IS THE TYPE WITH 124?",
+        "predicted_sql": "SELECT t.type FROM table_name_56 t WHERE t.quantity = '124';",
+        "ground_truth": "SELECT type FROM table_name_56 WHERE quantity = \"124\""
+    },
+    {
+        "question": "How many people lived in the city which has 1.2530 km\u00b2 in the year 2000?",
+        "predicted_sql": "SELECT SUM(t.population__2000_) AS total_population FROM table_2004733_2 t WHERE t.area__in_km_2__ = '1.2530';",
+        "ground_truth": "SELECT MAX(population__2000_) FROM table_2004733_2 WHERE area__in_km_2__ = \"1.2530\""
+    },
+    {
+        "question": "Who  has a Construction of 1873, foochow navy yard?",
+        "predicted_sql": "SELECT t.characters FROM table_name_33 t WHERE t.construction = '1873';",
+        "ground_truth": "SELECT characters FROM table_name_33 WHERE construction = \"1873, foochow navy yard\""
+    },
+    {
+        "question": "How many cuts did Gary Clark make?",
+        "predicted_sql": "SELECT SUM(CASE WHEN t.cuts_made = 'cut' THEN 1 ELSE 0 END) AS cuts_made FROM table_28540609_2 t WHERE t.player = 'Gary Clark';",
+        "ground_truth": "SELECT cuts_made FROM table_28540609_2 WHERE player = \"Gary Clark\""
+    },
+    {
+        "question": "Who is Winning driver on 18 may?",
+        "predicted_sql": "SELECT t.winning_driver FROM table_name_30 t WHERE t.date = '18 May';",
+        "ground_truth": "SELECT winning_driver FROM table_name_30 WHERE date = \"18 may\""
+    },
+    {
+        "question": "What is the lowest overall amount of times they've been in 3rd?",
+        "predicted_sql": "WITH ranked AS (SELECT t.Id, COUNT(t.Id) AS total_count, RANK() OVER (ORDER BY COUNT(t.Id) DESC) AS rank FROM table_24330912_1 t GROUP BY t.Id) SELECT r.Id FROM ranked r WHERE r.rank = 3 ORDER BY r.total_count ASC NULLS LAST LIMIT 1;",
+        "ground_truth": "SELECT MIN(3 AS rd) FROM table_24330912_1"
+    },
+    {
+        "question": "Who is the opponent in week 15?",
+        "predicted_sql": "SELECT t.opponent FROM table_name_65 t WHERE t.week = '15'",
+        "ground_truth": "SELECT opponent FROM table_name_65 WHERE week = 15"
+    },
+    {
+        "question": "What is the number of males 977 948?",
+        "predicted_sql": "SELECT COUNT(*) AS number_of_males FROM table_name_20 WHERE table_name_20.males = '977 948';",
+        "ground_truth": "SELECT number FROM table_name_20 WHERE males = \"977 948\""
+    },
+    {
+        "question": "In which season is the runner-up Lase-R/Riga?",
+        "predicted_sql": "SELECT t.season FROM table_25058269_1 t WHERE LOWER(t.runner_up) = 'lase-r/riga'",
+        "ground_truth": "SELECT season FROM table_25058269_1 WHERE runner_up = \"Lase-R/Riga\""
+    }
+]
