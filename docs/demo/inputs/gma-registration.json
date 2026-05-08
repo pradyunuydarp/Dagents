@@ -1,0 +1,11 @@
+{
+  "agent": {
+    "agent_id": "lma-demo",
+    "workspace_id": "workspace-demo",
+    "name": "demo-local-monitor",
+    "agent_type": "LMA"
+  },
+  "scope": {"tenant": "workspace-demo"},
+  "version": "0.1.0",
+  "capabilities": ["monitoring", "profiling", "anomaly_detection"]
+}

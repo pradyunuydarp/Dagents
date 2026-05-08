@@ -1,0 +1,1 @@
+{"scope_id":"orders-inline","scope_kind":"source","record_count":3,"feature_fields":["amount_usd","risk_score"],"partition_count":2,"suggested_models":["autoencoder","variational_autoencoder","random_forest"]}

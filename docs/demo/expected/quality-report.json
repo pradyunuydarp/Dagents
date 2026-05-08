@@ -1,0 +1,36 @@
+{
+  "results": [
+    {
+      "ruleId": "order_id_unique",
+      "severity": "error",
+      "passed": false,
+      "violations": 1,
+      "message": "1 record(s) violated unique"
+    },
+    {
+      "ruleId": "status_present",
+      "severity": "warning",
+      "passed": false,
+      "violations": 1,
+      "message": "1 record(s) violated non_null"
+    },
+    {
+      "ruleId": "amount_non_negative",
+      "severity": "error",
+      "passed": false,
+      "violations": 1,
+      "message": "1 record(s) violated min_value:0."
+    },
+    {
+      "ruleId": "status_allowed",
+      "severity": "warning",
+      "passed": true,
+      "violations": 0,
+      "message": "passed"
+    }
+  ],
+  "blocking": true,
+  "warningCount": 1,
+  "errorCount": 2,
+  "totalViolations": 3
+}

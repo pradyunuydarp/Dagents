@@ -1,0 +1,10 @@
+{
+  "planId": "transform-plan",
+  "outputSchema": [
+    { "name": "amount_usd", "type": "float" },
+    { "name": "event_time", "type": "string" },
+    { "name": "order_id", "type": "string" },
+    { "name": "risk_score", "type": "float" },
+    { "name": "tenant_id", "type": "string" }
+  ]
+}

@@ -1,0 +1,7 @@
+{
+  "pipelineId": "cyclic-demo",
+  "steps": [
+    {"stepId": "a", "kind": "filter_items", "dependsOn": ["b"]},
+    {"stepId": "b", "kind": "project_fields", "dependsOn": ["a"]}
+  ]
+}

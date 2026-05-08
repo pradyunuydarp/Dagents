@@ -1,0 +1,194 @@
+\documentclass[conference]{IEEEtran}
+
+\usepackage{cite}
+\usepackage{amsmath,amssymb}
+\usepackage{url}
+\usepackage{listings}
+\usepackage{xcolor}
+
+\lstdefinestyle{demostyle}{
+  basicstyle=\ttfamily\footnotesize,
+  breaklines=true,
+  columns=fullflexible,
+  frame=single
+}
+
+\title{End-Term Report: Functional Planner Kernels for Dagents}
+
+\author{
+\IEEEauthorblockN{Pradyun Devarakonda \quad Dheeraj Rajanala}
+\IEEEauthorblockA{
+Course Project for Programming Languages\\
+Roll Number: IMT2022525, IMT2022093}
+}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+This report summarizes the final functional programming contribution in
+Dagents, a reusable ML automation and data-engineering orchestration framework.
+The project uses OCaml as a pure functional planner layer inside a larger
+Python, Java, and containerized service stack. The implemented modules validate
+source specifications, plan data extraction, infer and validate schemas,
+evaluate severity-aware quality rules, plan transformations, validate pipeline
+DAGs, route model families, and render Kubernetes manifests. The result is a
+polyglot system where functional programming improves the reliability of the
+decision-making layer without replacing runtime services.
+\end{abstract}
+
+\begin{IEEEkeywords}
+OCaml, functional programming, planning, data engineering, ML orchestration,
+type systems, Kubernetes
+\end{IEEEkeywords}
+
+\section{Problem}
+
+Dagents contains several runtime components: LMA for local source-scoped
+execution, GMA for aggregate coordination, a pipeline service for JSON
+workflows, a model service for ML execution, and a core service for service
+catalog and workload generation. A recurring issue in such systems is that
+validation and orchestration decisions can become scattered across services.
+
+The functional programming goal was to isolate deterministic decisions into a
+typed planner layer. In this report, the word ``compiler'' only means
+domain-specific translation from one Dagents representation to another. It does
+not mean a programming-language compiler.
+
+\section{Functional Solution}
+
+The OCaml workspace is organized around reusable planner modules:
+
+\begin{lstlisting}[style=demostyle]
+bindings/ocaml
+|-- lib/common_ir
+|-- lib/dataset_compiler
+|-- lib/pipeline_compiler
+|-- lib/model_router
+|-- lib/manifest_compiler
+`-- bin/dagentsc.ml
+\end{lstlisting}
+
+\subsection{Typed IR}
+
+The \texttt{common\_ir} module defines algebraic data types for sources,
+records, schemas, quality operators, pipeline steps, model families, partition
+strategies, and workload kinds. These types make the valid planning domain
+explicit.
+
+\subsection{Dataset Planner}
+
+The dataset planner validates source specs, creates extraction plans, infers
+schemas, validates schema contracts, evaluates quality rules, and plans record
+transforms. Quality evaluation now includes aggregate blocking status based on
+rule severity.
+
+\subsection{Pipeline Planner}
+
+The pipeline planner validates workflow DAGs by rejecting duplicate steps,
+unknown dependencies, and cycles. It returns a topologically ordered plan and
+assigns each step to an execution target.
+
+\subsection{Model Router and Manifest Renderer}
+
+The model router maps dataset profiles and task types to candidate model
+families and packaging modes. The manifest renderer turns typed workload specs
+into Kubernetes Deployment, Job, CronJob, Service, and ConfigMap YAML.
+
+\section{Application Integration}
+
+The larger Dagents app stays polyglot. Python services own FastAPI endpoints,
+data access, pipeline execution, and model training. OCaml owns pure planning.
+The boundary is the \texttt{dagentsc} CLI, which exchanges JSON payloads with
+services.
+
+\begin{lstlisting}[style=demostyle]
+dagentsc dataset quality evaluate \
+  --records docs/demo/inputs/records-orders.json \
+  --rules docs/demo/inputs/quality-rules-orders.json
+\end{lstlisting}
+
+The demo package under \texttt{docs/demo} shows both the full service stack and
+the functional layer. The full-stack script exercises health, topology,
+pipeline, model, LMA/GMA, and workload flows. The functional-layer script shows
+the OCaml planner decisions directly.
+
+\section{Testing Evidence}
+
+The OCaml tests cover positive and negative planner behavior:
+
+\begin{itemize}
+  \item source validation and invalid source rejection;
+  \item time-window and hash partition planning;
+  \item schema contract success and failure;
+  \item severity-aware quality reporting;
+  \item transform planning and application;
+  \item pipeline ordering, duplicate rejection, unknown dependency rejection,
+  and cycle rejection;
+  \item model routing and manifest rendering.
+\end{itemize}
+
+The main verification commands are:
+
+\begin{lstlisting}[style=demostyle]
+opam exec -- dune test
+opam exec -- dune build ./bin/dagentsc.exe
+bash docs/demo/run_functional_layer_demo.sh
+bash docs/demo/run_demo_quick.sh
+\end{lstlisting}
+
+Python wrapper tests mock subprocess calls to verify the service boundary
+without requiring a live \texttt{dagentsc} executable.
+
+\section{Programming Languages Takeaways}
+
+The project demonstrates practical use of functional programming in a real
+application:
+
+\begin{itemize}
+  \item algebraic data types model allowed domain states;
+  \item pattern matching makes planning cases explicit;
+  \item pure functions make outputs deterministic;
+  \item typed JSON boundaries allow safe polyglot integration;
+  \item OCaml improves the reliability of planning without replacing Python ML
+  execution.
+\end{itemize}
+
+\section{Limitations}
+
+The OCaml layer deliberately avoids runtime I/O. It does not connect to
+Postgres, MongoDB, object storage, Kubernetes, or PyTorch. This is a design
+tradeoff: the planner remains pure and testable, but runtime services still
+need robust adapters and operational handling.
+
+\section{Conclusion}
+
+Dagents uses functional programming as a targeted engineering tool. OCaml
+provides a typed planner layer for validation, routing, transformation planning,
+and manifest rendering. The full app remains practical and polyglot, while the
+most deterministic orchestration decisions become easier to test, explain, and
+extend.
+
+\begin{thebibliography}{1}
+
+\bibitem{milner1978}
+R. Milner, ``A theory of type polymorphism in programming,'' \emph{Journal of
+Computer and System Sciences}, vol. 17, no. 3, pp. 348--375, 1978.
+
+\bibitem{ocamlmanual}
+X. Leroy, D. Doligez, A. Frisch, J. Garrigue, D. Remy, and J. Vouillon,
+\emph{The OCaml System: Documentation and User's Manual}. OCaml.org.
+[Online]. Available: \url{https://ocaml.org/manual/}
+
+\bibitem{mapreduce}
+J. Dean and S. Ghemawat, ``MapReduce: Simplified data processing on large
+clusters,'' in \emph{Proc. 6th USENIX Symposium on Operating Systems Design and
+Implementation (OSDI)}, 2004, pp. 137--150.
+
+\bibitem{kubernetes}
+The Kubernetes Authors, ``Workloads,'' Kubernetes Documentation. [Online].
+Available: \url{https://kubernetes.io/docs/concepts/workloads/}
+
+\end{thebibliography}
+
+\end{document}

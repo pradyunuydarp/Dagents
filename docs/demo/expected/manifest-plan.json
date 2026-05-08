@@ -1,0 +1,14 @@
+{
+  "planId": "demo-workload-plan",
+  "namespace": "dagents-demo",
+  "manifests": [
+    {
+      "componentName": "orders-risk-worker",
+      "kind": "Deployment",
+      "deploymentYaml": "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: orders-risk-worker\n  namespace: dagents-demo\nspec:\n  replicas: 2\n  selector:\n    matchLabels:\n      app: orders-risk-worker\n  template:\n    metadata:\n      labels:\n        app: orders-risk-worker\n    spec:\n      containers:\n      - name: main\n        image: ghcr.io/dagents/orders-risk-worker:demo\n        args:\n        - \"--pipeline=orders-risk-demo\"\n        ports:\n        - name: http\n          containerPort: 8080\n        env:\n        - name: APP_ENV\n          value: \"demo\"\n        resources:\n          requests:\n            cpu: 250m\n            memory: 256Mi\n          limits:\n            cpu: 1\n            memory: 1Gi",
+      "serviceYaml": "apiVersion: v1\nkind: Service\nmetadata:\n  name: orders-risk-worker\n  namespace: dagents-demo\nspec:\n  selector:\n    app: orders-risk-worker\n  ports:\n  - name: http\n    port: 8080\n    targetPort: 8080",
+      "configMapYaml": "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: orders-risk-worker-config\n  namespace: dagents-demo\ndata:\n  component-kind: \"Deployment\"\n  image: \"ghcr.io/dagents/orders-risk-worker:demo\""
+    }
+  ],
+  "combinedYaml": "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: orders-risk-worker\n  namespace: dagents-demo\nspec:\n  replicas: 2\n  selector:\n    matchLabels:\n      app: orders-risk-worker\n  template:\n    metadata:\n      labels:\n        app: orders-risk-worker\n    spec:\n      containers:\n      - name: main\n        image: ghcr.io/dagents/orders-risk-worker:demo\n        args:\n        - \"--pipeline=orders-risk-demo\"\n        ports:\n        - name: http\n          containerPort: 8080\n        env:\n        - name: APP_ENV\n          value: \"demo\"\n        resources:\n          requests:\n            cpu: 250m\n            memory: 256Mi\n          limits:\n            cpu: 1\n            memory: 1Gi\n---\napiVersion: v1\nkind: Service\nmetadata:\n  name: orders-risk-worker\n  namespace: dagents-demo\nspec:\n  selector:\n    app: orders-risk-worker\n  ports:\n  - name: http\n    port: 8080\n    targetPort: 8080\n---\napiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: orders-risk-worker-config\n  namespace: dagents-demo\ndata:\n  component-kind: \"Deployment\"\n  image: \"ghcr.io/dagents/orders-risk-worker:demo\""
+}

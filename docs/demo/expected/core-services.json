@@ -1,0 +1,1 @@
+{"services":[{"name":"lma","kind":"agent","base_url":"http://lma:8010"},{"name":"gma","kind":"agent","base_url":"http://gma:8020"},{"name":"model-service","kind":"service","base_url":"http://model-service:8000"},{"name":"pipeline-service","kind":"service","base_url":"http://pipeline-service:8030"}]}

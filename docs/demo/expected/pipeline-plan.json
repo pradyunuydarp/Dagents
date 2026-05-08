@@ -1,0 +1,48 @@
+{
+  "pipelineId": "orders-risk-demo",
+  "steps": [
+    {
+      "stepId": "enrich",
+      "kind": "enrich_context",
+      "dependsOn": [],
+      "executionTarget": "local_process",
+      "config": {
+        "target_field": "context",
+        "values": { "demo": "functional-planning" }
+      }
+    },
+    {
+      "stepId": "filter",
+      "kind": "filter_items",
+      "dependsOn": [ "enrich" ],
+      "executionTarget": "local_process",
+      "config": {
+        "items_field": "items",
+        "conditions": [
+          { "field": "risk_score", "operator": "gte", "value": 0.3 }
+        ]
+      }
+    },
+    {
+      "stepId": "profile",
+      "kind": "profile_dataset",
+      "dependsOn": [ "filter" ],
+      "executionTarget": "local_process",
+      "config": {
+        "items_field": "items",
+        "feature_fields": [ "amount_usd", "risk_score" ]
+      }
+    },
+    {
+      "stepId": "model",
+      "kind": "run_model_job",
+      "dependsOn": [ "profile" ],
+      "executionTarget": "python_service",
+      "config": {
+        "items_field": "items",
+        "model_family": "autoencoder",
+        "task_type": "anomaly_detection"
+      }
+    }
+  ]
+}

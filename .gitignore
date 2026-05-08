@@ -6,12 +6,15 @@
 **/.mypy_cache/
 **/.venv/
 **/venv/
+**/node_modules/
 **/dist/
 **/build/
 **/target/
 **/_build/
 **/*.pyc
+*.tsbuildinfo
 *.log
+models/
 
 services/model-service/artifacts/*.pt
 services/model-service/data/raw/*

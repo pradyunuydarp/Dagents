@@ -1,0 +1,58 @@
+@startuml nl2sql_dagents_integration
+title NL2SQL demo integration with the Dagents framework
+
+left to right direction
+skinparam backgroundColor #F7F3EA
+skinparam shadowing false
+skinparam defaultFontName "Aptos"
+skinparam roundCorner 10
+skinparam ArrowColor #53635B
+skinparam ArrowThickness 2
+skinparam packageStyle rectangle
+
+actor "Presenter / user" as User
+
+package "services/nl2sql-demo" as App #FFFFFF {
+  rectangle "React frontend\nsample prompt, schema JSON,\nDagents trace" as UI #E8EFF6
+  rectangle "FastAPI backend\nPOST /api/v1/generate" as API #E3EEE6
+  rectangle "DagentsOrchestrator\nfunctional_trace(...)" as Orchestrator #F0E2C8
+  rectangle "NL2SQLModelRegistry\nCodeT5 / CodeQwen / fallback" as Registry #F3DCD3
+}
+
+package "Dagents framework" as Dagents #EFE4CE {
+  rectangle "agents.common.infrastructure\ndagents_runner" as Runner #E9E1FA
+  rectangle "dagentsc\nOCaml planner CLI" as DCLI #E9E1FA
+  package "HTTP services called by the app" as HttpServices {
+    rectangle "core-service\n/workloads:compile\n/services /topology" as Core #F4E8D0
+    rectangle "pipeline-service\n/pipelines\n/pipelines/{id}/runs" as Pipeline #F4E8D0
+    rectangle "model-service\n/datasets\n/model-jobs" as Model #F4E8D0
+    rectangle "LMA\n/datasets:profile" as LMA #DCEBE1
+    rectangle "GMA\n/datasets:profile" as GMA #DCE7F1
+  }
+}
+
+User --> UI : asks a question
+UI --> API : question + schema tables
+API --> Orchestrator : build Dagents trace
+API --> Registry : generate SQL
+
+Orchestrator --> Runner : source validation,\nextraction planning,\nschema checks,\nquality rules
+Runner --> DCLI : JSON request
+DCLI --> Runner : JSON plan/report
+
+Orchestrator --> Core : catalog, topology,\ncompile NL2SQL workload
+Orchestrator --> Pipeline : register and run\nschema workflow
+Orchestrator --> Model : list model datasets/jobs
+Orchestrator --> LMA : source schema profile
+Orchestrator --> GMA : assimilated schema profile
+
+Registry --> API : SQL + prompt + fallback flag
+Orchestrator --> API : trace steps and payloads
+API --> UI : generated SQL + DDL + trace
+
+note bottom of DCLI
+  The OCaml layer is called at request time
+  for validation and planning. It is also
+  built into containers before runtime.
+end note
+@enduml

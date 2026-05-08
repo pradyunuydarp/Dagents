@@ -1,0 +1,19 @@
+{
+  "sourceId": "orders-postgres",
+  "kind": "postgres",
+  "connectionRef": {"connectionId": "warehouse-demo"},
+  "selection": {
+    "table": "public.orders",
+    "columns": ["order_id", "tenant_id", "event_time", "amount", "status", "risk_score"],
+    "where": "event_time >= '2026-05-01T00:00:00Z'",
+    "orderBy": ["event_time"]
+  },
+  "format": "rows",
+  "batching": {"batchSize": 500, "maxRecords": 5000},
+  "options": {
+    "timeField": "event_time",
+    "timeWindow": "1h",
+    "partitionField": "tenant_id",
+    "partitionCount": "8"
+  }
+}

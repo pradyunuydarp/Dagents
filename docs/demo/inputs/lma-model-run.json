@@ -1,0 +1,14 @@
+{
+  "scope_id": "orders-inline",
+  "scope_kind": "source",
+  "task_type": "anomaly_detection",
+  "model_family": "autoencoder",
+  "records": [
+    {"amount_usd": 120.50, "risk_score": 0.12},
+    {"amount_usd": -4.00, "risk_score": 0.71},
+    {"amount_usd": 42.00, "risk_score": 0.34}
+  ],
+  "feature_fields": ["amount_usd", "risk_score"],
+  "artifact_prefix": "artifacts/demo",
+  "model_version": "presentation-demo"
+}

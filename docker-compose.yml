@@ -153,3 +153,53 @@ services:
       timeout: 5s
       retries: 5
       start_period: 20s
+
+  nl2sql-demo-backend:
+    build:
+      context: .
+      dockerfile: services/nl2sql-demo/backend/Dockerfile
+    container_name: dagents-nl2sql-demo-backend
+    env_file:
+      - ./env/.env.shared
+      - ./env/.env.nl2sql-demo
+    environment:
+      CORE_SERVICE_PUBLIC_URL: http://core-service:8040
+      PIPELINE_SERVICE_PUBLIC_URL: http://pipeline-service:8030
+      MODEL_SERVICE_PUBLIC_URL: http://model-service:8000
+      LMA_PUBLIC_URL: http://lma:8010
+      GMA_PUBLIC_URL: http://gma:8020
+      NL2SQL_MODELS_DIR: /models
+    volumes:
+      - ./models:/models:ro
+    depends_on:
+      gma:
+        condition: service_healthy
+      lma:
+        condition: service_healthy
+      model-service:
+        condition: service_healthy
+      pipeline-service:
+        condition: service_healthy
+      core-service:
+        condition: service_healthy
+    ports:
+      - "${NL2SQL_DEMO_BACKEND_HOST_PORT}:${NL2SQL_DEMO_BACKEND_CONTAINER_PORT}"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c 'import os, urllib.request; urllib.request.urlopen(\"http://127.0.0.1:%s/api/v1/health\" % os.environ[\"NL2SQL_API_PORT\"])'"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  nl2sql-demo-frontend:
+    build:
+      context: .
+      dockerfile: services/nl2sql-demo/frontend/Dockerfile
+    container_name: dagents-nl2sql-demo-frontend
+    environment:
+      VITE_NL2SQL_API_BASE: http://127.0.0.1:${NL2SQL_DEMO_BACKEND_HOST_PORT}
+    depends_on:
+      nl2sql-demo-backend:
+        condition: service_healthy
+    ports:
+      - "${NL2SQL_DEMO_FRONTEND_HOST_PORT}:${NL2SQL_DEMO_FRONTEND_CONTAINER_PORT}"

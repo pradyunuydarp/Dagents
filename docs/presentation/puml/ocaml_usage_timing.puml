@@ -1,0 +1,44 @@
+@startuml ocaml_usage_timing
+title When the functional programming layer is used
+
+skinparam backgroundColor #F7F3EA
+skinparam shadowing false
+skinparam defaultFontName "Aptos"
+skinparam roundCorner 10
+skinparam ArrowColor #53635B
+skinparam ArrowThickness 2
+
+start
+:Build container or local environment;
+:Compile dagentsc with dune;
+note right
+  This happens before the app runs.
+  Dockerfiles copy the compiled CLI into services.
+end note
+
+:Start service or demo app;
+:Set DAGENTSC_BIN and service URLs;
+
+if (Incoming app/API request?) then (yes)
+  :Call Dagents service API\nor app-specific endpoint;
+  :Service builds a typed JSON request;
+  :Invoke dagentsc as a process;
+  :OCaml validates / plans / routes / renders;
+  :Service executes runtime work\nor returns the plan to the caller;
+else (deployment operation)
+  :Core service receives workload spec;
+  :Manifest compiler renders Kubernetes bundle;
+endif
+
+if (ML training or database I/O?) then (yes)
+  :Handled by Python/Spring/runtime adapters;
+  note right
+    OCaml does not train models,
+    keep sockets open, or read production data.
+  end note
+else (planner work)
+  :Handled by OCaml modules;
+endif
+
+stop
+@enduml

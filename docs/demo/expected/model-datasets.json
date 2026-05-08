@@ -1,0 +1,1 @@
+{"datasets":[{"name":"kddcup99_http","source":"sklearn","source_url":"https://kdd.ics.uci.edu/databases/kddcup99/kddcup99.html","description":"HTTP subset of KDD Cup 99 for anomaly detection","anomaly_label":"attack"}]}

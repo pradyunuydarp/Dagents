@@ -1,0 +1,6 @@
+[
+  {"ruleId": "order_id_unique", "field": "order_id", "operator": "unique", "severity": "error"},
+  {"ruleId": "status_present", "field": "status", "operator": "non_null", "severity": "warning"},
+  {"ruleId": "amount_non_negative", "field": "amount", "operator": {"kind": "min_value", "value": 0}, "severity": "error"},
+  {"ruleId": "status_allowed", "field": "status", "operator": {"kind": "allowed_values", "values": ["paid", "review", ""]}, "severity": "warning"}
+]

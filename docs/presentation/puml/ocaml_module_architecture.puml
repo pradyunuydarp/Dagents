@@ -1,0 +1,63 @@
+@startuml ocaml_module_architecture
+title Low-level architecture of the OCaml functional modules
+
+left to right direction
+skinparam backgroundColor #F7F3EA
+skinparam shadowing false
+skinparam defaultFontName "Aptos"
+skinparam roundCorner 10
+skinparam ArrowColor #53635B
+skinparam ArrowThickness 2
+skinparam packageStyle rectangle
+
+rectangle "Python / Java services\nor demo backend" as Services #FFFFFF
+rectangle "dagentsc.ml\ncommand parser + stdin/file JSON" as CLI #E9E1FA
+
+package "common_ir" as Common #E8E2F4 {
+  rectangle "domain types\nsource_spec, dataset_profile,\npipeline_definition, workload_spec" as Types #FFFFFF
+  rectangle "json_codec.ml\nstable JSON boundary" as Codec #FFFFFF
+}
+
+package "compiler modules" as Modules #DAD0F0 {
+  rectangle "dataset_compiler\nvalidate source\nextract plan\nschema + quality\ntransforms + profile" as Dataset #FFFFFF
+  rectangle "pipeline_compiler\nreject duplicates\nreject missing deps\nreject cycles\ntopological order" as Pipeline #FFFFFF
+  rectangle "model_router\nprofile + task ->\nmodel family + packaging" as Router #FFFFFF
+  rectangle "manifest_compiler\nworkload spec ->\nKubernetes YAML bundle" as Manifest #FFFFFF
+}
+
+package "outputs" as Outputs #EFE4CE {
+  rectangle "validation reports" as Reports #FFFFFF
+  rectangle "extraction plans" as Extraction #FFFFFF
+  rectangle "pipeline plans" as PipePlans #FFFFFF
+  rectangle "model route plans" as Routes #FFFFFF
+  rectangle "manifest bundles" as Manifests #FFFFFF
+}
+
+Services --> CLI : shell process\nJSON payload
+CLI --> Codec : parse JSON
+Codec --> Types : typed values
+Types --> Dataset
+Types --> Pipeline
+Types --> Router
+Types --> Manifest
+
+Dataset --> Reports
+Dataset --> Extraction
+Pipeline --> PipePlans
+Router --> Routes
+Manifest --> Manifests
+
+Reports --> Codec
+Extraction --> Codec
+PipePlans --> Codec
+Routes --> Codec
+Manifests --> Codec
+Codec --> CLI : JSON/YAML output
+CLI --> Services : plan or report
+
+note right of Modules
+  These modules are deterministic planners.
+  Runtime adapters still perform database I/O,
+  model training, persistence, and deployment.
+end note
+@enduml

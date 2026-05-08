@@ -1,0 +1,11 @@
+{
+  "scope_id": "fleet-demo",
+  "scope_kind": "assimilated",
+  "extraction_strategy": "tabular",
+  "records": [
+    {"tenant_count": 3, "incident_count": 12, "risk_score": 0.62},
+    {"tenant_count": 4, "incident_count": 18, "risk_score": 0.71}
+  ],
+  "feature_fields": ["tenant_count", "incident_count", "risk_score"],
+  "batch_size": 1000
+}

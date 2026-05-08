@@ -1,0 +1,5 @@
+[
+  {"kind": "cast_fields", "casts": {"amount": "float"}},
+  {"kind": "rename_fields", "mappings": {"amount": "amount_usd"}},
+  {"kind": "drop_fields", "fields": ["status"]}
+]

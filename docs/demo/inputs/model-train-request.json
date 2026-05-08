@@ -1,0 +1,13 @@
+{
+  "dataset_name": "kddcup99_http",
+  "feature_fields": [],
+  "label_field": "label",
+  "model_family": "autoencoder",
+  "max_rows": 100,
+  "test_size": 0.2,
+  "tuning_strategy": "stratified_kfold",
+  "n_splits": 2,
+  "artifact_name": "demo-autoencoder",
+  "use_pca": false,
+  "search": {"values": {}}
+}

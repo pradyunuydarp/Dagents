@@ -1,0 +1,17 @@
+{
+  "plan_id": "demo-workload-plan",
+  "namespace": "dagents-demo",
+  "include_services": true,
+  "include_config_maps": true,
+  "components": [
+    {
+      "name": "orders-risk-worker",
+      "image": "ghcr.io/dagents/orders-risk-worker:demo",
+      "kind": "Deployment",
+      "replicas": 2,
+      "ports": [{"name": "http", "container_port": 8080}],
+      "env": [{"name": "APP_ENV", "value": "demo"}],
+      "args": ["--pipeline=orders-risk-demo"]
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "requiredFields": [
+    {"name": "order_id", "type": "string"},
+    {"name": "tenant_id", "type": "string"},
+    {"name": "amount", "type": "string"}
+  ],
+  "optionalFields": [
+    {"name": "event_time", "type": "string"},
+    {"name": "status", "type": "string"},
+    {"name": "risk_score", "type": "float"}
+  ],
+  "allowExtraFields": false
+}

@@ -1,0 +1,70 @@
+@startuml dagents_software_architecture
+title Dagents high-level software architecture
+
+left to right direction
+skinparam backgroundColor #F7F3EA
+skinparam shadowing false
+skinparam defaultFontName "Aptos"
+skinparam defaultFontSize 18
+skinparam roundCorner 12
+skinparam ArrowColor #53635B
+skinparam ArrowThickness 2
+skinparam packageStyle rectangle
+
+skinparam rectangle {
+  BackgroundColor #FFFFFF
+  BorderColor #B9C2BB
+  FontColor #15201B
+}
+
+rectangle "Consumer backend\nor demo app" as Backend #FFFFFF
+
+package "Dagents service APIs" as Services #EFE4CE {
+  rectangle "core-service\n/catalog + topology\n/workloads:compile" as Core #F4E8D0
+  rectangle "pipeline-service\n/pipelines\n/pipelines/{id}/runs" as Pipeline #F4E8D0
+  rectangle "model-service\n/datasets\n/train" as Model #F4E8D0
+}
+
+package "Agent layer" as Agents #E3EEE6 {
+  rectangle "CMA / LMA\nsource-level compute\n/datasets:profile\n/model-jobs" as LMA #DCEBE1
+  rectangle "GMA\nmulti-source compute\nregistration\naggregate profile" as GMA #DCE7F1
+}
+
+package "OCaml functional planner layer" as Ocaml #DAD0F0 {
+  rectangle "dagentsc\nJSON process boundary" as DCLI #E9E1FA
+  rectangle "dataset_compiler\nsource, schema, quality" as Dataset #E9E1FA
+  rectangle "pipeline_compiler\nworkflow DAG checks" as PipeCompiler #E9E1FA
+  rectangle "model_router\nprofile -> model plan" as Router #E9E1FA
+  rectangle "manifest_compiler\nworkload -> YAML" as Manifest #E9E1FA
+}
+
+database "Source systems\nPostgres, MongoDB,\nobject storage,\ninline records" as Sources #EEF3EF
+cloud "Kubernetes/runtime\nDeployment, Job,\nCronJob, Service,\nConfigMap" as K8s #EDE8DD
+
+Backend --> Core : discovery,\nworkload planning
+Backend --> Pipeline : workflow registration\nand execution
+Backend --> Model : reusable ML jobs
+Backend --> LMA : local/source profile
+Backend --> GMA : aggregate profile
+
+Core --> DCLI : compile workload
+Pipeline --> DCLI : validate DAG
+LMA --> DCLI : validate/profile/route
+GMA --> DCLI : validate/profile/route
+
+DCLI --> Dataset
+DCLI --> PipeCompiler
+DCLI --> Router
+DCLI --> Manifest
+
+LMA --> Sources : runtime data access
+LMA --> GMA : source output
+Pipeline --> Model : model job step
+Manifest --> K8s : rendered manifests
+Core --> K8s : returns deployable plan
+
+note bottom of Ocaml
+  Functional programming layer:
+  deterministic validation, planning, routing, and rendering.
+end note
+@enduml

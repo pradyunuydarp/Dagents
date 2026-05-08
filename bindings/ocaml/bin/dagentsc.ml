@@ -1,5 +1,28 @@
+(** Dagents compiler CLI.
+
+    This binary exposes the OCaml functional kernels from the command line so
+    demo scripts and service prototypes can compile manifests, compile
+    pipelines, route models, profile datasets, validate sources, evaluate
+    quality rules, and apply transforms.
+
+    The CLI is intentionally thin: it parses arguments/JSON, delegates planning
+    to library modules, and prints text or JSON output. It does not perform
+    cluster deployment, database I/O, or model execution. *)
+
 open Dagents_common_ir
 
+(** Read all bytes from an input channel.
+
+    Inputs:
+    - [channel]: usually [stdin] or an opened file channel.
+
+    Output:
+    - [string]: full channel contents.
+
+    Example test case:
+    {[
+      (* With stdin containing "{}", [read_all stdin] returns "{}". *)
+    ]} *)
 let read_all channel =
   let buffer = Buffer.create 1024 in
   (try
@@ -9,6 +32,9 @@ let read_all channel =
    with End_of_file -> ());
   Buffer.contents buffer
 
+(** Print supported command shapes and terminate with a non-zero exit.
+
+    Output: does not return; exits the process with code 1. *)
 let usage () =
   prerr_endline "Usage:";
   prerr_endline "  dagentsc manifest compile [--input <file|->] [--output yaml|json]";
@@ -21,6 +47,14 @@ let usage () =
   prerr_endline "  dagentsc dataset transform compile|apply [--records <file|->] [--operations <file>]";
   exit 1
 
+(** Read a flag value from the command-line argument list.
+
+    Inputs:
+    - [flag]: flag name such as ["--output"].
+    - [args]: command arguments after the top-level command words.
+    - [default]: value returned when the flag is absent.
+
+    Output: flag value or [default]. *)
 let arg_value flag args default =
   let rec loop = function
     | [] -> default
@@ -29,13 +63,25 @@ let arg_value flag args default =
   in
   loop args
 
+(** Parse a comma-separated dependency list from [--step] shorthand. *)
 let split_dependencies raw =
   if raw = "" then [] else String.split_on_char ',' raw
 
+(** Read the generic [--input] JSON payload from stdin or a file. *)
 let read_json_input args =
   let input = arg_value "--input" args "-" in
   if input = "-" then Yojson.Safe.from_string (read_all stdin) else Yojson.Safe.from_file input
 
+(** Parse a compact pipeline step declaration.
+
+    Inputs:
+    - [raw]: ["step_id:kind"] or ["step_id:kind:dep1,dep2"].
+
+    Output:
+    - [pipeline_step] with no config JSON.
+
+    Raises:
+    - [Invalid_argument] when the compact format is malformed. *)
 let parse_step raw =
   match String.split_on_char ':' raw with
   | [ step_id; kind; deps ] ->
@@ -44,12 +90,20 @@ let parse_step raw =
       { step_id; kind = step_kind_of_string kind; depends_on = []; config_json = None }
   | _ -> invalid_arg ("Invalid --step format: " ^ raw)
 
+(** Pretty-print JSON output with a trailing newline for shell use. *)
 let output_json json =
   Yojson.Safe.pretty_to_channel stdout json;
   print_newline ()
 
+(** Handle [dagentsc manifest compile].
+
+    Inputs: CLI args, optionally including [--input] JSON. Without [--input],
+    the handler builds a small demo workload from flags.
+    Output: YAML by default, JSON when [--output json]. *)
 let manifest_compile args =
   let output = arg_value "--output" args "yaml" in
+  (* Accept a full JSON workload spec for service-like callers, while keeping a
+     flag-only path for live demos. *)
   let spec =
     if List.mem "--input" args then Json_codec.workload_spec_of_yojson (read_json_input args)
     else
@@ -83,11 +137,17 @@ let manifest_compile args =
   if output = "json" then output_json (Json_codec.yojson_of_workload_plan plan)
   else print_endline plan.combined_yaml
 
+(** Handle [dagentsc pipeline compile].
+
+    Inputs: pipeline JSON via [--input] or repeated compact [--step] flags.
+    Output: text step listing by default, JSON when requested. *)
 let pipeline_compile args =
   let definition =
     if List.mem "--input" args then Json_codec.pipeline_definition_of_yojson (read_json_input args)
     else
       let pipeline_id = arg_value "--pipeline-id" args "pipeline" in
+      (* Preserve command-line step order before the compiler topologically
+         orders dependencies. *)
       let rec collect_steps acc = function
         | [] -> List.rev acc
         | "--step" :: raw :: rest -> collect_steps (parse_step raw :: acc) rest
@@ -100,6 +160,10 @@ let pipeline_compile args =
     output_json (Json_codec.yojson_of_pipeline pipeline)
   else List.iter (fun step -> print_endline (step.step_id ^ ":" ^ string_of_step_kind step.kind)) pipeline.steps
 
+(** Handle [dagentsc model route].
+
+    This command uses a small built-in profile so a demo can show routing
+    behavior without needing an external dataset file. *)
 let model_route args =
   let task =
     match arg_value "--task" args "anomaly_detection" with
@@ -121,6 +185,7 @@ let model_route args =
     output_json (Json_codec.route_plan_to_yojson plan)
   else print_endline (string_of_model_family plan.selected_model)
 
+(** Handle [dagentsc dataset profile] using a small built-in tabular dataset. *)
 let dataset_profile args =
   let scope_id = arg_value "--scope-id" args "scope" in
   let profile =
@@ -139,10 +204,12 @@ let dataset_profile args =
     print_endline ("records=" ^ string_of_int profile.record_count);
     print_endline ("partitions=" ^ string_of_int profile.partition_count) )
 
+(** Read JSON from a named file/stdin flag, such as [--records] or [--rules]. *)
 let read_json_from_flag flag args =
   let input = arg_value flag args "-" in
   if input = "-" then Yojson.Safe.from_string (read_all stdin) else Yojson.Safe.from_file input
 
+(** Handle source validation, metadata, and extraction-plan compilation. *)
 let dataset_source action args =
   let source = Json_codec.source_spec_of_yojson (read_json_input args) in
   match action with
@@ -160,6 +227,7 @@ let dataset_source action args =
            (Dagents_dataset_compiler.compile_extraction_plan source))
   | _ -> usage ()
 
+(** Handle schema-contract validation over record JSON. *)
 let dataset_schema action args =
   match action with
   | "validate" ->
@@ -172,6 +240,7 @@ let dataset_schema action args =
       output_json (Json_codec.yojson_of_schema_validation_report report)
   | _ -> usage ()
 
+(** Handle data-quality evaluation over record JSON. *)
 let dataset_quality action args =
   match action with
   | "evaluate" ->
@@ -181,10 +250,11 @@ let dataset_quality action args =
         | `List values -> List.map Json_codec.quality_rule_of_yojson values
         | value -> [ Json_codec.quality_rule_of_yojson value ]
       in
-      let results = Dagents_dataset_compiler.evaluate_quality_rules records rules in
-      output_json (`List (List.map Json_codec.yojson_of_quality_result results))
+      let report = Dagents_dataset_compiler.evaluate_quality_report records rules in
+      output_json (Json_codec.yojson_of_quality_report report)
   | _ -> usage ()
 
+(** Handle transform-plan compilation and transform execution. *)
 let dataset_transform action args =
   let records = Json_codec.records_of_yojson (read_json_from_flag "--records" args) in
   let operations = Json_codec.transform_operations_of_yojson (read_json_from_flag "--operations" args) in
@@ -201,6 +271,10 @@ let dataset_transform action args =
            (Dagents_dataset_compiler.apply_transform_plan plan records))
   | _ -> usage ()
 
+(** Dispatch the top-level command.
+
+    The nested pattern match keeps command names explicit and makes unsupported
+    command shapes fall back to [usage]. *)
 let () =
   let args = Array.to_list Sys.argv |> List.tl in
   match args with

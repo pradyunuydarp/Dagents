@@ -12,3 +12,4 @@
 services/model-service/artifacts/*.pt
 services/model-service/data/raw/*
 !services/model-service/data/raw/.gitkeep
+models/

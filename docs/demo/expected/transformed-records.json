@@ -1,0 +1,30 @@
+[
+  {
+    "order_id": "o-1001",
+    "tenant_id": "alpha",
+    "event_time": "2026-05-01T09:00:00Z",
+    "amount_usd": 120.5,
+    "risk_score": 0.12
+  },
+  {
+    "order_id": "o-1002",
+    "tenant_id": "alpha",
+    "event_time": "2026-05-01T09:03:00Z",
+    "amount_usd": -4.0,
+    "risk_score": 0.71
+  },
+  {
+    "order_id": "o-1002",
+    "tenant_id": "beta",
+    "event_time": "2026-05-01T09:05:00Z",
+    "amount_usd": 42.0,
+    "risk_score": 0.34
+  },
+  {
+    "order_id": "o-1004",
+    "tenant_id": "beta",
+    "event_time": "2026-05-01T09:08:00Z",
+    "amount_usd": 89.90000000000001,
+    "risk_score": 0.62
+  }
+]

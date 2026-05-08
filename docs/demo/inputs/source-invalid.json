@@ -1,0 +1,9 @@
+{
+  "sourceId": "broken-postgres",
+  "kind": "postgres",
+  "selection": {
+    "columns": ["order_id", "amount"]
+  },
+  "format": "rows",
+  "batching": {"batchSize": 0}
+}

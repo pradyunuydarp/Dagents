@@ -1,0 +1,72 @@
+@startuml dagents_project_context
+title Dagents project context: one source agent per source, one GMA for multi-source computation
+
+left to right direction
+skinparam backgroundColor #F7F3EA
+skinparam shadowing false
+skinparam defaultFontName "Aptos"
+skinparam roundCorner 12
+skinparam ArrowColor #53635B
+skinparam ArrowThickness 2
+
+skinparam rectangle {
+  BackgroundColor #FFFFFF
+  BorderColor #B9C2BB
+  FontColor #15201B
+}
+skinparam database {
+  BackgroundColor #EEF3EF
+  BorderColor #7E9287
+}
+skinparam actor {
+  BorderColor #2E6F4E
+  FontColor #15201B
+}
+
+actor "Business user\nor app owner" as Owner
+actor "Platform operator" as Operator
+
+rectangle "Consumer backend\nWatchdog / Datalytics /\nNL2SQL demo" as Product #FFFFFF
+rectangle "Dagents framework services\ncatalog, pipelines, model jobs,\nworkload generation" as Services #F0E2C8
+
+package "Data sources" as Sources {
+  database "Source 1\nDatabase" as Source1
+  database "Source 2\nEvent stream" as Source2
+  database "Source 3\nObject files" as Source3
+}
+
+package "One local agent per source" as CMAs {
+  rectangle "CMA / LMA 1\nlocal computation agent" as CMA1 #DCEBE1
+  rectangle "CMA / LMA 2\nlocal computation agent" as CMA2 #DCEBE1
+  rectangle "CMA / LMA 3\nlocal computation agent" as CMA3 #DCEBE1
+}
+
+rectangle "GMA\nglobal / multi-source\ncomputation agent" as GMA #DCE7F1
+
+cloud "Kubernetes or app runtime\nwhere workloads run" as Runtime #EDE8DD
+
+Owner --> Product : asks for answers,\nmodels, or automation
+Operator --> Services : deploys and observes\nframework workloads
+
+Product --> Services : uses framework APIs
+Product --> GMA : requests multi-source view
+
+Source1 --> CMA1 : local data
+Source2 --> CMA2 : local data
+Source3 --> CMA3 : local data
+
+CMA1 --> GMA : source profile,\nmodel output
+CMA2 --> GMA : source profile,\nmodel output
+CMA3 --> GMA : source profile,\nmodel output
+
+Services --> CMA1 : deploys and triggers\nlocal work
+Services --> GMA : registers agents,\nplans aggregate work
+Services --> Runtime : generates manifests\nand workload plans
+GMA --> Product : combined result,\nsummary, action
+
+note bottom of CMA2
+  The codebase names this local agent LMA.
+  The presentation can describe it as a
+  per-source computation agent (CMA).
+end note
+@enduml

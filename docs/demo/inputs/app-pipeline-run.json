@@ -1,0 +1,10 @@
+{
+  "payload": {
+    "items": [
+      {"order_id": "o-1001", "amount_usd": 120.50, "risk_score": 0.12},
+      {"order_id": "o-1002", "amount_usd": -4.00, "risk_score": 0.71},
+      {"order_id": "o-1003", "amount_usd": 42.00, "risk_score": 0.34},
+      {"order_id": "o-1004", "amount_usd": 89.90, "risk_score": 0.62}
+    ]
+  }
+}

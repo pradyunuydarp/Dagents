@@ -1,0 +1,14 @@
+{
+  "sourceId": "orders-postgres",
+  "kind": "postgres",
+  "format": "rows",
+  "selectedFields": [
+    "order_id", "tenant_id", "event_time", "amount", "status", "risk_score"
+  ],
+  "predicates": [ "event_time >= '2026-05-01T00:00:00Z'" ],
+  "ordering": [ "event_time" ],
+  "partitionStrategy": "time_window:event_time:1h",
+  "batchSize": 500,
+  "maxRecords": 5000,
+  "checkpoint": null
+}

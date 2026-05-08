@@ -1,0 +1,9 @@
+{
+  "valid": false,
+  "errors": [
+    "batch_size must be positive",
+    "connection_ref is required for external sources",
+    "postgres selection requires sql or table"
+  ],
+  "warnings": []
+}

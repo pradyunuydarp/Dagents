@@ -1,0 +1,5 @@
+{
+  "selectedModel": "autoencoder",
+  "candidates": [ "autoencoder", "variational_autoencoder", "random_forest" ],
+  "packagingMode": "inline_service_call"
+}

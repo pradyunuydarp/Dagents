@@ -1,0 +1,13 @@
+{
+  "scope_id": "orders-inline",
+  "scope_kind": "source",
+  "extraction_strategy": "tabular",
+  "records": [
+    {"amount_usd": 120.50, "risk_score": 0.12, "label": 0},
+    {"amount_usd": -4.00, "risk_score": 0.71, "label": 1},
+    {"amount_usd": 42.00, "risk_score": 0.34, "label": 0}
+  ],
+  "feature_fields": ["amount_usd", "risk_score"],
+  "label_field": "label",
+  "batch_size": 2
+}

@@ -1,0 +1,1 @@
+{"plan_id":"demo-workload-plan","namespace":"dagents-demo","manifests":[{"component_name":"orders-risk-worker","kind":"Deployment"}],"combined_yaml":"apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: orders-risk-worker\n  namespace: dagents-demo"}

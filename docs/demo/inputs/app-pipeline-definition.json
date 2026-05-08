@@ -1,0 +1,10 @@
+{
+  "pipeline_id": "orders-risk-demo",
+  "description": "Demo pipeline that filters risky orders, profiles them, and creates a model-run plan.",
+  "steps": [
+    {"step_id": "enrich", "kind": "enrich_context", "depends_on": [], "config": {"target_field": "context", "values": {"demo": "full-stack"}}},
+    {"step_id": "filter", "kind": "filter_items", "depends_on": ["enrich"], "config": {"items_field": "items", "conditions": [{"field": "risk_score", "operator": "gte", "value": 0.3}]}},
+    {"step_id": "profile", "kind": "profile_dataset", "depends_on": ["filter"], "config": {"items_field": "items", "target_field": "dataset_profile", "feature_fields": ["amount_usd", "risk_score"]}},
+    {"step_id": "model", "kind": "run_model_job", "depends_on": ["profile"], "config": {"items_field": "items", "target_field": "model_run", "feature_fields": ["amount_usd", "risk_score"], "model_family": "autoencoder", "task_type": "anomaly_detection"}}
+  ]
+}
