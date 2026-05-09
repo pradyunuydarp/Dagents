@@ -1,0 +1,875 @@
+{
+    "sql": "SELECT orders.order_total FROM customers JOIN orders ON customers.customer_id = orders.customer_id",
+    "model_id": "codet5p_spider_model",
+    "model_label": "codet5p_spider_model",
+    "prompt": "question: Which customers have the highest total order value? context: CREATE TABLE customers (customer_id INTEGER, customer_name TEXT, region TEXT) CREATE TABLE orders (order_id INTEGER, customer_id INTEGER, order_total FLOAT, created_at TIMESTAMP)",
+    "schema_ddl": "CREATE TABLE customers (customer_id INTEGER, customer_name TEXT, region TEXT) CREATE TABLE orders (order_id INTEGER, customer_id INTEGER, order_total FLOAT, created_at TIMESTAMP)",
+    "adapter_kind": "codet5_seq2seq",
+    "used_fallback": true,
+    "fallback_detail": "ModuleNotFoundError: No module named 'transformers'",
+    "dagents_trace": [
+        {
+            "name": "Dagents SourceSpec validation",
+            "status": "ok",
+            "detail": "completed",
+            "payload": {
+                "valid": true,
+                "errors": [],
+                "warnings": []
+            }
+        },
+        {
+            "name": "Dagents extraction planning",
+            "status": "ok",
+            "detail": "completed",
+            "payload": {
+                "source_id": "nl2sql-schema-source",
+                "kind": "inline",
+                "format": "rows",
+                "selected_fields": [
+                    "column_name",
+                    "dtype",
+                    "table_name"
+                ],
+                "predicates": [],
+                "ordering": [],
+                "partition_strategy": "fixed_size:1000",
+                "batch_size": 1000,
+                "max_records": 7,
+                "checkpoint": null
+            }
+        },
+        {
+            "name": "Dagents schema contract validation",
+            "status": "ok",
+            "detail": "completed",
+            "payload": {
+                "valid": true,
+                "missing_fields": [],
+                "type_mismatches": [],
+                "extra_fields": [],
+                "warnings": []
+            }
+        },
+        {
+            "name": "Dagents quality rules",
+            "status": "ok",
+            "detail": "completed",
+            "payload": {
+                "results": [
+                    {
+                        "rule_id": "table_present",
+                        "severity": "error",
+                        "passed": true,
+                        "violations": 0,
+                        "message": "passed"
+                    },
+                    {
+                        "rule_id": "column_present",
+                        "severity": "error",
+                        "passed": true,
+                        "violations": 0,
+                        "message": "passed"
+                    },
+                    {
+                        "rule_id": "dtype_present",
+                        "severity": "warning",
+                        "passed": true,
+                        "violations": 0,
+                        "message": "passed"
+                    }
+                ],
+                "blocking": false,
+                "warning_count": 0,
+                "error_count": 0,
+                "total_violations": 0
+            }
+        },
+        {
+            "name": "Dagents pipeline DAG planning",
+            "status": "ok",
+            "detail": "completed",
+            "payload": {
+                "pipeline_id": "nl2sql-generation",
+                "steps": [
+                    {
+                        "step_id": "validate_schema",
+                        "kind": "profile_dataset",
+                        "depends_on": [],
+                        "execution_target": "local_process",
+                        "config": null
+                    },
+                    {
+                        "step_id": "generate_sql",
+                        "kind": "run_model_job",
+                        "depends_on": [
+                            "validate_schema"
+                        ],
+                        "execution_target": "python_service",
+                        "config": null
+                    },
+                    {
+                        "step_id": "render_result",
+                        "kind": "project_fields",
+                        "depends_on": [
+                            "generate_sql"
+                        ],
+                        "execution_target": "local_process",
+                        "config": null
+                    }
+                ]
+            }
+        },
+        {
+            "name": "Dagents model route planning",
+            "status": "ok",
+            "detail": "completed",
+            "payload": {
+                "selected_model": "transformer",
+                "candidates": [
+                    "transformer",
+                    "custom"
+                ],
+                "packaging_mode": "inline_service_call"
+            }
+        },
+        {
+            "name": "core-service catalog and topology",
+            "status": "ok",
+            "detail": "completed",
+            "payload": {
+                "services": {
+                    "services": [
+                        {
+                            "name": "lma",
+                            "kind": "agent",
+                            "base_url": "http://lma:8010"
+                        },
+                        {
+                            "name": "gma",
+                            "kind": "agent",
+                            "base_url": "http://gma:8020"
+                        },
+                        {
+                            "name": "model-service",
+                            "kind": "service",
+                            "base_url": "http://model-service:8000"
+                        },
+                        {
+                            "name": "pipeline-service",
+                            "kind": "service",
+                            "base_url": "http://pipeline-service:8030"
+                        }
+                    ]
+                },
+                "topology": {
+                    "framework": "dagents",
+                    "services": [
+                        {
+                            "name": "lma",
+                            "kind": "agent",
+                            "base_url": "http://lma:8010"
+                        },
+                        {
+                            "name": "gma",
+                            "kind": "agent",
+                            "base_url": "http://gma:8020"
+                        },
+                        {
+                            "name": "model-service",
+                            "kind": "service",
+                            "base_url": "http://model-service:8000"
+                        },
+                        {
+                            "name": "pipeline-service",
+                            "kind": "service",
+                            "base_url": "http://pipeline-service:8030"
+                        }
+                    ]
+                }
+            }
+        },
+        {
+            "name": "core-service workload compile",
+            "status": "ok",
+            "detail": "completed",
+            "payload": {
+                "plan_id": "nl2sql-demo",
+                "namespace": "dagents-demo",
+                "manifests": [
+                    {
+                        "component_name": "nl2sql-demo-backend",
+                        "kind": "Deployment",
+                        "deployment_yaml": "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: nl2sql-demo-backend\n  namespace: dagents-demo\nspec:\n  replicas: 1\n  selector:\n    matchLabels:\n      app: nl2sql-demo-backend\n  template:\n    metadata:\n      labels:\n        app: nl2sql-demo-backend\n    spec:\n      containers:\n      - name: main\n        image: dagents/nl2sql-demo-backend:local\n        ports:\n        - name: http\n          containerPort: 8070\n        env:\n        - name: NL2SQL_DEFAULT_MODEL_ID\n          value: \"codet5p_spider_model\"\n        resources:\n          requests:\n            cpu: 250m\n            memory: 256Mi\n          limits:\n            cpu: 1\n            memory: 1Gi",
+                        "service_yaml": "apiVersion: v1\nkind: Service\nmetadata:\n  name: nl2sql-demo-backend\n  namespace: dagents-demo\nspec:\n  selector:\n    app: nl2sql-demo-backend\n  ports:\n  - name: http\n    port: 8070\n    targetPort: 8070",
+                        "config_map_yaml": "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: nl2sql-demo-backend-config\n  namespace: dagents-demo\ndata:\n  component-kind: \"Deployment\"\n  image: \"dagents/nl2sql-demo-backend:local\"",
+                        "service_account_yaml": null
+                    }
+                ],
+                "combined_yaml": "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: nl2sql-demo-backend\n  namespace: dagents-demo\nspec:\n  replicas: 1\n  selector:\n    matchLabels:\n      app: nl2sql-demo-backend\n  template:\n    metadata:\n      labels:\n        app: nl2sql-demo-backend\n    spec:\n      containers:\n      - name: main\n        image: dagents/nl2sql-demo-backend:local\n        ports:\n        - name: http\n          containerPort: 8070\n        env:\n        - name: NL2SQL_DEFAULT_MODEL_ID\n          value: \"codet5p_spider_model\"\n        resources:\n          requests:\n            cpu: 250m\n            memory: 256Mi\n          limits:\n            cpu: 1\n            memory: 1Gi\n---\napiVersion: v1\nkind: Service\nmetadata:\n  name: nl2sql-demo-backend\n  namespace: dagents-demo\nspec:\n  selector:\n    app: nl2sql-demo-backend\n  ports:\n  - name: http\n    port: 8070\n    targetPort: 8070\n---\napiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: nl2sql-demo-backend-config\n  namespace: dagents-demo\ndata:\n  component-kind: \"Deployment\"\n  image: \"dagents/nl2sql-demo-backend:local\""
+            }
+        },
+        {
+            "name": "pipeline-service register and run",
+            "status": "ok",
+            "detail": "completed",
+            "payload": {
+                "registered": {
+                    "pipeline_id": "nl2sql-demo-schema-flow",
+                    "description": "Profiles schema records before NL2SQL model selection.",
+                    "steps": [
+                        {
+                            "step_id": "attach_question",
+                            "kind": "enrich_context",
+                            "depends_on": [],
+                            "config": {
+                                "target_field": "context",
+                                "values": {
+                                    "question": "Which customers have the highest total order value?"
+                                }
+                            }
+                        },
+                        {
+                            "step_id": "profile_schema_records",
+                            "kind": "profile_dataset",
+                            "depends_on": [
+                                "attach_question"
+                            ],
+                            "config": {
+                                "items_field": "schema_records",
+                                "target_field": "schema_profile",
+                                "scope_id": "nl2sql-schema",
+                                "scope_kind": "source",
+                                "feature_fields": [
+                                    "table_name",
+                                    "column_name",
+                                    "dtype"
+                                ]
+                            }
+                        },
+                        {
+                            "step_id": "summarize_columns",
+                            "kind": "summarize_items",
+                            "depends_on": [
+                                "profile_schema_records"
+                            ],
+                            "config": {
+                                "items_field": "schema_records",
+                                "target_field": "schema_summary",
+                                "aggregations": [
+                                    {
+                                        "operation": "count",
+                                        "alias": "column_count"
+                                    }
+                                ]
+                            }
+                        },
+                        {
+                            "step_id": "project_generation_context",
+                            "kind": "project_fields",
+                            "depends_on": [
+                                "summarize_columns"
+                            ],
+                            "config": {
+                                "target_field": "dagents_projection",
+                                "fields": [
+                                    "context.question",
+                                    "schema_profile.record_count",
+                                    "schema_summary.column_count"
+                                ]
+                            }
+                        }
+                    ],
+                    "registered_at": 1778295408
+                },
+                "run": {
+                    "run_id": "nl2sql-demo-schema-flow-run-1778295408365",
+                    "pipeline_id": "nl2sql-demo-schema-flow",
+                    "status": "completed",
+                    "started_at": 1778295408,
+                    "completed_at": 1778295408,
+                    "final_payload": {
+                        "schema_records": [
+                            {
+                                "table_name": "customers",
+                                "column_name": "customer_id",
+                                "dtype": "INTEGER"
+                            },
+                            {
+                                "table_name": "customers",
+                                "column_name": "customer_name",
+                                "dtype": "TEXT"
+                            },
+                            {
+                                "table_name": "customers",
+                                "column_name": "region",
+                                "dtype": "TEXT"
+                            },
+                            {
+                                "table_name": "orders",
+                                "column_name": "order_id",
+                                "dtype": "INTEGER"
+                            },
+                            {
+                                "table_name": "orders",
+                                "column_name": "customer_id",
+                                "dtype": "INTEGER"
+                            },
+                            {
+                                "table_name": "orders",
+                                "column_name": "order_total",
+                                "dtype": "FLOAT"
+                            },
+                            {
+                                "table_name": "orders",
+                                "column_name": "created_at",
+                                "dtype": "TIMESTAMP"
+                            }
+                        ],
+                        "context": {
+                            "question": "Which customers have the highest total order value?"
+                        },
+                        "schema_profile": {
+                            "scope_id": "nl2sql-schema",
+                            "scope_kind": "source",
+                            "extraction_strategy": "tabular",
+                            "record_count": 7,
+                            "feature_fields": [
+                                "table_name",
+                                "column_name",
+                                "dtype"
+                            ],
+                            "label_field": null,
+                            "numeric_fields": [],
+                            "categorical_fields": [
+                                "table_name",
+                                "column_name",
+                                "dtype"
+                            ],
+                            "partition_count": 1,
+                            "suggested_models": [
+                                "transformer",
+                                "custom"
+                            ]
+                        },
+                        "schema_summary": {
+                            "column_count": 7
+                        },
+                        "dagents_projection": {
+                            "context.question": "Which customers have the highest total order value?",
+                            "schema_profile.record_count": 7,
+                            "schema_summary.column_count": 7
+                        }
+                    },
+                    "step_results": [
+                        {
+                            "step_id": "attach_question",
+                            "kind": "enrich_context",
+                            "status": "completed",
+                            "output": {
+                                "target_field": "context",
+                                "merged_keys": [
+                                    "question"
+                                ]
+                            },
+                            "started_at": 1778295408,
+                            "completed_at": 1778295408
+                        },
+                        {
+                            "step_id": "profile_schema_records",
+                            "kind": "profile_dataset",
+                            "status": "completed",
+                            "output": {
+                                "target_field": "schema_profile",
+                                "record_count": 7,
+                                "feature_count": 3
+                            },
+                            "started_at": 1778295408,
+                            "completed_at": 1778295408
+                        },
+                        {
+                            "step_id": "summarize_columns",
+                            "kind": "summarize_items",
+                            "status": "completed",
+                            "output": {
+                                "target_field": "schema_summary",
+                                "summary_keys": [
+                                    "column_count"
+                                ]
+                            },
+                            "started_at": 1778295408,
+                            "completed_at": 1778295408
+                        },
+                        {
+                            "step_id": "project_generation_context",
+                            "kind": "project_fields",
+                            "status": "completed",
+                            "output": {
+                                "target_field": "dagents_projection",
+                                "projected_fields": [
+                                    "context.question",
+                                    "schema_profile.record_count",
+                                    "schema_summary.column_count"
+                                ]
+                            },
+                            "started_at": 1778295408,
+                            "completed_at": 1778295408
+                        }
+                    ],
+                    "error": null
+                }
+            }
+        },
+        {
+            "name": "model-service catalog",
+            "status": "ok",
+            "detail": "completed",
+            "payload": {
+                "datasets": {
+                    "datasets": [
+                        {
+                            "name": "creditcard_openml",
+                            "source": "OpenML",
+                            "source_url": "https://www.openml.org/d/42397",
+                            "description": "Credit card fraud anomaly detection benchmark hosted on OpenML.",
+                            "anomaly_label": "True",
+                            "rows": null,
+                            "features": null
+                        },
+                        {
+                            "name": "kddcup99_http",
+                            "source": "scikit-learn",
+                            "source_url": "https://scikit-learn.org/stable/modules/generated/sklearn.datasets.fetch_kddcup99.html",
+                            "description": "KDD Cup 1999 HTTP subset for network intrusion anomaly detection.",
+                            "anomaly_label": "not normal.",
+                            "rows": null,
+                            "features": null
+                        },
+                        {
+                            "name": "mammography_openml",
+                            "source": "OpenML",
+                            "source_url": "https://www.openml.org/d/310",
+                            "description": "Mammography anomaly detection benchmark hosted on OpenML.",
+                            "anomaly_label": "1",
+                            "rows": null,
+                            "features": null
+                        }
+                    ]
+                },
+                "recent_jobs": {
+                    "jobs": []
+                }
+            }
+        },
+        {
+            "name": "GMA register NL2SQL LMA",
+            "status": "ok",
+            "detail": "completed",
+            "payload": {
+                "accepted": true,
+                "deployment_plan_id": null,
+                "capabilities": [
+                    "source_registration",
+                    "source_validation",
+                    "source_profiling",
+                    "model_execution",
+                    "telemetry",
+                    "deployment_sync"
+                ]
+            }
+        },
+        {
+            "name": "GMA LMA heartbeat",
+            "status": "ok",
+            "detail": "completed",
+            "payload": {
+                "ack": true,
+                "desired_state": "ACTIVE"
+            }
+        },
+        {
+            "name": "LMA source registration and validation",
+            "status": "ok",
+            "detail": "completed",
+            "payload": {
+                "registered": {
+                    "source_id": "nl2sql-schema-source",
+                    "kind": "inline",
+                    "connection_ref": null,
+                    "selection": {
+                        "records": [
+                            {
+                                "table_name": "customers",
+                                "column_name": "customer_id",
+                                "dtype": "INTEGER"
+                            },
+                            {
+                                "table_name": "customers",
+                                "column_name": "customer_name",
+                                "dtype": "TEXT"
+                            },
+                            {
+                                "table_name": "customers",
+                                "column_name": "region",
+                                "dtype": "TEXT"
+                            },
+                            {
+                                "table_name": "orders",
+                                "column_name": "order_id",
+                                "dtype": "INTEGER"
+                            },
+                            {
+                                "table_name": "orders",
+                                "column_name": "customer_id",
+                                "dtype": "INTEGER"
+                            },
+                            {
+                                "table_name": "orders",
+                                "column_name": "order_total",
+                                "dtype": "FLOAT"
+                            },
+                            {
+                                "table_name": "orders",
+                                "column_name": "created_at",
+                                "dtype": "TIMESTAMP"
+                            }
+                        ]
+                    },
+                    "format": "rows",
+                    "schema_hint": {
+                        "table_name": "string",
+                        "column_name": "string",
+                        "dtype": "string"
+                    },
+                    "batching": {
+                        "batch_size": 1000,
+                        "max_records": 7
+                    },
+                    "checkpoint": {},
+                    "options": {
+                        "consumer": "nl2sql-demo"
+                    }
+                },
+                "validation": {
+                    "valid": true,
+                    "errors": [],
+                    "warnings": []
+                }
+            }
+        },
+        {
+            "name": "GMA source registration and validation",
+            "status": "ok",
+            "detail": "completed",
+            "payload": {
+                "registered": {
+                    "source_id": "nl2sql-schema-source",
+                    "kind": "inline",
+                    "connection_ref": null,
+                    "selection": {
+                        "records": [
+                            {
+                                "table_name": "customers",
+                                "column_name": "customer_id",
+                                "dtype": "INTEGER"
+                            },
+                            {
+                                "table_name": "customers",
+                                "column_name": "customer_name",
+                                "dtype": "TEXT"
+                            },
+                            {
+                                "table_name": "customers",
+                                "column_name": "region",
+                                "dtype": "TEXT"
+                            },
+                            {
+                                "table_name": "orders",
+                                "column_name": "order_id",
+                                "dtype": "INTEGER"
+                            },
+                            {
+                                "table_name": "orders",
+                                "column_name": "customer_id",
+                                "dtype": "INTEGER"
+                            },
+                            {
+                                "table_name": "orders",
+                                "column_name": "order_total",
+                                "dtype": "FLOAT"
+                            },
+                            {
+                                "table_name": "orders",
+                                "column_name": "created_at",
+                                "dtype": "TIMESTAMP"
+                            }
+                        ]
+                    },
+                    "format": "rows",
+                    "schema_hint": {
+                        "table_name": "string",
+                        "column_name": "string",
+                        "dtype": "string"
+                    },
+                    "batching": {
+                        "batch_size": 1000,
+                        "max_records": 7
+                    },
+                    "checkpoint": {},
+                    "options": {
+                        "consumer": "nl2sql-demo"
+                    }
+                },
+                "validation": {
+                    "valid": true,
+                    "errors": [],
+                    "warnings": []
+                }
+            }
+        },
+        {
+            "name": "LMA source profile",
+            "status": "ok",
+            "detail": "completed",
+            "payload": {
+                "scope_id": "nl2sql-schema-source",
+                "scope_kind": "source",
+                "extraction_strategy": "tabular",
+                "record_count": 7,
+                "feature_fields": [
+                    "table_name",
+                    "column_name",
+                    "dtype"
+                ],
+                "label_field": null,
+                "numeric_fields": [],
+                "categorical_fields": [
+                    "table_name",
+                    "column_name",
+                    "dtype"
+                ],
+                "partition_count": 1,
+                "suggested_models": [
+                    "transformer",
+                    "custom"
+                ]
+            }
+        },
+        {
+            "name": "LMA source model job",
+            "status": "ok",
+            "detail": "completed",
+            "payload": {
+                "dataset_profile": {
+                    "scope_id": "nl2sql-schema-source",
+                    "scope_kind": "source",
+                    "extraction_strategy": "tabular",
+                    "record_count": 7,
+                    "feature_fields": [
+                        "table_name",
+                        "column_name",
+                        "dtype"
+                    ],
+                    "label_field": null,
+                    "numeric_fields": [],
+                    "categorical_fields": [
+                        "table_name",
+                        "column_name",
+                        "dtype"
+                    ],
+                    "partition_count": 1,
+                    "suggested_models": [
+                        "transformer",
+                        "custom"
+                    ]
+                },
+                "run": {
+                    "run_id": "lma-nl2sql-schema-source-1778295408",
+                    "agent_role": "LMA",
+                    "scope_id": "nl2sql-schema-source",
+                    "scope_kind": "source",
+                    "task_type": "embedding",
+                    "model_family": "transformer",
+                    "record_count": 7,
+                    "feature_count": 3,
+                    "batch_count": 1,
+                    "status": "completed",
+                    "metrics": {
+                        "quality_score": 0.805,
+                        "throughput_rows_per_batch": 7.0,
+                        "feature_coverage": 0.5
+                    },
+                    "artifact_uri": "artifacts/nl2sql-demo/lma/nl2sql-schema-source/transformer-demo-v1.json",
+                    "started_at": 1778295408,
+                    "completed_at": 1778295408
+                }
+            }
+        },
+        {
+            "name": "GMA assimilated profile",
+            "status": "ok",
+            "detail": "completed",
+            "payload": {
+                "scope_id": "nl2sql-schema-assimilated",
+                "scope_kind": "assimilated",
+                "extraction_strategy": "tabular",
+                "record_count": 7,
+                "feature_fields": [
+                    "table_name",
+                    "column_name",
+                    "dtype"
+                ],
+                "label_field": null,
+                "numeric_fields": [],
+                "categorical_fields": [
+                    "table_name",
+                    "column_name",
+                    "dtype"
+                ],
+                "partition_count": 1,
+                "suggested_models": [
+                    "transformer",
+                    "custom"
+                ]
+            }
+        },
+        {
+            "name": "GMA aggregate model job",
+            "status": "ok",
+            "detail": "completed",
+            "payload": {
+                "dataset_profile": {
+                    "scope_id": "nl2sql-schema-assimilated",
+                    "scope_kind": "assimilated",
+                    "extraction_strategy": "tabular",
+                    "record_count": 7,
+                    "feature_fields": [
+                        "table_name",
+                        "column_name",
+                        "dtype"
+                    ],
+                    "label_field": null,
+                    "numeric_fields": [],
+                    "categorical_fields": [
+                        "table_name",
+                        "column_name",
+                        "dtype"
+                    ],
+                    "partition_count": 1,
+                    "suggested_models": [
+                        "transformer",
+                        "custom"
+                    ]
+                },
+                "run": {
+                    "run_id": "gma-nl2sql-schema-assimilated-1778295408",
+                    "agent_role": "GMA",
+                    "scope_id": "nl2sql-schema-assimilated",
+                    "scope_kind": "assimilated",
+                    "task_type": "embedding",
+                    "model_family": "transformer",
+                    "record_count": 7,
+                    "feature_count": 3,
+                    "batch_count": 1,
+                    "status": "completed",
+                    "metrics": {
+                        "quality_score": 0.845,
+                        "throughput_rows_per_batch": 7.0,
+                        "feature_coverage": 0.5
+                    },
+                    "artifact_uri": "artifacts/nl2sql-demo/gma/nl2sql-schema-assimilated/transformer-demo-v1.json",
+                    "started_at": 1778295408,
+                    "completed_at": 1778295408
+                }
+            }
+        },
+        {
+            "name": "GMA desired deployment and sync",
+            "status": "ok",
+            "detail": "completed",
+            "payload": {
+                "desired": {
+                    "agent_id": "nl2sql-lma",
+                    "bundle_id": "nl2sql-schema-bundle",
+                    "bundle_version": "demo-v1",
+                    "bundle_uri": "oci://dagents/nl2sql-schema-bundle:demo-v1",
+                    "config": {
+                        "source_id": "nl2sql-schema-source",
+                        "pipeline_id": "nl2sql-demo-schema-flow"
+                    },
+                    "plan_token": "plan-fa1b2da8e842",
+                    "config_digest": "fa1b2da8e842b3d14f9c9b6ec0445c86ed41336ed0fe4fa87d12b67d8cd86d81",
+                    "created_at": 1778295408
+                },
+                "sync": {
+                    "up_to_date": true,
+                    "plan_token": "plan-fa1b2da8e842",
+                    "config_digest": "fa1b2da8e842b3d14f9c9b6ec0445c86ed41336ed0fe4fa87d12b67d8cd86d81",
+                    "desired_bundle_id": "nl2sql-schema-bundle",
+                    "desired_bundle_version": "demo-v1",
+                    "desired_bundle_uri": "oci://dagents/nl2sql-schema-bundle:demo-v1"
+                }
+            }
+        },
+        {
+            "name": "GMA aggregate run dispatch",
+            "status": "ok",
+            "detail": "completed",
+            "payload": {
+                "accepted": true,
+                "message": "Queued run nl2sql-1778295408 for agent nl2sql-lma"
+            }
+        },
+        {
+            "name": "GMA fleet overview",
+            "status": "ok",
+            "detail": "completed",
+            "payload": {
+                "total_agents": 1,
+                "active_agents": 0,
+                "telemetry_events": 0,
+                "pending_deployments": 0,
+                "dispatched_runs": 2
+            }
+        },
+        {
+            "name": "Dagents service status",
+            "status": "ok",
+            "detail": "completed",
+            "payload": {
+                "services": [
+                    {
+                        "name": "core-service",
+                        "url": "http://core-service:8040/api/v1/health",
+                        "status": "ok",
+                        "detail": "reachable"
+                    },
+                    {
+                        "name": "pipeline-service",
+                        "url": "http://pipeline-service:8030/api/v1/health",
+                        "status": "ok",
+                        "detail": "reachable"
+                    },
+                    {
+                        "name": "model-service",
+                        "url": "http://model-service:8000/api/v1/health",
+                        "status": "ok",
+                        "detail": "reachable"
+                    },
+                    {
+                        "name": "lma",
+                        "url": "http://lma:8010/health",
+                        "status": "ok",
+                        "detail": "reachable"
+                    },
+                    {
+                        "name": "gma",
+                        "url": "http://gma:8020/health",
+                        "status": "ok",
+                        "detail": "reachable"
+                    }
+                ]
+            }
+        }
+    ]
+}

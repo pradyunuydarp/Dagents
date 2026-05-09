@@ -64,7 +64,7 @@ def generate_sql(
     descriptor = registry.descriptor(request.model_id)
     schema_ddl = ddl_from_tables(request.tables)
     trace = orchestrator.functional_trace(request.tables, request.question) if request.use_dagents_services else []
-    sql, prompt, used_fallback = registry.generate(
+    sql, prompt, used_fallback, fallback_detail = registry.generate(
         descriptor,
         request.question,
         request.tables,
@@ -78,5 +78,6 @@ def generate_sql(
         schema_ddl=schema_ddl,
         adapter_kind=descriptor.adapter_kind,
         used_fallback=used_fallback,
+        fallback_detail=fallback_detail,
         dagents_trace=trace,
     )

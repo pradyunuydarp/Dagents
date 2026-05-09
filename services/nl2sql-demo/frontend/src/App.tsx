@@ -20,6 +20,7 @@ type GenerateResponse = {
   schema_ddl: string;
   adapter_kind: string;
   used_fallback: boolean;
+  fallback_detail?: string | null;
   dagents_trace: TraceStep[];
 };
 type ServiceStatus = { name: string; url: string; status: string; detail: string };
@@ -174,7 +175,12 @@ export default function App() {
         <div className="panel">
           <h2><Wand2 size={18} /> Generated SQL</h2>
           <pre className="sql">{result?.sql ?? "Run a sample to generate SQL."}</pre>
-          {result?.used_fallback && <div className="warning">Model artifact was unavailable; deterministic Dagents demo fallback generated this SQL.</div>}
+          {result?.used_fallback && (
+            <div className="warning">
+              Model adapter fallback generated this SQL.
+              {result.fallback_detail ? ` Detail: ${result.fallback_detail}` : ""}
+            </div>
+          )}
           <h3>DDL Context</h3>
           <pre>{result?.schema_ddl ?? ddlPreview(parsedTables)}</pre>
           <h3>Prompt Sent To Adapter</h3>

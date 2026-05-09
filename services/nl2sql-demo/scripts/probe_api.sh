@@ -2,7 +2,14 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
-API_BASE="${API_BASE:-http://127.0.0.1:8070}"
+COMPOSE_ENV="${COMPOSE_ENV:-$ROOT_DIR/env/.env.compose}"
+if [ -f "$COMPOSE_ENV" ]; then
+  set -a
+  # shellcheck disable=SC1090
+  . "$COMPOSE_ENV"
+  set +a
+fi
+API_BASE="${API_BASE:-http://127.0.0.1:${NL2SQL_DEMO_BACKEND_HOST_PORT:-8070}}"
 OUTPUT_DIR="${OUTPUT_DIR:-$ROOT_DIR/docs/demo/expected}"
 OUTPUT_FILE="$OUTPUT_DIR/nl2sql-generate.json"
 
@@ -39,5 +46,49 @@ curl -fsS -X POST "$API_BASE/api/v1/generate" \
   -d "$payload" |
   python3 -m json.tool |
   tee "$OUTPUT_FILE"
+
+python3 - "$OUTPUT_FILE" <<'PY'
+import json
+import sys
+
+path = sys.argv[1]
+payload = json.load(open(path, encoding="utf-8"))
+required_steps = {
+    "Dagents SourceSpec validation",
+    "Dagents extraction planning",
+    "Dagents schema contract validation",
+    "Dagents quality rules",
+    "Dagents pipeline DAG planning",
+    "Dagents model route planning",
+    "core-service workload compile",
+    "pipeline-service register and run",
+    "GMA register NL2SQL LMA",
+    "GMA LMA heartbeat",
+    "LMA source registration and validation",
+    "GMA source registration and validation",
+    "LMA source profile",
+    "LMA source model job",
+    "GMA assimilated profile",
+    "GMA aggregate model job",
+    "GMA desired deployment and sync",
+    "GMA aggregate run dispatch",
+}
+trace = payload.get("dagents_trace", [])
+names = {step.get("name") for step in trace}
+missing = sorted(required_steps - names)
+warnings = [step for step in trace if step.get("status") != "ok"]
+
+if "SELECT" not in payload.get("sql", "").upper():
+    raise SystemExit("Probe failed: response did not include generated SQL")
+if missing:
+    raise SystemExit(f"Probe failed: missing Dagents trace steps: {', '.join(missing)}")
+if warnings:
+    details = "; ".join(f"{step.get('name')}: {step.get('detail')}" for step in warnings)
+    raise SystemExit(f"Probe failed: Dagents trace contains non-ok steps: {details}")
+
+if payload.get("used_fallback"):
+    print(f"Fallback detail: {payload.get('fallback_detail')}")
+print(f"Validated {len(trace)} Dagents trace steps.")
+PY
 
 printf '\nSaved response to %s\n' "$OUTPUT_FILE"

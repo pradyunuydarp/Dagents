@@ -6,6 +6,9 @@ import subprocess
 import tempfile
 from typing import Any
 
+DATA_RECORD_KEYS = {"records", "inlineRecords"}
+DATA_MAP_KEYS = {"schemaHint", "options", "connectionOptions", "config", "configJson"}
+
 def to_camel_case(snake_str: str) -> str:
     components = snake_str.split('_')
     return components[0] + ''.join(x.title() for x in components[1:])
@@ -17,7 +20,14 @@ def convert_keys(obj: Any, convert_func) -> Any:
     if isinstance(obj, list):
         return [convert_keys(item, convert_func) for item in obj]
     elif isinstance(obj, dict):
-        return {convert_func(key): convert_keys(value, convert_func) for key, value in obj.items()}
+        converted: dict[str, Any] = {}
+        for key, value in obj.items():
+            converted_key = convert_func(key)
+            if converted_key in DATA_RECORD_KEYS or converted_key in DATA_MAP_KEYS:
+                converted[converted_key] = value
+            else:
+                converted[converted_key] = convert_keys(value, convert_func)
+        return converted
     else:
         return obj
 
@@ -57,7 +67,10 @@ def run_dagentsc_with_files(command: list[str], payloads: dict[str, Any]) -> Any
         resolved_command = list(command)
         for flag, payload in payloads.items():
             with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as handle:
-                json.dump(convert_keys(payload, to_camel_case), handle)
+                if flag == "--records":
+                    json.dump(payload, handle)
+                else:
+                    json.dump(convert_keys(payload, to_camel_case), handle)
                 temp_paths.append(handle.name)
                 flag_index = resolved_command.index(flag)
                 resolved_command[flag_index + 1] = handle.name
