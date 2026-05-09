@@ -3,21 +3,17 @@
 \usepackage{amsmath,amssymb}
 \usepackage{booktabs}
 \usepackage{cite}
+\usepackage{graphicx}
 \usepackage{hyperref}
 \usepackage{listings}
-\usepackage{tikz}
 \usepackage{xcolor}
-\usetikzlibrary{arrows.meta,positioning,shapes.geometric,fit}
 
-\definecolor{dagentsInk}{HTML}{152238}
-\definecolor{dagentsBlue}{HTML}{2563EB}
-\definecolor{dagentsGreen}{HTML}{059669}
-\definecolor{dagentsAmber}{HTML}{D97706}
 \definecolor{dagentsSoft}{HTML}{F3F6FA}
 \definecolor{dagentsLine}{HTML}{CBD5E1}
+\definecolor{dagentsCode}{HTML}{152238}
 
 \lstdefinestyle{dagents}{
-  basicstyle=\ttfamily\footnotesize,
+  basicstyle=\ttfamily\footnotesize\color{dagentsCode},
   breaklines=true,
   columns=fullflexible,
   frame=single,
@@ -25,7 +21,7 @@
   backgroundcolor=\color{dagentsSoft}
 }
 
-\title{Dagents: A Functional-Planning Framework for Data Engineering, ML Orchestration, and NL2SQL Applications}
+\title{Final Report: Dagents, a Functional Planning Framework for Data Agents}
 
 \author{
 \IEEEauthorblockN{Pradyun Devarakonda \quad Dheeraj Rajanala}
@@ -38,442 +34,432 @@ IMT2022525, IMT2022093}
 \maketitle
 
 \begin{abstract}
-Dagents is a reusable agentic framework for data engineering, ML automation,
-workload generation, and local/global orchestration. The project combines
-Python services, shared Pydantic contracts, container-ready deployment
-boundaries, and an OCaml functional planner layer. This final report explains
-the whole system, with special focus on how functional programming is used to
-make deterministic planning tasks safer: source validation, extraction
-planning, schema validation, quality evaluation, transform planning, pipeline
-DAG validation, model routing, and Kubernetes manifest rendering. The report
-also covers a new NL2SQL demo application that uses Dagents end-to-end: it
-takes a database schema and natural-language question, invokes notebook-trained
-model artifacts through adapters, and shows how core-service, pipeline-service,
-model-service, LMA, GMA, and the OCaml planner participate in the generation
-flow. The main result is a polyglot architecture where functional programming
-does not replace the runtime stack; instead, it provides a typed planner kernel
-that runtime services can trust and reuse.
+Dagents is a reusable framework for data computation agents. It supports
+source-level computation through Local Monitoring Agents (LMA), multi-source
+coordination through a Global Monitoring Agent (GMA), service APIs for pipeline
+and workload execution, and OCaml modules for functional planning. The main
+programming languages idea is simple: keep stateful runtime work in services,
+but move validation, routing, planning, and manifest generation into typed,
+deterministic functional modules. This report describes the final state of the
+project, the OCaml functional programming layer, the runtime services, and the
+NL2SQL quick demo app that uses Dagents end to end.
 \end{abstract}
 
 \begin{IEEEkeywords}
-functional programming, OCaml, data engineering, NL2SQL, ML orchestration,
-pipeline planning, Kubernetes, agentic systems
+functional programming, OCaml, data agents, ML orchestration, NL2SQL,
+pipeline planning, Kubernetes
 \end{IEEEkeywords}
 
 \section{Introduction}
 
-Modern data and ML applications are rarely a single program. They combine
-source extraction, quality checks, data transformations, pipeline execution,
-model training, inference, deployment, and operational monitoring. If these
-decisions are implemented as scattered conditional logic across multiple
-services, the system becomes difficult to test and explain.
+Many data and ML systems need the same repeated tasks: profile a source,
+validate a schema, check data quality, choose a model, run a workflow, and
+deploy the required workload. These tasks often become scattered across
+services as conditional code. That makes the system harder to test and harder
+to explain.
 
-Dagents addresses this problem by separating two concerns. Runtime services
-perform side-effecting work: HTTP APIs, source access, model execution, and
-workflow execution. A functional planner layer performs deterministic
-translation: structured inputs become validated plans. The project is therefore
-polyglot by design. Python is used for FastAPI services, ML libraries, and
-integration. OCaml is used where type structure, pattern matching, and pure
-functions improve correctness.
+Dagents solves this by separating planning from execution. Runtime services
+handle APIs, storage, model execution, and deployment. The OCaml layer handles
+pure planning work. It accepts typed or JSON-backed inputs and returns explicit
+plans, reports, routes, or manifests.
 
-This report describes the final state of the project, including the main
-Dagents stack and a concrete NL2SQL demo application built on top of it. The
-demo is important because it shows that Dagents is not only a collection of
-planning modules. It can support an application that accepts schema and natural
-language input, uses trained model artifacts, and makes the service/planner
-trace visible to a presenter.
+The project also includes an NL2SQL quick demo. The demo takes a database
+schema and a natural language question, generates SQL, and shows a Dagents
+trace. This trace proves that the app is not a standalone wrapper. It uses
+Dagents planners, core-service, pipeline-service, model-service, LMA, and GMA.
 
-\section{Problem Description and Objectives}
+\section{Project Goal}
 
-The core learning objective was to demonstrate where functional programming is
-useful in an application-scale data engineering system. The intended outcome was
-not a programming-language compiler. In this project, module names such as
-\texttt{dataset\_compiler} and \texttt{pipeline\_compiler} mean
-domain-specific planners or translators. They lower Dagents specifications into
-runtime plans. They do not parse or compile a general programming language.
+The goal was to build a working data-agent framework and use functional
+programming where it fits naturally. The OCaml code is not a general-purpose
+compiler. In this project, words such as compiler and planner mean a
+domain-specific translator from one Dagents contract to another.
 
-The project objectives were:
+The main goals were:
 
 \begin{itemize}
-  \item build a reusable ML/data-engineering framework with local and aggregate
-  agent boundaries;
-  \item implement typed functional planner kernels in OCaml;
-  \item expose planner functionality to services through a process boundary;
-  \item demonstrate full-app usage through service health, topology, pipeline,
-  model, workload, LMA, and GMA flows;
-  \item add an NL2SQL demo app that uses Dagents rather than a separate generic
-  backend;
-  \item provide a presentation-ready demo package, documentation, and tests.
+  \item support one local computation agent per source;
+  \item support one global agent for multi-source computation;
+  \item provide reusable service APIs for pipelines, model jobs, topology, and
+  workload generation;
+  \item use OCaml for typed planning, validation, routing, and rendering;
+  \item expose OCaml through a JSON process boundary using \texttt{dagentsc};
+  \item show app-level usage through the NL2SQL quick demo.
 \end{itemize}
 
-\section{System Overview}
+\section{Project Context}
 
-Dagents is organized around reusable services and shared contracts. The major
-runtime components are:
-
-\begin{itemize}
-  \item \textbf{LMA}: Local Monitoring Agent for source-scoped execution.
-  \item \textbf{GMA}: Global Monitoring Agent for fleet-wide coordination and
-  aggregate data processing.
-  \item \textbf{core-service}: service catalog, topology, and workload/manifest
-  generation.
-  \item \textbf{pipeline-service}: JSON workflow registration and execution.
-  \item \textbf{model-service}: reusable ML dataset catalog, training, and
-  model-job support.
-  \item \textbf{bindings/ocaml}: pure functional planner modules.
-  \item \textbf{nl2sql-demo}: a React and FastAPI demo app that proves Dagents
-  can host a downstream application.
-\end{itemize}
+Dagents uses two agent levels. The local agent is called LMA in the codebase.
+It can also be explained as a source-level computation agent. The GMA is the
+global agent. It registers local agents, receives source outputs, and prepares
+aggregate or multi-source computation.
 
 \begin{figure*}[t]
 \centering
-\begin{tikzpicture}[
-  node distance=10mm and 13mm,
-  service/.style={draw=dagentsLine, fill=dagentsSoft, rounded corners=2pt, minimum width=31mm, minimum height=10mm, align=center, font=\footnotesize},
-  kernel/.style={draw=dagentsBlue, fill=blue!6, rounded corners=2pt, minimum width=34mm, minimum height=10mm, align=center, font=\footnotesize\bfseries},
-  app/.style={draw=dagentsGreen, fill=green!7, rounded corners=2pt, minimum width=34mm, minimum height=10mm, align=center, font=\footnotesize\bfseries},
-  arrow/.style={-{Latex[length=2mm]}, thick, draw=dagentsInk}
-]
-\node[app] (ui) {React NL2SQL\\Frontend};
-\node[app, right=of ui] (api) {NL2SQL Demo\\FastAPI Backend};
-\node[kernel, right=of api] (ocaml) {OCaml Functional\\Planner (\texttt{dagentsc})};
-\node[service, below=of api] (pipeline) {pipeline-service\\workflow execution};
-\node[service, below=of pipeline] (core) {core-service\\topology + workloads};
-\node[service, below=of ocaml] (model) {model-service\\ML catalog/jobs};
-\node[service, above=of ocaml] (lma) {LMA\\source profiling};
-\node[service, above=of api] (gma) {GMA\\aggregate profiling};
-\draw[arrow] (ui) -- (api);
-\draw[arrow] (api) -- (ocaml);
-\draw[arrow] (api) -- (pipeline);
-\draw[arrow] (api) -- (core);
-\draw[arrow] (api) -- (model);
-\draw[arrow] (api) -- (lma);
-\draw[arrow] (api) -- (gma);
-\draw[arrow] (pipeline) -- (ocaml);
-\draw[arrow] (core) -- (ocaml);
-\end{tikzpicture}
-\caption{Dagents application architecture. Runtime services perform side effects;
-the OCaml layer performs deterministic functional planning.}
-\label{fig:architecture}
+\includegraphics[width=\textwidth]{../presentation/puml/dagents_project_context.png}
+\caption{Project context: source-level agents feed a global multi-source agent.}
+\label{fig:context}
 \end{figure*}
 
-Figure~\ref{fig:architecture} shows the main structure. The NL2SQL app uses the
-same services as the rest of Dagents. It does not implement a standalone
-generic backend. The backend imports shared Dagents domain models, calls the
-OCaml planner through \texttt{dagents\_runner}, and touches core-service,
-pipeline-service, model-service, LMA, and GMA in its trace.
+Figure~\ref{fig:context} shows the non-technical view. A product backend, such
+as Watchdog, Datalytics, or the NL2SQL demo, uses Dagents services. Each data
+source can have its own LMA. The GMA combines local outputs and coordinates
+multi-source work.
 
-\section{Functional Planner Layer}
+\section{High-Level Architecture}
 
-The OCaml workspace is located under \texttt{bindings/ocaml}. The modules are
-shown below:
+The full project is a polyglot system. Python is used for FastAPI services,
+ML-related work, and integration. Spring Boot services are present for control
+and core-service variants. OCaml is used for the functional planner layer.
 
-\begin{lstlisting}[style=dagents]
-bindings/ocaml
-|-- lib/common_ir
-|-- lib/dataset_compiler
-|-- lib/pipeline_compiler
-|-- lib/model_router
-|-- lib/manifest_compiler
-`-- bin/dagentsc.ml
-\end{lstlisting}
+\begin{figure*}[t]
+\centering
+\includegraphics[width=\textwidth]{../presentation/puml/dagents_software_architecture.png}
+\caption{High-level software architecture of Dagents.}
+\label{fig:software}
+\end{figure*}
 
-\subsection{Common IR}
-
-\texttt{common\_ir} defines the typed domain representation shared by the
-planner modules. It models source kinds, records, schema fields, quality
-operators, severities, transform operations, pipeline steps, model families,
-task types, partition strategies, and workload kinds. Algebraic data types are
-important here because they make the planner domain explicit. For example, a
-source is not just a dictionary; it is one of a closed set of valid source
-forms such as inline, Postgres, MongoDB, or object storage.
-
-\subsection{Dataset Planner}
-
-\texttt{dataset\_compiler} is a source and dataset planner. It validates source
-specifications, constructs extraction plans, infers schemas, validates record
-shape against contracts, evaluates quality rules, and plans transformations.
-Quality checks are severity-aware: warning-level failures are reported, while
-error-level failures contribute to an aggregate blocking flag. Partitioning is
-also planned here, including time-window partitioning based on source options
-such as \texttt{timeField} and \texttt{timeWindow}.
-
-\subsection{Pipeline Planner}
-
-\texttt{pipeline\_compiler} validates JSON workflow DAGs. It rejects duplicate
-step IDs, unknown dependencies, and cycles. When a pipeline is valid, it returns
-a topological execution order and maps steps to execution targets. This is a
-natural functional programming problem because the planner is a pure graph
-transformation with well-defined failure modes.
-
-\subsection{Model Router}
-
-\texttt{model\_router} maps a dataset profile and task type to candidate model
-families. For example, forecasting can route toward recurrent families such as
-GRU/LSTM, while anomaly detection can route toward autoencoder-style models.
-The router does not train models. It decides what kind of model execution
-should be requested by runtime services.
-
-\subsection{Manifest Planner}
-
-\texttt{manifest\_compiler} translates workload specifications into Kubernetes
-YAML for Deployments, Jobs, CronJobs, Services, ConfigMaps, and ServiceAccounts.
-This replaces ad hoc YAML string construction with a typed rendering path.
-
-\subsection{Process Boundary}
-
-The CLI \texttt{dagentsc} is the integration boundary. Python services send JSON
-payloads to the OCaml planner and read JSON results back. This was chosen over
-direct FFI because subprocess integration is simple to test, easier to isolate,
-and portable across Python and Spring services.
-
-\section{Dagents Runtime Services}
-
-\subsection{LMA and GMA}
-
-The LMA is responsible for source-scoped work: profiling local datasets,
-executing local model runs, and tracking bundle/run state. The GMA is
-responsible for aggregate coordination: registering agents, tracking
-deployments, profiling assimilated datasets, and running aggregate model jobs.
-This split mirrors realistic deployments where some work happens near a tenant,
-stream, or application boundary, while other work happens centrally.
-
-\subsection{Core Service}
-
-Core service exposes framework metadata and workload planning:
-\texttt{/api/v1/health}, \texttt{/api/v1/services},
-\texttt{/api/v1/topology}, \texttt{/api/v1/manifests/pods}, and
-\texttt{/api/v1/workloads:compile}. In the NL2SQL demo, the backend calls core
-service to retrieve topology and compile a demo workload plan for the NL2SQL
-backend.
-
-\subsection{Pipeline Service}
-
-Pipeline service registers and runs JSON workflows. Built-in steps include
-context enrichment, filtering, summarization, field projection, dataset
-profiling, and model-job execution. The service can call the OCaml planner for
-pipeline validation. In NL2SQL, the backend registers a schema-profiling
-pipeline, runs it against schema-record payloads, and includes the result in the
-Dagents trace.
-
-\subsection{Model Service}
-
-Model service owns reusable ML infrastructure: dataset catalog, train endpoint,
-model jobs, classification/regression/forecasting checks, and source
-registration. NL2SQL uses the service for model catalog/job visibility while
-NL2SQL-specific adapters load the notebook-generated text-to-SQL artifacts.
-
-\section{NL2SQL Demo Application}
-
-The NL2SQL application demonstrates how a new app can be built on Dagents. It
-accepts a natural-language question and a table schema, renders the schema as
-DDL, formats the prompt according to the selected model family, runs the model
-adapter, and returns SQL plus a detailed Dagents trace.
-
-\subsection{Model Artifacts}
-
-The notebooks under \texttt{notebooks/} produced model artifacts under
-\texttt{models/}. The implemented adapters support:
+The main runtime parts are:
 
 \begin{itemize}
-  \item CodeQwen LoRA adapters using a Qwen chat template with a SQL-only system
-  instruction and a \texttt{Context}/\texttt{Question} user message;
-  \item CodeT5/T5-style sequence-to-sequence artifacts using
-  \texttt{question: \{question\} context: \{DDL\}}.
+  \item \textbf{core-service}: health, service catalog, topology, and workload
+  plan generation.
+  \item \textbf{pipeline-service}: JSON workflow registration and execution.
+  \item \textbf{model-service}: dataset catalog, model training, model jobs,
+  and source checks.
+  \item \textbf{LMA}: source-level profiling and model execution.
+  \item \textbf{GMA}: registration, heartbeat, deployment sync, aggregate
+  profiling, and aggregate model execution.
+  \item \textbf{OCaml planner}: deterministic source, pipeline, model, and
+  manifest planning.
 \end{itemize}
 
-The backend lazily extracts zip artifacts into a cache directory and loads the
-selected model when first requested. The deterministic fallback remains for
-demo reliability, but the default model is \texttt{codet5p\_spider\_model} when
-the runtime dependencies are available.
+\section{Functional Programming Layer}
 
-\subsection{Request Flow}
+The OCaml workspace is under \texttt{bindings/ocaml}. It contains reusable
+modules, a JSON codec, and the \texttt{dagentsc} CLI.
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=\textwidth]{../presentation/puml/ocaml_module_architecture.png}
+\caption{Low-level architecture of the OCaml functional modules.}
+\label{fig:ocamlmodules}
+\end{figure*}
+
+The modules are:
+
+\begin{itemize}
+  \item \texttt{common\_ir}: shared types for sources, records, profiles,
+  pipelines, models, quality rules, transforms, and workloads.
+  \item \texttt{dataset\_compiler}: schema inference, source validation,
+  extraction planning, schema contract validation, quality checks, transform
+  planning, and profile building.
+  \item \texttt{pipeline\_compiler}: duplicate step checks, missing dependency
+  checks, cycle checks, and topological ordering.
+  \item \texttt{model\_router}: maps a dataset profile and task type to model
+  candidates and a packaging mode.
+  \item \texttt{manifest\_compiler}: converts workload specs into Kubernetes
+  YAML bundles.
+  \item \texttt{json\_codec}: stable JSON input and output for service calls.
+  \item \texttt{dagentsc}: command-line entry point used by Python and Java
+  services.
+\end{itemize}
+
+\subsection{Why OCaml Was Useful}
+
+OCaml was useful because the planning logic has many closed choices. Examples
+include source kinds, task types, model families, quality operators, pipeline
+step kinds, and workload kinds. These are naturally represented with variant
+types and records.
+
+Pattern matching makes each decision visible. For example, when a new source
+kind is added, the planner code has clear places that must be updated. Pure
+functions also make tests easier because the same input always gives the same
+output.
+
+\subsection{When OCaml Runs}
+
+The OCaml layer is used in two ways. First, it is built before the app runs.
+Docker images compile and copy the \texttt{dagentsc} binary. Second, services
+call \texttt{dagentsc} at request time for validation and planning.
 
 \begin{figure}[t]
 \centering
-\begin{tikzpicture}[
-  flowstep/.style={draw=dagentsLine, fill=dagentsSoft, rounded corners=2pt, minimum width=37mm, minimum height=8mm, align=center, font=\scriptsize},
-  arrow/.style={-{Latex[length=1.7mm]}, thick, draw=dagentsInk}
-]
-\node[flowstep] (a) {Schema + question};
-\node[flowstep, below=of a] (b) {DDL + model prompt};
-\node[flowstep, below=of b] (c) {OCaml validation and planning};
-\node[flowstep, below=of c] (d) {Dagents services trace};
-\node[flowstep, below=of d] (e) {Model adapter inference};
-\node[flowstep, below=of e] (f) {SQL + trace in UI};
-\draw[arrow] (a) -- (b);
-\draw[arrow] (b) -- (c);
-\draw[arrow] (c) -- (d);
-\draw[arrow] (d) -- (e);
-\draw[arrow] (e) -- (f);
-\end{tikzpicture}
-\caption{NL2SQL flow through the Dagents framework.}
-\label{fig:nl2sqlflow}
+\includegraphics[width=\columnwidth]{../presentation/puml/ocaml_usage_timing.png}
+\caption{When the functional programming layer is used.}
+\label{fig:timing}
 \end{figure}
 
-The backend builds a trace with the following steps:
+OCaml does not train models, open database sockets, run a web server, or apply
+Kubernetes manifests. Those actions stay in runtime services. OCaml returns the
+plan that those services can execute.
 
-\begin{enumerate}
-  \item validate an inline schema source with the OCaml SourceSpec planner;
-  \item compile an extraction plan;
-  \item validate schema records against a schema contract;
-  \item evaluate quality rules for table name, column name, and type presence;
-  \item compile a pipeline DAG;
-  \item route a model task through the OCaml model router;
-  \item call core-service for catalog/topology and workload planning;
-  \item call pipeline-service to register and run a schema workflow;
-  \item call model-service for catalog and recent job visibility;
-  \item call LMA and GMA dataset profile endpoints.
-\end{enumerate}
+\section{Core Functional Tasks}
 
-This is what makes the demo a Dagents app rather than a standalone NL2SQL
-wrapper.
+Dagents supports several important planning tasks.
 
-\section{How the Project Can Be Used}
+\subsection{Source Profiling}
 
-Dagents can be used in several ways beyond the course demo:
+Source profiling means reading the shape of a source and summarizing it before
+model execution. For example, if a schema source contains records for
+\texttt{table\_name}, \texttt{column\_name}, and \texttt{dtype}, the profiler
+can return record count, feature fields, numeric fields, categorical fields,
+partition count, and suggested model families.
 
-\begin{itemize}
-  \item \textbf{Data quality gateway}: validate sources, schemas, and quality
-  rules before expensive runtime jobs start.
-  \item \textbf{Reusable ML orchestration layer}: run source-level and
-  aggregate models through a shared LMA/GMA control plane.
-  \item \textbf{Workflow planning}: register JSON pipelines while using a typed
-  planner to reject cycles and invalid dependencies.
-  \item \textbf{Deployment generation}: render Kubernetes workload manifests
-  from typed workload specs.
-  \item \textbf{NL2SQL and analyst tools}: build applications that turn natural
-  language into data actions while exposing validation, routing, and service
-  traceability.
-  \item \textbf{Teaching functional programming}: show how algebraic data
-  types, pure functions, and pattern matching can improve a real service
-  architecture.
-\end{itemize}
+\subsection{Pipeline Orchestration}
 
-\section{Implementation Highlights}
+Pipeline orchestration means registering a workflow and running its steps in a
+safe order. For example, a schema workflow can first attach the user question,
+then profile schema records, then summarize columns, then project the context
+needed for SQL generation. The pipeline planner rejects invalid graphs before
+runtime.
 
-\begin{table}[t]
-\centering
-\caption{Functional and runtime responsibilities}
-\label{tab:split}
-\begin{tabular}{p{0.25\linewidth}p{0.31\linewidth}p{0.31\linewidth}}
-\toprule
-\textbf{Concern} & \textbf{OCaml planner} & \textbf{Runtime services} \\
-\midrule
-Source handling & validate shape, plan extraction, partitioning & connect to data sources, fetch records \\
-Schema and quality & infer/validate schemas, compute blocking status & persist reports, expose APIs \\
-Pipelines & check DAGs, order steps & execute handlers and store runs \\
-Models & route task to candidate model family & train, load, infer, persist artifacts \\
-Workloads & render deterministic YAML & publish topology, compile plans, deploy externally \\
-\bottomrule
-\end{tabular}
-\end{table}
+\subsection{Model Routing}
 
-Table~\ref{tab:split} summarizes the core design principle. OCaml owns
-deterministic policy and translation. Python owns side effects and ecosystem
-integration. This split also improves testing. Pure planner functions can be
-tested without databases, Docker, GPUs, or external APIs.
+Model routing chooses suitable model families for a task. For a text or
+embedding task, Dagents can route toward transformer-style models. For tabular
+anomaly detection, it can route toward autoencoders or random forests. The
+router does not run the model. It decides what should be run.
 
-The NL2SQL backend imports shared Dagents models and wrappers:
+\subsection{Manifest Generation}
+
+Manifest generation converts a typed workload spec into Kubernetes YAML. For
+example, the NL2SQL backend can be described as a Deployment with one HTTP
+port, environment variables, resource limits, a Service, and a ConfigMap. The
+manifest compiler turns that into a repeatable deployment bundle.
+
+\subsection{Workloads and Workload Compilation}
+
+A workload is the unit of runtime deployment. It can be a service, model job,
+pipeline worker, or scheduled task. Workload compilation means taking a clean
+Dagents workload spec and generating concrete deployment artifacts from it.
+This makes deployment less dependent on hand-written YAML.
+
+\section{Service API Example}
+
+A backend can integrate with Dagents by calling service APIs and the
+\texttt{dagentsc} planner. A simplified workload compile request is shown
+below.
 
 \begin{lstlisting}[style=dagents]
-from agents.common.infrastructure.dagents_runner import (
-    compile_dataset_extraction,
-    evaluate_dataset_quality,
-    run_dagentsc,
-    validate_dataset_schema,
-    validate_dataset_source,
-)
+POST /api/v1/workloads:compile
+{
+  "plan_id": "nl2sql-demo",
+  "namespace": "dagents-demo",
+  "include_services": true,
+  "include_config_maps": true,
+  "components": [
+    {
+      "name": "nl2sql-demo-backend",
+      "image": "dagents/nl2sql-demo-backend:local",
+      "kind": "Deployment",
+      "replicas": 1,
+      "ports": [
+        { "name": "http", "container_port": 8070 }
+      ],
+      "env": [
+        { "name": "NL2SQL_DEFAULT_MODEL_ID",
+          "value": "codet5p_spider_model" }
+      ]
+    }
+  ]
+}
 \end{lstlisting}
 
-This is the key integration point. It gives application code access to the
-functional layer without embedding OCaml in-process.
+The core service returns a workload plan with rendered manifests. The backend
+does not need to manually write every Kubernetes object.
 
-\section{Testing and Demo Evidence}
+\section{NL2SQL Quick Demo}
 
-The implemented test plan covers both the functional kernels and service
-integration wrappers:
+The NL2SQL quick demo is located under \texttt{services/nl2sql-demo}. It has a
+React frontend and a FastAPI backend. The user selects or edits a schema,
+enters a natural-language question, selects a model adapter, and generates SQL.
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=\textwidth]{../presentation/puml/nl2sql_dagents_integration.png}
+\caption{NL2SQL quick demo integration with the Dagents framework.}
+\label{fig:nl2sql}
+\end{figure*}
+
+The backend performs three jobs:
+
+\begin{itemize}
+  \item builds DDL context from the schema tables;
+  \item calls the selected NL2SQL model adapter or deterministic fallback;
+  \item builds a Dagents trace using planners and services.
+\end{itemize}
+
+The trace includes:
+
+\begin{itemize}
+  \item SourceSpec validation;
+  \item extraction planning;
+  \item schema contract validation;
+  \item data quality checks;
+  \item pipeline DAG planning;
+  \item model route planning;
+  \item core-service catalog, topology, and workload compilation;
+  \item pipeline-service registration and run execution;
+  \item model-service catalog and recent job access;
+  \item LMA source registration, validation, profiling, and source model job;
+  \item GMA registration, heartbeat, source validation, aggregate profiling,
+  aggregate model job, deployment sync, run dispatch, and fleet overview.
+\end{itemize}
+
+This answers an important design question: NL2SQL does use LMA and GMA in the
+Dagents sense. The LMA side handles source-scoped schema work. The GMA side
+handles aggregate coordination and multi-source style work. The demo also
+registers the NL2SQL LMA with GMA and sends a heartbeat.
+
+\subsection{Model Adapters and Fallback}
+
+The demo supports CodeT5-style and CodeQwen LoRA-style artifacts from the
+notebooks. These artifacts are loaded lazily from zip files under
+\texttt{models/}. For presentation safety, the app also has a deterministic
+fallback adapter. The fallback is useful when a GPU, model dependency, or
+artifact path is unavailable.
+
+The backend now returns a \texttt{fallback\_detail} field. This makes failures
+clear. Instead of only saying that fallback was used, the app can show whether
+the real cause was an import error, missing model config, or hardware/runtime
+issue.
+
+\section{Current Project State}
+
+At the final stage, the project contains:
+
+\begin{itemize}
+  \item working OCaml planner modules under \texttt{bindings/ocaml};
+  \item a \texttt{dagentsc} CLI for JSON-based planner calls;
+  \item LMA and GMA FastAPI services;
+  \item core-service, pipeline-service, and model-service;
+  \item Dockerfiles and Docker Compose wiring;
+  \item Spring service variants for core/control paths;
+  \item demo scripts under \texttt{docs/demo} and \texttt{services/nl2sql-demo/scripts};
+  \item PUML architecture diagrams and rendered images;
+  \item NL2SQL quick demo with model adapters and a visible Dagents trace.
+\end{itemize}
+
+The main implemented APIs include:
+
+\begin{itemize}
+  \item \texttt{GET /api/v1/health};
+  \item \texttt{GET /api/v1/services};
+  \item \texttt{GET /api/v1/topology};
+  \item \texttt{POST /api/v1/workloads:compile};
+  \item \texttt{POST /api/v1/pipelines};
+  \item \texttt{POST /api/v1/pipelines/\{id\}/runs};
+  \item \texttt{POST /api/v1/datasets:profile};
+  \item \texttt{POST /api/v1/model-jobs};
+  \item \texttt{PUT /api/v1/agents/\{id\}/registration};
+  \item \texttt{POST /api/v1/agents/\{id\}/heartbeats};
+  \item \texttt{POST /api/v1/generate} for the NL2SQL quick demo.
+\end{itemize}
+
+\section{Testing and Verification}
+
+The OCaml layer is tested with Dune. The tests cover schema inference, source
+validation, extraction planning, partition planning, schema contract checks,
+quality reports, transforms, pipeline ordering, cycle rejection, model routing,
+manifest rendering, and JSON codec round trips.
 
 \begin{lstlisting}[style=dagents]
+cd bindings/ocaml
 opam exec -- dune test
-opam exec -- dune build ./bin/dagentsc.exe
-.venv/bin/python -m pytest \
-  agents/tests/test_dagents_runner.py \
-  services/nl2sql-demo/tests/test_nl2sql_api.py
+\end{lstlisting}
+
+The NL2SQL backend tests verify health, samples, model descriptors, SQL
+generation, fallback metadata, and the expanded LMA/GMA trace.
+
+\begin{lstlisting}[style=dagents]
+python -m unittest services/nl2sql-demo/tests/test_nl2sql_api.py
+\end{lstlisting}
+
+The frontend build also passed:
+
+\begin{lstlisting}[style=dagents]
+cd services/nl2sql-demo/frontend
 npm run build
 \end{lstlisting}
 
-OCaml tests cover source validation, invalid source rejection, time-window
-partition planning, schema contract validation, quality reporting, transform
-planning/application, duplicate pipeline steps, unknown dependencies, cycle
-rejection, model routing, manifest rendering, and JSON codec round trips.
+Docker Compose configuration validates when the env file is supplied:
 
-The NL2SQL application was also run locally with the Dagents services active.
-The backend reported every service reachable and a full generation trace
-returned \texttt{ok} for planner steps, core-service, pipeline-service,
-model-service, LMA, GMA, and service status. A real CodeT5 model artifact was
-loaded through the backend engine and returned \texttt{used\_fallback: false}.
+\begin{lstlisting}[style=dagents]
+docker compose --env-file env/.env.compose config --quiet
+\end{lstlisting}
 
-\section{Design Decisions and Tradeoffs}
+The run scripts now check whether Docker Desktop is running and fail with a
+clear message if the daemon is unavailable.
 
-\subsection{Why OCaml?}
+\section{Design Tradeoffs}
 
-OCaml is used because the planner logic benefits from algebraic data types,
-exhaustive pattern matching, and immutable transformations. These features are
-especially helpful for cases where the system must know every valid source
-kind, quality operator, workload kind, or pipeline step category.
+\subsection{Why Not Put Everything in OCaml?}
 
-\subsection{Why Not Python Only?}
+The project keeps ML training, HTTP APIs, database access, and deployment
+execution outside OCaml. Python and Java are better suited for those parts
+because they have strong service and ML ecosystems. OCaml is used only where it
+adds clear value: typed planning and deterministic transformation.
 
-Python is excellent for APIs, ML, and integration, but the planner layer is a
-place where static structure reduces ambiguity. The project does not argue that
-all services should be rewritten in OCaml. It argues that the deterministic
-planning kernel is a good target for functional programming.
+\subsection{Why Use a Process Boundary?}
 
-\subsection{Why JSON Subprocess Instead of FFI?}
+The project uses \texttt{dagentsc} as a subprocess instead of direct FFI. This
+keeps the boundary simple. Services can pass JSON in, receive JSON out, and
+handle planner failure without crashing the service process.
 
-The subprocess boundary is less elegant than direct function calls but easier
-to operate. It isolates failures, works across languages, avoids ABI concerns,
-and makes input/output contracts visible in demo scripts and service tests.
+\subsection{Why Keep a Deterministic NL2SQL Fallback?}
 
-\subsection{Limitations}
+The fallback keeps the demo usable even when model artifacts, GPU memory, or
+optional ML dependencies are unavailable. It is not a replacement for the real
+model adapters. It is a presentation-safe path that still shows the Dagents
+trace and service integration.
 
-The OCaml layer intentionally avoids I/O. It does not connect to databases,
-train models, call Kubernetes, or access object storage. This keeps the planner
-pure, but it means runtime adapters still need production hardening. NL2SQL
-model quality also depends on the supplied artifacts, prompt format, model
-size, and available hardware.
+\section{Limitations and Future Work}
+
+The main limitations are:
+
+\begin{itemize}
+  \item persistence is still mostly in-memory for several services;
+  \item broker-backed messaging is not fully integrated;
+  \item production source connectors need more hardening;
+  \item NL2SQL model quality depends on artifact quality and runtime resources;
+  \item the OCaml planner currently communicates through JSON subprocess calls,
+  which is simple but not the fastest possible boundary.
+\end{itemize}
+
+Future work should add durable stores, broker-backed communication, stronger
+source adapters, CI-based container runs, and more model families. The OCaml
+layer can also grow with additional typed planners as Dagents adds more
+workload kinds.
 
 \section{Work Distribution}
 
-The project was divided into two primary roles:
+The work was split around system and functional responsibilities:
 
 \begin{itemize}
-  \item \textbf{Pradyun Devarakonda}: OCaml functional planner design,
-  \texttt{dagentsc} integration, dataset/pipeline/model/manifest planning,
-  demo scripts, report integration, and NL2SQL backend orchestration.
-  \item \textbf{Dheeraj Rajanala}: Dagents service architecture support,
-  LMA/GMA and service-flow validation, NL2SQL model artifact exploration,
-  frontend/demo usability, and presentation/testing support.
+  \item \textbf{Pradyun Devarakonda}: OCaml functional modules, planner CLI,
+  dataset/pipeline/model/manifest planning, NL2SQL backend orchestration, demo
+  scripts, and report material.
+  \item \textbf{Dheeraj Rajanala}: service architecture support, LMA/GMA flow
+  validation, NL2SQL model artifact work, frontend/demo support, and testing
+  support.
 \end{itemize}
 
-Both members contributed to integration, testing, and final presentation
-material. The work distribution reflects the course goal: connect functional
-programming ideas to a working application rather than presenting isolated
-examples.
+Both members contributed to integration, debugging, presentation material, and
+final verification.
 
 \section{Conclusion}
 
-Dagents demonstrates a practical way to use functional programming inside a
-larger data and ML framework. The OCaml layer supplies typed, deterministic
-planning. Python services supply APIs, runtime execution, and ML ecosystem
-support. The NL2SQL demo shows that new applications can be built on top of
-Dagents by reusing service contracts, functional planners, and model adapters.
+Dagents shows how functional programming can be used inside a real service
+architecture without replacing the whole stack. OCaml provides a typed planner
+kernel. Python and Java services provide runtime execution and integration.
+LMA and GMA provide local and global agent boundaries. The NL2SQL quick demo
+shows how a downstream application can use the same framework for validation,
+planning, routing, service orchestration, and traceability.
 
-The most important lesson is architectural: functional programming does not
-need to own the whole application to be valuable. It can be introduced as a
-small, high-leverage kernel where correctness depends on structured data,
-explicit cases, and deterministic transformations.
+The main result is a working framework that is easier to explain than a set of
+ad hoc services. Inputs become typed plans. Plans are tested. Services execute
+them. That separation is the central value of the project.
 
 \begin{thebibliography}{1}
 
@@ -486,20 +472,15 @@ X. Leroy, D. Doligez, A. Frisch, J. Garrigue, D. Remy, and J. Vouillon,
 \emph{The OCaml System: Documentation and User's Manual}. OCaml.org. [Online].
 Available: \url{https://ocaml.org/manual/}
 
-\bibitem{mapreduce}
-J. Dean and S. Ghemawat, ``MapReduce: Simplified data processing on large
-clusters,'' in \emph{Proc. 6th USENIX Symposium on Operating Systems Design and
-Implementation}, 2004, pp. 137--150.
-
 \bibitem{t5}
 C. Raffel et al., ``Exploring the limits of transfer learning with a unified
-text-to-text transformer,'' \emph{Journal of Machine Learning Research}, vol.
-21, no. 140, pp. 1--67, 2020.
+text-to-text transformer,'' \emph{Journal of Machine Learning Research},
+vol. 21, no. 140, pp. 1--67, 2020.
 
 \bibitem{codet5}
-Y. Wang, W. Wang, S. R. Joty, and S. C. H. Hoi, ``CodeT5: Identifier-aware
-unified pre-trained encoder-decoder models for code understanding and
-generation,'' in \emph{Proc. EMNLP}, 2021.
+Y. Wang, W. Wang, S. R. Joty, and S. C. H. Hoi, ``CodeT5:
+Identifier-aware unified pre-trained encoder-decoder models for code
+understanding and generation,'' in \emph{Proc. EMNLP}, 2021.
 
 \bibitem{spider}
 T. Yu et al., ``Spider: A large-scale human-labeled dataset for complex and

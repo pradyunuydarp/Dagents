@@ -158,6 +158,8 @@ services:
     build:
       context: .
       dockerfile: services/nl2sql-demo/backend/Dockerfile
+      args:
+        INSTALL_OPTIONAL_MODELS: "${NL2SQL_INSTALL_OPTIONAL_MODELS:-false}"
     container_name: dagents-nl2sql-demo-backend
     env_file:
       - ./env/.env.shared

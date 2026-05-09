@@ -423,17 +423,48 @@ let test_json_codec_roundtrip () =
         (match List.assoc "manifests" fields with `List manifests -> List.length manifests = 1 | _ -> false)
   | _ -> failwith "expected workload plan object"
 
-(** Run all regression tests. Dune treats uncaught exceptions as test failures. *)
+(** Render a compact textual progress bar for Dune test output.
+
+    Dune already has build-level progress with [--display=progress]. This
+    helper adds test-case-level progress, which is more useful for a live demo
+    because each functional module check is named as it runs. *)
+let progress_bar ~completed ~total =
+  let width = 24 in
+  let filled = if total = 0 then 0 else (completed * width) / total in
+  "[" ^ String.make filled '#'
+  ^ String.make (width - filled) '-'
+  ^ "]"
+
+(** Run one named test and print a progress line before and after it. *)
+let run_test ~index ~total (name, test) =
+  Printf.printf "%s %02d/%02d RUN  %s\n%!" (progress_bar ~completed:(index - 1) ~total) index total name;
+  test ();
+  Printf.printf "%s %02d/%02d PASS %s\n%!" (progress_bar ~completed:index ~total) index total name
+
+(** Run all regression tests with a visible report. Dune treats uncaught
+    exceptions as test failures, so a failing test stops after printing the
+    last RUN line. *)
 let () =
-  test_dataset_profile ();
-  test_dataset_source_and_extraction_plan ();
-  test_dataset_source_negative_cases ();
-  test_time_window_partition_planning ();
-  test_schema_quality_and_transform_apis ();
-  test_schema_validation_negative_cases ();
-  test_pipeline_compiler_orders_and_lowers ();
-  test_pipeline_compiler_rejects_cycles ();
-  test_pipeline_compiler_rejects_duplicates_and_unknown_dependencies ();
-  test_model_router ();
-  test_manifest_compiler_plan ();
-  test_json_codec_roundtrip ()
+  let tests =
+    [
+      ("dataset profile", test_dataset_profile);
+      ("source validation and extraction plan", test_dataset_source_and_extraction_plan);
+      ("source validation negative cases", test_dataset_source_negative_cases);
+      ("time-window partition planning", test_time_window_partition_planning);
+      ("schema, quality, and transform APIs", test_schema_quality_and_transform_apis);
+      ("schema validation negative cases", test_schema_validation_negative_cases);
+      ("pipeline ordering and lowering", test_pipeline_compiler_orders_and_lowers);
+      ("pipeline cycle rejection", test_pipeline_compiler_rejects_cycles);
+      ("pipeline duplicate and unknown dependency rejection", test_pipeline_compiler_rejects_duplicates_and_unknown_dependencies);
+      ("model routing", test_model_router);
+      ("manifest compiler plan", test_manifest_compiler_plan);
+      ("JSON codec round trip", test_json_codec_roundtrip);
+    ]
+  in
+  let total = List.length tests in
+  Printf.printf "Dagents OCaml functional test suite\n";
+  Printf.printf "Running %d test groups under Dune\n%!" total;
+  List.iteri (fun offset test -> run_test ~index:(offset + 1) ~total test) tests;
+  Printf.printf "%s %02d/%02d OK   all functional planner tests passed\n%!"
+    (progress_bar ~completed:total ~total)
+    total total

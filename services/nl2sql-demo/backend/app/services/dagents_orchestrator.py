@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from typing import Any
 
 import httpx
@@ -85,12 +86,42 @@ class DagentsOrchestrator:
 
     def _append_service_trace(self, trace: list[DagentsTraceStep], records: list[dict[str, Any]], question: str) -> None:
         """Touch the Dagents service stack with lightweight orchestration requests."""
+        source = self._schema_source_payload(records)
+        agent = self._nl2sql_lma_identity()
         self._append_trace(trace, "core-service catalog and topology", lambda: self._core_catalog_and_topology())
         self._append_trace(trace, "core-service workload compile", lambda: self._compile_demo_workload())
         self._append_trace(trace, "pipeline-service register and run", lambda: self._register_and_run_pipeline(records, question))
         self._append_trace(trace, "model-service catalog", lambda: self._model_service_catalog())
+        self._append_trace(trace, "GMA register NL2SQL LMA", lambda: self._register_lma_with_gma(agent))
+        self._append_trace(trace, "GMA LMA heartbeat", lambda: self._send_lma_heartbeat(agent))
+        self._append_trace(trace, "LMA source registration and validation", lambda: self._register_and_validate_source(self.settings.lma_url, source))
+        self._append_trace(trace, "GMA source registration and validation", lambda: self._register_and_validate_source(self.settings.gma_url, source))
         self._append_trace(trace, "LMA source profile", lambda: self._agent_profile(self.settings.lma_url, "source", records))
+        self._append_trace(trace, "LMA source model job", lambda: self._agent_model_job(self.settings.lma_url, "source", "embedding", records))
         self._append_trace(trace, "GMA assimilated profile", lambda: self._agent_profile(self.settings.gma_url, "assimilated", records))
+        self._append_trace(trace, "GMA aggregate model job", lambda: self._agent_model_job(self.settings.gma_url, "assimilated", "embedding", records))
+        self._append_trace(trace, "GMA desired deployment and sync", lambda: self._plan_and_sync_lma_deployment(agent))
+        self._append_trace(trace, "GMA aggregate run dispatch", lambda: self._dispatch_gma_run())
+        self._append_trace(trace, "GMA fleet overview", lambda: self._get_json(f"{self.settings.gma_url}/overview"))
+
+    def _schema_source_payload(self, records: list[dict[str, Any]]) -> dict[str, Any]:
+        return {
+            "source_id": "nl2sql-schema-source",
+            "kind": "inline",
+            "selection": {"records": records},
+            "format": "rows",
+            "schema_hint": {"table_name": "string", "column_name": "string", "dtype": "string"},
+            "batching": {"batch_size": 1000, "max_records": len(records) or 1},
+            "options": {"consumer": "nl2sql-demo"},
+        }
+
+    def _nl2sql_lma_identity(self) -> dict[str, Any]:
+        return {
+            "agent_id": "nl2sql-lma",
+            "workspace_id": "demo",
+            "name": "NL2SQL Local Monitoring Agent",
+            "agent_type": "LMA",
+        }
 
     def _pipeline_plan_payload(self) -> dict[str, Any]:
         return run_dagentsc(
@@ -133,6 +164,35 @@ class DagentsOrchestrator:
                 ],
             },
         )
+
+    def _register_lma_with_gma(self, agent: dict[str, Any]) -> dict[str, Any]:
+        return self._put_json(
+            f"{self.settings.gma_url}/api/v1/agents/{agent['agent_id']}/registration",
+            {
+                "agent": agent,
+                "scope": {"consumer": "nl2sql-demo", "source": "schema"},
+                "version": "demo-v1",
+                "capabilities": [
+                    "source_registration",
+                    "source_validation",
+                    "source_profiling",
+                    "model_execution",
+                    "telemetry",
+                    "deployment_sync",
+                ],
+            },
+        )
+
+    def _send_lma_heartbeat(self, agent: dict[str, Any]) -> dict[str, Any]:
+        return self._post_json(
+            f"{self.settings.gma_url}/api/v1/agents/{agent['agent_id']}/heartbeats",
+            {"agent": agent, "status": "READY", "timestamp": int(time.time())},
+        )
+
+    def _register_and_validate_source(self, base_url: str, source: dict[str, Any]) -> dict[str, Any]:
+        registered = self._post_json(f"{base_url}/api/v1/sources", source)
+        validation = self._post_json(f"{base_url}/api/v1/sources/{source['source_id']}:validate", {})
+        return {"registered": registered, "validation": validation}
 
     def _register_and_run_pipeline(self, records: list[dict[str, Any]], question: str) -> dict[str, Any]:
         pipeline_id = "nl2sql-demo-schema-flow"
@@ -205,6 +265,50 @@ class DagentsOrchestrator:
             },
         )
 
+    def _agent_model_job(self, base_url: str, scope_kind: str, task_type: str, records: list[dict[str, Any]]) -> dict[str, Any]:
+        return self._post_json(
+            f"{base_url}/api/v1/model-jobs",
+            {
+                "scope_id": f"nl2sql-schema-{scope_kind}",
+                "scope_kind": scope_kind,
+                "task_type": task_type,
+                "model_family": "transformer",
+                "records": records,
+                "feature_fields": ["table_name", "column_name", "dtype"],
+                "artifact_prefix": "artifacts/nl2sql-demo",
+                "model_version": "demo-v1",
+            },
+        )
+
+    def _plan_and_sync_lma_deployment(self, agent: dict[str, Any]) -> dict[str, Any]:
+        desired = self._put_json(
+            f"{self.settings.gma_url}/api/v1/agents/{agent['agent_id']}/desired-deployment",
+            {
+                "agent_id": agent["agent_id"],
+                "bundle_id": "nl2sql-schema-bundle",
+                "bundle_version": "demo-v1",
+                "bundle_uri": "oci://dagents/nl2sql-schema-bundle:demo-v1",
+                "config": {"source_id": "nl2sql-schema-source", "pipeline_id": "nl2sql-demo-schema-flow"},
+            },
+        )
+        sync = self._post_json(
+            f"{self.settings.gma_url}/api/v1/agents/{agent['agent_id']}/deployment-sync",
+            {"agent": agent, "bundle_id": "nl2sql-schema-bundle", "bundle_version": "demo-v1"},
+        )
+        return {"desired": desired, "sync": sync}
+
+    def _dispatch_gma_run(self) -> dict[str, Any]:
+        return self._post_json(
+            f"{self.settings.gma_url}/runs/dispatch",
+            {
+                "agent_id": "nl2sql-lma",
+                "correlation_id": f"nl2sql-{int(time.time())}",
+                "bundle_id": "nl2sql-schema-bundle",
+                "bundle_version": "demo-v1",
+                "scope": {"consumer": "nl2sql-demo", "scope_kind": "assimilated"},
+            },
+        )
+
     def _get_json(self, url: str) -> dict[str, Any]:
         with httpx.Client(timeout=self.settings.request_timeout_seconds) as client:
             response = client.get(url)
@@ -214,5 +318,11 @@ class DagentsOrchestrator:
     def _post_json(self, url: str, payload: dict[str, Any]) -> dict[str, Any]:
         with httpx.Client(timeout=self.settings.request_timeout_seconds) as client:
             response = client.post(url, json=payload)
+            response.raise_for_status()
+            return response.json()
+
+    def _put_json(self, url: str, payload: dict[str, Any]) -> dict[str, Any]:
+        with httpx.Client(timeout=self.settings.request_timeout_seconds) as client:
+            response = client.put(url, json=payload)
             response.raise_for_status()
             return response.json()

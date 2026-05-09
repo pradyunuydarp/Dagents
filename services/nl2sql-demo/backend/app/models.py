@@ -67,6 +67,7 @@ class NL2SQLResponse(DagentsModel):
     schema_ddl: str
     adapter_kind: str
     used_fallback: bool = False
+    fallback_detail: str | None = None
     dagents_trace: list[DagentsTraceStep] = Field(default_factory=list)
 
 

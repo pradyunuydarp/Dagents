@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import re
 import zipfile
 from dataclasses import dataclass
@@ -12,6 +13,8 @@ from app.core.config import Settings
 from app.models import ModelDescriptor, SchemaTable
 from app.services.schema import ddl_from_tables, normalize_identifier
 
+
+logger = logging.getLogger(__name__)
 
 CODEQWEN_SYSTEM_PROMPT = (
     "You are a SQL expert. Strictly output ONLY the SQL query requested. "
@@ -153,18 +156,26 @@ class NL2SQLModelRegistry:
             )
         return f"question: {question} context: {context}"
 
-    def generate(self, descriptor: ModelDescriptor, question: str, tables: list[SchemaTable], max_new_tokens: int) -> tuple[str, str, bool]:
+    def generate(
+        self,
+        descriptor: ModelDescriptor,
+        question: str,
+        tables: list[SchemaTable],
+        max_new_tokens: int,
+    ) -> tuple[str, str, bool, str | None]:
         context = ddl_from_tables(tables)
         prompt = self.prompt_for(descriptor, question, context)
         if descriptor.adapter_kind == "heuristic":
-            return heuristic_sql(question, tables), prompt, True
+            return heuristic_sql(question, tables), prompt, True, "The deterministic heuristic adapter was selected."
         try:
             adapter = self._load(descriptor, tables)
-            return adapter.generate(question, context, max_new_tokens), adapter.prompt(question, context), False
-        except Exception:
+            return adapter.generate(question, context, max_new_tokens), adapter.prompt(question, context), False, None
+        except Exception as exc:
             if not self.settings.allow_fallback:
                 raise
-            return heuristic_sql(question, tables), prompt, True
+            detail = f"{type(exc).__name__}: {exc}"
+            logger.exception("NL2SQL model artifact %s could not be loaded; using deterministic fallback", descriptor.model_id)
+            return heuristic_sql(question, tables), prompt, True, detail
 
     def _load(self, descriptor: ModelDescriptor, tables: list[SchemaTable]) -> NL2SQLAdapter:
         if descriptor.model_id in self._loaded:
