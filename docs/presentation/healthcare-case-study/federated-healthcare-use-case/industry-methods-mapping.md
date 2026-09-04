@@ -20,6 +20,7 @@ Dagents should not try to replace all four areas.
 | Federated analytics | local query or metric; combined result only | preflight data readiness, evaluation, drift, workload and alert summaries | all aggregates are non-sensitive |
 | Federated database | global catalog and query planner over remote sources | build a local hospital feature view and push filters to sources | federation means no data movement or no privacy risk |
 | Enterprise backup | central policy, local mover, baseline, incrementals, catalog, verification, restore | signed seed, bounded updates, immutable releases, health checks, rollback drills | an incremental model update is equivalent to a trusted data block |
+| GRAILS safeguards | decide protection from data sensitivity, user trust, and how much is asked for; then enforce it | Rails compile to a restriction plan in the OCaml layer; the Guard enforces at LMA/GMA boundaries | that a filtering strategy is the same thing as a proven privacy bound |
 
 ## Federated AI study notes
 
@@ -82,6 +83,18 @@ restore test           -> scheduled rollback drill
 
 Do not push the analogy further than operations. Backup systems copy and reconstruct state; federated learning optimizes a new model from distributed signals.
 
+## GRAILS safeguards study notes
+
+GRAILS (Kulkarni and Ramanathan, AIES 2025, IIIT Bangalore) is a framework for embedding ethical safeguards in software by keeping the ethics rules out of normal application code.
+
+It has two parts. The **Ethical-Restriction Rails** decide what protection a request needs, using a Know Your User (KYU) trust score, a data protection profile built from metadata and regulations, and a Restriction Planner that combines them into a restriction plan. The **Ethical Guard** applies that plan and records the decision. The paper compares the Restriction Planner to a database query processor producing a query plan.
+
+That comparison is why it fits here. Dagents already separates deterministic planning (OCaml) from runtime side effects (Python and Spring). The Rails map onto the planner layer; the Guard maps onto the LMA and GMA request paths; regulations belong in configuration, not code.
+
+The one place the published framework has to be extended is granularity. GRAILS covers cell, row, column, and table — all readable data. A federated round ships a model update instead, which carries patient signal without being a row. Treating "update" as a fifth granularity, with clipping, participant thresholds, and calibrated noise as its transformations, is the extension this project can contribute.
+
+Limits worth stating: GRAILS is a research framework with a Java proof of concept on Open Government Data, not a hospital-validated product; a trust score is only as good as its inputs; and applying a filtering strategy is not the same as proving a privacy bound.
+
 ## Design recommendation
 
 The clean architecture is a composition:
@@ -92,6 +105,7 @@ Dagents GMA/LMA control plane
   + federated analytics jobs
   + hospital-local data federation where useful
   + backup-inspired model registry, verification, and recovery controls
+  + GRAILS-style safeguards: plan in the OCaml layer, enforce at agent boundaries
 ```
 
 This gives Dagents a credible role: it is the reusable governance and execution layer that makes specialist techniques safer and repeatable across hospitals.

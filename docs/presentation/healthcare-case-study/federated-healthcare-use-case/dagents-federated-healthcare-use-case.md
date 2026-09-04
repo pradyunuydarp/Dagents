@@ -498,6 +498,78 @@ Important limits:
 - local data differences can make one global model worse for one hospital or patient group;
 - a successful retrospective result is not evidence of safe clinical deployment.
 
+## Embedding GRAILS-style ethical safeguards
+
+The controls above say *what* must be true. GRAILS is a published way to say *where that decision lives in the code*.
+
+GRAILS (Kulkarni and Ramanathan, AIES 2025, IIIT Bangalore) is a framework for embedding ethical safeguards in software. Its central move is to keep the ethics rules out of the normal application logic, so a policy change does not become a code change.
+
+### The two parts
+
+| Part | Job | Nature |
+|---|---|---|
+| Ethical-Restriction Rails | Work out what protection a request needs | Decision making; no data touched |
+| Ethical Guard | Apply that protection and record what happened | Enforcement; real data, real audit log |
+
+The Rails are built from three services: a **Know Your User (KYU) Service** that scores how far the requester is trusted, a **Data Protection Service** that reads data metadata plus the relevant regulations, and a **Restriction Planner** that combines the two into a restriction plan. The paper explicitly compares the Restriction Planner to a database query processor producing a query plan.
+
+### The three dials
+
+A request is resolved from three inputs:
+
+- **Sensitivity** of the data (low, medium, high), set from the data itself and the rules that cover it;
+- **Trust** in the requester (the KYU score: low, moderate, high), built from verified identity, affiliation, stated purpose, and compliance history;
+- **Granularity** of the ask (cell, row, column, or table).
+
+Those three point to a concrete action — hide the value, round it off, report it only as a group, add noise, or show it unchanged. The decision is a lookup, not a judgement made inside application code. The paper also defines a *Filtering Score* so the amount of protection applied can be measured rather than asserted.
+
+### Why this fits Dagents rather than bolting onto it
+
+GRAILS splits along exactly the line Dagents is already built on:
+
+| GRAILS part | Where it belongs in Dagents | Why |
+|---|---|---|
+| Ethical-Restriction Rails / Restriction Planner | OCaml planner layer, beside `dataset_compiler` and `model_router` | Pure, typed, deterministic planning with no I/O — the same contract every other Dagents planner has |
+| Ethical Guard | LMA and GMA request paths | Enforcement needs real data, a real requester, and somewhere to write the audit record |
+| Regulations and strategy knowledge base | Configuration and knowledge base, not code | Policy changes far more often than the framework does |
+
+Modelling sensitivity, trust, granularity, and strategy as algebraic data types gives the same benefit the rest of the OCaml layer already provides: adding a new strategy or a new sensitivity level fails to compile until every case is handled. That is a stronger guarantee than a policy engine that silently falls through to a default.
+
+This is also why role-based access control is not enough on its own. Roles answer "may this person read this table". They cannot express "this person, this field, for this stated purpose, at this level of detail, today".
+
+### Where the guard must stand
+
+A guard only at the API edge is a warning label. In a federated pilot it has to stand at four boundaries:
+
+1. **Before reading** — the LMA validates the job before touching any hospital field;
+2. **Before training** — cohort size and allowed-field checks;
+3. **Before sending** — the update and the aggregate counts are checked before they leave the hospital network;
+4. **Before release** — the GMA checks the candidate and its evidence before signing a release.
+
+Each decision writes the outcome, the reason, and the round id to the audit log, which is what turns the egress contract into something auditable rather than aspirational.
+
+### The gap: GRAILS protects rows, federation ships updates
+
+GRAILS' granularity set is `{cell, row, column, table}`. Every member is data that can be pointed at and read. A federated round does not send any of them; it sends a **model update**, which is not a row but still carries patient signal.
+
+Closing that gap means treating the update as a fifth granularity:
+
+| GRAILS concept | Federated reading |
+|---|---|
+| Sensitivity | How much patient signal an update can carry out of the hospital |
+| Trust | The receiving site and the coordinator, not only a named human requester |
+| Transformation | Clip the contribution, require a minimum number of sites, add calibrated noise, or refuse to send |
+| Filtering Score | A measurable bound on what the update exposes |
+
+This is a genuine extension of the published framework rather than a restatement of it, and it is the contribution this project is positioned to make back.
+
+### Honest limits
+
+- GRAILS is a research framework with a Java proof of concept evaluated on Open Government Data. It has not been validated in a hospital setting.
+- A KYU score is only as good as the attributes behind it; a verified identity is not a guarantee of good intent.
+- Applying a filtering strategy is not the same as proving a privacy bound. Differential privacy, secure aggregation, and clipping remain separate work with their own analysis.
+- Nothing here is legal, audit, or clinical approval. It is a way to make the required controls explicit, testable, and reviewable in code.
+
 ## Failure modes and required responses
 
 | Failure | Detection | Safe response |
@@ -571,6 +643,11 @@ Start with federated analytics and cross-site evaluation. Add federated training
 | GMA | The Dagents global agent coordinating sites, rounds, versions, and releases |
 | Rollback | Returning to the last known-good model and configuration |
 | Restore point | Backup-language analogy for an immutable approved model release |
+| GRAILS | A published framework that keeps ethics rules separate from normal application code |
+| Ethical-Restriction Rails | The GRAILS part that decides what protection a request needs |
+| Ethical Guard | The GRAILS part that applies that protection and records the decision |
+| KYU score | "Know Your User": how far a requester is trusted, from identity, affiliation, purpose, and history |
+| Granularity | How much is being asked for: one value, one row, one column, or a whole table |
 | Stroke | An emergency where blood flow in the brain is blocked or a blood vessel breaks |
 | Stroke triage | Sorting suspected-stroke cases so an urgent brain scan can reach a specialist quickly; it does not diagnose or choose treatment |
 | Brain scan | A picture of the brain, commonly CT or MRI, used by clinicians to understand the type and location of a possible stroke |
@@ -749,6 +826,7 @@ The design rule is clear: do not rebuild FLARE inside GMA, and do not ask FLARE 
 
 ## Sources
 
+- Kulkarni, A. and Ramanathan, C., "GRAILS - A Framework for Embedding Ethical Safeguards in Software Applications for Responsible AI", Proceedings of the Eighth AAAI/ACM Conference on AI, Ethics, and Society (AIES 2025): https://ojs.aaai.org/index.php/AIES/article/view/36650
 - Dagents architecture: `docs/agents/lma-gma-architecture.md` and `contracts/grpc/dagents/agents/v1/lma_gma.proto`.
 - CDC, “Stroke Facts”: https://www.cdc.gov/stroke/data-research/facts-stats/
 - CDC, “Signs and Symptoms of Stroke”: https://www.cdc.gov/stroke/signs-symptoms/index.html
