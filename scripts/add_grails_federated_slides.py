@@ -302,8 +302,8 @@ def grails_plain(prs):
             ),
             (
                 "Wider than privacy",
-                "Privacy is the worked example in the paper. The same shape is meant to "
-                "extend to fairness, transparency, and security.",
+                "Privacy is the paper's worked example. The same shape extends to "
+                "fairness, transparency, and security.",
             ),
         ],
     )
