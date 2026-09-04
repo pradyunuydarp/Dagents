@@ -1,0 +1,18 @@
+%%{init: {"theme":"base","themeVariables":{"background":"#F7F3EA","primaryColor":"#DCEADF","primaryTextColor":"#15201B","primaryBorderColor":"#2B6D4F","secondaryColor":"#DDE9F2","tertiaryColor":"#E8E0F5","lineColor":"#5E6B64","fontFamily":"Aptos, Arial"}}}%%
+flowchart LR
+  A[Receive encounter, vitals, labs, medications] --> B[Validate source, schema, freshness, consent scope]
+  B --> C[Profile dataset and derive approved features]
+  C --> D[Run versioned local risk model]
+  D --> E{Policy and quality gates pass?}
+  E -- no --> F[Suppress alert, record reason, notify operations]
+  E -- yes --> G[Present risk, contributing inputs, uncertainty, model version]
+  G --> H[Clinician reviews and chooses action]
+  H --> I[Store local outcome and audit trace]
+  I --> J[Publish de-identified metrics and artifact pointers to GMA]
+
+  classDef local fill:#DDE9F2,stroke:#356A8A,color:#15201B,stroke-width:2px;
+  classDef gate fill:#E8E0F5,stroke:#7355A3,color:#15201B,stroke-width:2px;
+  classDef outcome fill:#DCEADF,stroke:#2B6D4F,color:#15201B,stroke-width:2px;
+  class A,B,C,D local;
+  class E,F gate;
+  class G,H,I,J outcome;

@@ -21,7 +21,7 @@ WORKDIR /app
 COPY --from=ocaml-builder /home/opam/src/bindings/ocaml/_build/default/bin/dagentsc.exe /usr/local/bin/dagentsc
 COPY services/nl2sql-demo/backend/requirements.txt .
 COPY services/nl2sql-demo/backend/requirements-optional-models.txt .
-ARG INSTALL_OPTIONAL_MODELS=false
+ARG INSTALL_OPTIONAL_MODELS=true
 RUN pip install --no-cache-dir -r requirements.txt \
     && if [ "$INSTALL_OPTIONAL_MODELS" = "true" ]; then pip install --no-cache-dir -r requirements-optional-models.txt; fi
 

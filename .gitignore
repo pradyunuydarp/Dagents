@@ -15,6 +15,13 @@
 *.tsbuildinfo
 *.log
 models/
+.firecrawl/
+.codex-*/
+.tmp/
+*.inspect.ndjson
+
+# Office owner-lock files
+~$*
 
 services/model-service/artifacts/*.pt
 services/model-service/data/raw/*

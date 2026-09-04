@@ -53,9 +53,9 @@ class CodeT5Seq2SeqAdapter:
         self.descriptor = descriptor
         self.torch = torch
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.tokenizer = AutoTokenizer.from_pretrained(model_path, use_fast=False)
+        self.tokenizer = AutoTokenizer.from_pretrained(model_path, use_fast=True, extra_special_tokens={})
         dtype = torch.float16 if torch.cuda.is_available() else torch.float32
-        self.model = AutoModelForSeq2SeqLM.from_pretrained(model_path, torch_dtype=dtype).to(self.device)
+        self.model = AutoModelForSeq2SeqLM.from_pretrained(model_path, dtype=dtype).to(self.device)
         self.model.eval()
 
     def prompt(self, question: str, context: str) -> str:

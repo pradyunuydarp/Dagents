@@ -1,0 +1,35 @@
+@startuml dagents_grails_firewall
+title GRAILS-style ethical firewall placement
+
+left to right direction
+skinparam backgroundColor #F7F3EA
+skinparam shadowing false
+skinparam defaultFontName "Aptos"
+skinparam defaultFontSize 18
+skinparam roundCorner 12
+skinparam ArrowColor #53635B
+skinparam ArrowThickness 2
+
+skinparam rectangle {
+  BackgroundColor #FFFFFF
+  BorderColor #B9C2BB
+  FontColor #15201B
+}
+
+actor "User or app" as User
+rectangle "Dagents API request" as Request #FFFFFF
+rectangle "GRAILS-style guardrail layer\nsensitivity + trust + granularity" as Grails #E9E1FA
+rectangle "Allowed plan\nor filtered output" as Allowed #DCEBE1
+rectangle "Blocked / escalated\nwith reason" as Blocked #F0D1C8
+rectangle "LMA / GMA / services" as Services #F4E8D0
+database "Audit log\npolicy decision + run id" as Audit #EEF3EF
+
+User --> Request
+Request --> Grails : inspect data access\nand requested action
+Grails --> Allowed : if policy allows
+Grails --> Blocked : if policy denies\nor needs review
+Allowed --> Services : continue run
+Grails --> Audit : record decision
+Services --> Audit : record outcome
+
+@enduml

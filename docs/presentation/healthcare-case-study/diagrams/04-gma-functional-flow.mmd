@@ -1,0 +1,18 @@
+%%{init: {"theme":"base","themeVariables":{"background":"#F7F3EA","primaryColor":"#DCEADF","primaryTextColor":"#15201B","primaryBorderColor":"#2B6D4F","secondaryColor":"#DDE9F2","tertiaryColor":"#E8E0F5","lineColor":"#5E6B64","fontFamily":"Aptos, Arial"}}}%%
+flowchart LR
+  A[Register LMA capability and hospital scope] --> B[Ingest local profiles, run summaries, performance metrics]
+  B --> C[Validate provenance, version, completeness, privacy policy]
+  C --> D[Compare sites: drift, calibration, subgroup performance]
+  D --> E[Select approved model or threshold policy]
+  E --> F[Compile a signed deployment plan]
+  F --> G[Canary at selected sites]
+  G --> H{Safety and performance gates pass?}
+  H -- no --> I[Rollback and open review]
+  H -- yes --> J[Broader rollout with continuous monitoring]
+
+  classDef gma fill:#F0DFC2,stroke:#9D6B1F,color:#15201B,stroke-width:2px;
+  classDef planner fill:#E8E0F5,stroke:#7355A3,color:#15201B,stroke-width:2px;
+  classDef outcome fill:#DCEADF,stroke:#2B6D4F,color:#15201B,stroke-width:2px;
+  class A,B,C,D gma;
+  class E,F,G,H planner;
+  class I,J outcome;

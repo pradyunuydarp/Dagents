@@ -12,6 +12,7 @@ fi
 API_BASE="${API_BASE:-http://127.0.0.1:${NL2SQL_DEMO_BACKEND_HOST_PORT:-8070}}"
 OUTPUT_DIR="${OUTPUT_DIR:-$ROOT_DIR/docs/demo/expected}"
 OUTPUT_FILE="$OUTPUT_DIR/nl2sql-generate.json"
+ALLOW_MODEL_FALLBACK="${ALLOW_MODEL_FALLBACK:-false}"
 
 mkdir -p "$OUTPUT_DIR"
 
@@ -47,8 +48,9 @@ curl -fsS -X POST "$API_BASE/api/v1/generate" \
   python3 -m json.tool |
   tee "$OUTPUT_FILE"
 
-python3 - "$OUTPUT_FILE" <<'PY'
+ALLOW_MODEL_FALLBACK="$ALLOW_MODEL_FALLBACK" python3 - "$OUTPUT_FILE" <<'PY'
 import json
+import os
 import sys
 
 path = sys.argv[1]
@@ -80,6 +82,9 @@ warnings = [step for step in trace if step.get("status") != "ok"]
 
 if "SELECT" not in payload.get("sql", "").upper():
     raise SystemExit("Probe failed: response did not include generated SQL")
+allow_model_fallback = os.environ.get("ALLOW_MODEL_FALLBACK", "false").lower() in {"1", "true", "yes", "on"}
+if payload.get("used_fallback") and not allow_model_fallback:
+    raise SystemExit(f"Probe failed: model adapter used fallback: {payload.get('fallback_detail')}")
 if missing:
     raise SystemExit(f"Probe failed: missing Dagents trace steps: {', '.join(missing)}")
 if warnings:

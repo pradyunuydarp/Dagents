@@ -1,6 +1,7 @@
-torch
-transformers
-peft
-accelerate
-safetensors
-sentencepiece
+torch>=2.9,<2.11
+transformers>=4.45,<5
+peft>=0.13,<0.20
+accelerate>=1.0,<2
+safetensors>=0.5,<1
+sentencepiece>=0.2,<0.3
+protobuf>=4,<6
