@@ -1,0 +1,40 @@
+@startuml dagents_request_flow
+title NL2SQL request flow through Dagents
+
+left to right direction
+skinparam backgroundColor #F7F3EA
+skinparam shadowing false
+skinparam defaultFontName "Aptos"
+skinparam defaultFontSize 18
+skinparam roundCorner 12
+skinparam ArrowColor #53635B
+skinparam ArrowThickness 2
+
+skinparam rectangle {
+  BackgroundColor #FFFFFF
+  BorderColor #B9C2BB
+  FontColor #15201B
+}
+
+actor "User" as User
+rectangle "NL2SQL frontend" as UI #FFFFFF
+rectangle "NL2SQL backend\n/generate" as API #FFFFFF
+rectangle "Dagents planner\nsource/schema/quality\npipeline/model route" as Planner #E9E1FA
+rectangle "Dagents services\ncore, pipeline,\nLMA, GMA, model" as Services #F4E8D0
+rectangle "Model adapter\nCodeT5 artifact" as Adapter #DCEBE1
+database "Model zip files\nmodels/*.zip" as Models #EEF3EF
+rectangle "Response\nSQL + trace" as Response #DCE7F1
+
+User --> UI : question + schema
+UI --> API : POST /api/v1/generate
+API --> Planner : validate and plan
+API --> Services : register, profile,\ncompile workload
+API --> Adapter : generate SQL
+Adapter --> Models : load artifact
+Planner --> API : reports and plans
+Services --> API : trace evidence
+Adapter --> API : SQL
+API --> Response
+Response --> UI : show SQL and trace
+
+@enduml

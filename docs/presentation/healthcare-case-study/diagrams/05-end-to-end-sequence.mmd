@@ -1,0 +1,25 @@
+%%{init: {"theme":"base","themeVariables":{"background":"#F7F3EA","primaryColor":"#DCEADF","primaryTextColor":"#15201B","primaryBorderColor":"#2B6D4F","secondaryColor":"#DDE9F2","tertiaryColor":"#E8E0F5","lineColor":"#5E6B64","fontFamily":"Aptos, Arial"},"sequence":{"useMaxWidth":true,"diagramMarginX":28,"actorMargin":45,"messageMargin":26}}}%%
+sequenceDiagram
+  participant E as Hospital EHR / stream
+  participant L as Local Monitoring Agent
+  participant P as Policy + quality gate
+  participant M as Local model runtime
+  participant C as Clinician
+  participant G as Global Monitoring Agent
+
+  E->>L: New vitals, labs, medications, encounter state
+  L->>L: Validate, profile, derive approved features
+  L->>P: Request model execution with scope and version
+  P-->>L: Permit, narrow, or deny with reason
+  alt permitted
+    L->>M: Score locally
+    M-->>L: Risk, uncertainty, explanation inputs
+    L->>C: Decision-support alert with evidence
+    C-->>L: Acknowledge, defer, or act
+    L->>G: De-identified run summary and metrics
+  else denied or low quality
+    L->>L: Suppress action and record audit event
+    L->>G: Operational exception without patient identifiers
+  end
+  G->>G: Compare sites, detect drift, plan updates
+  G-->>L: Approved signed model / policy bundle

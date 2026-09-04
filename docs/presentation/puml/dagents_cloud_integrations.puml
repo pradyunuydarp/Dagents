@@ -1,0 +1,37 @@
+@startuml dagents_cloud_integrations
+title Future cloud integration paths
+
+left to right direction
+skinparam backgroundColor #F7F3EA
+skinparam shadowing false
+skinparam defaultFontName "Aptos"
+skinparam defaultFontSize 18
+skinparam roundCorner 12
+skinparam ArrowColor #53635B
+skinparam ArrowThickness 2
+skinparam packageStyle rectangle
+
+skinparam rectangle {
+  BackgroundColor #FFFFFF
+  BorderColor #B9C2BB
+  FontColor #15201B
+}
+
+rectangle "Dagents APIs\nagents + services + planners" as Dagents #F4E8D0
+
+cloud "AWS\nEKS, S3, RDS,\nSQS/EventBridge" as AWS #EEF3EF
+cloud "GCP\nGKE, Cloud SQL,\nGCS, Pub/Sub" as GCP #EEF3EF
+cloud "Supabase\nPostgres, Auth,\nEdge Functions" as Supabase #EEF3EF
+cloud "Azure\nAKS, Blob,\nPostgres, Service Bus" as Azure #EEF3EF
+
+rectangle "Policy and secrets\nIAM, Vault, KMS" as Security #E9E1FA
+rectangle "Observability\nlogs, traces,\nmodel metrics" as Obs #DCE7F1
+
+Dagents --> AWS : deploy workloads
+Dagents --> GCP : deploy workloads
+Dagents --> Supabase : app data + auth
+Dagents --> Azure : deploy workloads
+Security --> Dagents : credentials and access rules
+Dagents --> Obs : run evidence
+
+@enduml

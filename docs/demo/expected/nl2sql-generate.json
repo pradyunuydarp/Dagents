@@ -1,12 +1,12 @@
 {
-    "sql": "SELECT orders.order_total FROM customers JOIN orders ON customers.customer_id = orders.customer_id",
+    "sql": "SELECT MAX(T1.order_id) FROM orders AS T1 JOIN customers AS T2 ON T1.customer_id = T2.customer_id ORDER BY T2.order_total DESC LIMIT 1",
     "model_id": "codet5p_spider_model",
     "model_label": "codet5p_spider_model",
     "prompt": "question: Which customers have the highest total order value? context: CREATE TABLE customers (customer_id INTEGER, customer_name TEXT, region TEXT) CREATE TABLE orders (order_id INTEGER, customer_id INTEGER, order_total FLOAT, created_at TIMESTAMP)",
     "schema_ddl": "CREATE TABLE customers (customer_id INTEGER, customer_name TEXT, region TEXT) CREATE TABLE orders (order_id INTEGER, customer_id INTEGER, order_total FLOAT, created_at TIMESTAMP)",
     "adapter_kind": "codet5_seq2seq",
-    "used_fallback": true,
-    "fallback_detail": "ModuleNotFoundError: No module named 'transformers'",
+    "used_fallback": false,
+    "fallback_detail": null,
     "dagents_trace": [
         {
             "name": "Dagents SourceSpec validation",
@@ -280,14 +280,14 @@
                             }
                         }
                     ],
-                    "registered_at": 1778295408
+                    "registered_at": 1778303536
                 },
                 "run": {
-                    "run_id": "nl2sql-demo-schema-flow-run-1778295408365",
+                    "run_id": "nl2sql-demo-schema-flow-run-1778303536242",
                     "pipeline_id": "nl2sql-demo-schema-flow",
                     "status": "completed",
-                    "started_at": 1778295408,
-                    "completed_at": 1778295408,
+                    "started_at": 1778303536,
+                    "completed_at": 1778303536,
                     "final_payload": {
                         "schema_records": [
                             {
@@ -372,8 +372,8 @@
                                     "question"
                                 ]
                             },
-                            "started_at": 1778295408,
-                            "completed_at": 1778295408
+                            "started_at": 1778303536,
+                            "completed_at": 1778303536
                         },
                         {
                             "step_id": "profile_schema_records",
@@ -384,8 +384,8 @@
                                 "record_count": 7,
                                 "feature_count": 3
                             },
-                            "started_at": 1778295408,
-                            "completed_at": 1778295408
+                            "started_at": 1778303536,
+                            "completed_at": 1778303536
                         },
                         {
                             "step_id": "summarize_columns",
@@ -397,8 +397,8 @@
                                     "column_count"
                                 ]
                             },
-                            "started_at": 1778295408,
-                            "completed_at": 1778295408
+                            "started_at": 1778303536,
+                            "completed_at": 1778303536
                         },
                         {
                             "step_id": "project_generation_context",
@@ -412,8 +412,8 @@
                                     "schema_summary.column_count"
                                 ]
                             },
-                            "started_at": 1778295408,
-                            "completed_at": 1778295408
+                            "started_at": 1778303536,
+                            "completed_at": 1778303536
                         }
                     ],
                     "error": null
@@ -467,7 +467,7 @@
             "detail": "completed",
             "payload": {
                 "accepted": true,
-                "deployment_plan_id": null,
+                "deployment_plan_id": "plan-fa1b2da8e842",
                 "capabilities": [
                     "source_registration",
                     "source_validation",
@@ -684,7 +684,7 @@
                     ]
                 },
                 "run": {
-                    "run_id": "lma-nl2sql-schema-source-1778295408",
+                    "run_id": "lma-nl2sql-schema-source-1778303536",
                     "agent_role": "LMA",
                     "scope_id": "nl2sql-schema-source",
                     "scope_kind": "source",
@@ -700,8 +700,8 @@
                         "feature_coverage": 0.5
                     },
                     "artifact_uri": "artifacts/nl2sql-demo/lma/nl2sql-schema-source/transformer-demo-v1.json",
-                    "started_at": 1778295408,
-                    "completed_at": 1778295408
+                    "started_at": 1778303536,
+                    "completed_at": 1778303536
                 }
             }
         },
@@ -762,7 +762,7 @@
                     ]
                 },
                 "run": {
-                    "run_id": "gma-nl2sql-schema-assimilated-1778295408",
+                    "run_id": "gma-nl2sql-schema-assimilated-1778303536",
                     "agent_role": "GMA",
                     "scope_id": "nl2sql-schema-assimilated",
                     "scope_kind": "assimilated",
@@ -778,8 +778,8 @@
                         "feature_coverage": 0.5
                     },
                     "artifact_uri": "artifacts/nl2sql-demo/gma/nl2sql-schema-assimilated/transformer-demo-v1.json",
-                    "started_at": 1778295408,
-                    "completed_at": 1778295408
+                    "started_at": 1778303536,
+                    "completed_at": 1778303536
                 }
             }
         },
@@ -799,7 +799,7 @@
                     },
                     "plan_token": "plan-fa1b2da8e842",
                     "config_digest": "fa1b2da8e842b3d14f9c9b6ec0445c86ed41336ed0fe4fa87d12b67d8cd86d81",
-                    "created_at": 1778295408
+                    "created_at": 1778303536
                 },
                 "sync": {
                     "up_to_date": true,
@@ -817,7 +817,7 @@
             "detail": "completed",
             "payload": {
                 "accepted": true,
-                "message": "Queued run nl2sql-1778295408 for agent nl2sql-lma"
+                "message": "Queued run nl2sql-1778303536 for agent nl2sql-lma"
             }
         },
         {
@@ -829,7 +829,7 @@
                 "active_agents": 0,
                 "telemetry_events": 0,
                 "pending_deployments": 0,
-                "dispatched_runs": 2
+                "dispatched_runs": 12
             }
         },
         {

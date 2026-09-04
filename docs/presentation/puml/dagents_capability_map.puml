@@ -1,0 +1,50 @@
+@startuml dagents_capability_map
+title Dagents capability map
+
+left to right direction
+skinparam backgroundColor #F7F3EA
+skinparam shadowing false
+skinparam defaultFontName "Aptos"
+skinparam defaultFontSize 18
+skinparam roundCorner 12
+skinparam ArrowColor #53635B
+skinparam ArrowThickness 2
+skinparam packageStyle rectangle
+
+skinparam rectangle {
+  BackgroundColor #FFFFFF
+  BorderColor #B9C2BB
+  FontColor #15201B
+}
+
+rectangle "Consumer apps\nWatchdog, Datalytics,\nNL2SQL demo" as Apps #FFFFFF
+
+package "Dagents framework" as Dagents #EFE4CE {
+  rectangle "LMA / CMA\nsource profiling\nsource model jobs" as LMA #DCEBE1
+  rectangle "GMA\nregistration\nmulti-source compute" as GMA #DCE7F1
+  rectangle "Core service\ncatalog, topology,\nmanifest compile" as Core #F4E8D0
+  rectangle "Pipeline service\nworkflow registry\npipeline runs" as Pipeline #F4E8D0
+  rectangle "Model service\ntraining jobs\nmodel catalog" as Model #F4E8D0
+  rectangle "OCaml planners\nvalidation, routing,\nDAG checks, YAML" as Ocaml #E9E1FA
+}
+
+database "Source systems\ndatabases, events,\nfiles, inline records" as Sources #EEF3EF
+cloud "Deployment runtime\nDocker Compose today\nKubernetes next" as Runtime #EDE8DD
+
+Apps --> LMA : source-scoped work
+Apps --> GMA : aggregate work
+Apps --> Core : workload plans
+Apps --> Pipeline : workflows
+Apps --> Model : reusable ML jobs
+
+LMA --> Sources : local extraction
+LMA --> GMA : source outputs
+Core --> Runtime : manifests
+Pipeline --> Model : model step
+
+LMA --> Ocaml
+GMA --> Ocaml
+Core --> Ocaml
+Pipeline --> Ocaml
+
+@enduml
