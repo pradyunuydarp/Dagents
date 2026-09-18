@@ -301,7 +301,13 @@ class EthicalGuard:
         if aggregate_fields:
             # Aggregate-only changes the shape of the answer, not just its
             # values: the caller gets one summary row instead of the records.
-            return self._aggregate(records, aggregate_fields, strategies, withheld), withheld, transformed
+            #
+            # _aggregate may add to `withheld` when the group is too small, so
+            # it is called on its own line. Inlining it into the return tuple
+            # would make the result depend on Python evaluating tuple elements
+            # left to right, which is true but is not a thing to rely on.
+            summary = self._aggregate(records, aggregate_fields, strategies, withheld)
+            return summary, withheld, transformed
 
         applied: list[dict[str, Any]] = []
         for index, record in enumerate(records):
