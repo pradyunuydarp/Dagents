@@ -80,6 +80,11 @@ val select_strategy : sensitivity -> trust_level -> granularity -> int -> restri
 
 (** Report how much protection a strategy applies, in [0.0, 1.0].
 
+    The parameter carried by [Generalize] is a coarsening level where higher
+    means coarser, and the parameter carried by [ClipContribution] is a norm
+    bound. Enforcers must read them that way; treating the generalization level
+    as a decimal precision inverts it.
+
     [AllowFull] is 0.0 (nothing withheld) and [Refuse] is 1.0 (everything
     withheld). These weights are what make GRAILS' Filtering Score measurable
     instead of asserted. *)

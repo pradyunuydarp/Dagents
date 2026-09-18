@@ -177,12 +177,22 @@ class ExtensionRegistry:
         self._assert_free(self._steps, list(steps), "pipeline step", extension_id)
         self._assert_free(self._adapters, list(adapters), "model adapter", extension_id)
 
+        known_contracts = {contract.contract_id for contract in contracts} | set(self._contracts)
+        known_classifications = {c.classification_id for c in classifications} | set(self._classifications)
         for condition in conditions:
-            known = {contract.contract_id for contract in contracts} | set(self._contracts)
-            if condition.feature_contract_id not in known:
+            if condition.feature_contract_id not in known_contracts:
                 raise ExtensionError(
                     f"condition pack {condition.condition_id} references unknown feature contract "
                     f"{condition.feature_contract_id}"
+                )
+            # The classification is what the governance Rails read. A pack
+            # pointing at one nobody defines is a dangling policy, and left
+            # unchecked it surfaces much later as a guard-time failure on a
+            # request that was already in flight.
+            if condition.classification_id not in known_classifications:
+                raise ExtensionError(
+                    f"condition pack {condition.condition_id} references unknown classification "
+                    f"{condition.classification_id}"
                 )
 
         self._extensions[extension_id] = extension
@@ -218,19 +228,28 @@ class ExtensionRegistry:
         """Look up one feature contract, raising if it is not registered."""
         if contract_id not in self._contracts:
             raise ExtensionError(f"unknown feature contract: {contract_id}")
-        return self._contracts[contract_id]
+        # A copy, not the stored instance. Pydantic does not re-copy a model
+        # nested into another model, so handing out the original would let
+        # anything holding a request rewrite registered policy in place.
+        return self._contracts[contract_id].model_copy(deep=True)
 
     def classification(self, classification_id: str) -> DataClassification:
         """Look up one data classification, raising if it is not registered."""
         if classification_id not in self._classifications:
             raise ExtensionError(f"unknown classification: {classification_id}")
-        return self._classifications[classification_id]
+        # A copy, not the stored instance. Pydantic does not re-copy a model
+        # nested into another model, so handing out the original would let
+        # anything holding a request rewrite registered policy in place.
+        return self._classifications[classification_id].model_copy(deep=True)
 
     def condition_pack(self, condition_id: str) -> ConditionPack:
         """Look up one condition pack, raising if it is not registered."""
         if condition_id not in self._conditions:
             raise ExtensionError(f"unknown condition pack: {condition_id}")
-        return self._conditions[condition_id]
+        # A copy, not the stored instance. Pydantic does not re-copy a model
+        # nested into another model, so handing out the original would let
+        # anything holding a request rewrite registered policy in place.
+        return self._conditions[condition_id].model_copy(deep=True)
 
     def pipeline_step(self, kind: str) -> Callable[..., Any] | None:
         """Look up one contributed pipeline step handler."""
@@ -242,15 +261,15 @@ class ExtensionRegistry:
 
     def list_feature_contracts(self) -> list[FeatureContract]:
         """Every registered feature contract, sorted by id."""
-        return [self._contracts[key] for key in sorted(self._contracts)]
+        return [self._contracts[key].model_copy(deep=True) for key in sorted(self._contracts)]
 
     def list_classifications(self) -> list[DataClassification]:
         """Every registered data classification, sorted by id."""
-        return [self._classifications[key] for key in sorted(self._classifications)]
+        return [self._classifications[key].model_copy(deep=True) for key in sorted(self._classifications)]
 
     def list_condition_packs(self) -> list[ConditionPack]:
         """Every registered condition pack, sorted by id."""
-        return [self._conditions[key] for key in sorted(self._conditions)]
+        return [self._conditions[key].model_copy(deep=True) for key in sorted(self._conditions)]
 
     def list_pipeline_steps(self) -> list[str]:
         """Names of every contributed pipeline step handler."""

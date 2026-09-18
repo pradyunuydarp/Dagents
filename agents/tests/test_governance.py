@@ -83,6 +83,15 @@ TRUSTED = Requester(
 
 UNTRUSTED = Requester(requester_id="unknown-caller", requester_kind="service")
 
+#: Identified but unverified: enough for moderate trust, not enough for high.
+UNTRUSTED_BUT_KNOWN = Requester(
+    requester_id="claimed-caller",
+    requester_kind="human",
+    affiliation="unchecked",
+    compliance_history=0.9,
+    attributes=[KyuAttribute(attribute_id="claimed_identity", verified=False)],
+)
+
 CLASSIFICATION = DataClassification(
     classification_id="stroke-triage-v1",
     field_sensitivity={"nihss_total": "high", "age_band": "medium", "arrival_mode": "low"},
@@ -204,6 +213,145 @@ class EthicalGuardTests(unittest.TestCase):
         stored = audit._records  # noqa: SLF001 - reaching in is the point of the test
         stored[0] = stored[0].model_copy(update={"permitted": not stored[0].permitted})
         self.assertFalse(audit.verify_chain())
+
+
+@unittest.skipUnless(dagentsc_available(), "dagentsc binary is not available")
+class GuardRegressionTests(unittest.TestCase):
+    """Defects found by review. Each one released data it should have protected."""
+
+    def setUp(self) -> None:
+        self.guard = EthicalGuard(DagentscRestrictionPlanner(), InMemoryAuditLog())
+        self.records = [{"age": 71, "zip": "02139"}, {"age": 32, "zip": "02142"}, {"age": 55, "zip": "02138"}]
+
+    def _request(self, **overrides) -> RestrictionRequest:
+        payload = {
+            "request_id": "regression",
+            "boundary": "before_read",
+            "requester": TRUSTED,
+            "classification": DataClassification(
+                classification_id="regression", default_sensitivity="medium", minimum_cohort=2
+            ),
+            "requested_fields": ["age", "zip"],
+            "granularity": "row",
+            "cohort_size": 3,
+        }
+        payload.update(overrides)
+        return RestrictionRequest(**payload)
+
+    def test_generalize_actually_coarsens_a_number(self) -> None:
+        """The strategy parameter is a coarsening level, not a decimal precision.
+
+        Read as decimal places it made level 1 a no-op on any value already
+        recorded to one decimal, so exact ages were returned while the field was
+        reported as transformed.
+        """
+        decision = self.guard.enforce(
+            self._request(requester=UNTRUSTED_BUT_KNOWN, requested_fields=["age"]), self.records
+        )
+        strategies = {r.field: r.strategy for r in decision.plan.field_restrictions}
+        self.assertTrue(strategies["age"].startswith("generalize"))
+        returned = [record["age"] for record in decision.payload]
+        self.assertNotIn(71, returned, "the exact age survived generalization")
+        self.assertEqual(returned, [70, 30, 60])
+
+    def test_an_aggregate_never_publishes_a_protected_field_s_extremes(self) -> None:
+        """A min or a max over a group is one specific subject's exact value.
+
+        Publishing both alongside record_count made two of three subjects'
+        values directly recoverable from a summary that was supposed to
+        describe only the group.
+        """
+        decision = self.guard.enforce(
+            self._request(
+                request_id="agg",
+                granularity="column",
+                classification=DataClassification(
+                    classification_id="regression", default_sensitivity="high", minimum_cohort=2
+                ),
+            ),
+            self.records,
+        )
+        summary = decision.payload[0]
+        self.assertEqual(summary["record_count"], 3)
+        self.assertNotIn("age_min", summary)
+        self.assertNotIn("age_max", summary)
+        self.assertIn("age_mean", summary)
+        self.assertIsNotNone(summary["age_mean"], "an aggregated field must still report its mean")
+
+    def test_a_suppressed_group_reports_no_field_as_both_withheld_and_transformed(self) -> None:
+        """Those are two different claims, and a caller cannot act on both."""
+        decision = self.guard.enforce(
+            self._request(
+                request_id="suppressed",
+                granularity="column",
+                cohort_size=10,
+                classification=DataClassification(
+                    classification_id="regression", default_sensitivity="high", minimum_cohort=10
+                ),
+            ),
+            self.records[:2],
+        )
+        self.assertEqual(decision.payload, [])
+        self.assertEqual(set(decision.withheld_fields), {"age", "zip"})
+        self.assertEqual(set(decision.withheld_fields) & set(decision.transformed_fields), set())
+
+    def test_an_all_withheld_request_does_not_return_the_record_count(self) -> None:
+        """One empty dict per record hands back a cohort size nobody granted."""
+        decision = self.guard.enforce(
+            self._request(
+                request_id="redacted",
+                requester=UNTRUSTED_BUT_KNOWN,
+                classification=DataClassification(
+                    classification_id="regression", default_sensitivity="high", minimum_cohort=0
+                ),
+            ),
+            self.records,
+        )
+        self.assertEqual(decision.payload, [])
+        self.assertEqual(set(decision.withheld_fields), {"age", "zip"})
+
+    def test_an_unknown_strategy_withholds_rather_than_passing_through(self) -> None:
+        """An unrecognized strategy is not permission."""
+        self.assertIsNone(EthicalGuard._transform(42.0, "not_a_strategy", 1.0, seed="s"))
+        self.assertIsNone(EthicalGuard._transform(42.0, "aggregate_only", 20.0, seed="s"))
+
+    def test_the_audit_digest_covers_obligations(self) -> None:
+        """The duties the Guard committed to must not be rewritable in place."""
+        request = self._request(request_id="audited")
+        self.guard.enforce(request, self.records)
+        self.guard.enforce(request.model_copy(update={"request_id": "audited-2"}), self.records)
+        audit = self.guard.audit
+        self.assertTrue(audit.verify_chain())
+        stored = audit._records  # noqa: SLF001 - reaching in is the point of the test
+        stored[0] = stored[0].model_copy(update={"obligations": ["nothing required"]})
+        self.assertFalse(audit.verify_chain())
+
+    def test_the_audit_digest_is_unambiguous_across_list_encodings(self) -> None:
+        """Joining a list on a comma makes ["a,b"] and ["a","b"] hash alike."""
+        from agents.common.domain.governance import AuditRecord
+
+        base = AuditRecord(
+            audit_id="a", recorded_at=1, boundary="before_read", request_id="r",
+            requester_id="x", decision="permit", permitted=True, granularity="row",
+            filtering_score=0.0,
+        )
+        one = base.model_copy(update={"withheld_fields": ["a,b"]})
+        two = base.model_copy(update={"withheld_fields": ["a", "b"]})
+        self.assertNotEqual(InMemoryAuditLog._digest(one), InMemoryAuditLog._digest(two))
+
+
+@unittest.skipUnless(dagentsc_available(), "dagentsc binary is not available")
+class GovernanceServiceWiringTests(unittest.TestCase):
+    """An injected guard must not leave the service reporting on an empty log."""
+
+    def test_an_injected_guard_shares_its_audit_sink(self) -> None:
+        guard = EthicalGuard(DagentscRestrictionPlanner(), InMemoryAuditLog())
+        service = GovernanceService(guard=guard)
+        service.register_classification(CLASSIFICATION)
+        service.enforce(request_for(), RECORDS)
+        self.assertEqual(len(service.recent_audit()), 1)
+        self.assertEqual(len(guard.audit.list_recent()), 1)
+        self.assertTrue(service.audit_chain_intact())
 
 
 class FailClosedTests(unittest.TestCase):

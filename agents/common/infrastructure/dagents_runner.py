@@ -6,22 +6,31 @@ import subprocess
 import tempfile
 from typing import Any
 
-DATA_RECORD_KEYS = {"records", "inlineRecords"}
+# Keys whose VALUES are caller data and must be passed through untouched.
+#
+# Both sets are written in snake_case and compared against a snake_cased form of
+# the key, so they match in both directions. The naive version compared only the
+# already-converted key, which worked outbound (snake -> camel, and these are
+# checked post-conversion) but silently failed inbound: "siteWeights" converts to
+# "site_weights", which was not in a camelCase-only set, so the map's keys — site
+# identifiers — were themselves snake_cased. A site called "Mercy_General" came
+# back as "mercy__general", the weight lookup missed, and every aggregated metric
+# silently became 0.0 on its way into the release gates.
+DATA_RECORD_KEYS = {"records", "inline_records"}
+
 DATA_MAP_KEYS = {
-    "schemaHint",
+    "schema_hint",
     "options",
-    "connectionOptions",
+    "connection_options",
     "config",
-    "configJson",
+    "config_json",
     # Maps whose keys are caller data (field names, metric names, site ids)
-    # rather than contract field names. Converting their keys would rename a
-    # classification entry for "nihss_total" into "nihssTotal" and silently lose
-    # the field's declared sensitivity.
-    "fieldSensitivity",
+    # rather than contract field names.
+    "field_sensitivity",
     "metrics",
-    "candidateMetrics",
-    "baselineMetrics",
-    "siteWeights",
+    "candidate_metrics",
+    "baseline_metrics",
+    "site_weights",
     "parameters",
 }
 
@@ -32,6 +41,15 @@ def to_camel_case(snake_str: str) -> str:
 def to_snake_case(camel_str: str) -> str:
     return ''.join(['_' + c.lower() if c.isupper() else c for c in camel_str]).lstrip('_')
 
+def is_data_key(key: str) -> bool:
+    """Whether this key's value must be passed through without key conversion.
+
+    Normalizes to snake_case first so the check works on a camelCase key coming
+    back from the planner and a snake_case key going out to it.
+    """
+    normalized = to_snake_case(key)
+    return normalized in DATA_RECORD_KEYS or normalized in DATA_MAP_KEYS
+
 def convert_keys(obj: Any, convert_func) -> Any:
     if isinstance(obj, list):
         return [convert_keys(item, convert_func) for item in obj]
@@ -39,7 +57,9 @@ def convert_keys(obj: Any, convert_func) -> Any:
         converted: dict[str, Any] = {}
         for key, value in obj.items():
             converted_key = convert_func(key)
-            if converted_key in DATA_RECORD_KEYS or converted_key in DATA_MAP_KEYS:
+            # Check the ORIGINAL key, not the converted one: the conversion is
+            # what differs between the two directions.
+            if is_data_key(key):
                 converted[converted_key] = value
             else:
                 converted[converted_key] = convert_keys(value, convert_func)

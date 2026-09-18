@@ -146,6 +146,29 @@ class ExtensionRegistryTests(unittest.TestCase):
             self.registry.register(StubExtension(conditions=[CONDITION]))
         self.assertIn("stroke-triage-features", str(caught.exception))
 
+    def test_a_condition_pack_cannot_reference_an_unknown_classification(self) -> None:
+        """A pack pointing at a classification nobody defines is dangling policy.
+
+        The classification is what the governance Rails read. Left unchecked it
+        surfaces much later, as a guard-time failure on a request already in
+        flight, rather than at registration where it can be fixed.
+        """
+        with self.assertRaises(ExtensionError) as caught:
+            self.registry.register(StubExtension(contracts=[CONTRACT], conditions=[CONDITION]))
+        self.assertIn("stroke-triage-v1", str(caught.exception))
+
+    def test_lookups_hand_out_copies_not_registered_instances(self) -> None:
+        """Otherwise anything holding a request can rewrite registered policy."""
+        self.registry.register(
+            StubExtension(contracts=[CONTRACT], classifications=[CLASSIFICATION], conditions=[CONDITION])
+        )
+        borrowed = self.registry.classification("stroke-triage-v1")
+        borrowed.field_sensitivity["injected"] = "low"
+        borrowed.minimum_cohort = 0
+        fresh = self.registry.classification("stroke-triage-v1")
+        self.assertNotIn("injected", fresh.field_sensitivity)
+        self.assertEqual(fresh.minimum_cohort, 20)
+
     def test_an_extension_without_an_id_is_rejected(self) -> None:
         self.registry.register(StubExtension(extension_id="a"))
         with self.assertRaises(ExtensionError):

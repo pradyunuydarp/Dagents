@@ -18,11 +18,11 @@ rejects the candidate:
 
 ```text
 Release gates
-  [PASS] discrimination               auc=0.817242 required >= 0.8
-  [PASS] improves_on_current_release  auc=0.817242 required >= baseline 0.78 + margin 0.01
-  [FAIL] subgroup_fairness            subgroup_auc_gap=0.128047 required <= 0.05
-  [FAIL] sensitivity_at_alert_budget  sensitivity=0.600186 required >= 0.7
-  [PASS] alert_burden                 alerts_per_1000=258.333 required <= 400
+  [PASS] discrimination               auc=0.803245 required >= 0.8
+  [PASS] improves_on_current_release  auc=0.803245 required >= baseline 0.78 + margin 0.01
+  [FAIL] subgroup_fairness            subgroup_auc_gap=0.123652 required <= 0.05
+  [FAIL] sensitivity_at_alert_budget  sensitivity=0.59516 required >= 0.7
+  [PASS] alert_burden                 alerts_per_1000=268.333 required <= 400
 
 Decision   : REJECT
   rollback : stroke-rule-seed-v1
@@ -30,6 +30,17 @@ Decision   : REJECT
 
 The candidate beats its baseline and is still not releasable. That is the framework working, not
 failing: aggregation creates a candidate, never an approved release.
+
+### The privacy cost is visible in those numbers
+
+`nihss_total` is classified high-sensitivity, so when a site reads it for the coordinator's job the
+Guard generalizes it — the round's code sees the score coarsened, not the exact value. That costs
+about 0.014 AUC against scoring the raw values.
+
+This is the tradeoff the architecture is about, and it is better seen than argued. If a consortium
+decides that cost is too high, the lever is the classification, not the code: change what
+`nihss_total`'s sensitivity is, and the Rails re-derive the strategy without a single code path
+changing.
 
 ## Quick start
 

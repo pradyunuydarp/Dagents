@@ -111,6 +111,11 @@ class LocalFederatedWorker:
         declared approved fields, the job is narrowed to their intersection, so
         a round asking for more than a site agreed to gets less rather than
         being refused outright.
+
+        An empty result is meaningful and must not be treated as "no
+        constraint": it means the site approved nothing the job asked for. Use
+        :meth:`_narrowing_rejected_everything` to tell that apart from the case
+        where neither side declared any fields at all.
         """
         requested = list(job.feature_fields)
         if not self._approved_fields:
@@ -119,6 +124,18 @@ class LocalFederatedWorker:
             return list(self._approved_fields)
         approved = set(self._approved_fields)
         return [field for field in requested if field in approved]
+
+    def _narrowing_rejected_everything(self, job: FederatedJob) -> bool:
+        """Whether narrowing left nothing because the site approved none of it.
+
+        This is the distinction that makes the approved-field list a guarantee
+        rather than a suggestion. Without it an empty intersection is falsy and
+        falls through to "read whatever is there", which is the exact inversion
+        of what the site agreed to.
+        """
+        if not self._approved_fields or not job.feature_fields:
+            return False
+        return not self._fields_for(job)
 
     def _cohort_size(self, job: FederatedJob) -> int:
         """Ask the source how large the cohort is, counting records if it cannot."""
@@ -173,6 +190,16 @@ class LocalFederatedWorker:
         must match what this site computed, the feature contract must be the one
         this site can produce, and the Guard must permit training at all.
         """
+        if self._narrowing_rejected_everything(job):
+            return JobAcceptance(
+                round_id=job.round_id,
+                site_id=self.site_id,
+                accepted=False,
+                reason="no field this round requests is within this site's approved field list",
+                verified_digest=self._expected_digest is None
+                or job.manifest_digest == self._expected_digest,
+                feature_contract_version=self._feature_contract_version,
+            )
         if self._expected_digest and job.manifest_digest != self._expected_digest:
             return JobAcceptance(
                 round_id=job.round_id,
@@ -231,8 +258,16 @@ class LocalFederatedWorker:
         outbound contribution as ``model_update`` granularity rather than as
         rows, because that is what is actually leaving.
         """
+        if self._narrowing_rejected_everything(job):
+            return self._refused(job, "no requested field is within this site's approved field list")
+
         records = self._data_source.records(job)
-        read_fields = self._fields_for(job) or sorted({key for record in records for key in record})
+        read_fields = self._fields_for(job)
+        if not read_fields:
+            # Reached only when neither the site nor the round declared any
+            # fields, which is the one case where inferring them from the
+            # records does not widen anything anyone agreed to.
+            read_fields = sorted({key for record in records for key in record})
         read_decision = self._governance.enforce(
             self._request(job, "before_read", read_fields, "row", len(records)),
             records,
@@ -251,11 +286,14 @@ class LocalFederatedWorker:
         if not send_decision.permitted:
             return self._refused(job, send_decision.message or "outbound contribution was not permitted")
 
-        bounded_norm = outcome.update_norm
-        if send_decision.payload:
-            # The Guard may have clipped or noised the contribution. What it
-            # returned is what leaves, not what the runner produced.
-            bounded_norm = send_decision.payload[0].get("model_update", bounded_norm)
+        # The Guard may have clipped or noised the contribution. What it returned
+        # is what leaves, not what the runner produced — and if it returned
+        # nothing for the field, nothing leaves. Falling back to the runner's own
+        # value here would send the unclipped norm precisely when the Guard had
+        # decided to withhold it.
+        if not send_decision.payload or "model_update" not in send_decision.payload[0]:
+            return self._refused(job, "the guard withheld the outbound contribution")
+        bounded_norm = send_decision.payload[0]["model_update"]
 
         return SiteResult(
             round_id=job.round_id,

@@ -18,6 +18,7 @@ layer.
 from __future__ import annotations
 
 import hashlib
+import json
 import random
 import time
 import uuid
@@ -84,24 +85,20 @@ class InMemoryAuditLog:
 
     @staticmethod
     def _digest(record: AuditRecord) -> str:
-        material = "|".join(
-            [
-                record.audit_id,
-                str(record.recorded_at),
-                record.boundary,
-                record.request_id,
-                record.requester_id,
-                record.decision,
-                str(record.permitted),
-                record.granularity,
-                f"{record.filtering_score:.6f}",
-                ",".join(record.withheld_fields),
-                ",".join(record.violations),
-                record.correlation_id or "",
-                record.previous_digest,
-            ]
-        )
-        return hashlib.sha256(material.encode("utf-8")).hexdigest()
+        """Hash every field of a record except the digest itself.
+
+        Derived from the model's own dump rather than a hand-written field list,
+        because a hand-written list silently stops covering any field added
+        later — ``obligations`` was omitted exactly that way, so the duties the
+        Guard committed to could be rewritten without breaking the chain.
+
+        JSON with sorted keys rather than a delimiter join: joining lists on a
+        comma makes ``["a,b"]`` and ``["a", "b"]`` hash identically.
+        """
+        material = record.model_dump(mode="json", exclude={"digest"})
+        return hashlib.sha256(
+            json.dumps(material, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
 
     def append(self, record: AuditRecord) -> AuditRecord:
         previous = self._records[-1].digest if self._records else ""
@@ -301,19 +298,27 @@ class EthicalGuard:
         if aggregate_fields:
             # Aggregate-only changes the shape of the answer, not just its
             # values: the caller gets one summary row instead of the records.
-            #
-            # _aggregate may add to `withheld` when the group is too small, so
-            # it is called on its own line. Inlining it into the return tuple
-            # would make the result depend on Python evaluating tuple elements
-            # left to right, which is true but is not a thing to rely on.
-            summary = self._aggregate(records, aggregate_fields, strategies, withheld)
+            summary = self._aggregate(records, aggregate_fields, strategies, withheld, request)
+            if not summary:
+                # The group was too small, so nothing describes it. Everything
+                # the request asked for is withheld, and nothing was
+                # transformed — reporting a field in both lists would say it
+                # was protected and returned, which is two different claims.
+                return [], sorted(set(request.requested_fields) | set(withheld)), []
             return summary, withheld, transformed
+
+        surviving = [field for field in request.requested_fields if field not in withheld]
+        if not surviving:
+            # Every requested field was withheld. Returning one empty dict per
+            # record would hand back the exact record count, which is a cohort
+            # size the caller was not granted.
+            return [], sorted(set(request.requested_fields) | set(withheld)), transformed
 
         applied: list[dict[str, Any]] = []
         for index, record in enumerate(records):
             projected: dict[str, Any] = {}
-            for field in request.requested_fields:
-                if field in withheld or field not in record:
+            for field in surviving:
+                if field not in record:
                     continue
                 name, parameter = _parse_strategy(strategies.get(field, "allow_full"))
                 projected[field] = self._transform(
@@ -328,6 +333,7 @@ class EthicalGuard:
         aggregate_fields: dict[str, int],
         strategies: dict[str, str],
         withheld: list[str],
+        request: RestrictionRequest,
     ) -> list[dict[str, Any]]:
         """Reduce records to a single group summary, or to nothing if too small.
 
@@ -339,21 +345,27 @@ class EthicalGuard:
         size the caller *claimed*; the Guard sees how many records there really
         are, and those can differ.
 
-        Every requested field that was not withheld gets an entry here. A field
-        that appeared in neither the summary nor ``withheld_fields`` would be
-        one the caller cannot account for, which is exactly the ambiguity the
-        Guard exists to remove.
+        Per-field strategies are honoured here, not only in the row path. A
+        field the planner protected must not have its exact values published
+        because the shape changed: ``min`` and ``max`` over a group are two
+        specific subjects' values, so they are released only for a field the
+        planner left unrestricted. Everything else reports a count and a mean,
+        and the mean is put through the field's own strategy.
+
+        Every requested field that was not withheld gets an entry. A field in
+        neither the summary nor ``withheld_fields`` would be one the caller
+        cannot account for, which is the ambiguity the Guard exists to remove.
         """
         minimum = max(aggregate_fields.values()) if aggregate_fields else 0
         count = len(records)
         if count < minimum:
-            withheld.extend(field for field in strategies if field not in withheld)
             return []
+
         summary: dict[str, Any] = {"record_count": count}
-        for field, strategy in strategies.items():
+        for field in request.requested_fields:
             if field in withheld:
                 continue
-            name, _ = _parse_strategy(strategy)
+            name, parameter = _parse_strategy(strategies.get(field, "allow_full"))
             if name in {"redact", "refuse"}:
                 continue
             values = [
@@ -362,16 +374,33 @@ class EthicalGuard:
                 if isinstance(record.get(field), (int, float)) and not isinstance(record.get(field), bool)
             ]
             if values:
-                summary[f"{field}_mean"] = sum(values) / len(values)
-                summary[f"{field}_min"] = min(values)
-                summary[f"{field}_max"] = max(values)
+                mean = sum(values) / len(values)
+                # "aggregate_only" is satisfied by the aggregation itself, so the
+                # mean is published as computed. Every other strategy still
+                # applies to it: a generalized field's mean is still a value
+                # derived from that field.
+                summary[f"{field}_mean"] = (
+                    mean
+                    if name == "aggregate_only"
+                    else self._transform(mean, name, parameter, seed=f"{request.request_id}:{field}:mean")
+                )
+                if name == "allow_full":
+                    # Only an unrestricted field may publish its extremes,
+                    # because an extreme is one subject's actual value.
+                    summary[f"{field}_min"] = min(values)
+                    summary[f"{field}_max"] = max(values)
             else:
-                summary[f"{field}_distinct"] = len({str(record.get(field)) for record in records if field in record})
+                summary[f"{field}_distinct"] = len(
+                    {str(record.get(field)) for record in records if field in record}
+                )
         return [summary]
 
     @staticmethod
     def _transform(value: Any, strategy: str, parameter: float, *, seed: str) -> Any:
         """Apply one strategy to one value.
+
+        ``generalize``'s parameter is a coarsening level (higher is coarser),
+        and ``clip_contribution``'s is a norm bound.
 
         ``add_noise`` draws from a generator seeded by the request and field, so
         a decision is reproducible during an audit. That is a demonstration
@@ -382,13 +411,19 @@ class EthicalGuard:
         if strategy == "allow_full":
             return value
         if strategy == "generalize":
-            precision = max(int(parameter), 0)
+            # The parameter is a coarsening LEVEL, where higher is coarser. It
+            # is not a decimal precision: reading it that way inverts the
+            # strategy and makes level 1 a no-op on any value already recorded
+            # to one decimal, while reporting the field as protected.
+            level = max(int(parameter), 1)
             if isinstance(value, bool):
                 return value
             if isinstance(value, (int, float)):
-                return round(float(value), precision)
+                bucket = 10 ** level
+                coarsened = round(float(value) / bucket) * bucket
+                return int(coarsened) if isinstance(value, int) else float(coarsened)
             text = str(value)
-            keep = max(precision, 1)
+            keep = max(4 - level, 1)
             return text if len(text) <= keep else text[:keep] + "*"
         if strategy == "clip_contribution":
             if isinstance(value, bool) or not isinstance(value, (int, float)):
@@ -400,5 +435,11 @@ class EthicalGuard:
                 return value
             generator = random.Random(seed)
             return float(value) + generator.gauss(0.0, max(parameter, 1e-9))
-        # Anything the Guard does not recognize is withheld, not passed through.
+        # "aggregate_only" is not a per-value transform: it is satisfied by
+        # reducing records to a group, which the aggregate path does. Reaching
+        # here with it means a caller applied it to a single value, which would
+        # publish that value, so it is withheld.
+        #
+        # Anything else the Guard does not recognize is withheld too, rather
+        # than passed through: an unknown strategy is not permission.
         return None

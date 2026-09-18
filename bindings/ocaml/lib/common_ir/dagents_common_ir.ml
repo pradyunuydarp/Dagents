@@ -548,6 +548,7 @@ module Governance_types = struct
       row-oriented strategies GRAILS describes. *)
   type restriction_strategy =
     | AllowFull
+    (* Coarsening level, not decimal places: higher is coarser. *)
     | Generalize of int
     | ClipContribution of float
     | AddNoise of float

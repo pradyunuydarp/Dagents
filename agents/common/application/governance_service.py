@@ -46,8 +46,16 @@ class GovernanceService:
         audit: AuditSink | None = None,
         registry: ExtensionRegistry | None = None,
     ) -> None:
-        self._audit = audit or InMemoryAuditLog()
-        self._guard = guard or EthicalGuard(planner or DagentscRestrictionPlanner(), self._audit)
+        if guard is not None:
+            # Read the sink off the guard rather than keeping a separate one.
+            # Holding our own would leave recent_audit() and
+            # audit_chain_intact() reporting on an empty log that nothing ever
+            # writes to, which is worse than having no audit view at all.
+            self._guard = guard
+            self._audit = guard.audit
+        else:
+            self._audit = audit or InMemoryAuditLog()
+            self._guard = EthicalGuard(planner or DagentscRestrictionPlanner(), self._audit)
         self._registry = registry or default_registry
         self._classifications: dict[str, DataClassification] = {}
 
