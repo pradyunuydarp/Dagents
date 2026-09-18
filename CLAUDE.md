@@ -13,15 +13,18 @@ deploy through services.**
 
 - **LMA** (Local Monitoring Agent, sometimes called CMA / Constraint Monitoring Agent in the
   presentation material) — one per source boundary (tenant, database, service, event stream,
-  environment). Profiles data, partitions work, runs source-level models, publishes summaries.
+  environment). Profiles data, partitions work, runs source-level models, publishes summaries,
+  and enforces governance at three of the four guard boundaries.
 - **GMA** (Global Monitoring Agent) — registers LMAs, assimilates their outputs, runs aggregate
-  models across sources, coordinates dispatch.
+  models across sources, coordinates dispatch, and owns federated round control and release
+  governance.
 - **Framework services** — core / pipeline / model, exposing stable APIs so consumer backends
   call Dagents instead of rebuilding profiling, orchestration, routing, and manifest generation.
-- **OCaml planners** — pure, typed compilers for validation, DAG planning, model routing, and
-  Kubernetes manifest rendering.
+- **OCaml planners** — pure, typed compilers for validation, DAG planning, model routing,
+  Kubernetes manifest rendering, ethical-restriction planning, and federated round governance.
 
-Intended consumers: Watchdog, Datalytics, and the in-repo NL2SQL demo app.
+Intended consumers: Watchdog, Datalytics, the in-repo NL2SQL demo app, and the healthcare
+stroke-triage demo app.
 
 ## The Central Architectural Rule
 
@@ -53,6 +56,8 @@ bindings/ocaml/  the functional planning layer (dune workspace)
   lib/pipeline_compiler   DAG validation + topological ordering
   lib/model_router        dataset profile + task -> model family + packaging mode
   lib/manifest_compiler   typed workload spec -> Kubernetes YAML
+  lib/governance_compiler GRAILS Ethical-Restriction Rails: what protection a request needs
+  lib/federation_compiler federated round manifests, eligibility, quorum, release gates
   bin/dagentsc.ml         CLI entrypoint services shell out to
 contracts/grpc/  shared LMA/GMA protobuf contract
 services/
@@ -61,6 +66,9 @@ services/
   model-service/      training, checks, benchmark datasets, model jobs
   spring-services/    Spring Boot control + core services
   nl2sql-demo/        demo app proving a real app can consume the framework
+apps/
+  healthcare-demo/    self-contained stroke-triage demo; its own README, tests, and compose,
+                      extractable into a standalone repo via scripts/extract_repo.sh
 docs/
   agents/         LMA/GMA architecture
   architecture/   OCaml adoption plan, Python-vs-OCaml comparison
@@ -99,6 +107,17 @@ each service has its own `requirements.txt`; there is no root-level one.
 Per-service suites live under `services/<name>/tests/`. The NL2SQL suite inserts its own
 backend path, so it runs from the root too.
 
+The governance and federation tests run against the real `dagentsc` binary rather than a stub —
+stubbing the planner would prove the code calls something, not that the governance holds. They
+find the dune build automatically and skip with a message if it is missing, so check the skip
+count: a suite that silently skips its governance tests is green without having proved anything.
+
+The healthcare demo has its own suite:
+
+```bash
+cd apps/healthcare-demo && PYTHONPATH=../..:backend ../../.venv/bin/python -m unittest discover -s tests -t .
+```
+
 ### Full stack
 
 ```bash
@@ -117,6 +136,16 @@ services/nl2sql-demo/scripts/run_local_demo.sh  # NL2SQL app, no Docker
 `docs/demo/inputs/` holds request payloads and `docs/demo/expected/` the recorded responses —
 useful as fixtures when changing planner or service output shapes.
 
+The healthcare demo has its own entrypoints, which need no Docker and no database:
+
+```bash
+apps/healthcare-demo/scripts/run_pilot.sh        # one governed federated pilot, printed
+apps/healthcare-demo/scripts/run_local_demo.sh   # the API on :8080
+```
+
+Both need `dagentsc` built. Without it the Ethical Guard denies every request — correct behaviour,
+but nothing useful runs, so the scripts check and say so.
+
 ### Service ports
 
 | Service | Port |
@@ -130,6 +159,8 @@ useful as fixtures when changing planner or service output shapes.
 | spring-core-service | 8060 |
 | nl2sql-demo backend | 8070 |
 | nl2sql-demo frontend | 5173 |
+| healthcare-demo backend | 8080 |
+| healthcare-demo frontend | 5174 |
 
 Config comes from `env/.env.shared` plus a per-service file. Never hardcode URLs or ports —
 they are env-driven by design, with distinct `*_PUBLIC_URL` (host) and `*_INTERNAL_URL`
@@ -176,13 +207,62 @@ same handler.
 
 The framework services (`core`, `pipeline`, `model`) are uniformly `/api/v1/...`.
 
+### Governance: where a decision lives
+
+Governance follows the same split as everything else, and the split is the whole design.
+
+- **Deciding** is pure, so it lives in `bindings/ocaml/lib/governance_compiler`. Sensitivity,
+  trust, granularity, and strategy are algebraic data types, and `select_strategy` matches on the
+  full triple exhaustively. Adding a level fails to compile until every combination is handled.
+- **Enforcing** needs real data and an audit sink, so it lives in
+  `agents/common/application/ethical_guard.py`. The Guard applies the plan, projects away anything
+  the request did not ask for, and writes a digest-chained audit record.
+- **Policy** is configuration, not code: a `DataClassification` contributed by an extension or
+  registered at runtime. Changing a field's sensitivity changes no code path.
+
+The Guard **fails closed**. If the planner cannot be reached it denies the request and records the
+denial. Do not add a fallback that permits on planner failure; an enforcement layer whose absence
+grants access is not one.
+
+### Federated rounds
+
+`bindings/ocaml/lib/federation_compiler` owns every deterministic decision: eligibility, quorum,
+aggregation readiness, release gates. `agents/common/application/federation.py` owns state and
+side effects and delegates the rest — do not re-derive a planning rule in Python.
+
+The federated protocol itself belongs to a specialist runtime behind `FederationEngine`. The
+in-process engine is a simulator for tests and demos; do not grow it into a federated optimizer.
+
+Two invariants hold throughout, and both have tests: aggregation produces a candidate and never a
+release, and a release gate whose metric is absent blocks rather than passing.
+
+### Extending the framework from a consumer app
+
+A consumer contributes through `agents/common/extensions`, never by patching the framework. An
+extension supplies feature contracts, data classifications, condition packs, named pipeline steps,
+and named model adapters. Registration is explicit and conflicts are errors: two extensions
+claiming one id would make a guard decision depend on import order.
+
+`apps/healthcare-demo/backend/app/extension.py` is the reference — about eighty declarative lines,
+importing no framework internal. If a new consumer needs something that will not fit through this
+interface, that is a signal about the interface, not a reason to reach around it.
+
 ### Scope discipline
 
 Product-specific logic does not belong in Dagents unless it is genuinely reusable across
-consumers. NL2SQL is the reference for the boundary: the app owns its UI and SQL generation;
-Dagents owns validation, planning, service checks, and workload compilation. Read
-`services/nl2sql-demo/backend/app/services/dagents_orchestrator.py` to see the intended
-integration shape before wiring a new consumer.
+consumers. Two demos mark the boundary from different directions:
+
+- NL2SQL: the app owns its UI and SQL generation; Dagents owns validation, planning, service
+  checks, and workload compilation. Read
+  `services/nl2sql-demo/backend/app/services/dagents_orchestrator.py` for the service-integration
+  shape.
+- Healthcare: the app owns its clinical feature contract, scoring rule, FHIR mapping, and
+  intended-use statement; Dagents owns governance, federation, and everything generic. Read
+  `apps/healthcare-demo/backend/app/extension.py` for the extension shape.
+
+Nothing in `agents/` knows what a stroke is, and nothing in the healthcare app re-implements a
+quorum rule. That is the test to apply to a new capability: if it would need a domain word in
+`agents/`, it belongs in the consumer.
 
 ## Current State
 
@@ -202,3 +282,6 @@ for the full findings). `generate_manifests_local.py` exists as a workaround tha
 - `bindings/ocaml/README.md` — module map, CLI surface, contract examples
 - `docs/demo/app-architecture-walkthrough.md` and `functional-modules-walkthrough.md`
 - `docs/presentation/dagents-project-presentation.pptx` — the framing used for the project deck
+- `docs/presentation/healthcare-case-study/` — the stroke case study and the federated use case,
+  including the GRAILS sections the governance layer implements
+- `apps/healthcare-demo/README.md` — the demo app, its boundary table, and its honest limits
