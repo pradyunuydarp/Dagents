@@ -104,6 +104,17 @@ class KeyConversionTests(unittest.TestCase):
         )
         self.assertEqual(converted["requestId"], "r-1")
 
+    def test_config_map_keys_survive_the_outbound_trip(self) -> None:
+        """A ConfigMap key is chosen by whoever authored the workload.
+
+        Converting it renames the entry: a component asking for "router_mode"
+        deployed a ConfigMap keyed "routerMode", which the workload reading it
+        would not find.
+        """
+        request = {"config_map_data": {"router_mode": "edge", "log_level": "debug"}}
+        converted = dagents_runner.convert_keys(request, dagents_runner.to_camel_case)
+        self.assertEqual(sorted(converted["configMapData"]), ["log_level", "router_mode"])
+
     def test_a_key_outside_the_data_sets_is_still_converted(self) -> None:
         """The guard must not become a blanket exemption."""
         converted = dagents_runner.convert_keys({"roundId": {"innerKey": 1}}, dagents_runner.to_snake_case)

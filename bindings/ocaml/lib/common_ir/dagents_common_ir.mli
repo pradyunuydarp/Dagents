@@ -67,7 +67,7 @@ module Core_types : sig
   type job_status = Queued | Running | Completed | Failed | Cancelled
 
   (** Kubernetes object family emitted by the manifest compiler. *)
-  type workload_kind = Deployment | Job | CronJob | Service | ConfigMap
+  type workload_kind = Deployment | Job | CronJob | Service | ConfigMap | ServiceAccount
 
   (** Runtime target selected for an individual compiled pipeline step. *)
   type pipeline_execution_target = LocalProcess | PythonService | KubernetesJobTarget
@@ -503,6 +503,10 @@ module Workload_types : sig
     ports : port list;
     args : string list;
     resources : resources;
+    generated_resources : workload_kind list;
+    service_account_name : string option;
+    service_type : string;
+    config_map_data : (string * string) list;
   }
 
   (** Declarative manifest-generation input.
@@ -535,6 +539,7 @@ module Workload_types : sig
     deployment_yaml : string;
     service_yaml : string option;
     config_map_yaml : string option;
+    service_account_yaml : string option;
   }
 
   (** Complete rendered manifest plan, including per-component and combined YAML. *)

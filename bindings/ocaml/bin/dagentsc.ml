@@ -147,6 +147,10 @@ let manifest_compile args =
               ports = [ { port_name = "http"; container_port = 8080 } ];
               args = [];
               resources = default_resources;
+              generated_resources = [];
+              service_account_name = None;
+              service_type = "ClusterIP";
+              config_map_data = [];
             };
           ];
       }

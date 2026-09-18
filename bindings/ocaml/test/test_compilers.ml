@@ -341,6 +341,10 @@ let test_manifest_compiler_plan () =
               ports = [ { port_name = "http"; container_port = 8060 } ];
               args = [ "--server.port=8060" ];
               resources = default_resources;
+              generated_resources = [];
+              service_account_name = None;
+              service_type = "ClusterIP";
+              config_map_data = [];
             };
             {
               name = "reconciler";
@@ -352,6 +356,10 @@ let test_manifest_compiler_plan () =
               ports = [];
               args = [ "--sync" ];
               resources = default_resources;
+              generated_resources = [];
+              service_account_name = None;
+              service_type = "ClusterIP";
+              config_map_data = [];
             };
             {
               name = "edge-service";
@@ -363,6 +371,10 @@ let test_manifest_compiler_plan () =
               ports = [ { port_name = "grpc"; container_port = 9090 } ];
               args = [];
               resources = default_resources;
+              generated_resources = [];
+              service_account_name = None;
+              service_type = "ClusterIP";
+              config_map_data = [];
             };
           ];
       }
@@ -997,6 +1009,95 @@ let test_governance_and_federation_codec_roundtrip () =
             ("granularity", `String "galaxy");
           ]))
 
+(** Verifies the companion objects a component can ask for on its own.
+
+    The spec-wide flags can only say "all components" or "none". A real bundle
+    has one component that needs a ConfigMap and several that do not, so the
+    per-component list is what makes the compiler usable — and its absence is
+    what made the OCaml path render strictly less than the Python fallback it
+    was supposed to replace. *)
+let test_manifest_per_component_resources () =
+  let component =
+    {
+      name = "router";
+      image = "ghcr.io/example/router:latest";
+      kind = Deployment;
+      replicas = 1;
+      schedule = None;
+      env = [];
+      ports = [ { port_name = "http"; container_port = 8080 } ];
+      args = [];
+      resources = default_resources;
+      generated_resources = [ Service; ConfigMap; ServiceAccount ];
+      service_account_name = None;
+      service_type = "NodePort";
+      config_map_data = [ ("router_mode", "edge") ];
+    }
+  in
+  let plan =
+    Dagents_manifest_compiler.compile_plan
+      {
+        plan_id = "per-component";
+        namespace = "dagents-generated";
+        components = [ component ];
+        (* Both spec-wide flags off: everything below comes from the component. *)
+        include_services = false;
+        include_config_maps = false;
+      }
+  in
+  let manifest = List.hd plan.manifests in
+  assert_true "a component asking for a Service should get one" (manifest.service_yaml <> None);
+  assert_true "a component asking for a ConfigMap should get one" (manifest.config_map_yaml <> None);
+  assert_true "a component asking for a ServiceAccount should get one"
+    (manifest.service_account_yaml <> None);
+  assert_true "the service exposure mode should be the one requested"
+    (contains (Option.get manifest.service_yaml) "type: NodePort");
+  assert_true "config map data keys must survive verbatim"
+    (contains (Option.get manifest.config_map_yaml) "router_mode: \"edge\"");
+  assert_true "the pod must be bound to the generated service account"
+    (contains manifest.deployment_yaml "serviceAccountName: router");
+  assert_true "every rendered object should reach the combined YAML"
+    (contains plan.combined_yaml "kind: Service"
+    && contains plan.combined_yaml "kind: ConfigMap"
+    && contains plan.combined_yaml "kind: ServiceAccount")
+
+(** Verifies that a companion is not rendered twice when it is also the primary.
+
+    A component whose kind is [Service] already renders a Service; attaching one
+    again would emit the same object into the bundle twice. *)
+let test_manifest_does_not_duplicate_a_primary_object () =
+  let component =
+    {
+      name = "edge";
+      image = "ghcr.io/example/edge:latest";
+      kind = Service;
+      replicas = 1;
+      schedule = None;
+      env = [];
+      ports = [ { port_name = "http"; container_port = 8080 } ];
+      args = [];
+      resources = default_resources;
+      generated_resources = [ Service ];
+      service_account_name = None;
+      service_type = "ClusterIP";
+      config_map_data = [];
+    }
+  in
+  let plan =
+    Dagents_manifest_compiler.compile_plan
+      {
+        plan_id = "no-duplicate";
+        namespace = "dagents";
+        components = [ component ];
+        include_services = true;
+        include_config_maps = false;
+      }
+  in
+  let manifest = List.hd plan.manifests in
+  assert_true "a Service component must not also carry a companion Service"
+    (manifest.service_yaml = None);
+  assert_true "the primary Service is still rendered" (contains manifest.deployment_yaml "kind: Service")
+
 (** Run one named test and print a progress line before and after it. *)
 let run_test ~index ~total (name, test) =
   Printf.printf "%s %02d/%02d RUN  %s\n%!" (progress_bar ~completed:(index - 1) ~total) index total name;
@@ -1020,6 +1121,8 @@ let () =
       ("pipeline duplicate and unknown dependency rejection", test_pipeline_compiler_rejects_duplicates_and_unknown_dependencies);
       ("model routing", test_model_router);
       ("manifest compiler plan", test_manifest_compiler_plan);
+      ("manifest per-component resources", test_manifest_per_component_resources);
+      ("manifest does not duplicate a primary object", test_manifest_does_not_duplicate_a_primary_object);
       ("JSON codec round trip", test_json_codec_roundtrip);
       ("KYU trust assessment", test_kyu_assessment);
       ("model updates are never released raw", test_model_update_is_never_allowed_raw);

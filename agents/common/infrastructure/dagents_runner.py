@@ -32,6 +32,13 @@ DATA_MAP_KEYS = {
     "baseline_metrics",
     "site_weights",
     "parameters",
+    # ConfigMap keys are chosen by whoever authored the workload, so converting
+    # them renames the entry: a component asking for "router_mode" was
+    # deploying a ConfigMap keyed "routerMode".
+    "config_map_data",
+    # Scope labels and evidence pointers are caller-chosen in the same way.
+    "scope",
+    "pointers",
 }
 
 def to_camel_case(snake_str: str) -> str:

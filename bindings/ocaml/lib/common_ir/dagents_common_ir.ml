@@ -54,7 +54,7 @@ module Core_types = struct
   type job_status = Queued | Running | Completed | Failed | Cancelled
 
   (** Kubernetes resource kind emitted by the manifest compiler. *)
-  type workload_kind = Deployment | Job | CronJob | Service | ConfigMap
+  type workload_kind = Deployment | Job | CronJob | Service | ConfigMap | ServiceAccount
 
   (** Execution target assigned by the pipeline compiler. *)
   type pipeline_execution_target = LocalProcess | PythonService | KubernetesJobTarget
@@ -472,6 +472,10 @@ module Workload_types = struct
     ports : port list;
     args : string list;
     resources : resources;
+    generated_resources : workload_kind list;
+    service_account_name : string option;
+    service_type : string;
+    config_map_data : (string * string) list;
   }
 
   (** Full manifest-compiler input. *)
@@ -490,6 +494,7 @@ module Workload_types = struct
     deployment_yaml : string;
     service_yaml : string option;
     config_map_yaml : string option;
+    service_account_yaml : string option;
   }
 
   (** Complete manifest plan including combined YAML. *)
@@ -841,6 +846,7 @@ let string_of_workload_kind = function
   | CronJob -> "CronJob"
   | Service -> "Service"
   | ConfigMap -> "ConfigMap"
+  | ServiceAccount -> "ServiceAccount"
 
 (** Convert job-status variants to stable API strings. *)
 let string_of_job_status = function
@@ -930,6 +936,7 @@ let workload_kind_of_string = function
   | "CronJob" | "cronjob" | "cron_job" -> CronJob
   | "Service" | "service" -> Service
   | "ConfigMap" | "configmap" | "config_map" -> ConfigMap
+  | "ServiceAccount" | "serviceaccount" | "service_account" -> ServiceAccount
   | value -> invalid_arg ("Unknown workload kind: " ^ value)
 
 (** Parse stable API strings into source-kind variants. *)
