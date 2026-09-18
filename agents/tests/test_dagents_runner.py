@@ -28,7 +28,10 @@ class DagentsRunnerTests(unittest.TestCase):
 
         self.assertTrue(result["valid"])
         command = run.call_args.args[0]
-        self.assertEqual(command[:5], ["dagentsc", "dataset", "source", "validate", "--input"])
+        self.assertEqual(
+            command[:5],
+            [dagents_runner.dagentsc_binary(), "dataset", "source", "validate", "--input"],
+        )
         stdin_payload = json.loads(run.call_args.kwargs["input"])
         self.assertEqual(stdin_payload["sourceId"], "orders")
 
@@ -52,7 +55,9 @@ class DagentsRunnerTests(unittest.TestCase):
         self.assertTrue(result["blocking"])
         self.assertEqual(result["warning_count"], 1)
         command = run.call_args.args[0]
-        self.assertEqual(command[:4], ["dagentsc", "dataset", "quality", "evaluate"])
+        self.assertEqual(
+            command[:4], [dagents_runner.dagentsc_binary(), "dataset", "quality", "evaluate"]
+        )
         self.assertNotEqual(command[5], "-")
         self.assertNotEqual(command[7], "-")
         self.assertFalse("input" in run.call_args.kwargs)
