@@ -112,6 +112,21 @@ stubbing the planner would prove the code calls something, not that the governan
 find the dune build automatically and skip with a message if it is missing, so check the skip
 count: a suite that silently skips its governance tests is green without having proved anything.
 
+**Run the service suites both with and without `DAGENTSC_BIN`.** `core-service` compiles manifests
+through the OCaml compiler when the binary is reachable and through a Python fallback when it is
+not, and containers put `dagentsc` on PATH — so the OCaml path is the deployed one. The two
+renderers had silently diverged, and nobody noticed because the suite only ever exercised the
+fallback:
+
+```bash
+DAGENTSC_BIN=$PWD/bindings/ocaml/_build/default/bin/dagentsc.exe \
+  PYTHONPATH=.:services/core-service .venv/bin/python \
+  -m unittest discover -s services/core-service/tests -t services/core-service/tests
+```
+
+Any behaviour with two implementations needs the same assertions run against both. If they cannot
+be kept in step, delete one.
+
 The healthcare demo has its own suite:
 
 ```bash
