@@ -179,12 +179,23 @@ class InProcessFederationEngine:
         for site_id in plan.selected_sites:
             worker = self._workers.get(site_id)
             if worker is None:
+                # An eligible site with no worker is an infrastructure gap, not
+                # a refusal. It still gets a result, because a round whose
+                # evidence simply omits a selected site is indistinguishable
+                # from one where that site was never selected.
+                reason = "no worker is attached for this site"
                 acceptances.append(
                     JobAcceptance(
+                        round_id=manifest.round_id, site_id=site_id, accepted=False, reason=reason
+                    )
+                )
+                results.append(
+                    SiteResult(
                         round_id=manifest.round_id,
                         site_id=site_id,
-                        accepted=False,
-                        reason="no worker is attached for this site",
+                        job_digest=digest,
+                        participation="failed",
+                        local_evidence_pointer=f"unreachable://{site_id}#{reason}",
                     )
                 )
                 continue
