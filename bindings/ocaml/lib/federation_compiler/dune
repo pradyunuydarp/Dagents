@@ -1,0 +1,4 @@
+(library
+ (name dagents_federation_compiler)
+ (public_name dagents.federation_compiler)
+ (libraries dagents.common_ir))
