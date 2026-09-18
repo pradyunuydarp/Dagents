@@ -257,6 +257,21 @@ class LocalFederatedWorker:
         at which this site controls what crosses its boundary, and it treats the
         outbound contribution as ``model_update`` granularity rather than as
         rows, because that is what is actually leaving.
+
+        The runner is handed the *guarded* payload, not the raw records. That is
+        deliberate, and it is the stricter of two defensible readings. The code
+        running here is the coordinator's, shipped in with the round, so what it
+        observes is what the coordinator observes; generalizing before it runs
+        limits what foreign code can see even though the data never leaves the
+        building. The looser reading — guard only what crosses the boundary — is
+        cheaper in accuracy but gives a round's code unrestricted sight of every
+        approved field.
+
+        It is not free. Generalizing a high-sensitivity clinical score costs
+        real discrimination, and the healthcare demo measures that cost rather
+        than describing it. A deployment that judges the cost too high changes
+        the field's sensitivity in its classification; it does not change this
+        code path.
         """
         if self._narrowing_rejected_everything(job):
             return self._refused(job, "no requested field is within this site's approved field list")
