@@ -224,6 +224,12 @@ The Guard **fails closed**. If the planner cannot be reached it denies the reque
 denial. Do not add a fallback that permits on planner failure; an enforcement layer whose absence
 grants access is not one.
 
+A site's local runner is handed the guarded payload, not its raw records, even though that data
+never leaves the site. The code running a round is the coordinator's, so what it observes is what
+the coordinator observes. This costs measurable accuracy — the healthcare demo quantifies it — and
+the lever for a deployment that finds the cost too high is the field's sensitivity in its
+classification, not this code path.
+
 ### Federated rounds
 
 `bindings/ocaml/lib/federation_compiler` owns every deterministic decision: eligibility, quorum,
