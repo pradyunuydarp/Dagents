@@ -26,6 +26,15 @@ This demo package is designed for a 25-minute course presentation: 20 minutes of
    ```bash
    bash docs/demo/run_demo_quick.sh
    ```
+5. Run the governance and federation demo, which needs no Docker at all:
+   ```bash
+   bash docs/demo/run_governance_demo.sh
+   ```
+
+   This is the strongest single argument for the OCaml layer being typed. It shows the
+   Ethical-Restriction Rails resolving the same request differently as trust and granularity
+   change, and a federated pilot rejecting a candidate model that beat its baseline — because two
+   safety gates failed. Both decisions come from `dagentsc`, not from the calling service.
 
 ## What To Say While Running The Demo
 
