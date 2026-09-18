@@ -57,3 +57,46 @@
 - Start Minikube and confirm `kubectl config current-context`.
 - Choose the exact image-loading strategy for macOS.
 - Run one narrow deployment first, then expand to the full Dagents set once the first manifest path is proven.
+
+## Production Work the Governance and Federation Layers Still Need
+
+- Status: pending
+- Goal: close the gap between a demonstrable control plane and one a hospital consortium could
+  actually run. Each item below is named in the code and the docs as not implemented, so this list
+  is the follow-through rather than a wish list.
+
+### Federation
+
+- Replace the in-process engine with an adapter for NVIDIA FLARE or another approved runtime,
+  behind the existing `FederationEngine` interface. Nothing above that interface should change.
+- Implement real secure aggregation. The planner already enforces the participation threshold that
+  makes it meaningful; the protocol itself is absent.
+- Add differential-privacy accounting with a tracked budget across rounds. The Guard's noise
+  strategy marks where the mechanism belongs and is not one.
+- Durable round state. Round lineage is in-memory, so a coordinator restart loses it.
+
+### Supply chain and evidence
+
+- Sign round manifests and model artifacts. `round_digest` detects drift and carries no
+  authenticity guarantee, and the docstring says so — this is the work that makes it a real check.
+- Move the audit log to append-only storage with retention rules and signing. The digest chain
+  makes tampering detectable in a test; it does not make it preventable.
+- Verify bundle signatures at the site before a job is accepted, rather than checking a digest
+  alone.
+
+### Governance
+
+- Replace the demonstration KYU scoring with real identity attributes from an identity provider.
+- Source data classifications from a policy knowledge base rather than an extension's declarations,
+  so policy can change without a deployment.
+- Disclosure-risk analysis to set minimum cohort sizes. The demo's value of 20 is illustrative.
+
+### Healthcare demo
+
+- Real FHIR and HL7 v2 adapters with terminology-service lookups, USCDI conformance, and patient
+  matching. The current mapper recognizes a handful of hardcoded LOINC codes.
+- A clinically appropriate stroke model or ruleset, with external and site-specific validation. The
+  current rule is a transparent illustration and is labelled as such everywhere it appears.
+- Anything beyond suspected stroke needs its own definition, model, thresholds, workflow, owner, and
+  safety case. The four planned conditions are declared, not implemented.
+
