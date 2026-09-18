@@ -352,6 +352,14 @@ let workload_component_of_yojson = function
           (match List.assoc_opt "resources" fields with
           | Some value -> resources_of_yojson value
           | None -> default_resources);
+        generated_resources =
+          List.map workload_kind_of_string (string_list_field "generatedResources" fields);
+        service_account_name = string_option_field "serviceAccountName" fields;
+        service_type =
+          (match string_option_field "serviceType" fields with
+          | Some value -> value
+          | None -> "ClusterIP");
+        config_map_data = string_assoc_field "configMapData" fields;
       }
   | _ -> fail "Expected workload component object"
 
@@ -392,6 +400,10 @@ let yojson_of_workload_manifest manifest =
         | None -> `Null );
       ( "configMapYaml",
         match manifest.config_map_yaml with
+        | Some value -> `String value
+        | None -> `Null );
+      ( "serviceAccountYaml",
+        match manifest.service_account_yaml with
         | Some value -> `String value
         | None -> `Null );
     ]
