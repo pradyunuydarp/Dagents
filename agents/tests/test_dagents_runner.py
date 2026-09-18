@@ -63,5 +63,52 @@ class DagentsRunnerTests(unittest.TestCase):
         self.assertFalse("input" in run.call_args.kwargs)
 
 
+class KeyConversionTests(unittest.TestCase):
+    """Maps whose keys are caller data must survive both directions.
+
+    The naive guard compared the already-converted key against a camelCase-only
+    set, which held outbound and failed inbound. A site called "Mercy_General"
+    came back as "mercy__general", the weight lookup missed it, and every
+    aggregated metric silently became 0.0 on its way into the release gates.
+    """
+
+    def test_site_weight_keys_survive_the_return_trip(self) -> None:
+        response = {
+            "siteWeights": {"Mercy_General": 0.5, "siteBeta": 0.5},
+            "acceptedSites": ["Mercy_General", "siteBeta"],
+            "aggregationPermitted": True,
+        }
+        converted = dagents_runner.convert_keys(response, dagents_runner.to_snake_case)
+        self.assertEqual(sorted(converted["site_weights"]), ["Mercy_General", "siteBeta"])
+        self.assertTrue(converted["aggregation_permitted"])
+
+    def test_metric_and_classification_keys_survive_the_return_trip(self) -> None:
+        response = {
+            "candidateMetrics": {"subgroup_auc_gap": 0.1},
+            "baselineMetrics": {"AUC_Overall": 0.8},
+            "metrics": {"alerts_per_1000": 42.0},
+        }
+        converted = dagents_runner.convert_keys(response, dagents_runner.to_snake_case)
+        self.assertIn("subgroup_auc_gap", converted["candidate_metrics"])
+        self.assertIn("AUC_Overall", converted["baseline_metrics"])
+        self.assertIn("alerts_per_1000", converted["metrics"])
+
+    def test_field_names_survive_the_outbound_trip(self) -> None:
+        request = {
+            "field_sensitivity": {"nihss_total": "high", "last_known_well_minutes": "high"},
+            "request_id": "r-1",
+        }
+        converted = dagents_runner.convert_keys(request, dagents_runner.to_camel_case)
+        self.assertEqual(
+            sorted(converted["fieldSensitivity"]), ["last_known_well_minutes", "nihss_total"]
+        )
+        self.assertEqual(converted["requestId"], "r-1")
+
+    def test_a_key_outside_the_data_sets_is_still_converted(self) -> None:
+        """The guard must not become a blanket exemption."""
+        converted = dagents_runner.convert_keys({"roundId": {"innerKey": 1}}, dagents_runner.to_snake_case)
+        self.assertEqual(converted, {"round_id": {"inner_key": 1}})
+
+
 if __name__ == "__main__":
     unittest.main()

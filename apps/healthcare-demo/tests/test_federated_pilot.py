@@ -147,6 +147,37 @@ class PilotTests(unittest.TestCase):
             self.assertIn("before_read", boundaries)
             self.assertIn("before_send", boundaries)
 
+    def test_the_guard_costs_accuracy_and_the_cost_is_measurable(self) -> None:
+        """Generalization is not free, and the README says how much it costs.
+
+        A site's raw local AUC and the AUC it reports through the Guard must
+        differ, in that direction. If they stopped differing, either the
+        classification changed or generalization silently became a no-op again
+        — and the second is the bug that made this test necessary.
+        """
+        from agents.common.domain.federation import FederatedJob
+
+        from app.domain.stroke_rule import evaluate_against_labels
+
+        manifest = self.consortium.manifest("cost", "evaluation")
+        digest = self.consortium.controller.digest(manifest)
+        for hospital in self.consortium.hospitals.values():
+            raw = evaluate_against_labels(hospital.data_source.records_held)["auc"]
+            worker = hospital.worker(expected_digest=digest)
+            job = FederatedJob(
+                round_id="cost",
+                site_id=hospital.site_id,
+                manifest=manifest,
+                manifest_digest=digest,
+                task="evaluate",
+                feature_fields=worker._approved_fields,  # noqa: SLF001
+            )
+            guarded = worker.execute(job).metrics["auc"]
+            self.assertLess(
+                guarded, raw, f"{hospital.site_id}: the Guard did not change what the runner saw"
+            )
+            self.assertGreater(guarded, raw - 0.15, f"{hospital.site_id}: the cost is implausibly large")
+
     def test_the_round_digest_changes_when_the_contract_changes(self) -> None:
         """A tampered round contract cannot present itself as the approved one."""
         original = self.consortium.controller.digest(self.consortium.manifest("r-1", "training"))

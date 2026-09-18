@@ -109,6 +109,7 @@ def build_worker(site_id: str, records: int = 5, auc: float = 0.9, norm: float =
         "runner": StubRunner(auc, norm),
         "classification_id": "stroke-triage-v1",
         "feature_contract_version": "stroke-triage-features-v2",
+        "approved_fields": ["nihss_total", "age_band"],
         "approved_purposes": ["suspected_stroke"],
     }
     payload.update(overrides)
@@ -307,6 +308,52 @@ class SiteRefusalTests(unittest.TestCase):
             self.assertEqual(result.participation, "completed")
             self.assertIsNotNone(result.update_norm)
             self.assertLess(result.update_norm, 9.9)
+
+    def test_a_round_requesting_only_unapproved_fields_is_refused(self) -> None:
+        """An empty approved-field intersection must close, never open.
+
+        The intersection being empty is falsy, and falling through to "read
+        whatever is in the records" turns the site's approved-field list from a
+        guarantee into a suggestion — it widened the read to every local key
+        precisely when the site had approved none of what was asked for.
+        """
+        worker = build_worker("hospital-a")
+        manifest = build_manifest()
+        digest = "d"
+        from agents.common.domain.federation import FederatedJob
+
+        job = FederatedJob(
+            round_id=manifest.round_id,
+            site_id="hospital-a",
+            manifest=manifest,
+            manifest_digest=digest,
+            task="train",
+            feature_fields=["ssn", "hiv_status"],
+        )
+        acceptance = worker.offer(job)
+        self.assertFalse(acceptance.accepted)
+        self.assertIn("approved field list", acceptance.reason)
+
+        result = worker.execute(job)
+        self.assertEqual(result.participation, "rejected")
+        self.assertEqual(result.contributed_examples, 0)
+
+    def test_a_partially_approved_round_is_narrowed_rather_than_refused(self) -> None:
+        """Asking for more than a site approved gets less, not nothing."""
+        worker = build_worker("hospital-a")
+        manifest = build_manifest()
+        from agents.common.domain.federation import FederatedJob
+
+        job = FederatedJob(
+            round_id=manifest.round_id,
+            site_id="hospital-a",
+            manifest=manifest,
+            manifest_digest="d",
+            task="evaluate",
+            feature_fields=["nihss_total", "ssn"],
+        )
+        self.assertTrue(worker.offer(job).accepted)
+        self.assertEqual(worker._fields_for(job), ["nihss_total"])  # noqa: SLF001
 
     def test_a_site_with_too_few_local_records_does_not_contribute(self) -> None:
         """A site below the round's per-site floor is excluded from the aggregate."""

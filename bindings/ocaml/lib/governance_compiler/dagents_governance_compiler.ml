@@ -51,8 +51,13 @@ let sensitivity_of_field classification field =
   | Some sensitivity -> sensitivity
   | None -> classification.default_sensitivity
 
-(** Default rounding precision applied by [Generalize]. *)
-let generalize_precision = 1
+(** Default coarsening level applied by [Generalize].
+
+    Higher is coarser, not more precise. Level 1 rounds a number to the nearest
+    ten and keeps a short leading prefix of a string; level 2 rounds to the
+    nearest hundred. Reading the parameter as decimal places inverts it, and
+    makes level 1 a no-op on any value already recorded to one decimal. *)
+let generalize_level = 1
 
 (** Noise scale applied when an update is permitted but not from a trusted peer. *)
 let noise_scale = 0.5
@@ -68,26 +73,26 @@ let select_strategy sensitivity trust granularity minimum_cohort =
   | HighSensitivity, ModerateTrust, (CellGrain | RowGrain) -> Redact
   | HighSensitivity, ModerateTrust, (ColumnGrain | TableGrain) -> AggregateOnly minimum_cohort
   | HighSensitivity, ModerateTrust, ModelUpdateGrain -> AddNoise noise_scale
-  | HighSensitivity, HighTrust, (CellGrain | RowGrain) -> Generalize generalize_precision
+  | HighSensitivity, HighTrust, (CellGrain | RowGrain) -> Generalize generalize_level
   | HighSensitivity, HighTrust, (ColumnGrain | TableGrain) -> AggregateOnly minimum_cohort
   | HighSensitivity, HighTrust, ModelUpdateGrain -> ClipContribution clip_bound
   | MediumSensitivity, LowTrust, (CellGrain | RowGrain) -> Redact
   | MediumSensitivity, LowTrust, ColumnGrain -> AggregateOnly minimum_cohort
   | MediumSensitivity, LowTrust, TableGrain -> Refuse
   | MediumSensitivity, LowTrust, ModelUpdateGrain -> Refuse
-  | MediumSensitivity, ModerateTrust, (CellGrain | RowGrain) -> Generalize generalize_precision
+  | MediumSensitivity, ModerateTrust, (CellGrain | RowGrain) -> Generalize generalize_level
   | MediumSensitivity, ModerateTrust, (ColumnGrain | TableGrain) -> AggregateOnly minimum_cohort
   | MediumSensitivity, ModerateTrust, ModelUpdateGrain -> ClipContribution clip_bound
   | MediumSensitivity, HighTrust, (CellGrain | RowGrain) -> AllowFull
-  | MediumSensitivity, HighTrust, ColumnGrain -> Generalize generalize_precision
+  | MediumSensitivity, HighTrust, ColumnGrain -> Generalize generalize_level
   | MediumSensitivity, HighTrust, TableGrain -> AggregateOnly minimum_cohort
   | MediumSensitivity, HighTrust, ModelUpdateGrain -> ClipContribution clip_bound
   | LowSensitivity, LowTrust, (CellGrain | RowGrain) -> AllowFull
-  | LowSensitivity, LowTrust, ColumnGrain -> Generalize generalize_precision
+  | LowSensitivity, LowTrust, ColumnGrain -> Generalize generalize_level
   | LowSensitivity, LowTrust, TableGrain -> AggregateOnly minimum_cohort
   | LowSensitivity, LowTrust, ModelUpdateGrain -> AddNoise noise_scale
   | LowSensitivity, ModerateTrust, (CellGrain | RowGrain | ColumnGrain) -> AllowFull
-  | LowSensitivity, ModerateTrust, TableGrain -> Generalize generalize_precision
+  | LowSensitivity, ModerateTrust, TableGrain -> Generalize generalize_level
   | LowSensitivity, ModerateTrust, ModelUpdateGrain -> ClipContribution clip_bound
   | LowSensitivity, HighTrust, (CellGrain | RowGrain | ColumnGrain | TableGrain) -> AllowFull
   (* The federated extension: an update is never released unprotected, however
