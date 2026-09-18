@@ -45,6 +45,12 @@ let usage () =
   prerr_endline "  dagentsc dataset schema validate [--records <file|->] [--contract <file>]";
   prerr_endline "  dagentsc dataset quality evaluate [--records <file|->] [--rules <file>]";
   prerr_endline "  dagentsc dataset transform compile|apply [--records <file|->] [--operations <file>]";
+  prerr_endline "  dagentsc governance restrict [--input <file|->]";
+  prerr_endline "  dagentsc governance assess [--input <file|->]";
+  prerr_endline "  dagentsc federation round plan [--input <file|->]";
+  prerr_endline "  dagentsc federation round digest [--input <file|->]";
+  prerr_endline "  dagentsc federation aggregate readiness [--input <file|->]";
+  prerr_endline "  dagentsc federation release evaluate [--input <file|->]";
   exit 1
 
 (** Read a flag value from the command-line argument list.
@@ -66,6 +72,18 @@ let arg_value flag args default =
 (** Parse a comma-separated dependency list from [--step] shorthand. *)
 let split_dependencies raw =
   if raw = "" then [] else String.split_on_char ',' raw
+
+(** Interpret a CLI payload as a JSON object's fields. *)
+let object_fields (json : Yojson.Safe.t) =
+  match json with
+  | `Assoc fields -> fields
+  | _ -> invalid_arg "Expected a JSON object payload"
+
+(** Read a required object-valued field from a CLI payload. *)
+let assoc_field name fields =
+  match List.assoc_opt name fields with
+  | Some value -> value
+  | None -> invalid_arg ("Missing JSON field: " ^ name)
 
 (** Read the generic [--input] JSON payload from stdin or a file. *)
 let read_json_input args =
@@ -271,6 +289,104 @@ let dataset_transform action args =
            (Dagents_dataset_compiler.apply_transform_plan plan records))
   | _ -> usage ()
 
+
+(** Handle [dagentsc governance ...].
+
+    The governance commands expose the Ethical-Restriction Rails so a service
+    can ask what protection a request needs without embedding the policy in its
+    own code. Both commands are read-only: they decide, they never enforce, and
+    enforcement stays with the Ethical Guard inside the LMA and GMA. *)
+let governance action args =
+  match action with
+  | "restrict" ->
+      let request = Json_codec.restriction_request_of_yojson (read_json_input args) in
+      output_json (Json_codec.yojson_of_restriction_plan (Dagents_governance_compiler.plan_restrictions request))
+  | "assess" ->
+      let requester = Json_codec.requester_of_yojson (read_json_input args) in
+      output_json (Json_codec.yojson_of_kyu_assessment (Dagents_governance_compiler.assess_requester requester))
+  | _ -> usage ()
+
+(** Read the round manifest from the [manifest] key of an input payload. *)
+let manifest_from_payload fields = Json_codec.round_manifest_of_yojson (assoc_field "manifest" fields)
+
+(** Handle [dagentsc federation round ...]. *)
+let federation_round action args =
+  let fields = object_fields (read_json_input args) in
+  let manifest = manifest_from_payload fields in
+  match action with
+  | "plan" ->
+      let registrations =
+        match List.assoc_opt "registrations" fields with
+        | Some (`List values) -> List.map Json_codec.site_registration_of_yojson values
+        | Some `Null | None -> []
+        | _ -> invalid_arg "Expected registrations list"
+      in
+      output_json
+        (Json_codec.yojson_of_round_plan (Dagents_federation_compiler.compile_round_plan manifest registrations))
+  | "digest" ->
+      output_json
+        (`Assoc
+           [
+             ("roundId", `String manifest.round_id);
+             ("roundDigest", `String (Dagents_federation_compiler.round_digest manifest));
+           ])
+  | _ -> usage ()
+
+(** Handle [dagentsc federation aggregate readiness]. *)
+let federation_aggregate action args =
+  match action with
+  | "readiness" ->
+      let fields = object_fields (read_json_input args) in
+      let manifest = manifest_from_payload fields in
+      let results =
+        match List.assoc_opt "results" fields with
+        | Some (`List values) -> List.map Json_codec.site_result_of_yojson values
+        | Some `Null | None -> []
+        | _ -> invalid_arg "Expected results list"
+      in
+      output_json
+        (Json_codec.yojson_of_aggregation_readiness
+           (Dagents_federation_compiler.evaluate_aggregation_readiness manifest results))
+  | _ -> usage ()
+
+(** Handle [dagentsc federation release evaluate]. *)
+let federation_release action args =
+  match action with
+  | "evaluate" ->
+      let fields = object_fields (read_json_input args) in
+      let gates =
+        match List.assoc_opt "gates" fields with
+        | Some (`List values) -> List.map Json_codec.release_gate_of_yojson values
+        | Some `Null | None -> []
+        | _ -> invalid_arg "Expected gates list"
+      in
+      let metric_bundle name =
+        match List.assoc_opt name fields with
+        | Some (`Assoc values) ->
+            List.map
+              (function
+                | key, `Float value -> (key, value)
+                | key, `Int value -> (key, float_of_int value)
+                | key, _ -> invalid_arg ("Expected numeric metric " ^ name ^ "." ^ key))
+              values
+        | Some `Null | None -> []
+        | _ -> invalid_arg ("Expected numeric object field: " ^ name)
+      in
+      let string_or name fallback =
+        match List.assoc_opt name fields with Some (`String value) -> value | _ -> fallback
+      in
+      let optional_string name =
+        match List.assoc_opt name fields with Some (`String v) -> Some v | _ -> None
+      in
+      output_json
+        (Json_codec.yojson_of_release_decision
+           (Dagents_federation_compiler.evaluate_release gates (metric_bundle "candidateMetrics")
+              (metric_bundle "baselineMetrics")
+              (string_or "candidateVersion" "candidate")
+              (optional_string "rollbackVersion")
+              (string_or "roundId" "unknown-round")))
+  | _ -> usage ()
+
 (** Dispatch the top-level command.
 
     The nested pattern match keeps command names explicit and makes unsupported
@@ -286,4 +402,8 @@ let () =
   | "dataset" :: "schema" :: action :: rest -> dataset_schema action rest
   | "dataset" :: "quality" :: action :: rest -> dataset_quality action rest
   | "dataset" :: "transform" :: action :: rest -> dataset_transform action rest
+  | "governance" :: action :: rest -> governance action rest
+  | "federation" :: "round" :: action :: rest -> federation_round action rest
+  | "federation" :: "aggregate" :: action :: rest -> federation_aggregate action rest
+  | "federation" :: "release" :: action :: rest -> federation_release action rest
   | _ -> usage ()

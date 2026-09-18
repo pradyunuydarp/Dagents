@@ -97,14 +97,15 @@ let yojson_of_string_assoc values =
 
     Objects and arrays are rejected because record fields are scalar at this
     layer; nested data should be passed through explicit JSON config fields. *)
-let value_of_yojson = function
+let value_of_yojson (json : Yojson.Safe.t) =
+  match json with
   | `String value -> VString value
   | `Int value -> VInt value
   | `Intlit value -> VInt (int_of_string value)
   | `Float value -> VFloat value
   | `Bool value -> VBool value
   | `Null -> VNull
-  | `Assoc _ | `List _ -> fail "Expected scalar record value"
+  | _ -> fail "Expected scalar record value"
 
 (** Serialize a Dagents scalar [value] back to JSON. *)
 let yojson_of_value = function
@@ -115,7 +116,8 @@ let yojson_of_value = function
   | VNull -> `Null
 
 (** Parse one JSON object into a Dagents record. *)
-let record_of_yojson = function
+let record_of_yojson (json : Yojson.Safe.t) =
+  match json with
   | `Assoc fields -> List.map (fun (field, value) -> (field, value_of_yojson value)) fields
   | _ -> fail "Expected record object"
 
@@ -124,7 +126,8 @@ let yojson_of_record record =
   `Assoc (List.map (fun (field, value) -> (field, yojson_of_value value)) record)
 
 (** Parse a JSON list of record objects. *)
-let records_of_yojson = function
+let records_of_yojson (json : Yojson.Safe.t) =
+  match json with
   | `List values -> List.map record_of_yojson values
   | _ -> fail "Expected records list"
 
@@ -178,7 +181,8 @@ let selection_sort_of_yojson = function
     - JSON value containing connector-specific selection fields.
 
     Output: the matching [source_selection] variant. *)
-let source_selection_of_yojson kind = function
+let source_selection_of_yojson kind (json : Yojson.Safe.t) =
+  match json with
   | `Assoc fields -> (
       match kind with
       | Inline ->
@@ -648,4 +652,431 @@ let route_plan_to_yojson plan =
       ("selectedModel", `String (string_of_model_family plan.selected_model));
       ("candidates", `List (List.map yojson_of_model_family plan.candidates));
       ("packagingMode", `String (string_of_packaging_mode plan.packaging_mode));
+    ]
+
+(* ---------------------------------------------------------------------------
+   Governance and federation codecs.
+
+   These follow the same conventions as the codecs above: camelCase JSON field
+   names on the wire, [Invalid_argument] with a field-specific message on bad
+   input, and no silent defaulting for anything a governance decision depends
+   on. Where a default is safe it is the conservative one, so a field omitted
+   by a careless caller cannot widen what the planner permits.
+   --------------------------------------------------------------------------- *)
+
+(** Read a float field that also accepts JSON integers. *)
+let float_field_with_default name default fields =
+  match List.assoc_opt name fields with
+  | Some (`Float value) -> value
+  | Some (`Int value) -> float_of_int value
+  | Some (`Intlit value) -> float_of_string value
+  | Some `Null | None -> default
+  | _ -> fail ("Expected float field: " ^ name)
+
+(** Read an optional float field, accepting JSON integers. *)
+let float_option_field name fields =
+  match List.assoc_opt name fields with
+  | Some (`Float value) -> Some value
+  | Some (`Int value) -> Some (float_of_int value)
+  | Some (`Intlit value) -> Some (float_of_string value)
+  | Some `Null | None -> None
+  | _ -> fail ("Expected nullable float field: " ^ name)
+
+(** Read an optional integer field, returning [None] when absent or null. *)
+let int_option_field name fields =
+  match List.assoc_opt name fields with
+  | Some (`Int value) -> Some value
+  | Some (`Intlit value) -> Some (int_of_string value)
+  | Some `Null | None -> None
+  | _ -> fail ("Expected nullable int field: " ^ name)
+
+(** Read an object of numeric values, such as a metric bundle. *)
+let float_assoc_field name fields =
+  match List.assoc_opt name fields with
+  | Some (`Assoc values) ->
+      List.map
+        (function
+          | key, `Float value -> (key, value)
+          | key, `Int value -> (key, float_of_int value)
+          | key, `Intlit value -> (key, float_of_string value)
+          | key, _ -> fail ("Expected numeric value for " ^ name ^ "." ^ key))
+        values
+  | Some `Null | None -> []
+  | _ -> fail ("Expected numeric object field: " ^ name)
+
+(** Serialize a string-keyed numeric map. *)
+let yojson_of_float_assoc values = `Assoc (List.map (fun (key, value) -> (key, `Float value)) values)
+
+(** Serialize a string list. *)
+let yojson_of_string_list values = `List (List.map (fun value -> `String value) values)
+
+(** Serialize an optional string as a nullable JSON value. *)
+let yojson_of_string_option = function Some value -> `String value | None -> `Null
+
+(** Parse one Know-Your-User attribute. *)
+let kyu_attribute_of_yojson (json : Yojson.Safe.t) =
+  match json with
+  | `Assoc fields ->
+      {
+        attribute_id = string_field "attributeId" fields;
+        attribute_weight = float_field_with_default "weight" 1.0 fields;
+        (* Unverified is the safe default: a caller that forgets the flag must
+           not have its requester treated as checked. *)
+        attribute_verified = bool_field_with_default "verified" false fields;
+      }
+  | _ -> fail "Expected KYU attribute object"
+
+(** Serialize one Know-Your-User attribute. *)
+let yojson_of_kyu_attribute attribute =
+  `Assoc
+    [
+      ("attributeId", `String attribute.attribute_id);
+      ("weight", `Float attribute.attribute_weight);
+      ("verified", `Bool attribute.attribute_verified);
+    ]
+
+(** Parse the party making a governance request. *)
+let requester_of_yojson (json : Yojson.Safe.t) =
+  match json with
+  | `Assoc fields ->
+      {
+        requester_id = string_field "requesterId" fields;
+        requester_kind = (match string_option_field "requesterKind" fields with Some v -> v | None -> "service");
+        affiliation = string_option_field "affiliation" fields;
+        stated_purpose = string_option_field "statedPurpose" fields;
+        attributes =
+          (match List.assoc_opt "attributes" fields with
+          | Some (`List values) -> List.map kyu_attribute_of_yojson values
+          | Some `Null | None -> []
+          | _ -> fail "Expected attributes list");
+        compliance_history = float_field_with_default "complianceHistory" 0.0 fields;
+      }
+  | _ -> fail "Expected requester object"
+
+(** Serialize a computed trust assessment. *)
+let yojson_of_kyu_assessment assessment =
+  `Assoc
+    [
+      ("requesterId", `String assessment.assessed_requester_id);
+      ("kyuScore", `Float assessment.kyu_score);
+      ("trust", `String (string_of_trust_level assessment.trust));
+      ("rationale", yojson_of_string_list assessment.trust_rationale);
+    ]
+
+(** Parse a data classification, the data-side half of a restriction decision. *)
+let data_classification_of_yojson (json : Yojson.Safe.t) =
+  match json with
+  | `Assoc fields ->
+      {
+        classification_id = string_field "classificationId" fields;
+        field_sensitivity =
+          (match List.assoc_opt "fieldSensitivity" fields with
+          | Some (`Assoc values) ->
+              List.map
+                (function
+                  | key, `String value -> (key, sensitivity_of_string value)
+                  | key, _ -> fail ("Expected sensitivity string for field " ^ key))
+                values
+          | Some `Null | None -> []
+          | _ -> fail "Expected fieldSensitivity object");
+        (* High is the safe default: an unclassified field is treated as the
+           most protected until someone classifies it. *)
+        default_sensitivity =
+          (match string_option_field "defaultSensitivity" fields with
+          | Some value -> sensitivity_of_string value
+          | None -> HighSensitivity);
+        regulations = string_list_field "regulations" fields;
+        minimum_cohort = int_field_with_default "minimumCohort" 0 fields;
+      }
+  | _ -> fail "Expected data classification object"
+
+(** Parse a restriction request for the Ethical-Restriction Rails. *)
+let restriction_request_of_yojson (json : Yojson.Safe.t) =
+  match json with
+  | `Assoc fields ->
+      {
+        request_id = string_field "requestId" fields;
+        boundary = guard_boundary_of_string (string_field "boundary" fields);
+        requester = requester_of_yojson (field "requester" fields);
+        classification = data_classification_of_yojson (field "classification" fields);
+        requested_fields = string_list_field "requestedFields" fields;
+        granularity = granularity_of_string (string_field "granularity" fields);
+        cohort_size = int_option_field "cohortSize" fields;
+        declared_purpose = string_option_field "declaredPurpose" fields;
+        approved_purposes = string_list_field "approvedPurposes" fields;
+      }
+  | _ -> fail "Expected restriction request object"
+
+(** Serialize one field-level restriction. *)
+let yojson_of_field_restriction restriction =
+  `Assoc
+    [
+      ("field", `String restriction.restricted_field);
+      ("sensitivity", `String (string_of_sensitivity restriction.restricted_sensitivity));
+      ("strategy", `String (string_of_restriction_strategy restriction.strategy));
+      ("reason", `String restriction.restriction_reason);
+    ]
+
+(** Serialize a compiled restriction plan. *)
+let yojson_of_restriction_plan plan =
+  `Assoc
+    [
+      ("requestId", `String plan.plan_request_id);
+      ("boundary", `String (string_of_guard_boundary plan.plan_boundary));
+      ("assessment", yojson_of_kyu_assessment plan.assessment);
+      ("granularity", `String (string_of_granularity plan.plan_granularity));
+      ("fieldRestrictions", `List (List.map yojson_of_field_restriction plan.field_restrictions));
+      ("decision", `String (string_of_plan_decision plan.decision));
+      ("filteringScore", `Float plan.filtering_score);
+      ("obligations", yojson_of_string_list plan.obligations);
+      ("violations", yojson_of_string_list plan.plan_violations);
+    ]
+
+(** Parse an aggregation method, accepting either a bare name or a parameterized
+    object such as [{ "kind": "secure_aggregation", "threshold": 3 }]. *)
+let aggregation_method_of_yojson (json : Yojson.Safe.t) =
+  match json with
+  | `String "fedavg" -> FedAvg
+  | `String "fedprox" -> FedProx 0.01
+  | `String "fedopt" -> FedOpt "adam"
+  | `String value -> fail ("Unknown aggregation method: " ^ value)
+  | `Assoc fields -> (
+      match string_field "kind" fields with
+      | "fedavg" -> FedAvg
+      | "fedprox" -> FedProx (float_field_with_default "mu" 0.01 fields)
+      | "fedopt" -> FedOpt (match string_option_field "optimizer" fields with Some v -> v | None -> "adam")
+      | "secure_aggregation" -> SecureAggregation (int_field_with_default "threshold" 3 fields)
+      | value -> fail ("Unknown aggregation method: " ^ value))
+  | _ -> fail "Expected aggregation method"
+
+(** Serialize an aggregation method as a parameterized object. *)
+let yojson_of_aggregation_method = function
+  | FedAvg -> `Assoc [ ("kind", `String "fedavg") ]
+  | FedProx mu -> `Assoc [ ("kind", `String "fedprox"); ("mu", `Float mu) ]
+  | FedOpt optimizer -> `Assoc [ ("kind", `String "fedopt"); ("optimizer", `String optimizer) ]
+  | SecureAggregation threshold ->
+      `Assoc [ ("kind", `String "secure_aggregation"); ("threshold", `Int threshold) ]
+
+(** Parse one site's standing enrolment in a study. *)
+let site_registration_of_yojson (json : Yojson.Safe.t) =
+  match json with
+  | `Assoc fields ->
+      {
+        site_id = string_field "siteId" fields;
+        site_capabilities = string_list_field "capabilities" fields;
+        site_feature_contract_version = string_field "featureContractVersion" fields;
+        approved_conditions = string_list_field "approvedConditions" fields;
+        site_policy_version =
+          (match string_option_field "policyVersion" fields with Some v -> v | None -> "unversioned");
+        site_cohort_size = int_field_with_default "cohortSize" 0 fields;
+        (* Not enrolled is the safe default: participation must be stated. *)
+        site_enrolled = bool_field_with_default "enrolled" false fields;
+      }
+  | _ -> fail "Expected site registration object"
+
+(** Serialize one site registration. *)
+let yojson_of_site_registration registration =
+  `Assoc
+    [
+      ("siteId", `String registration.site_id);
+      ("capabilities", yojson_of_string_list registration.site_capabilities);
+      ("featureContractVersion", `String registration.site_feature_contract_version);
+      ("approvedConditions", yojson_of_string_list registration.approved_conditions);
+      ("policyVersion", `String registration.site_policy_version);
+      ("cohortSize", `Int registration.site_cohort_size);
+      ("enrolled", `Bool registration.site_enrolled);
+    ]
+
+(** Parse a federated round manifest. *)
+let round_manifest_of_yojson (json : Yojson.Safe.t) =
+  match json with
+  | `Assoc fields ->
+      {
+        round_id = string_field "roundId" fields;
+        study_id = string_field "studyId" fields;
+        condition_id = string_field "conditionId" fields;
+        (* Analytics is the safe default phase: it moves the least. *)
+        phase =
+          (match string_option_field "phase" fields with
+          | Some value -> round_phase_of_string value
+          | None -> AnalyticsRound);
+        model_version = string_field "modelVersion" fields;
+        model_artifact_digest =
+          (match string_option_field "modelArtifactDigest" fields with Some v -> v | None -> "");
+        training_code_digest =
+          (match string_option_field "trainingCodeDigest" fields with Some v -> v | None -> "");
+        feature_contract_version = string_field "featureContractVersion" fields;
+        privacy_profile =
+          (match string_option_field "privacyProfile" fields with Some v -> v | None -> "default");
+        aggregation =
+          (match List.assoc_opt "aggregation" fields with
+          | Some value -> aggregation_method_of_yojson value
+          | None -> FedAvg);
+        minimum_participants = int_field_with_default "minimumParticipants" 3 fields;
+        minimum_cohort_per_site = int_field_with_default "minimumCohortPerSite" 0 fields;
+        required_capabilities = string_list_field "requiredCapabilities" fields;
+        stop_conditions =
+          List.map stop_condition_of_string (string_list_field "stopConditions" fields);
+        invited_sites = string_list_field "invitedSites" fields;
+      }
+  | _ -> fail "Expected round manifest object"
+
+(** Serialize a round manifest back to its wire shape. *)
+let yojson_of_round_manifest manifest =
+  `Assoc
+    [
+      ("roundId", `String manifest.round_id);
+      ("studyId", `String manifest.study_id);
+      ("conditionId", `String manifest.condition_id);
+      ("phase", `String (string_of_round_phase manifest.phase));
+      ("modelVersion", `String manifest.model_version);
+      ("modelArtifactDigest", `String manifest.model_artifact_digest);
+      ("trainingCodeDigest", `String manifest.training_code_digest);
+      ("featureContractVersion", `String manifest.feature_contract_version);
+      ("privacyProfile", `String manifest.privacy_profile);
+      ("aggregation", yojson_of_aggregation_method manifest.aggregation);
+      ("minimumParticipants", `Int manifest.minimum_participants);
+      ("minimumCohortPerSite", `Int manifest.minimum_cohort_per_site);
+      ("requiredCapabilities", yojson_of_string_list manifest.required_capabilities);
+      ( "stopConditions",
+        yojson_of_string_list (List.map string_of_stop_condition manifest.stop_conditions) );
+      ("invitedSites", yojson_of_string_list manifest.invited_sites);
+    ]
+
+(** Serialize a compiled round plan. *)
+let yojson_of_round_plan plan =
+  `Assoc
+    [
+      ("roundId", `String plan.plan_round_id);
+      ("studyId", `String plan.plan_study_id);
+      ("phase", `String (string_of_round_phase plan.plan_phase));
+      ("selectedSites", yojson_of_string_list plan.selected_sites);
+      ( "excludedSites",
+        `List
+          (List.map
+             (fun exclusion ->
+               `Assoc
+                 [
+                   ("siteId", `String exclusion.excluded_site_id);
+                   ("reason", `String exclusion.exclusion_reason);
+                 ])
+             plan.excluded_sites) );
+      ("quorumMet", `Bool plan.quorum_met);
+      ("requiredParticipants", `Int plan.required_participants);
+      ("aggregation", yojson_of_aggregation_method plan.plan_aggregation);
+      ( "stopReason",
+        match plan.plan_stop_reason with
+        | Some reason -> `String (string_of_stop_condition reason)
+        | None -> `Null );
+      ("roundDigest", `String plan.round_digest);
+    ]
+
+(** Parse one site's returned round result. *)
+let site_result_of_yojson (json : Yojson.Safe.t) =
+  match json with
+  | `Assoc fields ->
+      {
+        result_round_id = string_field "roundId" fields;
+        result_site_id = string_field "siteId" fields;
+        result_job_digest = (match string_option_field "jobDigest" fields with Some v -> v | None -> "");
+        participation = site_participation_of_string (string_field "participation" fields);
+        code_verified = bool_field_with_default "codeVerified" false fields;
+        privacy_checks_passed = bool_field_with_default "privacyChecksPassed" false fields;
+        contributed_examples = int_field_with_default "contributedExamples" 0 fields;
+        update_norm = float_option_field "updateNorm" fields;
+        result_metrics = float_assoc_field "metrics" fields;
+        local_evidence_pointer = string_option_field "localEvidencePointer" fields;
+      }
+  | _ -> fail "Expected site result object"
+
+(** Serialize one site result. *)
+let yojson_of_site_result result =
+  `Assoc
+    [
+      ("roundId", `String result.result_round_id);
+      ("siteId", `String result.result_site_id);
+      ("jobDigest", `String result.result_job_digest);
+      ("participation", `String (string_of_site_participation result.participation));
+      ("codeVerified", `Bool result.code_verified);
+      ("privacyChecksPassed", `Bool result.privacy_checks_passed);
+      ("contributedExamples", `Int result.contributed_examples);
+      ( "updateNorm",
+        match result.update_norm with Some value -> `Float value | None -> `Null );
+      ("metrics", yojson_of_float_assoc result.result_metrics);
+      ("localEvidencePointer", yojson_of_string_option result.local_evidence_pointer);
+    ]
+
+(** Serialize an aggregation-readiness verdict. *)
+let yojson_of_aggregation_readiness readiness =
+  `Assoc
+    [
+      ("roundId", `String readiness.readiness_round_id);
+      ("acceptedSites", yojson_of_string_list readiness.accepted_sites);
+      ( "rejectedContributions",
+        `List
+          (List.map
+             (fun rejection ->
+               `Assoc
+                 [
+                   ("siteId", `String rejection.rejected_site_id);
+                   ("reason", `String rejection.rejection_reason);
+                 ])
+             readiness.rejected_contributions) );
+      ("acceptedExamples", `Int readiness.accepted_examples);
+      ("aggregationPermitted", `Bool readiness.aggregation_permitted);
+      ( "stopReason",
+        match readiness.readiness_stop_reason with
+        | Some reason -> `String (string_of_stop_condition reason)
+        | None -> `Null );
+      ("siteWeights", yojson_of_float_assoc readiness.site_weights);
+    ]
+
+(** Parse one release gate, accepting a bare threshold or a comparison object. *)
+let release_gate_of_yojson (json : Yojson.Safe.t) =
+  match json with
+  | `Assoc fields ->
+      let comparison =
+        match List.assoc_opt "comparison" fields with
+        | Some (`Assoc comparison_fields) -> (
+            match string_field "kind" comparison_fields with
+            | "at_least" -> AtLeast (float_field_with_default "value" 0.0 comparison_fields)
+            | "at_most" -> AtMost (float_field_with_default "value" 0.0 comparison_fields)
+            | "improves_on_baseline" ->
+                ImprovesOnBaseline (float_field_with_default "margin" 0.0 comparison_fields)
+            | value -> fail ("Unknown gate comparison: " ^ value))
+        | Some _ -> fail "Expected gate comparison object"
+        | None -> fail "Missing JSON field: comparison"
+      in
+      {
+        gate_id = string_field "gateId" fields;
+        gate_metric = string_field "metric" fields;
+        comparison;
+        (* Blocking is the safe default: a gate whose severity is unstated must
+           not be treated as advisory. *)
+        gate_blocking = bool_field_with_default "blocking" true fields;
+      }
+  | _ -> fail "Expected release gate object"
+
+(** Serialize a release decision and its per-gate evidence. *)
+let yojson_of_release_decision decision =
+  `Assoc
+    [
+      ("roundId", `String decision.decision_round_id);
+      ("candidateVersion", `String decision.candidate_version);
+      ( "gateResults",
+        `List
+          (List.map
+             (fun result ->
+               `Assoc
+                 [
+                   ("gateId", `String result.result_gate_id);
+                   ("outcome", `String (string_of_gate_outcome result.outcome));
+                   ( "observed",
+                     match result.observed with Some value -> `Float value | None -> `Null );
+                   ("detail", `String result.gate_detail);
+                 ])
+             decision.gate_results) );
+      ("action", `String (string_of_release_action decision.action));
+      ("blockingFailures", yojson_of_string_list decision.blocking_failures);
+      ("rollbackVersion", yojson_of_string_option decision.rollback_version);
     ]
