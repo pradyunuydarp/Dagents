@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import pathlib
 import shutil
+import warnings
 
 from agents.common.infrastructure.dagents_runner import dagentsc_binary
 
@@ -32,4 +33,14 @@ def dagentsc_available() -> bool:
         if candidate.is_file():
             os.environ.setdefault("DAGENTSC_BIN", str(candidate))
             return True
+    # Warn rather than skipping in silence. A suite that quietly drops its
+    # governance tests reports OK without having checked anything, and the
+    # reader has no way to tell that from a real pass.
+    warnings.warn(
+        "dagentsc was not found, so the governed tests will skip. Build it with "
+        "`dune build ./bin/dagentsc.exe` in the Dagents checkout, and set DAGENTS_HOME "
+        "or DAGENTSC_BIN if this app lives outside that repository.",
+        RuntimeWarning,
+        stacklevel=2,
+    )
     return False

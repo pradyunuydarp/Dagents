@@ -158,13 +158,22 @@ typed planner, not a branch in this app's code.
 
 ## Tests
 
+Inside the Dagents repository:
+
 ```bash
-PYTHONPATH=<dagents-checkout>:backend python -m unittest discover -s tests -t .
+PYTHONPATH=../..:backend ../../.venv/bin/python -m unittest discover -s tests -t .
+```
+
+Extracted into its own repository, tell the suite where the framework is:
+
+```bash
+DAGENTS_HOME=~/src/Dagents PYTHONPATH=$DAGENTS_HOME:backend python -m unittest discover -s tests -t .
 ```
 
 38 tests. The governed ones run against the real `dagentsc` binary rather than a stub: stubbing the
-planner would prove the app calls something, not that the governance holds. They skip with a
-message if the binary is missing.
+planner would prove the app calls something, not that the governance holds. **Check the skip
+count** — without the planner, 22 of the 38 skip and the suite still reports `OK`, which is green
+without having proved anything.
 
 The ones worth reading first are in `tests/test_federated_pilot.py`:
 `test_no_patient_level_data_crosses_the_boundary`,
