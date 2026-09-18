@@ -220,6 +220,36 @@ class RoundLifecycleTests(unittest.TestCase):
         with self.assertRaises(PermissionError):
             self.controller.aggregate(self.manifest.round_id)
 
+    def test_a_selected_site_with_no_worker_still_appears_in_the_evidence(self) -> None:
+        """A round must not lose a site by omitting it.
+
+        An eligible site whose worker is unreachable is an infrastructure gap.
+        Recording nothing for it would make the round's evidence look identical
+        to one where the site was never selected, which is the difference
+        between a short round and a silently broken one.
+        """
+        engine = InProcessFederationEngine()
+        controller = FederatedRoundController(engine=engine)
+        for site_id in ("hospital-a", "hospital-b", "hospital-c"):
+            controller.register_site(build_registration(site_id))
+        manifest = build_manifest(round_id="missing-worker")
+        digest = controller.digest(manifest)
+        # Only two of the three selected sites have a worker attached.
+        engine.register_worker(build_worker("hospital-a", expected_digest=digest))
+        engine.register_worker(build_worker("hospital-b", expected_digest=digest))
+
+        record = controller.dispatch_round(manifest)
+        by_site = {result.site_id: result for result in record.results}
+        self.assertEqual(set(by_site), {"hospital-a", "hospital-b", "hospital-c"})
+        self.assertEqual(by_site["hospital-c"].participation, "failed")
+        self.assertIn("no worker", by_site["hospital-c"].local_evidence_pointer or "")
+
+        readiness = controller.evaluate_readiness(manifest.round_id)
+        self.assertNotIn("hospital-c", readiness.accepted_sites)
+        self.assertTrue(
+            any(rejection.site_id == "hospital-c" for rejection in readiness.rejected_contributions)
+        )
+
     def test_secure_aggregation_threshold_raises_the_participation_floor(self) -> None:
         manifest = build_manifest(
             round_id="secure", aggregation=AggregationMethod(kind="secure_aggregation", threshold=5)
