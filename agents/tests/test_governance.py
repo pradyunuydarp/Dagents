@@ -12,6 +12,7 @@ import os
 import pathlib
 import shutil
 import unittest
+import warnings
 
 from agents.common.application.ethical_guard import (
     DagentscRestrictionPlanner,
@@ -56,6 +57,15 @@ def dagentsc_available() -> bool:
         # exercise the same resolution path a service would.
         os.environ.setdefault("DAGENTSC_BIN", str(DUNE_BUILT_BINARY))
         return True
+    # Say so rather than skipping in silence. These are the governance tests;
+    # a suite that drops them quietly reports OK without having checked the
+    # thing most worth checking.
+    warnings.warn(
+        "dagentsc was not found, so the governance and federation tests will skip. "
+        "Build it with `opam exec -- dune build ./bin/dagentsc.exe` in bindings/ocaml.",
+        RuntimeWarning,
+        stacklevel=2,
+    )
     return False
 
 
