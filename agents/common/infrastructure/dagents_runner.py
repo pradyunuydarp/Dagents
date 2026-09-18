@@ -7,7 +7,23 @@ import tempfile
 from typing import Any
 
 DATA_RECORD_KEYS = {"records", "inlineRecords"}
-DATA_MAP_KEYS = {"schemaHint", "options", "connectionOptions", "config", "configJson"}
+DATA_MAP_KEYS = {
+    "schemaHint",
+    "options",
+    "connectionOptions",
+    "config",
+    "configJson",
+    # Maps whose keys are caller data (field names, metric names, site ids)
+    # rather than contract field names. Converting their keys would rename a
+    # classification entry for "nihss_total" into "nihssTotal" and silently lose
+    # the field's declared sensitivity.
+    "fieldSensitivity",
+    "metrics",
+    "candidateMetrics",
+    "baselineMetrics",
+    "siteWeights",
+    "parameters",
+}
 
 def to_camel_case(snake_str: str) -> str:
     components = snake_str.split('_')
@@ -122,4 +138,62 @@ def apply_dataset_transform(records: list[dict[str, Any]], operations: list[dict
     return run_dagentsc_with_files(
         ["dataset", "transform", "apply", "--records", "-", "--operations", "-"],
         {"--records": records, "--operations": operations},
+    )
+
+
+def plan_restrictions(request: dict[str, Any]) -> dict[str, Any]:
+    """Ask the Ethical-Restriction Rails what protection a request needs.
+
+    This decides; it does not enforce. Enforcement belongs to
+    :class:`~agents.common.application.ethical_guard.EthicalGuard`, which also
+    writes the audit record the returned obligations require.
+    """
+    return run_dagentsc(["governance", "restrict", "--input", "-"], request)
+
+
+def assess_requester(requester: dict[str, Any]) -> dict[str, Any]:
+    """Score a requester's Know-Your-User attributes into a trust level."""
+    return run_dagentsc(["governance", "assess", "--input", "-"], requester)
+
+
+def compile_round_plan(manifest: dict[str, Any], registrations: list[dict[str, Any]]) -> dict[str, Any]:
+    """Select the sites eligible for one federated round."""
+    return run_dagentsc(
+        ["federation", "round", "plan", "--input", "-"],
+        {"manifest": manifest, "registrations": registrations},
+    )
+
+
+def round_digest(manifest: dict[str, Any]) -> dict[str, Any]:
+    """Derive the deterministic content digest for a round manifest."""
+    return run_dagentsc(["federation", "round", "digest", "--input", "-"], {"manifest": manifest})
+
+
+def evaluate_aggregation_readiness(manifest: dict[str, Any], results: list[dict[str, Any]]) -> dict[str, Any]:
+    """Decide whether returned contributions may be aggregated."""
+    return run_dagentsc(
+        ["federation", "aggregate", "readiness", "--input", "-"],
+        {"manifest": manifest, "results": results},
+    )
+
+
+def evaluate_release(
+    gates: list[dict[str, Any]],
+    candidate_metrics: dict[str, float],
+    baseline_metrics: dict[str, float],
+    candidate_version: str,
+    rollback_version: str | None,
+    round_id: str,
+) -> dict[str, Any]:
+    """Evaluate release gates against a candidate model's metrics."""
+    return run_dagentsc(
+        ["federation", "release", "evaluate", "--input", "-"],
+        {
+            "gates": gates,
+            "candidate_metrics": candidate_metrics,
+            "baseline_metrics": baseline_metrics,
+            "candidate_version": candidate_version,
+            "rollback_version": rollback_version,
+            "round_id": round_id,
+        },
     )
