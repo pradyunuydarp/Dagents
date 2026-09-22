@@ -162,6 +162,9 @@ export default function App() {
   const [probe, setProbe] = useState<GuardProbe | null>(null);
   const [probeVerified, setProbeVerified] = useState(true);
   const [probeGranularity, setProbeGranularity] = useState("row");
+  // The classification's minimum cohort is 20, so 25 starts above the floor:
+  // the trust and granularity levers are visible before the floor masks them.
+  const [probeCohort, setProbeCohort] = useState(25);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -200,13 +203,14 @@ export default function App() {
         await postJson<GuardProbe>("/api/v1/governance:probe", {
           verified: probeVerified,
           granularity: probeGranularity,
+          cohort_size: probeCohort,
           boundary: "before_read"
         })
       );
     } catch (exc) {
       setError(String(exc));
     }
-  }, [probeVerified, probeGranularity]);
+  }, [probeVerified, probeGranularity, probeCohort]);
 
   return (
     <div className="page">
@@ -450,12 +454,26 @@ export default function App() {
               <option value="table">table</option>
               <option value="model_update">model update</option>
             </select>
+            <label>
+              cohort
+              <input
+                type="number"
+                min={0}
+                max={999}
+                value={probeCohort}
+                onChange={(event) => setProbeCohort(Number(event.target.value))}
+              />
+            </label>
             <button onClick={runProbe}>Ask the guard</button>
           </div>
         </div>
         <p className="note">
-          Change who is asking or how much they ask for, and the decision changes with it — because
-          the decision is a lookup in a typed planner, not a branch in this app's code.
+          Three levers, each a real one. Unticking <em>verified</em> drops trust and hardens the
+          strategy — at row grain, generalizing a score becomes redacting it. Widening the
+          granularity coarsens it — a column or a table can only come back as an aggregate. And a{" "}
+          <em>cohort</em> below the classification&rsquo;s floor of 20 denies the request outright,
+          whoever is asking. None of that is a branch in this app&rsquo;s code; every decision is a
+          lookup in the typed planner.
         </p>
         {probe && (
           <div className="round">

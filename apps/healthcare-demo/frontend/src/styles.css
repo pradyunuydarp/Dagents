@@ -69,6 +69,17 @@ button:disabled { opacity: 0.55; cursor: progress; }
 
 label { display: inline-flex; gap: 6px; align-items: center; color: var(--muted); }
 
+input[type="number"] {
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 7px 8px;
+  font: inherit;
+  width: 5.5rem;
+}
+input[type="number"]:hover, input[type="number"]:focus { border-color: var(--accent); }
+
 .facts { display: flex; flex-wrap: wrap; gap: 24px; margin: 0 0 16px; }
 .facts div { margin: 0; }
 .facts dt { color: var(--muted); font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.04em; }
