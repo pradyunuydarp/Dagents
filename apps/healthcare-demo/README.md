@@ -53,10 +53,13 @@ cd ../../bindings/ocaml && opam exec -- dune build ./bin/dagentsc.exe
 Then, from this directory:
 
 ```bash
-scripts/run_pilot.sh              # run one governed pilot and print the evidence
-scripts/run_local_demo.sh         # start the API at http://127.0.0.1:8080/docs
-cd frontend && npm install && npm run dev   # the operator UI at http://127.0.0.1:5174
+scripts/run_frontend_demo.sh      # the whole demo: API, UI, and a guided tour
+scripts/run_frontend_demo.sh --check   # start it, run the UI smoke test, exit
+scripts/run_pilot.sh              # no UI: run one pilot and print the evidence
 ```
+
+`run_frontend_demo.sh` starts the backend, starts the frontend in front of it, waits until both
+actually answer, and prints what to click and what each panel is showing. Ctrl-C stops both.
 
 No Docker, no database, and no model download. For the full stack including the framework services:
 
@@ -69,6 +72,46 @@ docker compose -f docker-compose.yml --env-file ../../env/.env.compose up --buil
 The Ethical Guard **fails closed**. Without `dagentsc` it cannot ask what protection a request
 needs, so it denies the request rather than allowing it. That is the correct behaviour and it also
 means nothing useful runs, which is why the scripts check for the binary and say so.
+
+## The UI
+
+![The demo's landing view](docs/screenshots/landing.png)
+
+Four panels, in the order worth reading them.
+
+### Ethical Guard — the fastest way to see the governance layer
+
+Three levers, each a real one. Change any of them and press **Ask the guard**; watch the strategy
+column rather than just the verdict.
+
+| Change | `nihss_total` strategy | What it shows |
+|---|---|---|
+| verified, row | `generalize:1` | a trusted caller still gets a coarsened score |
+| **untick verified**, row | `redact` | lower trust hardens the strategy |
+| verified, **table** | `aggregate_only:20` | a table can only come back as a group |
+| verified, **model update** | `clip_contribution:1` | an update is bounded, never raw |
+| verified, **cohort 5** | `refuse` → **DENY** | below the floor of 20, nobody gets it |
+
+![A request denied by the cohort floor](docs/screenshots/guard-denied.png)
+
+The fourth row is the extension this project adds to the published GRAILS framework: a model update
+is not a row, but it still carries patient signal, so it is governed as a fifth granularity and
+never resolves to "release unchanged".
+
+None of those decisions is a branch in this app's code — every one is a lookup in the typed OCaml
+planner. Changing the policy means editing a classification, not a code path.
+
+### Federated pilot
+
+![The pilot's rounds, candidate, and release gates](docs/screenshots/federated-pilot.png)
+
+Press **Run governed pilot** and four rounds run: analytics, baseline evaluation, training, then
+cross-site validation of the candidate. Each shows its manifest digest, its quorum, and any site
+excluded with the reason.
+
+Then read the gates, and open *What each site returned*: counts, a bounded norm, approved metrics,
+and a pointer that resolves only at the site. There is no patient-level column, and a test asserts
+there never is one.
 
 ## How it works
 
@@ -181,10 +224,22 @@ Extracted into its own repository, tell the suite where the framework is:
 DAGENTS_HOME=~/src/Dagents PYTHONPATH=$DAGENTS_HOME:backend python -m unittest discover -s tests -t .
 ```
 
-38 tests. The governed ones run against the real `dagentsc` binary rather than a stub: stubbing the
+39 tests. The governed ones run against the real `dagentsc` binary rather than a stub: stubbing the
 planner would prove the app calls something, not that the governance holds. **Check the skip
-count** — without the planner, 22 of the 38 skip and the suite still reports `OK`, which is green
+count** — without the planner, most of them skip and the suite still reports `OK`, which is green
 without having proved anything.
+
+The frontend has its own smoke test, because a typecheck and a bundle prove the app compiles and
+nothing about whether it renders, whether the proxy reaches the backend, or whether the governance
+controls change anything:
+
+```bash
+scripts/run_frontend_demo.sh --check     # starts the stack, runs it, tears down
+cd frontend && npm run smoke             # against an already-running stack
+```
+
+It drives all three guard levers, runs a full pilot, and fails on any console error or failed
+request. Without a browser it exits 2 and reports `SKIP` rather than passing quietly.
 
 The ones worth reading first are in `tests/test_federated_pilot.py`:
 `test_no_patient_level_data_crosses_the_boundary`,
@@ -206,9 +261,12 @@ backend/app/
     consortium.py      the governed pilot across all three
     framework_client.py  reaching Dagents services and planners
   main.py              FastAPI surface
-frontend/              operator UI (Vite + React)
-scripts/               run the pilot, run the app, split into its own repo
-tests/                 38 tests
+frontend/
+  src/App.tsx          the operator UI (Vite + React)
+  smoke.mjs            drives the UI against a live backend
+docs/screenshots/      what the UI looks like, regenerated by the smoke test
+scripts/               run the demo, run the pilot, split into its own repo
+tests/                 39 tests
 ```
 
 ## Standing this up as its own repository

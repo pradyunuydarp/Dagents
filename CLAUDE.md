@@ -154,12 +154,20 @@ useful as fixtures when changing planner or service output shapes.
 The healthcare demo has its own entrypoints, which need no Docker and no database:
 
 ```bash
-apps/healthcare-demo/scripts/run_pilot.sh        # one governed federated pilot, printed
-apps/healthcare-demo/scripts/run_local_demo.sh   # the API on :8080
+apps/healthcare-demo/scripts/run_frontend_demo.sh          # API + UI + a guided tour
+apps/healthcare-demo/scripts/run_frontend_demo.sh --check  # start, smoke-test the UI, exit
+apps/healthcare-demo/scripts/run_pilot.sh                  # no UI: one pilot, printed
+apps/healthcare-demo/scripts/run_local_demo.sh             # the API alone on :8080
 ```
 
-Both need `dagentsc` built. Without it the Ethical Guard denies every request — correct behaviour,
-but nothing useful runs, so the scripts check and say so.
+All of them need `dagentsc` built. Without it the Ethical Guard denies every request — correct
+behaviour, but every panel would show a denial, so the scripts check and say so.
+
+The frontend has a smoke test (`apps/healthcare-demo/frontend/smoke.mjs`) that drives the real UI
+against a live backend: it asserts each of the guard's three levers changes the strategy, runs a
+full pilot, and fails on any console error. A typecheck and a bundle prove the app compiles and
+nothing about whether it works. It exits 2 and reports `SKIP` when no browser is available, so a
+machine without Chromium says "skipped" rather than "passed".
 
 ### Service ports
 
