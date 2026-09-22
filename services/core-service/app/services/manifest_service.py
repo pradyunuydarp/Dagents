@@ -84,21 +84,32 @@ class ManifestService:
         )
 
     def compile(self, request: WorkloadCompileRequest) -> WorkloadPlanResponse:
-        """Compile a workload request into a persisted plan using the OCaml binding layer."""
-        import os
-        
-        # Fallback to local python generation if dagentsc isn't installed (e.g. tests running locally without the container)
+        """Compile a workload request into a persisted plan using the OCaml binding layer.
+
+        The plan id is minted here rather than in the compiler. The compiler is
+        a pure planner with no clock, so it can only fall back to a fixed
+        default — which would make every unnamed plan collide in the repository.
+        """
         from agents.common.infrastructure.dagents_runner import run_dagentsc
+
+        plan_id = request.plan_id or f"workload-plan-{int(time.time() * 1000)}"
+        request = request.model_copy(update={"plan_id": plan_id})
+
         try:
-            result_dict = run_dagentsc(["manifest", "compile", "--input", "-", "--output", "json"], request.model_dump(by_alias=False))
+            result_dict = run_dagentsc(
+                ["manifest", "compile", "--input", "-", "--output", "json"],
+                request.model_dump(by_alias=False),
+            )
             plan = WorkloadPlanResponse.model_validate(result_dict)
             return self._plans.save(plan)
         except (RuntimeError, FileNotFoundError):
-            pass # Fallback to python below if the binary is missing outside containers
+            # The binary is absent outside containers, so fall back to rendering
+            # here. The two paths must agree: services/core-service/tests runs
+            # the same assertions against both.
+            pass
 
         manifests: list[WorkloadManifest] = []
         rendered_sections: list[str] = []
-        plan_id = request.plan_id or f"workload-plan-{int(time.time() * 1000)}"
 
         for component in request.components:
             deployment_yaml = self._workload_yaml(request.namespace, component)

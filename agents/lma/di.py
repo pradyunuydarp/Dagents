@@ -1,5 +1,6 @@
 """Dependency container for the Local Monitoring Agent."""
 
+from agents.common.application.governance_service import GovernanceService
 from agents.common.infrastructure.sources import DefaultSourceResolver
 from agents.lma.adapters.runner import InMemoryMonitoringRunner
 from agents.lma.application.monitoring_service import MonitoringService
@@ -20,3 +21,12 @@ def build_monitoring_service() -> MonitoringService:
         model_runs=InMemoryModelRunRepository(),
         source_resolver=DefaultSourceResolver(),
     )
+
+
+def build_governance_service() -> GovernanceService:
+    """Build the LMA's Ethical Guard and its audit log.
+
+    The LMA is where three of the four guard boundaries stand: before local data
+    is read, before training touches it, and before anything leaves the site.
+    """
+    return GovernanceService()

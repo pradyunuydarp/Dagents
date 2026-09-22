@@ -60,6 +60,22 @@ let render_resources indent_prefix resources =
     indent_prefix ^ "    memory: " ^ resources.memory_limit;
   ]
 
+(** Resolve the service account a component runs under, if any.
+
+    A component that asks for a generated [ServiceAccount] is bound to one named
+    after itself, so declaring the resource and wiring the pod to it are one
+    decision rather than two that can disagree. *)
+let service_account_name (component : workload_component) =
+  match component.service_account_name with
+  | Some name -> Some name
+  | None -> if List.mem ServiceAccount component.generated_resources then Some component.name else None
+
+(** Render the pod-spec line binding a workload to its service account. *)
+let render_service_account_binding indent_prefix (component : workload_component) =
+  match service_account_name component with
+  | Some name -> [ indent_prefix ^ "serviceAccountName: " ^ name ]
+  | None -> []
+
 (** Render the shared container block used by Deployment, Job, and CronJob.
 
     Inputs: indentation prefix and one [workload_component].
@@ -95,8 +111,9 @@ let render_deployment namespace (component : workload_component) =
        "      labels:";
        "        app: " ^ component.name;
        "    spec:";
-       "      containers:";
      ]
+    @ render_service_account_binding "      " component
+    @ [ "      containers:" ]
     @ render_container "      " component)
 
 (** Render a Kubernetes Job for one-shot workload execution. *)
@@ -112,8 +129,9 @@ let render_job namespace (component : workload_component) =
        "  template:";
        "    spec:";
        "      restartPolicy: Never";
-       "      containers:";
      ]
+    @ render_service_account_binding "      " component
+    @ [ "      containers:" ]
     @ render_container "      " component)
 
 (** Render a Kubernetes CronJob for scheduled workload execution. *)
@@ -134,8 +152,9 @@ let render_cron_job namespace (component : workload_component) =
        "      template:";
        "        spec:";
        "          restartPolicy: Never";
-       "          containers:";
      ]
+    @ render_service_account_binding "          " component
+    @ [ "          containers:" ]
     @ render_container "          " component)
 
 (** Render a Service only when the component exposes ports.
@@ -155,6 +174,7 @@ let render_service namespace (component : workload_component) =
               "  name: " ^ component.name;
               "  namespace: " ^ namespace;
               "spec:";
+              "  type: " ^ component.service_type;
               "  selector:";
               "    app: " ^ component.name;
               "  ports:";
@@ -168,20 +188,47 @@ let render_service namespace (component : workload_component) =
                  ])
                ports))
 
-(** Render a small ConfigMap that records component metadata. *)
+(** Render a ConfigMap carrying the component's own data.
+
+    Component-supplied data wins. The metadata fallback exists so a component
+    that asked for a ConfigMap without supplying any still gets a valid object
+    rather than one with an empty [data] block. *)
 let render_config_map namespace (component : workload_component) =
+  let data =
+    match component.config_map_data with
+    | [] ->
+        [
+          ("component-kind", string_of_workload_kind component.kind);
+          ("image", component.image);
+        ]
+    | entries -> entries
+  in
   Some
     (String.concat "\n"
-       [
-         "apiVersion: v1";
-         "kind: ConfigMap";
-         "metadata:";
-         "  name: " ^ component.name ^ "-config";
-         "  namespace: " ^ namespace;
-         "data:";
-         "  component-kind: \"" ^ string_of_workload_kind component.kind ^ "\"";
-         "  image: \"" ^ component.image ^ "\"";
-       ])
+       ([
+          "apiVersion: v1";
+          "kind: ConfigMap";
+          "metadata:";
+          "  name: " ^ component.name ^ "-config";
+          "  namespace: " ^ namespace;
+          "data:";
+        ]
+       @ List.map (fun (key, value) -> "  " ^ key ^ ": \"" ^ value ^ "\"") data))
+
+(** Render a ServiceAccount for a component that needs its own identity. *)
+let render_service_account namespace (component : workload_component) =
+  match service_account_name component with
+  | None -> None
+  | Some name ->
+      Some
+        (String.concat "\n"
+           [
+             "apiVersion: v1";
+             "kind: ServiceAccount";
+             "metadata:";
+             "  name: " ^ name;
+             "  namespace: " ^ namespace;
+           ])
 
 (** Render the primary Kubernetes object requested by [component.kind]. *)
 let render_primary namespace (component : workload_component) =
@@ -191,12 +238,22 @@ let render_primary namespace (component : workload_component) =
   | CronJob -> render_cron_job namespace component
   | Service -> Option.value (render_service namespace component) ~default:""
   | ConfigMap -> Option.value (render_config_map namespace component) ~default:""
+  | ServiceAccount -> Option.value (render_service_account namespace component) ~default:""
+
+(** Whether a companion object should be attached to one component.
+
+    A component's own [generated_resources] and the spec-wide flag are both
+    honoured, because they answer different questions: the flag says what the
+    bundle wants by default, the component says what it needs regardless. A
+    companion is never attached when it is already the component's primary
+    object, which would render it twice. *)
+let wants_companion (component : workload_component) (kind : workload_kind) ~(spec_flag : bool) =
+  component.kind <> kind && (spec_flag || List.mem kind component.generated_resources)
 
 (** Compile all workload components into manifest records.
 
-    The primary object is always rendered. Services and ConfigMaps are attached
-    only when requested by [workload_spec] flags and when they are not already
-    the component's primary object. *)
+    The primary object is always rendered. Services, ConfigMaps, and
+    ServiceAccounts are attached per {!wants_companion}. *)
 let compile (spec : workload_spec) =
   List.map
     (fun component ->
@@ -205,9 +262,18 @@ let compile (spec : workload_spec) =
         kind = component.kind;
         deployment_yaml = render_primary spec.namespace component;
         service_yaml =
-          if spec.include_services && component.kind <> Service then render_service spec.namespace component else None;
+          if wants_companion component Service ~spec_flag:spec.include_services then
+            render_service spec.namespace component
+          else None;
         config_map_yaml =
-          if spec.include_config_maps && component.kind <> ConfigMap then render_config_map spec.namespace component
+          if wants_companion component ConfigMap ~spec_flag:spec.include_config_maps then
+            render_config_map spec.namespace component
+          else None;
+        (* A ServiceAccount has no spec-wide flag: a bundle-wide "give every
+           component its own identity" is not a thing anyone wants by default. *)
+        service_account_yaml =
+          if wants_companion component ServiceAccount ~spec_flag:false then
+            render_service_account spec.namespace component
           else None;
       })
     spec.components
@@ -216,7 +282,12 @@ let compile (spec : workload_spec) =
 let combined_yaml manifests =
   manifests
   |> List.concat_map (fun manifest ->
-         [ Some manifest.deployment_yaml; manifest.service_yaml; manifest.config_map_yaml ])
+         [
+           Some manifest.deployment_yaml;
+           manifest.service_yaml;
+           manifest.config_map_yaml;
+           manifest.service_account_yaml;
+         ])
   |> List.filter_map Fun.id
   |> List.filter (fun section -> String.trim section <> "")
   |> String.concat "\n---\n"

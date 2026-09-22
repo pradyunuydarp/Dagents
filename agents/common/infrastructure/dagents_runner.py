@@ -6,8 +6,40 @@ import subprocess
 import tempfile
 from typing import Any
 
-DATA_RECORD_KEYS = {"records", "inlineRecords"}
-DATA_MAP_KEYS = {"schemaHint", "options", "connectionOptions", "config", "configJson"}
+# Keys whose VALUES are caller data and must be passed through untouched.
+#
+# Both sets are written in snake_case and compared against a snake_cased form of
+# the key, so they match in both directions. The naive version compared only the
+# already-converted key, which worked outbound (snake -> camel, and these are
+# checked post-conversion) but silently failed inbound: "siteWeights" converts to
+# "site_weights", which was not in a camelCase-only set, so the map's keys — site
+# identifiers — were themselves snake_cased. A site called "Mercy_General" came
+# back as "mercy__general", the weight lookup missed, and every aggregated metric
+# silently became 0.0 on its way into the release gates.
+DATA_RECORD_KEYS = {"records", "inline_records"}
+
+DATA_MAP_KEYS = {
+    "schema_hint",
+    "options",
+    "connection_options",
+    "config",
+    "config_json",
+    # Maps whose keys are caller data (field names, metric names, site ids)
+    # rather than contract field names.
+    "field_sensitivity",
+    "metrics",
+    "candidate_metrics",
+    "baseline_metrics",
+    "site_weights",
+    "parameters",
+    # ConfigMap keys are chosen by whoever authored the workload, so converting
+    # them renames the entry: a component asking for "router_mode" was
+    # deploying a ConfigMap keyed "routerMode".
+    "config_map_data",
+    # Scope labels and evidence pointers are caller-chosen in the same way.
+    "scope",
+    "pointers",
+}
 
 def to_camel_case(snake_str: str) -> str:
     components = snake_str.split('_')
@@ -16,6 +48,15 @@ def to_camel_case(snake_str: str) -> str:
 def to_snake_case(camel_str: str) -> str:
     return ''.join(['_' + c.lower() if c.isupper() else c for c in camel_str]).lstrip('_')
 
+def is_data_key(key: str) -> bool:
+    """Whether this key's value must be passed through without key conversion.
+
+    Normalizes to snake_case first so the check works on a camelCase key coming
+    back from the planner and a snake_case key going out to it.
+    """
+    normalized = to_snake_case(key)
+    return normalized in DATA_RECORD_KEYS or normalized in DATA_MAP_KEYS
+
 def convert_keys(obj: Any, convert_func) -> Any:
     if isinstance(obj, list):
         return [convert_keys(item, convert_func) for item in obj]
@@ -23,7 +64,9 @@ def convert_keys(obj: Any, convert_func) -> Any:
         converted: dict[str, Any] = {}
         for key, value in obj.items():
             converted_key = convert_func(key)
-            if converted_key in DATA_RECORD_KEYS or converted_key in DATA_MAP_KEYS:
+            # Check the ORIGINAL key, not the converted one: the conversion is
+            # what differs between the two directions.
+            if is_data_key(key):
                 converted[converted_key] = value
             else:
                 converted[converted_key] = convert_keys(value, convert_func)
@@ -122,4 +165,62 @@ def apply_dataset_transform(records: list[dict[str, Any]], operations: list[dict
     return run_dagentsc_with_files(
         ["dataset", "transform", "apply", "--records", "-", "--operations", "-"],
         {"--records": records, "--operations": operations},
+    )
+
+
+def plan_restrictions(request: dict[str, Any]) -> dict[str, Any]:
+    """Ask the Ethical-Restriction Rails what protection a request needs.
+
+    This decides; it does not enforce. Enforcement belongs to
+    :class:`~agents.common.application.ethical_guard.EthicalGuard`, which also
+    writes the audit record the returned obligations require.
+    """
+    return run_dagentsc(["governance", "restrict", "--input", "-"], request)
+
+
+def assess_requester(requester: dict[str, Any]) -> dict[str, Any]:
+    """Score a requester's Know-Your-User attributes into a trust level."""
+    return run_dagentsc(["governance", "assess", "--input", "-"], requester)
+
+
+def compile_round_plan(manifest: dict[str, Any], registrations: list[dict[str, Any]]) -> dict[str, Any]:
+    """Select the sites eligible for one federated round."""
+    return run_dagentsc(
+        ["federation", "round", "plan", "--input", "-"],
+        {"manifest": manifest, "registrations": registrations},
+    )
+
+
+def round_digest(manifest: dict[str, Any]) -> dict[str, Any]:
+    """Derive the deterministic content digest for a round manifest."""
+    return run_dagentsc(["federation", "round", "digest", "--input", "-"], {"manifest": manifest})
+
+
+def evaluate_aggregation_readiness(manifest: dict[str, Any], results: list[dict[str, Any]]) -> dict[str, Any]:
+    """Decide whether returned contributions may be aggregated."""
+    return run_dagentsc(
+        ["federation", "aggregate", "readiness", "--input", "-"],
+        {"manifest": manifest, "results": results},
+    )
+
+
+def evaluate_release(
+    gates: list[dict[str, Any]],
+    candidate_metrics: dict[str, float],
+    baseline_metrics: dict[str, float],
+    candidate_version: str,
+    rollback_version: str | None,
+    round_id: str,
+) -> dict[str, Any]:
+    """Evaluate release gates against a candidate model's metrics."""
+    return run_dagentsc(
+        ["federation", "release", "evaluate", "--input", "-"],
+        {
+            "gates": gates,
+            "candidate_metrics": candidate_metrics,
+            "baseline_metrics": baseline_metrics,
+            "candidate_version": candidate_version,
+            "rollback_version": rollback_version,
+            "round_id": round_id,
+        },
     )

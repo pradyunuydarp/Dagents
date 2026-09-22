@@ -1,0 +1,28 @@
+[project]
+name = "dagents-healthcare-stroke-demo"
+version = "0.1.0"
+description = "A Dagents demo app for governed, federated stroke-triage support. Synthetic data only."
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi==0.115.0",
+    "uvicorn==0.30.6",
+    "pydantic>=2.11,<3",
+    "httpx<1",
+]
+
+# Registering here lets a Dagents service discover this app's contributions
+# through `discover_entry_point_extensions()` when it is installed as a package.
+# Discovery is opt-in on the service side: a service calls for it or it does not
+# happen, so installing this package cannot silently change what a guard permits.
+[project.entry-points."dagents.extensions"]
+healthcare-stroke = "app.extension:HealthcareStrokeExtension"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+package-dir = {"" = "backend"}
+
+[tool.setuptools.packages.find]
+where = ["backend"]

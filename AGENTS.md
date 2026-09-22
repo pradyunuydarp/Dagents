@@ -19,6 +19,8 @@ Top-level areas:
 
 ```text
 agents/
+apps/
+bindings/
 contracts/
 docs/
 services/
@@ -27,6 +29,9 @@ services/
 Current scope by area:
 
 - `agents/`: reusable `lma` and `gma` ML-orchestration services with layered application boundaries
+- `agents/common/extensions/`: the interface consumer apps contribute domain semantics through
+- `apps/healthcare-demo/`: a self-contained consumer app, extractable into its own repository
+- `bindings/ocaml/`: the typed planning layer, including governance and federation compilers
 - `services/core-service/`: framework service catalog, topology endpoint, and Kubernetes manifest generation
 - `services/model-service/`: generic anomaly-model training and inference service
 - `services/pipeline-service/`: reusable JSON pipeline orchestration and ML workflow service
@@ -230,8 +235,24 @@ Implemented framework capabilities currently include:
 - GMA assimilated dataset profiling and aggregate model execution
 - pipeline-level dataset profiling and model job steps
 - core-service Kubernetes manifest generation for workload deployment
+- GRAILS-style governance: the Ethical-Restriction Rails as a typed OCaml planner, and the Ethical
+  Guard enforcing its decisions in the LMA and GMA request paths with a digest-chained audit log
+- federated round control: signed round manifests, site eligibility, quorum, aggregation
+  readiness, and release gates, with an adapter seam for a specialist federated runtime
+- a consumer extension registry, so an app contributes feature contracts, data classifications,
+  condition packs, pipeline steps, and model adapters without forking the framework
 - separate Docker images for `lma`, `gma`, `core-service`, `model-service`, and `pipeline-service`
 - top-level `docker-compose.yml` for multi-container local or cloud-like deployment
+
+Deliberately **not** implemented, and named so nobody assumes otherwise:
+
+- a federated optimizer or secure-aggregation protocol; `FederationEngine` is an adapter seam and
+  the bundled engine is an in-process simulator
+- differential privacy accounting; the Guard's noise strategy shows where a mechanism belongs, and
+  a privacy budget is separate work
+- cryptographic signing; round digests detect drift and carry no authenticity guarantee
+- an append-only audit store; the chained log makes tampering detectable in a test, and production
+  storage, retention, and signing are separate controls
 
 Immediate implementation strategy across the agent layer remains:
 
@@ -272,14 +293,23 @@ The preferred repo layout for these functional kernels is:
 ```text
 bindings/
 └── ocaml/
-    ├── common-ir/
-    ├── dataset-compiler/
-    ├── pipeline-compiler/
-    ├── model-router/
-    └── manifest-compiler/
+    ├── common_ir/
+    ├── dataset_compiler/
+    ├── pipeline_compiler/
+    ├── model_router/
+    ├── manifest_compiler/
+    ├── governance_compiler/
+    └── federation_compiler/
 ```
 
 These modules should be treated as reusable compilers and planners first, not as top-level services.
+
+`governance_compiler` and `federation_compiler` are the strongest cases for the layer being OCaml
+rather than Python. Both decide things that must be reproducible during an audit months later, and
+both express their choice sets as algebraic data types, so adding a sensitivity level, a trust
+level, a granularity, or a stop condition fails to compile until every case is handled. A policy
+engine keyed on strings would fall through to a default instead, and in a governance decision the
+default is the branch nobody reviews.
 
 ### Integration Model
 
@@ -289,15 +319,26 @@ Preferred integration pattern:
 
 - `core-service` calls the OCaml manifest compiler through an internal process boundary or HTTP/gRPC wrapper
 - `pipeline-service` calls the OCaml pipeline compiler and model router before execution
-- `lma` calls the OCaml dataset compiler and model router for source-level runs
-- `gma` calls the same OCaml modules for assimilated-data planning
+- `lma` calls the OCaml dataset compiler and model router for source-level runs, and the
+  governance compiler before reading, training on, or sending anything
+- `gma` calls the same OCaml modules for assimilated-data planning, plus the federation compiler
+  for round planning, quorum, aggregation readiness, and release gates
 
 This keeps failure isolation, upgrade independence, explicit contracts, and simpler Kubernetes deployment.
 
 ## Working Assumptions for Contributors and Coding Agents
 
 - Preserve the LMA/GMA split: local execution belongs in LMA, fleet-wide assimilation and coordination belongs in GMA.
-- Keep product-specific logic out of Dagents unless it is truly reusable across consumers.
+- Keep product-specific logic out of Dagents unless it is truly reusable across consumers. The test
+  to apply: if a capability would need a domain word in `agents/`, it belongs in the consumer,
+  reached through `agents/common/extensions`.
+- Keep deciding separate from enforcing. A deterministic rule belongs in an OCaml planner; applying
+  it to real data, with an audit record, belongs in Python. Do not re-derive a planning rule in a
+  service because calling out to `dagentsc` felt inconvenient.
+- Never make the Ethical Guard fail open. If the planner is unreachable, the request is denied and
+  the denial is recorded. A fallback that permits on planner failure defeats the entire layer.
+- Never let aggregation imply release. A candidate model is produced by aggregation; a release
+  requires its gates to pass and a human to approve. A gate whose metric is missing blocks.
 - Prefer typed contracts and deterministic planning over ad hoc branching in orchestration code.
 - Keep `domain/` pure and push infrastructure concerns behind adapters and interfaces.
 - Treat `services/model-service` as Python-first ML execution infrastructure.

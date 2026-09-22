@@ -2,12 +2,25 @@
 
 from typing import Any
 
-from fastapi import FastAPI
-from pydantic import TypeAdapter
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel, Field, TypeAdapter
 
+from agents.common.domain.federation import (
+    CandidateModel,
+    ReleaseGate,
+    RoundManifest,
+    SiteRegistration,
+    SiteResult,
+)
+from agents.common.domain.governance import DataClassification, RestrictionRequest
 from agents.common.domain.models import SourceSpec
+from agents.common.extensions import default_registry
 from agents.gma.config import settings
-from agents.gma.di import build_aggregation_service
+from agents.gma.di import (
+    build_aggregation_service,
+    build_governance_service,
+    build_round_controller,
+)
 from agents.gma.domain.models import (
     AgentIdentity,
     DatasetProfileRequest,
@@ -22,6 +35,8 @@ from agents.gma.domain.models import (
 
 
 service = build_aggregation_service()
+governance = build_governance_service()
+rounds = build_round_controller()
 
 app = FastAPI(title=settings.app_name, version="0.1.0")
 
@@ -227,3 +242,271 @@ def telemetry_summary():
 def overview():
     """Return a fleet-level summary of agent and deployment state."""
     return service.overview()
+
+
+class GuardEnforcementRequest(BaseModel):
+    """A restriction request plus the payload the Guard should enforce against."""
+
+    request: RestrictionRequest
+    payload: list[dict[str, Any]] = Field(default_factory=list)
+    correlation_id: str | None = None
+
+
+class ReleaseEvaluationRequest(BaseModel):
+    """A candidate's measured metrics, with the gates it must clear.
+
+    ``baseline_metrics`` are the current approved model's, needed by any gate
+    that asks for an improvement rather than an absolute threshold.
+    """
+
+    gates: list[ReleaseGate] = Field(default_factory=list)
+    candidate_version: str
+    candidate_metrics: dict[str, float] = Field(default_factory=dict)
+    baseline_metrics: dict[str, float] = Field(default_factory=dict)
+    rollback_version: str | None = None
+
+
+@app.get("/governance/classifications")
+def list_classifications():
+    """List the data classifications this agent can enforce against."""
+    return governance.list_classifications()
+
+
+@app.get("/api/v1/governance/classifications")
+def list_classifications_v1():
+    """Versioned alias for listing data classifications."""
+    return list_classifications()
+
+
+@app.put("/governance/classifications/{classification_id}")
+def register_classification(classification_id: str, classification: DataClassification):
+    """Register or replace one runtime data classification."""
+    if classification.classification_id != classification_id:
+        raise HTTPException(
+            status_code=400,
+            detail=f"path id {classification_id} does not match body id {classification.classification_id}",
+        )
+    return governance.register_classification(classification)
+
+
+@app.put("/api/v1/governance/classifications/{classification_id}")
+def register_classification_v1(classification_id: str, classification: DataClassification):
+    """Versioned alias for registering a data classification."""
+    return register_classification(classification_id, classification)
+
+
+@app.post("/governance/restrictions:plan")
+def plan_restriction(request: RestrictionRequest):
+    """Ask what protection a request would need, without enforcing anything."""
+    return governance.plan(request)
+
+
+@app.post("/api/v1/governance/restrictions:plan")
+def plan_restriction_v1(request: RestrictionRequest):
+    """Versioned alias for restriction planning."""
+    return plan_restriction(request)
+
+
+@app.post("/governance/restrictions:enforce")
+def enforce_restriction(payload: GuardEnforcementRequest):
+    """Plan, apply, and record one governed request against a payload."""
+    return governance.enforce(payload.request, payload.payload, correlation_id=payload.correlation_id)
+
+
+@app.post("/api/v1/governance/restrictions:enforce")
+def enforce_restriction_v1(payload: GuardEnforcementRequest):
+    """Versioned alias for guard enforcement."""
+    return enforce_restriction(payload)
+
+
+@app.get("/governance/audit")
+def governance_audit(limit: int = 50):
+    """List recent guard decisions and whether the digest chain still verifies."""
+    return {
+        "chain_intact": governance.audit_chain_intact(),
+        "records": governance.recent_audit(limit=limit),
+    }
+
+
+@app.get("/api/v1/governance/audit")
+def governance_audit_v1(limit: int = 50):
+    """Versioned alias for the guard audit log."""
+    return governance_audit(limit=limit)
+
+
+@app.put("/federation/sites/{site_id}")
+def register_site(site_id: str, registration: SiteRegistration):
+    """Enrol or update one site in the consortium."""
+    if registration.site_id != site_id:
+        raise HTTPException(
+            status_code=400, detail=f"path id {site_id} does not match body id {registration.site_id}"
+        )
+    return rounds.register_site(registration)
+
+
+@app.put("/api/v1/federation/sites/{site_id}")
+def register_site_v1(site_id: str, registration: SiteRegistration):
+    """Versioned alias for site enrolment."""
+    return register_site(site_id, registration)
+
+
+@app.get("/federation/sites")
+def list_sites():
+    """List enrolled sites."""
+    return rounds.list_sites()
+
+
+@app.get("/api/v1/federation/sites")
+def list_sites_v1():
+    """Versioned alias for listing enrolled sites."""
+    return list_sites()
+
+
+@app.post("/federation/rounds:plan")
+def plan_round(manifest: RoundManifest):
+    """Select the sites eligible for a round, without dispatching it."""
+    return rounds.plan_round(manifest)
+
+
+@app.post("/api/v1/federation/rounds:plan")
+def plan_round_v1(manifest: RoundManifest):
+    """Versioned alias for round planning."""
+    return plan_round(manifest)
+
+
+@app.post("/federation/rounds")
+def dispatch_round(manifest: RoundManifest):
+    """Plan a round and, if quorum allows, offer it to the selected sites."""
+    return rounds.dispatch_round(manifest)
+
+
+@app.post("/api/v1/federation/rounds", status_code=202)
+def dispatch_round_v1(manifest: RoundManifest):
+    """Versioned alias for round dispatch."""
+    return dispatch_round(manifest)
+
+
+@app.get("/federation/rounds")
+def list_rounds(limit: int = 20):
+    """List recent rounds, newest first."""
+    return rounds.list_rounds(limit=limit)
+
+
+@app.get("/api/v1/federation/rounds")
+def list_rounds_v1(limit: int = 20):
+    """Versioned alias for listing rounds."""
+    return list_rounds(limit=limit)
+
+
+@app.get("/federation/rounds/{round_id}")
+def get_round(round_id: str):
+    """Fetch one round's full lineage."""
+    record = rounds.get_round(round_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail=f"unknown round: {round_id}")
+    return record
+
+
+@app.get("/api/v1/federation/rounds/{round_id}")
+def get_round_v1(round_id: str):
+    """Versioned alias for fetching one round."""
+    return get_round(round_id)
+
+
+@app.post("/federation/rounds/{round_id}/results")
+def submit_result(round_id: str, result: SiteResult):
+    """Record one site's returned result against its round."""
+    if result.round_id != round_id:
+        raise HTTPException(
+            status_code=400, detail=f"path round {round_id} does not match body round {result.round_id}"
+        )
+    try:
+        return rounds.submit_result(result)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.post("/api/v1/federation/rounds/{round_id}/results", status_code=202)
+def submit_result_v1(round_id: str, result: SiteResult):
+    """Versioned alias for submitting a site result."""
+    return submit_result(round_id, result)
+
+
+@app.get("/federation/rounds/{round_id}/readiness")
+def round_readiness(round_id: str):
+    """Report whether the returned contributions may be aggregated."""
+    try:
+        return rounds.evaluate_readiness(round_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.get("/api/v1/federation/rounds/{round_id}/readiness")
+def round_readiness_v1(round_id: str):
+    """Versioned alias for aggregation readiness."""
+    return round_readiness(round_id)
+
+
+@app.post("/federation/rounds/{round_id}:aggregate")
+def aggregate_round(round_id: str):
+    """Produce a candidate model, if and only if aggregation is permitted.
+
+    A candidate is not a release. It becomes one only after the release gates
+    pass and a human committee approves it.
+    """
+    try:
+        return rounds.aggregate(round_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.post("/api/v1/federation/rounds/{round_id}:aggregate")
+def aggregate_round_v1(round_id: str):
+    """Versioned alias for candidate aggregation."""
+    return aggregate_round(round_id)
+
+
+@app.post("/federation/rounds/{round_id}:evaluate-release")
+def evaluate_release(round_id: str, payload: ReleaseEvaluationRequest):
+    """Evaluate release gates against a candidate and record the verdict.
+
+    The Guard runs first, at the release boundary, so a release evaluation is
+    itself a governed act with an audit record.
+    """
+    record = rounds.get_round(round_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail=f"unknown round: {round_id}")
+    candidate = CandidateModel(
+        round_id=round_id,
+        candidate_version=payload.candidate_version,
+        parent_version=record.manifest.model_version,
+        aggregation_method=record.manifest.aggregation.kind,
+        metrics=payload.candidate_metrics,
+    )
+    return rounds.evaluate_release(
+        round_id,
+        payload.gates,
+        candidate,
+        baseline_metrics=payload.baseline_metrics,
+        rollback_version=payload.rollback_version,
+    )
+
+
+@app.post("/api/v1/federation/rounds/{round_id}:evaluate-release")
+def evaluate_release_v1(round_id: str, payload: ReleaseEvaluationRequest):
+    """Versioned alias for release evaluation."""
+    return evaluate_release(round_id, payload)
+
+
+@app.get("/extensions")
+def list_extensions():
+    """Describe what registered extensions contribute to this agent."""
+    return default_registry.describe()
+
+
+@app.get("/api/v1/extensions")
+def list_extensions_v1():
+    """Versioned alias for the extension summary."""
+    return list_extensions()

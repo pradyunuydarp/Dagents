@@ -1,0 +1,4 @@
+(library
+ (name dagents_governance_compiler)
+ (public_name dagents.governance_compiler)
+ (libraries dagents.common_ir))
