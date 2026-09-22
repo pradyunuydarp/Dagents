@@ -1,0 +1,42 @@
+# Runs the healthcare demo against the framework services.
+#
+# Build context is the Dagents repository root, because the backend image needs
+# both the app and the framework. From inside the Dagents checkout:
+#
+#   docker compose -f apps/healthcare-demo/docker-compose.yml \
+#     --env-file env/.env.compose up --build
+#
+# The in-process pilot needs none of these services. They are here so the
+# /api/v1/framework/* endpoints have something to reach.
+services:
+  healthcare-demo-backend:
+    build:
+      context: ../..
+      dockerfile: apps/healthcare-demo/backend/Dockerfile
+    image: dagents/healthcare-demo-backend:local
+    env_file:
+      - ../../env/.env.shared
+      - env/.env.healthcare-demo
+    environment:
+      HEALTHCARE_DEMO_API_PORT: "8080"
+      CORE_SERVICE_PUBLIC_URL: http://core-service:8040
+      PIPELINE_SERVICE_PUBLIC_URL: http://pipeline-service:8030
+      MODEL_SERVICE_PUBLIC_URL: http://model-service:8000
+      LMA_PUBLIC_URL: http://lma:8010
+      GMA_PUBLIC_URL: http://gma:8020
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+
+  healthcare-demo-frontend:
+    build:
+      context: ../..
+      dockerfile: apps/healthcare-demo/frontend/Dockerfile
+    image: dagents/healthcare-demo-frontend:local
+    environment:
+      HEALTHCARE_DEMO_API_URL: http://healthcare-demo-backend:8080
+    ports:
+      - "5174:5174"
+    depends_on:
+      - healthcare-demo-backend
+    restart: unless-stopped

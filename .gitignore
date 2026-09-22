@@ -26,3 +26,6 @@ models/
 services/model-service/artifacts/*.pt
 services/model-service/data/raw/*
 !services/model-service/data/raw/.gitkeep
+
+# Healthcare demo build output and local deps
+apps/healthcare-demo/frontend/dist/

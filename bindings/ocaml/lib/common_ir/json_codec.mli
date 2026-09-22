@@ -71,3 +71,65 @@ val yojson_of_pipeline : compiled_pipeline -> Yojson.Safe.t
 val dataset_profile_to_yojson : dataset_profile -> Yojson.Safe.t
 (** Serialize a model-route plan. *)
 val route_plan_to_yojson : route_plan -> Yojson.Safe.t
+
+(** Parse a restriction request for the Ethical-Restriction Rails.
+
+    Defaults are deliberately conservative: an unclassified field is treated as
+    [HighSensitivity] and an attribute without an explicit [verified] flag is
+    treated as unverified, so a careless payload cannot widen what the planner
+    permits.
+
+    Example test case:
+    {[
+      let request =
+        restriction_request_of_yojson
+          (`Assoc
+             [
+               ("requestId", `String "r-1");
+               ("boundary", `String "before_send");
+               ("requester", `Assoc [ ("requesterId", `String "svc") ]);
+               ("classification", `Assoc [ ("classificationId", `String "c-1") ]);
+               ("requestedFields", `List [ `String "age" ]);
+               ("granularity", `String "row");
+             ])
+      in
+      assert (request.classification.default_sensitivity = HighSensitivity)
+    ]} *)
+val restriction_request_of_yojson : Yojson.Safe.t -> restriction_request
+(** Serialize a compiled restriction plan, including its filtering score. *)
+val yojson_of_restriction_plan : restriction_plan -> Yojson.Safe.t
+(** Parse one Know-Your-User attribute. *)
+val kyu_attribute_of_yojson : Yojson.Safe.t -> kyu_attribute
+(** Serialize one Know-Your-User attribute. *)
+val yojson_of_kyu_attribute : kyu_attribute -> Yojson.Safe.t
+(** Parse the party making a governance request. *)
+val requester_of_yojson : Yojson.Safe.t -> requester
+(** Serialize a computed trust assessment. *)
+val yojson_of_kyu_assessment : kyu_assessment -> Yojson.Safe.t
+(** Parse a data classification from the policy knowledge base. *)
+val data_classification_of_yojson : Yojson.Safe.t -> data_classification
+
+(** Parse a federated round manifest. *)
+val round_manifest_of_yojson : Yojson.Safe.t -> round_manifest
+(** Serialize a round manifest back to its wire shape. *)
+val yojson_of_round_manifest : round_manifest -> Yojson.Safe.t
+(** Parse one site's standing enrolment in a study. *)
+val site_registration_of_yojson : Yojson.Safe.t -> site_registration
+(** Serialize one site registration. *)
+val yojson_of_site_registration : site_registration -> Yojson.Safe.t
+(** Serialize a compiled round plan, including exclusions and their reasons. *)
+val yojson_of_round_plan : round_plan -> Yojson.Safe.t
+(** Parse one site's returned round result. *)
+val site_result_of_yojson : Yojson.Safe.t -> site_result
+(** Serialize one site result. *)
+val yojson_of_site_result : site_result -> Yojson.Safe.t
+(** Serialize an aggregation-readiness verdict. *)
+val yojson_of_aggregation_readiness : aggregation_readiness -> Yojson.Safe.t
+(** Parse one release gate and its comparison. *)
+val release_gate_of_yojson : Yojson.Safe.t -> release_gate
+(** Serialize a release decision and its per-gate evidence. *)
+val yojson_of_release_decision : release_decision -> Yojson.Safe.t
+(** Parse an aggregation method, bare name or parameterized object. *)
+val aggregation_method_of_yojson : Yojson.Safe.t -> aggregation_method
+(** Serialize an aggregation method as a parameterized object. *)
+val yojson_of_aggregation_method : aggregation_method -> Yojson.Safe.t

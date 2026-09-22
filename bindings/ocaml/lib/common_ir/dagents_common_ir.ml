@@ -54,7 +54,7 @@ module Core_types = struct
   type job_status = Queued | Running | Completed | Failed | Cancelled
 
   (** Kubernetes resource kind emitted by the manifest compiler. *)
-  type workload_kind = Deployment | Job | CronJob | Service | ConfigMap
+  type workload_kind = Deployment | Job | CronJob | Service | ConfigMap | ServiceAccount
 
   (** Execution target assigned by the pipeline compiler. *)
   type pipeline_execution_target = LocalProcess | PythonService | KubernetesJobTarget
@@ -472,6 +472,10 @@ module Workload_types = struct
     ports : port list;
     args : string list;
     resources : resources;
+    generated_resources : workload_kind list;
+    service_account_name : string option;
+    service_type : string;
+    config_map_data : (string * string) list;
   }
 
   (** Full manifest-compiler input. *)
@@ -490,6 +494,7 @@ module Workload_types = struct
     deployment_yaml : string;
     service_yaml : string option;
     config_map_yaml : string option;
+    service_account_yaml : string option;
   }
 
   (** Complete manifest plan including combined YAML. *)
@@ -511,6 +516,294 @@ module Workload_types = struct
 end
 
 include Workload_types
+
+(** GRAILS-style governance types.
+
+    These types express the "Ethical-Restriction Rails" half of GRAILS
+    (Kulkarni and Ramanathan, AIES 2025): the part that decides what protection
+    a request needs without ever touching data. Keeping the decision here, in
+    the pure planner layer, means a new sensitivity level or a new filtering
+    strategy fails to compile until every combination is handled, which a
+    string-keyed policy table cannot guarantee.
+
+    The enforcement half (the "Ethical Guard") deliberately lives outside
+    OCaml, in the LMA and GMA request paths, because it needs real data, a real
+    requester, and somewhere to write an audit record. *)
+module Governance_types = struct
+  (** How much protection the data itself demands. *)
+  type sensitivity = LowSensitivity | MediumSensitivity | HighSensitivity
+
+  (** How far the requester is trusted, derived from a Know-Your-User score. *)
+  type trust_level = LowTrust | ModerateTrust | HighTrust
+
+  (** How much is being asked for.
+
+      [ModelUpdateGrain] is this project's extension to the published GRAILS
+      granularity set. GRAILS covers cell, row, column, and table, all of which
+      are data that can be pointed at and read. A federated round ships none of
+      them; it ships a model update, which is not a row but still carries
+      patient signal out of the hospital. Treating it as a fifth granularity is
+      what lets the same planner govern federated egress. *)
+  type granularity = CellGrain | RowGrain | ColumnGrain | TableGrain | ModelUpdateGrain
+
+  (** The concrete protection applied to one field or one outbound update.
+
+      Ordered loosely from least to most protective. [ClipContribution] and
+      [AddNoise] are the federated-egress strategies; the remainder are the
+      row-oriented strategies GRAILS describes. *)
+  type restriction_strategy =
+    | AllowFull
+    (* Coarsening level, not decimal places: higher is coarser. *)
+    | Generalize of int
+    | ClipContribution of float
+    | AddNoise of float
+    | AggregateOnly of int
+    | Redact
+    | Refuse
+
+  (** Where in the request path the guard is standing.
+
+      A guard only at the API edge is a warning label; in a federated pilot it
+      has to stand at all four of these. *)
+  type guard_boundary = BeforeRead | BeforeTrain | BeforeSend | BeforeRelease
+
+  (** Overall verdict for one restriction request. *)
+  type plan_decision = PermitRequest | NarrowRequest | DenyRequest
+
+  (** One signal feeding the Know-Your-User score. *)
+  type kyu_attribute = {
+    attribute_id : string;
+    attribute_weight : float;
+    attribute_verified : bool;
+  }
+
+  (** The party asking for data, an update, or a release.
+
+      [requester_kind] carries the federated extension: a requester is not
+      always a named human. It can be a peer site or the coordinator itself. *)
+  type requester = {
+    requester_id : string;
+    requester_kind : string;
+    affiliation : string option;
+    stated_purpose : string option;
+    attributes : kyu_attribute list;
+    compliance_history : float;
+  }
+
+  (** Computed trust for one requester, with the reasoning that produced it. *)
+  type kyu_assessment = {
+    assessed_requester_id : string;
+    kyu_score : float;
+    trust : trust_level;
+    trust_rationale : string list;
+  }
+
+  (** Data-side knowledge: per-field sensitivity plus the rules that cover it.
+
+      This is configuration, not code. Policy changes far more often than the
+      framework does. *)
+  type data_classification = {
+    classification_id : string;
+    field_sensitivity : (string * sensitivity) list;
+    default_sensitivity : sensitivity;
+    regulations : string list;
+    minimum_cohort : int;
+  }
+
+  (** One request presented to the Restriction Planner. *)
+  type restriction_request = {
+    request_id : string;
+    boundary : guard_boundary;
+    requester : requester;
+    classification : data_classification;
+    requested_fields : string list;
+    granularity : granularity;
+    cohort_size : int option;
+    declared_purpose : string option;
+    approved_purposes : string list;
+  }
+
+  (** The strategy selected for one requested field. *)
+  type field_restriction = {
+    restricted_field : string;
+    restricted_sensitivity : sensitivity;
+    strategy : restriction_strategy;
+    restriction_reason : string;
+  }
+
+  (** The Restriction Planner's output.
+
+      [filtering_score] is GRAILS' measure of how much protection was actually
+      applied, so the amount of filtering can be reported rather than asserted:
+      0.0 means nothing was withheld, 1.0 means the request was fully refused. *)
+  type restriction_plan = {
+    plan_request_id : string;
+    plan_boundary : guard_boundary;
+    assessment : kyu_assessment;
+    plan_granularity : granularity;
+    field_restrictions : field_restriction list;
+    decision : plan_decision;
+    filtering_score : float;
+    obligations : string list;
+    plan_violations : string list;
+  }
+end
+
+include Governance_types
+
+(** Federated round-control types.
+
+    Dagents governs the federation; it does not run it. These types describe
+    the round contract, who may join, whether aggregation may proceed, and
+    whether a candidate may be released. The distributed training protocol
+    itself belongs to a specialist runtime such as NVIDIA FLARE, reached
+    through an adapter, so nothing here reimplements a federated optimizer.
+
+    The rule these types exist to enforce: aggregation creates a candidate
+    model, never an approved clinical release. *)
+module Federation_types = struct
+  (** What a round is for.
+
+      The recommended pilot order is analytics first, then evaluation, then
+      training; the phase is explicit so a study cannot skip ahead silently. *)
+  type round_phase = AnalyticsRound | EvaluationRound | TrainingRound
+
+  (** How permitted contributions are combined. *)
+  type aggregation_method =
+    | FedAvg
+    | FedProx of float
+    | FedOpt of string
+    | SecureAggregation of int
+
+  (** Reasons a round may be halted before it produces a candidate. *)
+  type stop_condition =
+    | SchemaFailure
+    | PrivacyBudgetExceeded
+    | UnsafeMetric
+    | QuorumNotMet
+    | ExcessiveDropout
+
+  (** How one site finished, or failed to finish, a round. *)
+  type site_participation = SiteAccepted | SiteCompleted | SiteRejected | SiteFailed | SiteDropped
+
+  (** How a release gate compares an observed metric to its requirement. *)
+  type gate_comparison = AtLeast of float | AtMost of float | ImprovesOnBaseline of float
+
+  (** Outcome of one evaluated release gate. *)
+  type gate_outcome = GatePassed | GateFailed | GateNotEvaluated
+
+  (** What governance should do with a candidate model. *)
+  type release_action = ReleaseCandidate | RequireAnotherRound | RejectCandidate
+
+  (** One site's standing enrolment in a study. *)
+  type site_registration = {
+    site_id : string;
+    site_capabilities : string list;
+    site_feature_contract_version : string;
+    approved_conditions : string list;
+    site_policy_version : string;
+    site_cohort_size : int;
+    site_enrolled : bool;
+  }
+
+  (** The signed round contract distributed to every approved site. *)
+  type round_manifest = {
+    round_id : string;
+    study_id : string;
+    condition_id : string;
+    phase : round_phase;
+    model_version : string;
+    model_artifact_digest : string;
+    training_code_digest : string;
+    feature_contract_version : string;
+    privacy_profile : string;
+    aggregation : aggregation_method;
+    minimum_participants : int;
+    minimum_cohort_per_site : int;
+    required_capabilities : string list;
+    stop_conditions : stop_condition list;
+    invited_sites : string list;
+  }
+
+  (** One invited site that will not take part, and why. *)
+  type site_exclusion = { excluded_site_id : string; exclusion_reason : string }
+
+  (** The compiled, reviewable plan for one round. *)
+  type round_plan = {
+    plan_round_id : string;
+    plan_study_id : string;
+    plan_phase : round_phase;
+    selected_sites : string list;
+    excluded_sites : site_exclusion list;
+    quorum_met : bool;
+    required_participants : int;
+    plan_aggregation : aggregation_method;
+    plan_stop_reason : stop_condition option;
+    round_digest : string;
+  }
+
+  (** What one hospital returns from a round.
+
+      Deliberately minimal: no patient identifier, row, image, note, or
+      patient-level prediction has a place in this contract. *)
+  type site_result = {
+    result_round_id : string;
+    result_site_id : string;
+    result_job_digest : string;
+    participation : site_participation;
+    code_verified : bool;
+    privacy_checks_passed : bool;
+    contributed_examples : int;
+    update_norm : float option;
+    result_metrics : (string * float) list;
+    local_evidence_pointer : string option;
+  }
+
+  (** One contribution that may not enter the aggregate, and why. *)
+  type contribution_rejection = { rejected_site_id : string; rejection_reason : string }
+
+  (** Whether aggregation may proceed, and on whose contributions. *)
+  type aggregation_readiness = {
+    readiness_round_id : string;
+    accepted_sites : string list;
+    rejected_contributions : contribution_rejection list;
+    accepted_examples : int;
+    aggregation_permitted : bool;
+    readiness_stop_reason : stop_condition option;
+    site_weights : (string * float) list;
+  }
+
+  (** One condition a candidate must satisfy before it may be released. *)
+  type release_gate = {
+    gate_id : string;
+    gate_metric : string;
+    comparison : gate_comparison;
+    gate_blocking : bool;
+  }
+
+  (** Evaluation of one release gate against the candidate's metrics. *)
+  type gate_result = {
+    result_gate_id : string;
+    outcome : gate_outcome;
+    observed : float option;
+    gate_detail : string;
+  }
+
+  (** The governed verdict on a candidate model.
+
+      A passing decision is a recommendation to a human committee, never an
+      automatic deployment. *)
+  type release_decision = {
+    decision_round_id : string;
+    candidate_version : string;
+    gate_results : gate_result list;
+    action : release_action;
+    blocking_failures : string list;
+    rollback_version : string option;
+  }
+end
+
+include Federation_types
 
 (** Convert extraction strategy variants to stable API strings. *)
 let string_of_extraction_strategy = function
@@ -553,6 +846,7 @@ let string_of_workload_kind = function
   | CronJob -> "CronJob"
   | Service -> "Service"
   | ConfigMap -> "ConfigMap"
+  | ServiceAccount -> "ServiceAccount"
 
 (** Convert job-status variants to stable API strings. *)
 let string_of_job_status = function
@@ -642,6 +936,7 @@ let workload_kind_of_string = function
   | "CronJob" | "cronjob" | "cron_job" -> CronJob
   | "Service" | "service" -> Service
   | "ConfigMap" | "configmap" | "config_map" -> ConfigMap
+  | "ServiceAccount" | "serviceaccount" | "service_account" -> ServiceAccount
   | value -> invalid_arg ("Unknown workload kind: " ^ value)
 
 (** Parse stable API strings into source-kind variants. *)
@@ -658,3 +953,153 @@ let quality_severity_of_string = function
   | "warning" -> Warning
   | "error" -> Error
   | value -> invalid_arg ("Unknown quality severity: " ^ value)
+
+
+(** Convert a sensitivity level to its stable JSON/API string. *)
+let string_of_sensitivity = function
+  | LowSensitivity -> "low"
+  | MediumSensitivity -> "medium"
+  | HighSensitivity -> "high"
+
+(** Convert a trust level to its stable JSON/API string. *)
+let string_of_trust_level = function
+  | LowTrust -> "low"
+  | ModerateTrust -> "moderate"
+  | HighTrust -> "high"
+
+(** Convert a request granularity to its stable JSON/API string. *)
+let string_of_granularity = function
+  | CellGrain -> "cell"
+  | RowGrain -> "row"
+  | ColumnGrain -> "column"
+  | TableGrain -> "table"
+  | ModelUpdateGrain -> "model_update"
+
+(** Convert a guard boundary to its stable JSON/API string. *)
+let string_of_guard_boundary = function
+  | BeforeRead -> "before_read"
+  | BeforeTrain -> "before_train"
+  | BeforeSend -> "before_send"
+  | BeforeRelease -> "before_release"
+
+(** Convert a restriction strategy to its stable JSON/API string.
+
+    Parameterized strategies keep their parameter in the string so an audit
+    record shows the bound that was applied, not only the strategy name. *)
+let string_of_restriction_strategy = function
+  | AllowFull -> "allow_full"
+  | Generalize precision -> Printf.sprintf "generalize:%d" precision
+  | AddNoise scale -> Printf.sprintf "add_noise:%g" scale
+  | ClipContribution bound -> Printf.sprintf "clip_contribution:%g" bound
+  | AggregateOnly minimum -> Printf.sprintf "aggregate_only:%d" minimum
+  | Redact -> "redact"
+  | Refuse -> "refuse"
+
+(** Convert a plan decision to its stable JSON/API string. *)
+let string_of_plan_decision = function
+  | PermitRequest -> "permit"
+  | NarrowRequest -> "narrow"
+  | DenyRequest -> "deny"
+
+(** Convert a round phase to its stable JSON/API string. *)
+let string_of_round_phase = function
+  | AnalyticsRound -> "analytics"
+  | EvaluationRound -> "evaluation"
+  | TrainingRound -> "training"
+
+(** Convert an aggregation method to its stable JSON/API string. *)
+let string_of_aggregation_method = function
+  | FedAvg -> "fedavg"
+  | FedProx mu -> Printf.sprintf "fedprox:%g" mu
+  | FedOpt optimizer -> "fedopt:" ^ optimizer
+  | SecureAggregation threshold -> Printf.sprintf "secure_aggregation:%d" threshold
+
+(** Convert a stop condition to its stable JSON/API string. *)
+let string_of_stop_condition = function
+  | SchemaFailure -> "schema_failure"
+  | PrivacyBudgetExceeded -> "privacy_budget_exceeded"
+  | UnsafeMetric -> "unsafe_metric"
+  | QuorumNotMet -> "quorum_not_met"
+  | ExcessiveDropout -> "excessive_dropout"
+
+(** Convert a site participation state to its stable JSON/API string. *)
+let string_of_site_participation = function
+  | SiteAccepted -> "accepted"
+  | SiteCompleted -> "completed"
+  | SiteRejected -> "rejected"
+  | SiteFailed -> "failed"
+  | SiteDropped -> "dropped"
+
+(** Convert a gate outcome to its stable JSON/API string. *)
+let string_of_gate_outcome = function
+  | GatePassed -> "passed"
+  | GateFailed -> "failed"
+  | GateNotEvaluated -> "not_evaluated"
+
+(** Convert a release action to its stable JSON/API string. *)
+let string_of_release_action = function
+  | ReleaseCandidate -> "release"
+  | RequireAnotherRound -> "another_round"
+  | RejectCandidate -> "reject"
+
+(** Convert a gate comparison to a display/API string. *)
+let string_of_gate_comparison = function
+  | AtLeast threshold -> Printf.sprintf "at_least:%g" threshold
+  | AtMost threshold -> Printf.sprintf "at_most:%g" threshold
+  | ImprovesOnBaseline margin -> Printf.sprintf "improves_on_baseline:%g" margin
+
+(** Parse stable API strings into sensitivity variants. *)
+let sensitivity_of_string = function
+  | "low" -> LowSensitivity
+  | "medium" -> MediumSensitivity
+  | "high" -> HighSensitivity
+  | value -> invalid_arg ("Unknown sensitivity: " ^ value)
+
+(** Parse stable API strings into trust-level variants. *)
+let trust_level_of_string = function
+  | "low" -> LowTrust
+  | "moderate" -> ModerateTrust
+  | "high" -> HighTrust
+  | value -> invalid_arg ("Unknown trust level: " ^ value)
+
+(** Parse stable API strings into granularity variants. *)
+let granularity_of_string = function
+  | "cell" -> CellGrain
+  | "row" -> RowGrain
+  | "column" -> ColumnGrain
+  | "table" -> TableGrain
+  | "model_update" -> ModelUpdateGrain
+  | value -> invalid_arg ("Unknown granularity: " ^ value)
+
+(** Parse stable API strings into guard-boundary variants. *)
+let guard_boundary_of_string = function
+  | "before_read" -> BeforeRead
+  | "before_train" -> BeforeTrain
+  | "before_send" -> BeforeSend
+  | "before_release" -> BeforeRelease
+  | value -> invalid_arg ("Unknown guard boundary: " ^ value)
+
+(** Parse stable API strings into round-phase variants. *)
+let round_phase_of_string = function
+  | "analytics" -> AnalyticsRound
+  | "evaluation" -> EvaluationRound
+  | "training" -> TrainingRound
+  | value -> invalid_arg ("Unknown round phase: " ^ value)
+
+(** Parse stable API strings into stop-condition variants. *)
+let stop_condition_of_string = function
+  | "schema_failure" -> SchemaFailure
+  | "privacy_budget_exceeded" -> PrivacyBudgetExceeded
+  | "unsafe_metric" -> UnsafeMetric
+  | "quorum_not_met" -> QuorumNotMet
+  | "excessive_dropout" -> ExcessiveDropout
+  | value -> invalid_arg ("Unknown stop condition: " ^ value)
+
+(** Parse stable API strings into site-participation variants. *)
+let site_participation_of_string = function
+  | "accepted" -> SiteAccepted
+  | "completed" -> SiteCompleted
+  | "rejected" -> SiteRejected
+  | "failed" -> SiteFailed
+  | "dropped" -> SiteDropped
+  | value -> invalid_arg ("Unknown site participation: " ^ value)
