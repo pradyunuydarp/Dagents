@@ -13,6 +13,7 @@ from app.models import (
     ForecastingCheckResponse,
     HealthResponse,
     MLCheckRequest,
+    ModelInventoryResponse,
     ModelJobCatalogResponse,
     ModelJobResponse,
     RegressionCheckResponse,
@@ -44,6 +45,27 @@ def health(runtime_settings: Settings = Depends(get_settings)) -> HealthResponse
 def datasets(service: ModelTrainingService = Depends(get_training_service)) -> DatasetCatalogResponse:
     """List built-in benchmark datasets available to the model service."""
     return DatasetCatalogResponse(datasets=service.list_datasets())
+
+
+@router.get("/model-families", response_model=ModelInventoryResponse)
+def model_families(
+    service: ModelTrainingService = Depends(get_training_service),
+) -> ModelInventoryResponse:
+    """Describe the model families this deployment can execute, and with what.
+
+    Params:
+    - `service`: injected training façade, which owns the inventory.
+
+    What it does:
+    - Returns the provider-agnostic model inventory: which `(family, task)` pairs
+      are implemented, which provider backs each, what an optional one needs
+      installed, and which families the OCaml router may select that this
+      runtime cannot yet run.
+
+    Returns:
+    - `ModelInventoryResponse`.
+    """
+    return ModelInventoryResponse(**service.describe_model_inventory())
 
 
 @router.post("/train", response_model=TrainResponse)

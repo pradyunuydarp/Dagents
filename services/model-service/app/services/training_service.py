@@ -128,6 +128,25 @@ class ModelTrainingService:
             for descriptor in list_datasets()
         ]
 
+    def describe_model_inventory(self) -> dict[str, object]:
+        """Describe which model families this deployment can execute.
+
+        Params:
+        - None.
+
+        What it does:
+        - Delegates to the process-wide model inventory, which answers the
+          question without importing torch or transformers — so a consumer can
+          ask what is supported without paying for a framework import or a
+          model load.
+
+        Returns:
+        - JSON-serializable inventory data, shaped for `ModelInventoryResponse`.
+        """
+        from app.ml.inventory import default_inventory
+
+        return default_inventory.describe()
+
     def train(self, request: TrainRequest) -> TrainResponse:
         """Run the full synchronous anomaly-training pipeline.
 

@@ -26,10 +26,12 @@ from sklearn.metrics import (
 from sklearn.model_selection import train_test_split
 from sklearn.naive_bayes import GaussianNB
 
-
-CLASSIFICATION_FAMILIES = {"random_forest", "naive_bayes", "linear"}
-REGRESSION_FAMILIES = {"random_forest", "linear"}
-FORECASTING_FAMILIES = {"gru", "lstm"}
+from app.ml.inventory import (
+    CLASSIFICATION,
+    FORECASTING,
+    REGRESSION,
+    default_inventory,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -66,20 +68,23 @@ def run_classification_check(
     Params:
     - `features`: numeric feature matrix shaped `[rows, features]`.
     - `labels`: class labels aligned to `features`.
-    - `model_family`: one of the supported classification families.
+    - `model_family`: a classification family the inventory implements.
     - `test_size`: holdout ratio used by `train_test_split`.
     - `random_seed`: deterministic seed for data splitting and seeded estimators.
 
     What it does:
-    - Validates the requested model family and target cardinality.
+    - Resolves the requested model family against the model inventory and
+      validates the target cardinality.
     - Splits the data into train and test sets with class stratification.
     - Fits the requested classifier and computes standard classification metrics.
 
     Returns:
     - `ClassificationCheckResult` with train/test row counts and metric values.
     """
-    if model_family not in CLASSIFICATION_FAMILIES:
-        raise ValueError(f"Unsupported classification model family: {model_family}")
+    # The inventory is the single source of truth for what this runtime can run,
+    # and its error names what is available and what a `planned` family would
+    # need — which a bare set-membership check cannot.
+    default_inventory.resolve(model_family, CLASSIFICATION)
     if len(np.unique(labels)) < 2:
         raise ValueError("Classification checks require at least two target classes")
 
@@ -125,7 +130,7 @@ def run_regression_check(
     Params:
     - `features`: numeric feature matrix.
     - `targets`: continuous target values aligned to `features`.
-    - `model_family`: supported regression family.
+    - `model_family`: a regression family the inventory implements.
     - `test_size`: holdout ratio used by `train_test_split`.
     - `random_seed`: deterministic seed for the data split and seeded estimators.
 
@@ -137,8 +142,7 @@ def run_regression_check(
     Returns:
     - `RegressionCheckResult`.
     """
-    if model_family not in REGRESSION_FAMILIES:
-        raise ValueError(f"Unsupported regression model family: {model_family}")
+    default_inventory.resolve(model_family, REGRESSION)
 
     x_train, x_test, y_train, y_test = train_test_split(
         features,
@@ -192,8 +196,7 @@ def run_forecasting_check(
     Returns:
     - `ForecastingCheckResult`.
     """
-    if model_family not in FORECASTING_FAMILIES:
-        raise ValueError(f"Unsupported forecasting model family: {model_family}")
+    default_inventory.resolve(model_family, FORECASTING)
     if len(features) <= sequence_length:
         raise ValueError("Forecasting checks require more rows than sequence_length")
 

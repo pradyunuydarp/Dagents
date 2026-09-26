@@ -1,0 +1,435 @@
+name: CI
+
+# The pipeline is built around one rule: a green run must mean something.
+#
+# This repository has two specific ways of going falsely green, both already
+# hit at least once, and both are actively defended against here:
+#
+#   1. The governance and federation tests skip when `dagentsc` is missing. A
+#      suite that skips its governance tests is green without having proved
+#      anything, so the `planners` job builds the binary, every Python job that
+#      needs it downloads it, and `scripts/ci_no_skipped_planner_tests.py` fails
+#      the run if those tests skipped anyway.
+#   2. `core-service` has two manifest renderers — the OCaml compiler and a
+#      Python fallback — and they silently diverged because the suite only ever
+#      exercised the fallback. The `framework-services` job runs that suite
+#      twice, with and without `DAGENTSC_BIN`.
+#
+# The frontend smoke test gets the same treatment: it exits 2 and prints SKIP
+# when no browser is available, and a job that treated 2 as success would be
+# reporting a pass for a test that never ran.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.11"
+  # Where the planner artifact is unpacked in the jobs that need it.
+  PLANNER_DIR: ${{ github.workspace }}/planner
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # The pure functional layer. Fastest feedback in the repo: no Docker, no
+  # database, no GPU — and everything downstream depends on its binary.
+  # ---------------------------------------------------------------------------
+  planners:
+    name: OCaml planners
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ocaml/setup-ocaml@v3
+        with:
+          ocaml-compiler: "5.1"
+          dune-cache: true
+          # The opam file lives under bindings/ocaml, not at the repository
+          # root, so the action's automatic pinning has nothing to find here.
+          # Installing the two dependencies explicitly is more predictable.
+          opam-pin: false
+
+      - name: Install OCaml dependencies
+        run: opam install --yes dune yojson
+
+      - name: Build dagentsc
+        working-directory: bindings/ocaml
+        run: opam exec -- dune build ./bin/dagentsc.exe
+
+      - name: Test the compilers
+        working-directory: bindings/ocaml
+        run: opam exec -- dune test --display short
+
+      - name: Check the planner answers
+        # A binary that builds but cannot serve a request would let every
+        # downstream job "have the planner" and still skip nothing useful.
+        run: |
+          ./bindings/ocaml/_build/default/bin/dagentsc.exe model route \
+            --task classification --output json
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dagentsc
+          path: bindings/ocaml/_build/default/bin/dagentsc.exe
+          if-no-files-found: error
+          retention-days: 1
+
+  # ---------------------------------------------------------------------------
+  # The agent layer and the control plane, with the planner reachable so the
+  # governance and federation tests actually run.
+  # ---------------------------------------------------------------------------
+  agents:
+    name: Agents and governance
+    runs-on: ubuntu-latest
+    needs: planners
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: |
+            agents/*/requirements.txt
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: dagentsc
+          path: ${{ env.PLANNER_DIR }}
+
+      - name: Make the planner executable
+        run: chmod +x "${PLANNER_DIR}/dagentsc.exe"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r agents/lma/requirements.txt \
+                                -r agents/gma/requirements.txt \
+                                httpx
+
+      - name: Run the agent suite
+        env:
+          DAGENTSC_BIN: ${{ env.PLANNER_DIR }}/dagentsc.exe
+        run: |
+          python -m unittest discover -s agents/tests -t . -v 2>&1 | tee agents-suite.log
+
+      - name: Fail if the governance tests skipped
+        run: python scripts/ci_no_skipped_planner_tests.py agents-suite.log
+
+  # ---------------------------------------------------------------------------
+  # core / pipeline / model. core-service runs twice on purpose.
+  # ---------------------------------------------------------------------------
+  framework-services:
+    name: Framework services
+    runs-on: ubuntu-latest
+    needs: planners
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: |
+            services/*/requirements*.txt
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: dagentsc
+          path: ${{ env.PLANNER_DIR }}
+
+      - name: Make the planner executable
+        run: chmod +x "${PLANNER_DIR}/dagentsc.exe"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r services/core-service/requirements.txt \
+                                -r services/pipeline-service/requirements.txt \
+                                -r services/model-service/requirements.txt \
+                                -r services/model-service/requirements-optional-models.txt \
+                                httpx
+        # The optional Hugging Face stack is installed so the model-inventory
+        # provider tests exercise the real `local_files_only` behaviour instead
+        # of skipping the one test that validates our error translation.
+
+      - name: core-service with the OCaml manifest compiler
+        env:
+          DAGENTSC_BIN: ${{ env.PLANNER_DIR }}/dagentsc.exe
+          PYTHONPATH: .:services/core-service
+        run: python -m unittest discover -s services/core-service/tests -t services/core-service/tests
+
+      - name: core-service with the Python fallback
+        # Same assertions, other implementation. The two renderers diverged once
+        # because only this path was ever run; now neither path is optional.
+        env:
+          PYTHONPATH: .:services/core-service
+        run: python -m unittest discover -s services/core-service/tests -t services/core-service/tests
+
+      - name: pipeline-service
+        env:
+          PYTHONPATH: .:services/pipeline-service
+        run: python -m unittest discover -s services/pipeline-service/tests -t services/pipeline-service/tests
+
+      - name: model-service
+        env:
+          PYTHONPATH: .:services/model-service
+        run: |
+          python -m unittest discover -s services/model-service/tests \
+            -t services/model-service/tests -v 2>&1 | tee model-service.log
+
+      - name: Fail if the Hugging Face provider tests skipped
+        # This job installs the optional stack, so a skip here means the
+        # requirements file and the test's own check have drifted apart.
+        run: |
+          if grep -q "transformers is not installed" model-service.log; then
+            echo "The Hugging Face provider tests skipped even though the optional" >&2
+            echo "requirements were installed. Check" >&2
+            echo "services/model-service/requirements-optional-models.txt." >&2
+            exit 1
+          fi
+
+  # ---------------------------------------------------------------------------
+  # Cross-service contracts: the endpoint inventory, and the conventions the
+  # contributor guide states. Needs every Python service importable.
+  # ---------------------------------------------------------------------------
+  contracts:
+    name: Service inventory and API conventions
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: |
+            agents/*/requirements.txt
+            services/*/requirements.txt
+            services/nl2sql-demo/backend/requirements.txt
+            apps/healthcare-demo/requirements.txt
+
+      - name: Install every service's dependencies
+        # The inventory is extracted by importing each FastAPI app, so this job
+        # genuinely needs all of them. That is the cost of checking the contract
+        # against the code rather than against a document.
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r agents/lma/requirements.txt \
+                                -r agents/gma/requirements.txt \
+                                -r services/core-service/requirements.txt \
+                                -r services/pipeline-service/requirements.txt \
+                                -r services/model-service/requirements.txt \
+                                -r services/nl2sql-demo/backend/requirements.txt \
+                                -r apps/healthcare-demo/requirements.txt
+
+      - name: The committed inventory matches the code
+        run: python scripts/service_inventory.py --check
+
+      - name: Cross-service contract tests
+        run: python -m unittest discover -s tests -t . -v
+
+  # ---------------------------------------------------------------------------
+  # The JVM control and core services.
+  # ---------------------------------------------------------------------------
+  spring:
+    name: Spring services
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+
+      - name: Build and test
+        run: mvn --batch-mode --no-transfer-progress -f services/spring-services/pom.xml verify
+
+  # ---------------------------------------------------------------------------
+  # The consumer apps. Both prove the framework is consumable; the healthcare
+  # suite also carries the governance and federation assertions for the demo.
+  # ---------------------------------------------------------------------------
+  demo-apps:
+    name: Demo app backends
+    runs-on: ubuntu-latest
+    needs: planners
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: |
+            apps/healthcare-demo/requirements.txt
+            services/nl2sql-demo/backend/requirements.txt
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: dagentsc
+          path: ${{ env.PLANNER_DIR }}
+
+      - name: Make the planner executable
+        run: chmod +x "${PLANNER_DIR}/dagentsc.exe"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r apps/healthcare-demo/requirements.txt \
+                                -r services/nl2sql-demo/backend/requirements.txt
+
+      - name: healthcare-demo
+        working-directory: apps/healthcare-demo
+        env:
+          DAGENTSC_BIN: ${{ env.PLANNER_DIR }}/dagentsc.exe
+          PYTHONPATH: ../..:backend
+        run: |
+          python -m unittest discover -s tests -t . -v 2>&1 | tee healthcare-suite.log
+
+      - name: Fail if the healthcare governance tests skipped
+        run: python scripts/ci_no_skipped_planner_tests.py apps/healthcare-demo/healthcare-suite.log
+
+      - name: nl2sql-demo
+        run: python -m unittest discover -s services/nl2sql-demo/tests -t services/nl2sql-demo/tests
+
+  # ---------------------------------------------------------------------------
+  # The frontends. A typecheck and a bundle prove the app compiles and nothing
+  # about whether it works, so the healthcare app is also driven in a browser.
+  # ---------------------------------------------------------------------------
+  frontends:
+    name: Frontends
+    runs-on: ubuntu-latest
+    needs: planners
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: |
+            apps/healthcare-demo/frontend/package-lock.json
+            services/nl2sql-demo/frontend/package-lock.json
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: apps/healthcare-demo/requirements.txt
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: dagentsc
+          path: ${{ env.PLANNER_DIR }}
+
+      - name: Make the planner executable
+        run: chmod +x "${PLANNER_DIR}/dagentsc.exe"
+
+      - name: Build the nl2sql frontend
+        working-directory: services/nl2sql-demo/frontend
+        run: |
+          npm ci
+          npm run build
+
+      - name: Build the healthcare frontend
+        working-directory: apps/healthcare-demo/frontend
+        run: |
+          npm ci
+          npm run build
+
+      - name: Install the backend the smoke test drives
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r apps/healthcare-demo/requirements.txt
+
+      - name: Install a browser for the smoke test
+        working-directory: apps/healthcare-demo/frontend
+        run: npx playwright install --with-deps chromium
+
+      - name: Locate the browser
+        # `smoke.mjs` searches `CHROMIUM_PATH` first, then a list of paths that
+        # covers the container image this repo develops in — none of which
+        # exists on a GitHub runner. Resolving the path here, and failing if it
+        # is not found, is what stops the smoke test reporting SKIP. The path
+        # points at the real binary rather than a symlink, because Chrome loads
+        # resources from its own directory.
+        working-directory: apps/healthcare-demo/frontend
+        run: |
+          browser="$(node -e \
+            "console.log(require('playwright-core').chromium.executablePath())" \
+            2>/dev/null || true)"
+          if [ ! -x "${browser}" ]; then
+            browser="$(find "${HOME}/.cache/ms-playwright" -type f -name 'chrome' \
+              -perm -u+x 2>/dev/null | head -1)"
+          fi
+          if [ ! -x "${browser}" ]; then
+            echo "No browser found. The smoke test would report SKIP, which is not a pass." >&2
+            exit 1
+          fi
+          echo "Using ${browser}"
+          echo "CHROMIUM_PATH=${browser}" >> "$GITHUB_ENV"
+
+      - name: Smoke-test the real UI against a live backend
+        # `run_frontend_demo.sh --check` starts the backend and the Vite dev
+        # server, waits for both, runs the smoke test, and exits. Without
+        # `dagentsc` the Ethical Guard would deny every request and the script
+        # refuses to start, which is why this job needs the planner artifact.
+        env:
+          DAGENTSC_BIN: ${{ env.PLANNER_DIR }}/dagentsc.exe
+          PYTHON: python
+        run: apps/healthcare-demo/scripts/run_frontend_demo.sh --check 2>&1 | tee smoke.log
+
+      - name: Fail if the smoke test skipped
+        # The script maps exit 2 to a friendly "skipped" and exits 0, which is
+        # right for a developer on a machine without a browser and wrong for CI:
+        # a skipped smoke test proves nothing about the UI.
+        run: |
+          if grep -qi "smoke test skipped\|^SKIP" smoke.log; then
+            echo "The frontend smoke test skipped instead of running." >&2
+            exit 1
+          fi
+          grep -q "ok  " smoke.log || {
+            echo "The smoke test produced no passing assertions." >&2
+            exit 1
+          }
+
+  # ---------------------------------------------------------------------------
+  # One check to require on the branch, so adding a job above does not mean
+  # editing branch protection.
+  # ---------------------------------------------------------------------------
+  ci:
+    name: CI
+    runs-on: ubuntu-latest
+    if: always()
+    needs:
+      - planners
+      - agents
+      - framework-services
+      - contracts
+      - spring
+      - demo-apps
+      - frontends
+    steps:
+      - name: Report the outcome
+        run: |
+          echo "planners:           ${{ needs.planners.result }}"
+          echo "agents:             ${{ needs.agents.result }}"
+          echo "framework-services: ${{ needs.framework-services.result }}"
+          echo "contracts:          ${{ needs.contracts.result }}"
+          echo "spring:             ${{ needs.spring.result }}"
+          echo "demo-apps:          ${{ needs.demo-apps.result }}"
+          echo "frontends:          ${{ needs.frontends.result }}"
+          if [ "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}" = "true" ]; then
+            echo "::error::At least one CI job did not succeed."
+            exit 1
+          fi

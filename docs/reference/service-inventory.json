@@ -1,0 +1,1544 @@
+{
+  "framework": "dagents",
+  "generated_by": "scripts/service_inventory.py",
+  "endpoint_count": 167,
+  "services": [
+    {
+      "name": "core-service",
+      "language": "python",
+      "framework": "fastapi",
+      "role": "framework-service",
+      "port": 8040,
+      "title": "dagents-core-service",
+      "endpoints": [
+        {
+          "method": "GET",
+          "path": "/api/v1/health",
+          "handler": "health",
+          "status_code": null,
+          "summary": "Return service health and basic runtime metadata.",
+          "alias_of": null
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/manifests/pods",
+          "handler": "generate_workload_manifests",
+          "status_code": null,
+          "summary": "Render workload manifests directly without persisting a retrievable plan.",
+          "alias_of": null
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/services",
+          "handler": "services",
+          "status_code": null,
+          "summary": "Expose the configured Dagents service catalog.",
+          "alias_of": null
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/topology",
+          "handler": "topology",
+          "status_code": null,
+          "summary": "Expose a framework topology view suitable for operators and tests.",
+          "alias_of": null
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/workload-plans/{plan_id}",
+          "handler": "get_workload_plan",
+          "status_code": null,
+          "summary": "Fetch a previously compiled workload plan by `plan_id`.",
+          "alias_of": null
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/workloads:compile",
+          "handler": "compile_workloads",
+          "status_code": null,
+          "summary": "Compile a workload request into a stored workload plan.",
+          "alias_of": null
+        }
+      ]
+    },
+    {
+      "name": "gma",
+      "language": "python",
+      "framework": "fastapi",
+      "role": "agent",
+      "port": 8020,
+      "title": "dagents-gma",
+      "endpoints": [
+        {
+          "method": "GET",
+          "path": "/agents",
+          "handler": "list_agents",
+          "status_code": null,
+          "summary": "List agents currently registered with the GMA.",
+          "alias_of": null
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/agents",
+          "handler": "list_agents_v1",
+          "status_code": null,
+          "summary": "Versioned alias for agent listing.",
+          "alias_of": {
+            "method": "GET",
+            "path": "/agents"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/agents/{agent_id}",
+          "handler": "get_agent_v1",
+          "status_code": null,
+          "summary": "Fetch one registered agent snapshot by id.",
+          "alias_of": null
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/agents/{agent_id}/deployment-sync",
+          "handler": "sync_deployment_v1",
+          "status_code": null,
+          "summary": "Versioned deployment-sync endpoint keyed by path-level `agent_id`.",
+          "alias_of": {
+            "method": "POST",
+            "path": "/deployments/sync"
+          }
+        },
+        {
+          "method": "PUT",
+          "path": "/api/v1/agents/{agent_id}/desired-deployment",
+          "handler": "plan_deployment_v1",
+          "status_code": null,
+          "summary": "Versioned desired-deployment endpoint keyed by path-level `agent_id`.",
+          "alias_of": {
+            "method": "POST",
+            "path": "/deployments/plan"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/agents/{agent_id}/heartbeats",
+          "handler": "heartbeat_v1",
+          "status_code": null,
+          "summary": "Versioned heartbeat endpoint keyed by path-level `agent_id`.",
+          "alias_of": {
+            "method": "POST",
+            "path": "/heartbeat"
+          }
+        },
+        {
+          "method": "PUT",
+          "path": "/api/v1/agents/{agent_id}/registration",
+          "handler": "register_v1",
+          "status_code": null,
+          "summary": "Versioned registration endpoint keyed by path-level `agent_id`.",
+          "alias_of": {
+            "method": "POST",
+            "path": "/register"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/agents/{agent_id}/telemetry",
+          "handler": "telemetry_v1",
+          "status_code": null,
+          "summary": "Versioned telemetry endpoint keyed by path-level `agent_id`.",
+          "alias_of": {
+            "method": "POST",
+            "path": "/telemetry"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/datasets:profile",
+          "handler": "profile_assimilated_dataset_v1",
+          "status_code": null,
+          "summary": "Versioned alias for assimilated dataset profiling.",
+          "alias_of": {
+            "method": "POST",
+            "path": "/datasets/profile"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/extensions",
+          "handler": "list_extensions_v1",
+          "status_code": null,
+          "summary": "Versioned alias for the extension summary.",
+          "alias_of": {
+            "method": "GET",
+            "path": "/extensions"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/federation/rounds",
+          "handler": "list_rounds_v1",
+          "status_code": null,
+          "summary": "Versioned alias for listing rounds.",
+          "alias_of": {
+            "method": "GET",
+            "path": "/federation/rounds"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/federation/rounds",
+          "handler": "dispatch_round_v1",
+          "status_code": 202,
+          "summary": "Versioned alias for round dispatch.",
+          "alias_of": {
+            "method": "POST",
+            "path": "/federation/rounds"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/federation/rounds/{round_id}",
+          "handler": "get_round_v1",
+          "status_code": null,
+          "summary": "Versioned alias for fetching one round.",
+          "alias_of": {
+            "method": "GET",
+            "path": "/federation/rounds/{round_id}"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/federation/rounds/{round_id}/readiness",
+          "handler": "round_readiness_v1",
+          "status_code": null,
+          "summary": "Versioned alias for aggregation readiness.",
+          "alias_of": {
+            "method": "GET",
+            "path": "/federation/rounds/{round_id}/readiness"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/federation/rounds/{round_id}/results",
+          "handler": "submit_result_v1",
+          "status_code": 202,
+          "summary": "Versioned alias for submitting a site result.",
+          "alias_of": {
+            "method": "POST",
+            "path": "/federation/rounds/{round_id}/results"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/federation/rounds/{round_id}:aggregate",
+          "handler": "aggregate_round_v1",
+          "status_code": null,
+          "summary": "Versioned alias for candidate aggregation.",
+          "alias_of": {
+            "method": "POST",
+            "path": "/federation/rounds/{round_id}:aggregate"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/federation/rounds/{round_id}:evaluate-release",
+          "handler": "evaluate_release_v1",
+          "status_code": null,
+          "summary": "Versioned alias for release evaluation.",
+          "alias_of": {
+            "method": "POST",
+            "path": "/federation/rounds/{round_id}:evaluate-release"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/federation/rounds:plan",
+          "handler": "plan_round_v1",
+          "status_code": null,
+          "summary": "Versioned alias for round planning.",
+          "alias_of": {
+            "method": "POST",
+            "path": "/federation/rounds:plan"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/federation/sites",
+          "handler": "list_sites_v1",
+          "status_code": null,
+          "summary": "Versioned alias for listing enrolled sites.",
+          "alias_of": {
+            "method": "GET",
+            "path": "/federation/sites"
+          }
+        },
+        {
+          "method": "PUT",
+          "path": "/api/v1/federation/sites/{site_id}",
+          "handler": "register_site_v1",
+          "status_code": null,
+          "summary": "Versioned alias for site enrolment.",
+          "alias_of": {
+            "method": "PUT",
+            "path": "/federation/sites/{site_id}"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/governance/audit",
+          "handler": "governance_audit_v1",
+          "status_code": null,
+          "summary": "Versioned alias for the guard audit log.",
+          "alias_of": {
+            "method": "GET",
+            "path": "/governance/audit"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/governance/classifications",
+          "handler": "list_classifications_v1",
+          "status_code": null,
+          "summary": "Versioned alias for listing data classifications.",
+          "alias_of": {
+            "method": "GET",
+            "path": "/governance/classifications"
+          }
+        },
+        {
+          "method": "PUT",
+          "path": "/api/v1/governance/classifications/{classification_id}",
+          "handler": "register_classification_v1",
+          "status_code": null,
+          "summary": "Versioned alias for registering a data classification.",
+          "alias_of": {
+            "method": "PUT",
+            "path": "/governance/classifications/{classification_id}"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/governance/restrictions:enforce",
+          "handler": "enforce_restriction_v1",
+          "status_code": null,
+          "summary": "Versioned alias for guard enforcement.",
+          "alias_of": {
+            "method": "POST",
+            "path": "/governance/restrictions:enforce"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/governance/restrictions:plan",
+          "handler": "plan_restriction_v1",
+          "status_code": null,
+          "summary": "Versioned alias for restriction planning.",
+          "alias_of": {
+            "method": "POST",
+            "path": "/governance/restrictions:plan"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/health",
+          "handler": "health_v1",
+          "status_code": null,
+          "summary": "Versioned alias for the GMA health endpoint.",
+          "alias_of": {
+            "method": "GET",
+            "path": "/health"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/model-jobs",
+          "handler": "list_model_runs_v1",
+          "status_code": null,
+          "summary": "Versioned alias for aggregate model-job listing.",
+          "alias_of": {
+            "method": "GET",
+            "path": "/models/runs"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/model-jobs",
+          "handler": "run_assimilated_model_v1",
+          "status_code": 202,
+          "summary": "Versioned alias that presents aggregate execution as a model-job API.",
+          "alias_of": {
+            "method": "POST",
+            "path": "/models/run"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/sources",
+          "handler": "list_sources",
+          "status_code": null,
+          "summary": "List all sources registered with the GMA.",
+          "alias_of": null
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/sources",
+          "handler": "register_source",
+          "status_code": null,
+          "summary": "Register a reusable source definition for aggregate workflows.",
+          "alias_of": null
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/sources/{source_id}",
+          "handler": "get_source",
+          "status_code": null,
+          "summary": "Fetch one source registered with the GMA.",
+          "alias_of": null
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/sources/{source_id}:validate",
+          "handler": "validate_source",
+          "status_code": null,
+          "summary": "Run shared source validation for a registered source id.",
+          "alias_of": null
+        },
+        {
+          "method": "POST",
+          "path": "/datasets/profile",
+          "handler": "profile_assimilated_dataset",
+          "status_code": null,
+          "summary": "Profile an assimilated dataset before aggregate model selection.",
+          "alias_of": null
+        },
+        {
+          "method": "GET",
+          "path": "/deployments",
+          "handler": "list_deployments",
+          "status_code": null,
+          "summary": "List current desired deployment plans known to the GMA.",
+          "alias_of": null
+        },
+        {
+          "method": "POST",
+          "path": "/deployments/plan",
+          "handler": "plan_deployment",
+          "status_code": null,
+          "summary": "Store the desired deployment state for one LMA.",
+          "alias_of": null
+        },
+        {
+          "method": "POST",
+          "path": "/deployments/sync",
+          "handler": "sync_deployment",
+          "status_code": null,
+          "summary": "Compare an LMA's current bundle with the desired deployment plan.",
+          "alias_of": null
+        },
+        {
+          "method": "GET",
+          "path": "/extensions",
+          "handler": "list_extensions",
+          "status_code": null,
+          "summary": "Describe what registered extensions contribute to this agent.",
+          "alias_of": null
+        },
+        {
+          "method": "GET",
+          "path": "/federation/rounds",
+          "handler": "list_rounds",
+          "status_code": null,
+          "summary": "List recent rounds, newest first.",
+          "alias_of": null
+        },
+        {
+          "method": "POST",
+          "path": "/federation/rounds",
+          "handler": "dispatch_round",
+          "status_code": null,
+          "summary": "Plan a round and, if quorum allows, offer it to the selected sites.",
+          "alias_of": null
+        },
+        {
+          "method": "GET",
+          "path": "/federation/rounds/{round_id}",
+          "handler": "get_round",
+          "status_code": null,
+          "summary": "Fetch one round's full lineage.",
+          "alias_of": null
+        },
+        {
+          "method": "GET",
+          "path": "/federation/rounds/{round_id}/readiness",
+          "handler": "round_readiness",
+          "status_code": null,
+          "summary": "Report whether the returned contributions may be aggregated.",
+          "alias_of": null
+        },
+        {
+          "method": "POST",
+          "path": "/federation/rounds/{round_id}/results",
+          "handler": "submit_result",
+          "status_code": null,
+          "summary": "Record one site's returned result against its round.",
+          "alias_of": null
+        },
+        {
+          "method": "POST",
+          "path": "/federation/rounds/{round_id}:aggregate",
+          "handler": "aggregate_round",
+          "status_code": null,
+          "summary": "Produce a candidate model, if and only if aggregation is permitted.",
+          "alias_of": null
+        },
+        {
+          "method": "POST",
+          "path": "/federation/rounds/{round_id}:evaluate-release",
+          "handler": "evaluate_release",
+          "status_code": null,
+          "summary": "Evaluate release gates against a candidate and record the verdict.",
+          "alias_of": null
+        },
+        {
+          "method": "POST",
+          "path": "/federation/rounds:plan",
+          "handler": "plan_round",
+          "status_code": null,
+          "summary": "Select the sites eligible for a round, without dispatching it.",
+          "alias_of": null
+        },
+        {
+          "method": "GET",
+          "path": "/federation/sites",
+          "handler": "list_sites",
+          "status_code": null,
+          "summary": "List enrolled sites.",
+          "alias_of": null
+        },
+        {
+          "method": "PUT",
+          "path": "/federation/sites/{site_id}",
+          "handler": "register_site",
+          "status_code": null,
+          "summary": "Enrol or update one site in the consortium.",
+          "alias_of": null
+        },
+        {
+          "method": "GET",
+          "path": "/governance/audit",
+          "handler": "governance_audit",
+          "status_code": null,
+          "summary": "List recent guard decisions and whether the digest chain still verifies.",
+          "alias_of": null
+        },
+        {
+          "method": "GET",
+          "path": "/governance/classifications",
+          "handler": "list_classifications",
+          "status_code": null,
+          "summary": "List the data classifications this agent can enforce against.",
+          "alias_of": null
+        },
+        {
+          "method": "PUT",
+          "path": "/governance/classifications/{classification_id}",
+          "handler": "register_classification",
+          "status_code": null,
+          "summary": "Register or replace one runtime data classification.",
+          "alias_of": null
+        },
+        {
+          "method": "POST",
+          "path": "/governance/restrictions:enforce",
+          "handler": "enforce_restriction",
+          "status_code": null,
+          "summary": "Plan, apply, and record one governed request against a payload.",
+          "alias_of": null
+        },
+        {
+          "method": "POST",
+          "path": "/governance/restrictions:plan",
+          "handler": "plan_restriction",
+          "status_code": null,
+          "summary": "Ask what protection a request would need, without enforcing anything.",
+          "alias_of": null
+        },
+        {
+          "method": "GET",
+          "path": "/health",
+          "handler": "health",
+          "status_code": null,
+          "summary": "Return the raw health payload used by the GMA's internal checks.",
+          "alias_of": null
+        },
+        {
+          "method": "POST",
+          "path": "/heartbeat",
+          "handler": "heartbeat",
+          "status_code": null,
+          "summary": "Ingest one heartbeat update from a registered LMA.",
+          "alias_of": null
+        },
+        {
+          "method": "POST",
+          "path": "/models/run",
+          "handler": "run_assimilated_model",
+          "status_code": null,
+          "summary": "Execute an aggregate model run synchronously.",
+          "alias_of": null
+        },
+        {
+          "method": "GET",
+          "path": "/models/runs",
+          "handler": "list_model_runs",
+          "status_code": null,
+          "summary": "List recent aggregate model runs tracked by the GMA.",
+          "alias_of": null
+        },
+        {
+          "method": "GET",
+          "path": "/overview",
+          "handler": "overview",
+          "status_code": null,
+          "summary": "Return a fleet-level summary of agent and deployment state.",
+          "alias_of": null
+        },
+        {
+          "method": "POST",
+          "path": "/register",
+          "handler": "register",
+          "status_code": null,
+          "summary": "Register one LMA with the aggregate control plane.",
+          "alias_of": null
+        },
+        {
+          "method": "GET",
+          "path": "/runs/dispatch",
+          "handler": "list_dispatched_runs",
+          "status_code": null,
+          "summary": "List recent run dispatches issued by the GMA.",
+          "alias_of": null
+        },
+        {
+          "method": "POST",
+          "path": "/runs/dispatch",
+          "handler": "dispatch_run",
+          "status_code": null,
+          "summary": "Record one aggregate run dispatch for downstream execution systems.",
+          "alias_of": null
+        },
+        {
+          "method": "POST",
+          "path": "/telemetry",
+          "handler": "telemetry",
+          "status_code": null,
+          "summary": "Ingest one telemetry envelope into the aggregate repository.",
+          "alias_of": null
+        },
+        {
+          "method": "GET",
+          "path": "/telemetry/recent",
+          "handler": "recent_telemetry",
+          "status_code": null,
+          "summary": "List recent telemetry envelopes received from registered agents.",
+          "alias_of": null
+        },
+        {
+          "method": "GET",
+          "path": "/telemetry/summary",
+          "handler": "telemetry_summary",
+          "status_code": null,
+          "summary": "Return aggregate telemetry rollups by agent.",
+          "alias_of": null
+        }
+      ]
+    },
+    {
+      "name": "healthcare-demo-backend",
+      "language": "python",
+      "framework": "fastapi",
+      "role": "demo-app",
+      "port": 8080,
+      "title": "dagents-healthcare-stroke-demo",
+      "endpoints": [
+        {
+          "method": "GET",
+          "path": "/api/v1/conditions",
+          "handler": "conditions",
+          "status_code": null,
+          "summary": "What this app implements, and what it deliberately does not.",
+          "alias_of": null
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/extension",
+          "handler": "extension",
+          "status_code": null,
+          "summary": "Exactly what this app contributes to the framework.",
+          "alias_of": null
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/framework/status",
+          "handler": "framework_status",
+          "status_code": null,
+          "summary": "Which Dagents services are reachable from here.",
+          "alias_of": null
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/framework/trace",
+          "handler": "framework_trace",
+          "status_code": null,
+          "summary": "Run stroke records through the framework's planners, step by step.",
+          "alias_of": null
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/governance:probe",
+          "handler": "governance_probe",
+          "status_code": null,
+          "summary": "Run one request through the Guard and show exactly what came back.",
+          "alias_of": null
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/health",
+          "handler": "health_v1",
+          "status_code": null,
+          "summary": "Versioned alias for the health endpoint.",
+          "alias_of": {
+            "method": "GET",
+            "path": "/health"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/hospitals",
+          "handler": "hospitals",
+          "status_code": null,
+          "summary": "The simulated hospitals and how their populations differ.",
+          "alias_of": null
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/hospitals/{site_id}/audit",
+          "handler": "hospital_audit",
+          "status_code": null,
+          "summary": "One hospital's guard decisions and whether its audit chain verifies.",
+          "alias_of": null
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/hospitals/{site_id}/thresholds",
+          "handler": "hospital_thresholds",
+          "status_code": null,
+          "summary": "How sensitivity and alert burden trade off at one hospital.",
+          "alias_of": null
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/hospitals/{site_id}/worklist",
+          "handler": "hospital_worklist",
+          "status_code": null,
+          "summary": "One hospital's ranked worklist, which never leaves the hospital.",
+          "alias_of": null
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/ingest:fhir",
+          "handler": "ingest_fhir",
+          "status_code": null,
+          "summary": "Map a FHIR-shaped bundle into the stroke feature contract.",
+          "alias_of": null
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/overview",
+          "handler": "overview",
+          "status_code": null,
+          "summary": "The consortium, its hospitals, and the gates a candidate must clear.",
+          "alias_of": null
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/pilot:run",
+          "handler": "run_pilot",
+          "status_code": null,
+          "summary": "Run the full governed pilot across every hospital.",
+          "alias_of": null
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/triage:assess",
+          "handler": "assess",
+          "status_code": null,
+          "summary": "Score one canonical record, with the basis for the recommendation.",
+          "alias_of": null
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/triage:worklist",
+          "handler": "worklist",
+          "status_code": null,
+          "summary": "Rank a set of records by triage priority.",
+          "alias_of": null
+        },
+        {
+          "method": "GET",
+          "path": "/health",
+          "handler": "health",
+          "status_code": null,
+          "summary": "Liveness plus a standing reminder that the data here is synthetic.",
+          "alias_of": null
+        }
+      ]
+    },
+    {
+      "name": "lma",
+      "language": "python",
+      "framework": "fastapi",
+      "role": "agent",
+      "port": 8010,
+      "title": "dagents-lma",
+      "endpoints": [
+        {
+          "method": "POST",
+          "path": "/api/v1/datasets:profile",
+          "handler": "profile_source_dataset_v1",
+          "status_code": null,
+          "summary": "Versioned alias for source dataset profiling.",
+          "alias_of": {
+            "method": "POST",
+            "path": "/datasets/profile"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/extensions",
+          "handler": "list_extensions_v1",
+          "status_code": null,
+          "summary": "Versioned alias for the extension summary.",
+          "alias_of": {
+            "method": "GET",
+            "path": "/extensions"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/governance/audit",
+          "handler": "governance_audit_v1",
+          "status_code": null,
+          "summary": "Versioned alias for the guard audit log.",
+          "alias_of": {
+            "method": "GET",
+            "path": "/governance/audit"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/governance/classifications",
+          "handler": "list_classifications_v1",
+          "status_code": null,
+          "summary": "Versioned alias for listing data classifications.",
+          "alias_of": {
+            "method": "GET",
+            "path": "/governance/classifications"
+          }
+        },
+        {
+          "method": "PUT",
+          "path": "/api/v1/governance/classifications/{classification_id}",
+          "handler": "register_classification_v1",
+          "status_code": null,
+          "summary": "Versioned alias for registering a data classification.",
+          "alias_of": {
+            "method": "PUT",
+            "path": "/governance/classifications/{classification_id}"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/governance/restrictions:enforce",
+          "handler": "enforce_restriction_v1",
+          "status_code": null,
+          "summary": "Versioned alias for guard enforcement.",
+          "alias_of": {
+            "method": "POST",
+            "path": "/governance/restrictions:enforce"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/governance/restrictions:plan",
+          "handler": "plan_restriction_v1",
+          "status_code": null,
+          "summary": "Versioned alias for restriction planning.",
+          "alias_of": {
+            "method": "POST",
+            "path": "/governance/restrictions:plan"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/health",
+          "handler": "health_v1",
+          "status_code": null,
+          "summary": "Versioned alias for the health endpoint used by newer clients.",
+          "alias_of": {
+            "method": "GET",
+            "path": "/health"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/model-jobs",
+          "handler": "list_model_runs_v1",
+          "status_code": null,
+          "summary": "Versioned alias for listing source-level model jobs.",
+          "alias_of": {
+            "method": "GET",
+            "path": "/models/runs"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/model-jobs",
+          "handler": "run_source_model_v1",
+          "status_code": 202,
+          "summary": "Versioned alias that presents source execution as a model-job API.",
+          "alias_of": {
+            "method": "POST",
+            "path": "/models/run"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/sources",
+          "handler": "list_sources",
+          "status_code": null,
+          "summary": "List all sources registered with this LMA instance.",
+          "alias_of": null
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/sources",
+          "handler": "register_source",
+          "status_code": null,
+          "summary": "Validate and register a reusable source definition at the agent edge.",
+          "alias_of": null
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/sources/{source_id}",
+          "handler": "get_source",
+          "status_code": null,
+          "summary": "Fetch one source definition registered with this LMA instance.",
+          "alias_of": null
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/sources/{source_id}:validate",
+          "handler": "validate_source",
+          "status_code": null,
+          "summary": "Run shared source validation for a registered source id.",
+          "alias_of": null
+        },
+        {
+          "method": "GET",
+          "path": "/bundles",
+          "handler": "list_bundles",
+          "status_code": null,
+          "summary": "List monitoring bundles currently known to the local agent.",
+          "alias_of": null
+        },
+        {
+          "method": "POST",
+          "path": "/bundles/deploy",
+          "handler": "deploy_bundle",
+          "status_code": null,
+          "summary": "Store or update a bundle that future LMA runs may execute.",
+          "alias_of": null
+        },
+        {
+          "method": "POST",
+          "path": "/datasets/profile",
+          "handler": "profile_source_dataset",
+          "status_code": null,
+          "summary": "Profile source-scoped data before a model run is selected.",
+          "alias_of": null
+        },
+        {
+          "method": "GET",
+          "path": "/extensions",
+          "handler": "list_extensions",
+          "status_code": null,
+          "summary": "Describe what registered extensions contribute to this agent.",
+          "alias_of": null
+        },
+        {
+          "method": "GET",
+          "path": "/governance/audit",
+          "handler": "governance_audit",
+          "status_code": null,
+          "summary": "List recent guard decisions and whether the digest chain still verifies.",
+          "alias_of": null
+        },
+        {
+          "method": "GET",
+          "path": "/governance/classifications",
+          "handler": "list_classifications",
+          "status_code": null,
+          "summary": "List the data classifications this agent can enforce against.",
+          "alias_of": null
+        },
+        {
+          "method": "PUT",
+          "path": "/governance/classifications/{classification_id}",
+          "handler": "register_classification",
+          "status_code": null,
+          "summary": "Register or replace one runtime data classification.",
+          "alias_of": null
+        },
+        {
+          "method": "POST",
+          "path": "/governance/restrictions:enforce",
+          "handler": "enforce_restriction",
+          "status_code": null,
+          "summary": "Plan, apply, and record one governed request against a payload.",
+          "alias_of": null
+        },
+        {
+          "method": "POST",
+          "path": "/governance/restrictions:plan",
+          "handler": "plan_restriction",
+          "status_code": null,
+          "summary": "Ask what protection a request would need, without enforcing anything.",
+          "alias_of": null
+        },
+        {
+          "method": "GET",
+          "path": "/health",
+          "handler": "health",
+          "status_code": null,
+          "summary": "Return the raw health payload used by the LMA's internal health checks.",
+          "alias_of": null
+        },
+        {
+          "method": "POST",
+          "path": "/models/run",
+          "handler": "run_source_model",
+          "status_code": null,
+          "summary": "Execute a source-scoped model run synchronously.",
+          "alias_of": null
+        },
+        {
+          "method": "GET",
+          "path": "/models/runs",
+          "handler": "list_model_runs",
+          "status_code": null,
+          "summary": "List recent source-level model runs executed by the LMA.",
+          "alias_of": null
+        },
+        {
+          "method": "POST",
+          "path": "/run",
+          "handler": "run_monitoring",
+          "status_code": null,
+          "summary": "Execute a legacy monitoring run over a deployed bundle.",
+          "alias_of": null
+        },
+        {
+          "method": "GET",
+          "path": "/runs",
+          "handler": "list_runs",
+          "status_code": null,
+          "summary": "List recent local monitoring runs.",
+          "alias_of": null
+        },
+        {
+          "method": "GET",
+          "path": "/telemetry",
+          "handler": "list_telemetry",
+          "status_code": null,
+          "summary": "List recent telemetry envelopes emitted by local monitoring runs.",
+          "alias_of": null
+        }
+      ]
+    },
+    {
+      "name": "model-service",
+      "language": "python",
+      "framework": "fastapi",
+      "role": "framework-service",
+      "port": 8000,
+      "title": "dagents-model-service",
+      "endpoints": [
+        {
+          "method": "POST",
+          "path": "/api/v1/checks/classification",
+          "handler": "classification_check",
+          "status_code": null,
+          "summary": "Run a one-shot classification evaluation against the supplied dataset.",
+          "alias_of": null
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/checks/forecasting",
+          "handler": "forecasting_check",
+          "status_code": null,
+          "summary": "Run a one-shot forecasting evaluation, typically with GRU or LSTM.",
+          "alias_of": null
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/checks/regression",
+          "handler": "regression_check",
+          "status_code": null,
+          "summary": "Run a one-shot regression evaluation against the supplied dataset.",
+          "alias_of": null
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/datasets",
+          "handler": "datasets",
+          "status_code": null,
+          "summary": "List built-in benchmark datasets available to the model service.",
+          "alias_of": null
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/health",
+          "handler": "health",
+          "status_code": null,
+          "summary": "Return service health and runtime metadata for health checks.",
+          "alias_of": null
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/model-families",
+          "handler": "model_families",
+          "status_code": null,
+          "summary": "Describe the model families this deployment can execute, and with what.",
+          "alias_of": null
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/model-jobs",
+          "handler": "list_model_jobs",
+          "status_code": null,
+          "summary": "List recent model jobs in reverse chronological order.",
+          "alias_of": null
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/model-jobs",
+          "handler": "submit_model_job",
+          "status_code": 202,
+          "summary": "Submit a background training job and return the queued job record.",
+          "alias_of": null
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/model-jobs/{job_id}",
+          "handler": "get_model_job",
+          "status_code": null,
+          "summary": "Fetch one previously submitted model job by `job_id`.",
+          "alias_of": null
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/sources",
+          "handler": "list_sources",
+          "status_code": null,
+          "summary": "List all source definitions registered with the model service.",
+          "alias_of": null
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/sources",
+          "handler": "register_source",
+          "status_code": null,
+          "summary": "Validate and register a reusable source definition for model-service use.",
+          "alias_of": null
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/sources/{source_id}",
+          "handler": "get_source",
+          "status_code": null,
+          "summary": "Fetch one stored source definition by id.",
+          "alias_of": null
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/sources/{source_id}:validate",
+          "handler": "validate_source",
+          "status_code": null,
+          "summary": "Run shared source validation for one registered source id.",
+          "alias_of": null
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/train",
+          "handler": "train",
+          "status_code": null,
+          "summary": "Execute synchronous anomaly-model training.",
+          "alias_of": null
+        }
+      ]
+    },
+    {
+      "name": "nl2sql-demo-backend",
+      "language": "python",
+      "framework": "fastapi",
+      "role": "demo-app",
+      "port": 8070,
+      "title": "dagents-nl2sql-demo",
+      "endpoints": [
+        {
+          "method": "GET",
+          "path": "/api/v1/dagents/status",
+          "handler": "dagents_status",
+          "status_code": null,
+          "summary": null,
+          "alias_of": null
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/generate",
+          "handler": "generate_sql",
+          "status_code": null,
+          "summary": null,
+          "alias_of": null
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/health",
+          "handler": "health",
+          "status_code": null,
+          "summary": null,
+          "alias_of": null
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/models",
+          "handler": "models",
+          "status_code": null,
+          "summary": null,
+          "alias_of": null
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/samples",
+          "handler": "samples",
+          "status_code": null,
+          "summary": null,
+          "alias_of": null
+        }
+      ]
+    },
+    {
+      "name": "pipeline-service",
+      "language": "python",
+      "framework": "fastapi",
+      "role": "framework-service",
+      "port": 8030,
+      "title": "dagents-pipeline-service",
+      "endpoints": [
+        {
+          "method": "GET",
+          "path": "/api/v1/health",
+          "handler": "health",
+          "status_code": null,
+          "summary": null,
+          "alias_of": null
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/pipeline-definitions",
+          "handler": "list_pipeline_definitions",
+          "status_code": null,
+          "summary": null,
+          "alias_of": null
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/pipeline-definitions",
+          "handler": "register_pipeline_definition",
+          "status_code": null,
+          "summary": null,
+          "alias_of": null
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/pipeline-definitions/{pipeline_id}",
+          "handler": "get_pipeline_definition",
+          "status_code": null,
+          "summary": null,
+          "alias_of": null
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/pipeline-definitions/{pipeline_id}:validate",
+          "handler": "validate_pipeline_definition",
+          "status_code": null,
+          "summary": null,
+          "alias_of": null
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/pipeline-runs",
+          "handler": "list_pipeline_runs",
+          "status_code": null,
+          "summary": null,
+          "alias_of": null
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/pipeline-runs",
+          "handler": "submit_pipeline_run",
+          "status_code": 202,
+          "summary": null,
+          "alias_of": null
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/pipeline-runs/{run_id}",
+          "handler": "get_pipeline_run",
+          "status_code": null,
+          "summary": null,
+          "alias_of": null
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/pipelines",
+          "handler": "list_pipelines",
+          "status_code": null,
+          "summary": null,
+          "alias_of": null
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/pipelines",
+          "handler": "register_pipeline",
+          "status_code": null,
+          "summary": null,
+          "alias_of": null
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/pipelines/{pipeline_id}/runs",
+          "handler": "run_pipeline",
+          "status_code": null,
+          "summary": null,
+          "alias_of": null
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/runs",
+          "handler": "list_runs",
+          "status_code": null,
+          "summary": null,
+          "alias_of": null
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/runs/{run_id}",
+          "handler": "get_run",
+          "status_code": null,
+          "summary": null,
+          "alias_of": null
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/sources",
+          "handler": "list_sources",
+          "status_code": null,
+          "summary": null,
+          "alias_of": null
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/sources",
+          "handler": "register_source",
+          "status_code": null,
+          "summary": null,
+          "alias_of": null
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/sources/{source_id}",
+          "handler": "get_source",
+          "status_code": null,
+          "summary": null,
+          "alias_of": null
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/sources/{source_id}:validate",
+          "handler": "validate_source",
+          "status_code": null,
+          "summary": null,
+          "alias_of": null
+        }
+      ]
+    },
+    {
+      "name": "spring-control-service",
+      "language": "java",
+      "framework": "spring-boot",
+      "role": "framework-service",
+      "port": 8050,
+      "title": "spring-control-service",
+      "endpoints": [
+        {
+          "method": "GET",
+          "path": "/api/v1/agents",
+          "handler": "agents",
+          "status_code": null,
+          "summary": null,
+          "alias_of": null
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/agents/{agentId}",
+          "handler": "agent",
+          "status_code": null,
+          "summary": null,
+          "alias_of": null
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/agents/{agentId}/deployment-sync",
+          "handler": "deploymentSync",
+          "status_code": null,
+          "summary": null,
+          "alias_of": null
+        },
+        {
+          "method": "PUT",
+          "path": "/api/v1/agents/{agentId}/desired-deployment",
+          "handler": "desiredDeployment",
+          "status_code": null,
+          "summary": null,
+          "alias_of": null
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/agents/{agentId}/heartbeats",
+          "handler": "heartbeat",
+          "status_code": null,
+          "summary": null,
+          "alias_of": null
+        },
+        {
+          "method": "PUT",
+          "path": "/api/v1/agents/{agentId}/registration",
+          "handler": "register",
+          "status_code": null,
+          "summary": null,
+          "alias_of": null
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/agents/{agentId}/telemetry",
+          "handler": "telemetry",
+          "status_code": null,
+          "summary": null,
+          "alias_of": null
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/health",
+          "handler": "health",
+          "status_code": null,
+          "summary": null,
+          "alias_of": null
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/sources",
+          "handler": "list",
+          "status_code": null,
+          "summary": null,
+          "alias_of": null
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/sources",
+          "handler": "register",
+          "status_code": null,
+          "summary": null,
+          "alias_of": null
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/sources/{sourceId}",
+          "handler": "get",
+          "status_code": null,
+          "summary": null,
+          "alias_of": null
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/sources/{sourceId}:validate",
+          "handler": "validate",
+          "status_code": null,
+          "summary": null,
+          "alias_of": null
+        }
+      ]
+    },
+    {
+      "name": "spring-core-service",
+      "language": "java",
+      "framework": "spring-boot",
+      "role": "framework-service",
+      "port": 8060,
+      "title": "spring-core-service",
+      "endpoints": [
+        {
+          "method": "GET",
+          "path": "/api/v1/health",
+          "handler": "health",
+          "status_code": null,
+          "summary": null,
+          "alias_of": null
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/services",
+          "handler": "services",
+          "status_code": null,
+          "summary": null,
+          "alias_of": null
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/topology",
+          "handler": "topology",
+          "status_code": null,
+          "summary": null,
+          "alias_of": null
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/workload-plans/{planId}",
+          "handler": "plan",
+          "status_code": null,
+          "summary": null,
+          "alias_of": null
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/workloads:compile",
+          "handler": "compile",
+          "status_code": null,
+          "summary": null,
+          "alias_of": null
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+# Hugging Face provider for the model-service inventory.
+#
+# Kept separate from requirements.txt, as in services/nl2sql-demo/backend, so the
+# service installs and boots on a machine that will never run a Hub model. The
+# capabilities that need these are marked `huggingface` in
+# app/ml/inventory.py and refuse to load with a message naming this file.
+#
+# Install with:
+#   .venv/bin/python -m pip install -r services/model-service/requirements-optional-models.txt
+transformers>=4.45,<5
+safetensors>=0.5,<1
