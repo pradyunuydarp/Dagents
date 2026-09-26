@@ -107,6 +107,17 @@ each service has its own `requirements.txt`; there is no root-level one.
 Per-service suites live under `services/<name>/tests/`. The NL2SQL suite inserts its own
 backend path, so it runs from the root too.
 
+`tests/` at the repo root holds the checks that span more than one service — the endpoint
+inventory and the API conventions — because they need every Python service importable, and
+`agents/tests` is meant to run with only the agent requirements:
+
+```bash
+.venv/bin/python -m unittest discover -s tests -t .
+```
+
+`services/model-service/requirements-optional-models.txt` carries the Hugging Face stack. Without
+it the provider tests that need it skip; install it to exercise the real `local_files_only` path.
+
 The governance and federation tests run against the real `dagentsc` binary rather than a stub —
 stubbing the planner would prove the code calls something, not that the governance holds. They
 find the dune build automatically and skip with a message if it is missing, so check the skip
@@ -132,6 +143,23 @@ The healthcare demo has its own suite:
 ```bash
 cd apps/healthcare-demo && PYTHONPATH=../..:backend ../../.venv/bin/python -m unittest discover -s tests -t .
 ```
+
+### CI
+
+`.github/workflows/ci.yml` runs the same commands, per layer: `planners` (OCaml build, `dune
+test`, and it uploads `dagentsc` as the artifact every other job downloads), `agents`,
+`framework-services` (core-service twice, with and without `DAGENTSC_BIN`), `contracts`, `spring`,
+`demo-apps`, `frontends`, and a `ci` gate job that is the single required check.
+
+Two guards exist because a green run here has been false before:
+
+```bash
+python -m unittest discover -s agents/tests -t . -v 2>&1 | tee suite.log
+python scripts/ci_no_skipped_planner_tests.py suite.log   # fails on a planner-related skip
+.venv/bin/python scripts/service_inventory.py --check      # fails when a route is undocumented
+```
+
+Docker and Minikube are not in CI; see **Current State**.
 
 ### Full stack
 
@@ -230,6 +258,46 @@ same handler.
 
 The framework services (`core`, `pipeline`, `model`) are uniformly `/api/v1/...`.
 
+### The service inventory
+
+`docs/reference/service-inventory.{json,md}` is the framework's published HTTP contract: every
+endpoint the Python and Java services expose. It is **generated, not written** — Python services
+from the live FastAPI routing table, Java services from their Spring controllers — so any route
+change means regenerating it:
+
+```bash
+.venv/bin/python scripts/service_inventory.py --write   # then commit both files
+```
+
+`tests/test_service_inventory.py` fails on drift, and also asserts the conventions above rather
+than leaving them in prose: the framework services stay uniformly versioned, the LMA/GMA alias
+pairs still exist and still answer identically, and the Spring surfaces still mirror their Python
+counterparts.
+
+### The model inventory
+
+The OCaml `model_router` decides which model family a dataset and task should get; it is pure, so
+it happily selects families this runtime cannot execute. `services/model-service/app/ml/inventory.py`
+is the other half of that contract: which `(family, task)` pairs are `implemented`, which provider
+backs each — `pytorch`, `scikit_learn`, `huggingface`, or `extension` — and which are recorded as
+`planned` gaps with what they would need. `GET /api/v1/model-families` serves it.
+
+Rules:
+
+- **Every family the planner can emit needs an entry.** Adding one to the router without deciding
+  what runs it fails the vocabulary test, which reads the OCaml `string_of_model_family` mapping
+  from source and needs no `dagentsc` build. `planned` is a valid answer; silence is not.
+- **`inventory.py` imports nothing heavy.** Entrypoints are `module:attribute` strings resolved
+  lazily, so listing families costs no torch import. A test asserts this.
+- **Providers share provisioning, not prediction.** `app/ml/providers/` adapters agree on
+  `load()`/`is_loaded` — where the model comes from and whether it is here yet. An anomaly scorer,
+  a classifier and an embedding model do not share a useful `predict`, so they do not pretend to.
+- **Downloads are opt-in and off by default.** The Hugging Face adapter refuses a cache miss with
+  a typed error naming the checkpoint, and `DAGENTS_ALLOW_MODEL_DOWNLOAD=1` (or
+  `allow_download=True`) permits the fetch. Never make a test need the Hub.
+- Do not reintroduce a local set of family names. `checks.py` and `pipeline.py` resolve against the
+  inventory, so there is one source of truth for what this service can run.
+
 ### Governance: where a decision lives
 
 Governance follows the same split as everything else, and the split is the whole design.
@@ -303,9 +371,25 @@ Minikube, which is currently blocked on local Docker Desktop disk capacity (see 
 for the full findings). `generate_manifests_local.py` exists as a workaround that produces
 `dagents-workloads.yaml` without booting the whole stack.
 
+## Repository Skills
+
+`.claude/skills/` holds three strict, repo-local skills. They are the enforceable form of this
+file, and they are binding where they say **never**:
+
+- `backend` — the polyglot layer rule, where each kind of decision is allowed to live, the
+  governance and federation invariants, and the test-first loop per layer.
+- `frontend` — what a demo UI may own, why a typecheck and a bundle are not evidence, and why
+  exit 2 from the smoke test is not a pass.
+- `ci` — the pipeline's shape, the four specific false greens it defends against, and the rules
+  for changing a workflow.
+
+They are first-party repo skills only; no third-party marketplace plugin is wired in.
+
 ## Reference Docs
 
 - `AGENTS.md` — the long-form contributor guide; the deepest single source on boundaries
+- `docs/reference/service-inventory.md` — every endpoint the Java and Python services expose
+- `.claude/skills/{backend,frontend,ci}/SKILL.md` — the enforceable rules for each layer
 - `docs/agents/lma-gma-architecture.md` — agent responsibilities and run flow
 - `docs/architecture/ocaml-adoption-plan.md` — why OCaml, where it goes, what stays out
 - `bindings/ocaml/README.md` — module map, CLI surface, contract examples

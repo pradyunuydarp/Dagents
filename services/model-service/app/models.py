@@ -180,3 +180,34 @@ class ForecastingCheckResponse(AppModel):
     train_rows: int
     test_rows: int
     metrics: ForecastingMetrics
+
+
+class ModelCapabilityResponse(AppModel):
+    """One `(family, task)` entry from the model inventory."""
+
+    family: str
+    task: str
+    provider: str
+    status: str
+    entrypoint: str | None = None
+    default_checkpoint: str | None = None
+    extra_requirements: list[str] = Field(default_factory=list)
+    requires_download: bool = False
+    notes: str = ""
+
+
+class ModelInventoryResponse(AppModel):
+    """What this deployment can run, so a consumer need not hardcode a list.
+
+    `implemented` maps each task to the families that work here today. `gaps`
+    lists the families the OCaml router may still select but this runtime cannot
+    execute, with what each would need — a framework that plans more than it can
+    execute should say so rather than failing per request.
+    """
+
+    tasks: list[str]
+    providers: list[str]
+    families: list[str]
+    implemented: dict[str, list[str]]
+    capabilities: list[ModelCapabilityResponse]
+    gaps: list[ModelCapabilityResponse]

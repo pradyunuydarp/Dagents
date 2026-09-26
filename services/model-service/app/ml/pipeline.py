@@ -16,7 +16,8 @@ from torch.utils.data import DataLoader, TensorDataset
 
 from app.ml.artifacts import ArtifactMetadata, ArtifactStore, ModelArtifact
 from app.ml.metrics import MetricBundle, compute_metrics
-from app.ml.modules import ModelConfig, SUPPORTED_MODEL_FAMILIES, build_model
+from app.ml.inventory import ANOMALY_DETECTION, default_inventory
+from app.ml.modules import ModelConfig, build_model
 from app.ml.preprocessing import PreprocessingConfig, TabularPreprocessor
 
 
@@ -58,8 +59,10 @@ class UnifiedAnomalyTrainingPipeline:
     """Generic PyTorch anomaly training engine for tabular benchmarks."""
 
     def __init__(self, config: PipelineConfig) -> None:
-        if config.model_family not in SUPPORTED_MODEL_FAMILIES:
-            raise ValueError(f"Unsupported model family: {config.model_family}")
+        # Resolved against the model inventory rather than a local set, so the
+        # rejection message names what this runtime can actually train and why a
+        # routed-but-unimplemented family is not it.
+        default_inventory.resolve(config.model_family, ANOMALY_DETECTION)
         self.config = config
         self._device = self._resolve_device(config.device)
         random.seed(config.random_seed)
