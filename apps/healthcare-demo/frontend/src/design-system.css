@@ -1,0 +1,617 @@
+/* GENERATED FILE — DO NOT EDIT.
+ *
+ * Copied from design/dagents-design-system.css by scripts/sync_design_system.py.
+ * Edit the source and re-run:
+ *
+ *     python scripts/sync_design_system.py --write
+ *
+ * `tests/test_design_system.py` fails when a copy drifts from the source.
+ */
+
+/* Dagents design system — the single source. Do not edit the copies.
+ *
+ * Copies live in each frontend, written by `scripts/sync_design_system.py`, so
+ * the three surfaces read as one system while `apps/healthcare-demo/` stays
+ * extractable into its own repository without importing across the tree.
+ *
+ * ---------------------------------------------------------------------------
+ * The direction, and why
+ *
+ * Layout concept: an instrument panel. Hairline rules instead of floating
+ * cards, dense tabular data, small radii, state carried by a left severity
+ * stripe and a square mono chip. Left-aligned throughout; nothing centred but
+ * the odd standalone figure.
+ *
+ * Colour carries meaning only. This is a governance framework: its whole
+ * argument is that a decision — permit, narrow, deny — is computed by a typed
+ * planner rather than improvised. If colour were also decoration, a reader
+ * could not tell a styled panel from a refused request. So the palette is
+ * neutral ink and the only chromatic elements are decision states, plus one
+ * functional blue for links and focus rings. A page here has no accent colour
+ * to spend, which is the point.
+ *
+ * Type: Archivo for headings and running text — industrial, slightly narrow,
+ * real weights. IBM Plex Mono for everything the framework itself emits:
+ * identifiers, digests, strategies, gate ids, field names, paths. The
+ * framework's outputs are monospace artifacts, so the mono is a first-class
+ * face here rather than a code-block afterthought.
+ *
+ * Structure: section keys are the framework's own — a guard boundary, a round
+ * phase — because those are real sequences the reader needs in order. Nothing
+ * is numbered that is not actually a sequence.
+ * ---------------------------------------------------------------------------
+ */
+
+/* ===== Tokens ============================================================= */
+
+:root {
+  color-scheme: light;
+
+  /* Surfaces, from furthest back to nearest front. */
+  --ds-ground: #f6f7f9;
+  --ds-panel: #ffffff;
+  --ds-inset: #eff1f5;
+  --ds-raised: #ffffff;
+
+  /* Rules. The hairline does most of the structural work. */
+  --ds-line: #dde1e8;
+  --ds-line-strong: #bcc4d0;
+
+  /* Ink, with a slight cool bias so the neutrals read as chosen. */
+  --ds-ink: #14181f;
+  --ds-ink-2: #464f60;
+  --ds-ink-3: #6d7688;
+
+  /* The one functional hue: links, focus, selection. Not an accent to spend. */
+  --ds-focus: #1d4ed8;
+  --ds-focus-soft: #e4ebfb;
+
+  /* Decision states. These are the only other colours in the system. */
+  --ds-permit: #0f6d4f;
+  --ds-permit-bg: #e2f2ec;
+  --ds-narrow: #8a5200;
+  --ds-narrow-bg: #fbeeda;
+  --ds-deny: #a52321;
+  --ds-deny-bg: #fbe7e6;
+  --ds-inert: #5b6474;
+  --ds-inert-bg: #e9ebf0;
+
+  /* Type. */
+  --ds-font-display: "Archivo", "Helvetica Neue", Arial, sans-serif;
+  --ds-font-body: "Archivo", "Helvetica Neue", Arial, sans-serif;
+  --ds-font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+
+  --ds-step--1: 0.8125rem;
+  --ds-step-0: 0.9375rem;
+  --ds-step-1: 1.0625rem;
+  --ds-step-2: 1.3125rem;
+  --ds-step-3: 1.6875rem;
+  --ds-step-4: 2.25rem;
+  --ds-step-5: 3rem;
+
+  /* Space, on a 4px grid. */
+  --ds-1: 0.25rem;
+  --ds-2: 0.5rem;
+  --ds-3: 0.75rem;
+  --ds-4: 1rem;
+  --ds-5: 1.5rem;
+  --ds-6: 2rem;
+  --ds-7: 3rem;
+  --ds-8: 4.5rem;
+
+  /* Geometry. Chips are square on purpose: instrument labels, not badges. */
+  --ds-r-1: 3px;
+  --ds-r-2: 6px;
+  --ds-measure: 68ch;
+  --ds-shell: 1180px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --ds-ground: #0d1015;
+    --ds-panel: #141922;
+    --ds-inset: #1a2029;
+    --ds-raised: #1b212b;
+    --ds-line: #262d3a;
+    --ds-line-strong: #3a4353;
+    --ds-ink: #e8ebf1;
+    --ds-ink-2: #a6aebe;
+    --ds-ink-3: #7b8493;
+    --ds-focus: #7fa6ff;
+    --ds-focus-soft: #1b2740;
+    --ds-permit: #6cd2a8;
+    --ds-permit-bg: #12281f;
+    --ds-narrow: #e7b25d;
+    --ds-narrow-bg: #2c2110;
+    --ds-deny: #f0918c;
+    --ds-deny-bg: #2e1616;
+    --ds-inert: #9aa3b2;
+    --ds-inert-bg: #1f242e;
+  }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --ds-ground: #0d1015;
+  --ds-panel: #141922;
+  --ds-inset: #1a2029;
+  --ds-raised: #1b212b;
+  --ds-line: #262d3a;
+  --ds-line-strong: #3a4353;
+  --ds-ink: #e8ebf1;
+  --ds-ink-2: #a6aebe;
+  --ds-ink-3: #7b8493;
+  --ds-focus: #7fa6ff;
+  --ds-focus-soft: #1b2740;
+  --ds-permit: #6cd2a8;
+  --ds-permit-bg: #12281f;
+  --ds-narrow: #e7b25d;
+  --ds-narrow-bg: #2c2110;
+  --ds-deny: #f0918c;
+  --ds-deny-bg: #2e1616;
+  --ds-inert: #9aa3b2;
+  --ds-inert-bg: #1f242e;
+}
+
+/* ===== Base =============================================================== */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--ds-ground);
+  color: var(--ds-ink);
+  font-family: var(--ds-font-body);
+  font-size: var(--ds-step-0);
+  line-height: 1.55;
+  font-feature-settings: "cv05" 1;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3,
+h4 {
+  font-family: var(--ds-font-display);
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  line-height: 1.15;
+  text-wrap: balance;
+  margin: 0;
+}
+
+h1 { font-size: var(--ds-step-4); }
+h2 { font-size: var(--ds-step-2); }
+h3 { font-size: var(--ds-step-1); }
+h4 { font-size: var(--ds-step-0); }
+
+p { margin: 0; }
+
+a {
+  color: var(--ds-focus);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+}
+
+a:hover { text-decoration-thickness: 2px; }
+
+:focus-visible {
+  outline: 2px solid var(--ds-focus);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+code,
+kbd,
+pre,
+samp {
+  font-family: var(--ds-font-mono);
+  font-size: 0.92em;
+}
+
+::selection {
+  background: var(--ds-focus-soft);
+  color: var(--ds-ink);
+}
+
+/* ===== Shell ============================================================== */
+
+/* One outer wrapper owns the side gutter, so nothing else has to. */
+.ds-shell {
+  max-width: var(--ds-shell);
+  margin-inline: auto;
+  padding-inline: var(--ds-4);
+  padding-block: var(--ds-6);
+}
+
+@media (min-width: 720px) {
+  .ds-shell { padding-inline: var(--ds-5); }
+}
+
+.ds-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-5);
+}
+
+.ds-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--ds-3);
+}
+
+.ds-measure { max-width: var(--ds-measure); }
+
+/* ===== Eyebrow and labels ================================================= */
+
+/* The mono face carries anything the framework itself names. */
+.ds-eyebrow {
+  font-family: var(--ds-font-mono);
+  font-size: var(--ds-step--1);
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ds-ink-3);
+}
+
+.ds-mono {
+  font-family: var(--ds-font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.ds-note {
+  max-width: var(--ds-measure);
+  color: var(--ds-ink-2);
+  font-size: var(--ds-step--1);
+  line-height: 1.6;
+}
+
+/* ===== Panel ============================================================== */
+
+.ds-panel {
+  background: var(--ds-panel);
+  border: 1px solid var(--ds-line);
+  border-radius: var(--ds-r-2);
+}
+
+.ds-panel > * { padding-inline: var(--ds-5); }
+
+.ds-panel-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--ds-3);
+  padding-block: var(--ds-4);
+  border-bottom: 1px solid var(--ds-line);
+}
+
+.ds-panel-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-4);
+  padding-block: var(--ds-5);
+  min-width: 0;
+}
+
+.ds-inset {
+  background: var(--ds-inset);
+  border: 1px solid var(--ds-line);
+  border-radius: var(--ds-r-1);
+  padding: var(--ds-3) var(--ds-4);
+  min-width: 0;
+}
+
+/* ===== Chips ============================================================== */
+
+/* Square, mono, uppercase: an instrument label. State never relies on colour
+ * alone — each chip also carries its own word. */
+.ds-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-1);
+  padding: 2px 6px;
+  border-radius: 2px;
+  border: 1px solid transparent;
+  font-family: var(--ds-font-mono);
+  font-size: 0.75rem;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  background: var(--ds-inert-bg);
+  color: var(--ds-inert);
+}
+
+.ds-chip--permit { background: var(--ds-permit-bg); color: var(--ds-permit); }
+.ds-chip--narrow { background: var(--ds-narrow-bg); color: var(--ds-narrow); }
+.ds-chip--deny { background: var(--ds-deny-bg); color: var(--ds-deny); }
+
+/* ===== Verdict ============================================================ */
+
+/* The loudest thing on any page, because it is the answer. The stripe repeats
+ * the state so it survives being read in greyscale. */
+.ds-verdict {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--ds-2) var(--ds-4);
+  border-left: 3px solid var(--ds-inert);
+  background: var(--ds-inert-bg);
+  padding: var(--ds-3) var(--ds-4);
+  border-radius: 0 var(--ds-r-1) var(--ds-r-1) 0;
+  font-family: var(--ds-font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.ds-verdict strong {
+  font-size: var(--ds-step-1);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.ds-verdict--permit { border-left-color: var(--ds-permit); background: var(--ds-permit-bg); color: var(--ds-permit); }
+.ds-verdict--narrow { border-left-color: var(--ds-narrow); background: var(--ds-narrow-bg); color: var(--ds-narrow); }
+.ds-verdict--deny { border-left-color: var(--ds-deny); background: var(--ds-deny-bg); color: var(--ds-deny); }
+
+/* ===== Tables ============================================================= */
+
+/* Hairline rules, no zebra. Data is mono and tabular so columns line up. */
+.ds-table-scroll {
+  overflow-x: auto;
+  min-width: 0;
+}
+
+.ds-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--ds-step--1);
+}
+
+.ds-table th {
+  text-align: left;
+  padding: var(--ds-2) var(--ds-3) var(--ds-2) 0;
+  border-bottom: 1px solid var(--ds-line-strong);
+  font-family: var(--ds-font-mono);
+  font-size: 0.72rem;
+  font-weight: 500;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--ds-ink-3);
+  white-space: nowrap;
+}
+
+.ds-table td {
+  padding: var(--ds-2) var(--ds-3) var(--ds-2) 0;
+  border-bottom: 1px solid var(--ds-line);
+  vertical-align: baseline;
+}
+
+.ds-table tbody tr:last-child td { border-bottom: 0; }
+
+.ds-table .num,
+.ds-table .id {
+  font-family: var(--ds-font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.ds-table .num { text-align: right; padding-right: var(--ds-4); }
+
+/* ===== Key/value facts ==================================================== */
+
+.ds-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(11rem, 100%), 1fr));
+  gap: var(--ds-4);
+  margin: 0;
+}
+
+.ds-facts > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.ds-facts dt {
+  font-family: var(--ds-font-mono);
+  font-size: 0.72rem;
+  font-weight: 500;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--ds-ink-3);
+}
+
+.ds-facts dd {
+  margin: 0;
+  font-family: var(--ds-font-mono);
+  font-size: var(--ds-step-0);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+/* ===== Controls =========================================================== */
+
+.ds-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-2);
+  padding: var(--ds-2) var(--ds-4);
+  border: 1px solid var(--ds-line-strong);
+  border-radius: var(--ds-r-1);
+  background: var(--ds-raised);
+  color: var(--ds-ink);
+  font-family: var(--ds-font-display);
+  font-size: var(--ds-step--1);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+.ds-btn:hover:not(:disabled) {
+  border-color: var(--ds-ink-3);
+  background: var(--ds-inset);
+}
+
+.ds-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+
+.ds-btn--primary {
+  background: var(--ds-ink);
+  border-color: var(--ds-ink);
+  color: var(--ds-panel);
+}
+
+.ds-btn--primary:hover:not(:disabled) {
+  background: var(--ds-ink-2);
+  border-color: var(--ds-ink-2);
+}
+
+.ds-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-1);
+  min-width: 0;
+}
+
+.ds-field > span,
+.ds-label {
+  font-family: var(--ds-font-mono);
+  font-size: 0.72rem;
+  font-weight: 500;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--ds-ink-3);
+}
+
+.ds-input,
+select.ds-input,
+textarea.ds-input {
+  width: 100%;
+  padding: var(--ds-2) var(--ds-3);
+  border: 1px solid var(--ds-line-strong);
+  border-radius: var(--ds-r-1);
+  background: var(--ds-panel);
+  color: var(--ds-ink);
+  font-family: var(--ds-font-mono);
+  font-size: var(--ds-step--1);
+  font-variant-numeric: tabular-nums;
+}
+
+textarea.ds-input {
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.ds-check {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-2);
+  font-size: var(--ds-step--1);
+  color: var(--ds-ink-2);
+  cursor: pointer;
+}
+
+.ds-check input { accent-color: var(--ds-focus); }
+
+/* ===== Code =============================================================== */
+
+.ds-code {
+  margin: 0;
+  padding: var(--ds-3) var(--ds-4);
+  background: var(--ds-inset);
+  border: 1px solid var(--ds-line);
+  border-radius: var(--ds-r-1);
+  overflow-x: auto;
+  font-size: var(--ds-step--1);
+  line-height: 1.6;
+  tab-size: 2;
+}
+
+/* ===== Reasons ============================================================ */
+
+/* Exclusions, rejections, violations: the things a framework refuses. Marked
+ * with a stripe rather than a bullet, because each one is a decision. */
+.ds-reasons {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-2);
+}
+
+.ds-reasons li {
+  border-left: 2px solid var(--ds-line-strong);
+  padding: var(--ds-1) 0 var(--ds-1) var(--ds-3);
+  font-size: var(--ds-step--1);
+  color: var(--ds-ink-2);
+}
+
+.ds-reasons li strong {
+  font-family: var(--ds-font-mono);
+  color: var(--ds-ink);
+}
+
+/* ===== Disclosure ========================================================= */
+
+.ds-details {
+  border-top: 1px solid var(--ds-line);
+  padding-top: var(--ds-3);
+}
+
+.ds-details > summary {
+  cursor: pointer;
+  font-family: var(--ds-font-mono);
+  font-size: var(--ds-step--1);
+  color: var(--ds-ink-2);
+}
+
+.ds-details > summary:hover { color: var(--ds-ink); }
+
+.ds-details[open] > summary { margin-bottom: var(--ds-3); }
+
+.ds-details > :not(summary) { margin-top: var(--ds-3); }
+
+/* ===== Banner ============================================================= */
+
+.ds-banner {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ds-2) var(--ds-3);
+  align-items: baseline;
+  border: 1px solid var(--ds-line);
+  border-left: 3px solid var(--ds-line-strong);
+  border-radius: 0 var(--ds-r-1) var(--ds-r-1) 0;
+  background: var(--ds-panel);
+  padding: var(--ds-3) var(--ds-4);
+  font-size: var(--ds-step--1);
+  color: var(--ds-ink-2);
+}
+
+.ds-banner--deny {
+  border-left-color: var(--ds-deny);
+  background: var(--ds-deny-bg);
+  color: var(--ds-deny);
+}
+
+/* ===== Motion ============================================================= */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

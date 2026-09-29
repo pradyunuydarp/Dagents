@@ -1,0 +1,407 @@
+/* Framework site — layout and page-specific treatment.
+ *
+ * Everything chromatic comes from the design tokens; this file only composes
+ * them. The page is a documentation site, so the treatment is utilitarian:
+ * real hierarchy, considered spacing, one characterful moment in the hero and
+ * one in the diagram, and nothing else asking for attention.
+ */
+
+/* ===== Masthead =========================================================== */
+
+.masthead {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: color-mix(in srgb, var(--ds-panel) 92%, transparent);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--ds-line);
+}
+
+.masthead-inner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ds-3);
+  padding-block: var(--ds-3);
+}
+
+.wordmark {
+  display: flex;
+  align-items: baseline;
+  gap: var(--ds-3);
+  min-width: 0;
+}
+
+.wordmark-name {
+  font-family: var(--ds-font-display);
+  font-size: var(--ds-step-1);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.masthead nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ds-2) var(--ds-4);
+  font-family: var(--ds-font-mono);
+  font-size: var(--ds-step--1);
+}
+
+.masthead nav a {
+  color: var(--ds-ink-2);
+  text-decoration: none;
+}
+
+.masthead nav a:hover {
+  color: var(--ds-ink);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+/* ===== Page =============================================================== */
+
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-7);
+  padding-block: var(--ds-6) var(--ds-8);
+}
+
+.section-head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-3);
+  margin-bottom: var(--ds-4);
+}
+
+/* ===== Hero =============================================================== */
+
+/* Sized to its content, not the viewport, so the sections below are in the
+ * first frame. */
+.hero {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-4);
+  padding-block: var(--ds-4) var(--ds-2);
+}
+
+.hero h1 {
+  max-width: 34ch;
+  font-size: clamp(1.75rem, 1.1rem + 2.6vw, var(--ds-step-5));
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1.08;
+}
+
+/* The one-line model, in the framework's own voice: a pipeline of stages, set
+ * in the face the framework's own output uses. */
+.hero-model {
+  font-size: var(--ds-step-0);
+  font-weight: 500;
+  color: var(--ds-ink-2);
+  border-left: 3px solid var(--ds-ink);
+  padding-left: var(--ds-4);
+  max-width: 52ch;
+}
+
+.hero-note {
+  max-width: 62ch;
+  font-size: var(--ds-step-0);
+}
+
+.hero-facts {
+  border-top: 1px solid var(--ds-line);
+  padding-top: var(--ds-4);
+  margin-top: var(--ds-2);
+}
+
+.hero-facts dd {
+  font-size: var(--ds-step-2);
+  font-weight: 500;
+}
+
+/* ===== Tables ============================================================= */
+
+.ds-table td.never {
+  color: var(--ds-ink-3);
+}
+
+.ds-table td.method {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* ===== Agents and splits ================================================== */
+
+.agent-pair,
+.split {
+  display: grid;
+  gap: var(--ds-5);
+}
+
+.agent-pair {
+  grid-template-columns: repeat(auto-fit, minmax(min(22rem, 100%), 1fr));
+}
+
+.split {
+  grid-template-columns: repeat(auto-fit, minmax(min(16rem, 100%), 1fr));
+}
+
+.agent-pair article,
+.split article {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-2);
+  min-width: 0;
+}
+
+.agent-pair h3 {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--ds-3);
+}
+
+.agent-note {
+  grid-column: 1 / -1;
+  border-top: 1px solid var(--ds-line);
+  padding-top: var(--ds-4);
+  max-width: none;
+}
+
+.invariants li {
+  border-left-color: var(--ds-ink);
+}
+
+/* ===== Diagram ============================================================ */
+
+.diagram {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-3);
+}
+
+/* The drawing has a minimum legible width; it scrolls in its own container
+ * rather than shrinking its labels into illegibility or widening the page. */
+.diagram-scroll {
+  overflow-x: auto;
+  border: 1px solid var(--ds-line);
+  border-radius: var(--ds-r-1);
+  background: var(--ds-inset);
+  padding: var(--ds-4);
+}
+
+.diagram svg {
+  display: block;
+  min-width: 760px;
+  width: 100%;
+  height: auto;
+}
+
+.diagram figcaption {
+  max-width: var(--ds-measure);
+  font-size: var(--ds-step--1);
+  color: var(--ds-ink-2);
+  line-height: 1.6;
+}
+
+.d-layer rect {
+  fill: var(--ds-panel);
+  stroke: var(--ds-line-strong);
+  stroke-width: 1;
+}
+
+.d-layer--planner rect {
+  fill: var(--ds-focus-soft);
+}
+
+.d-layer-label {
+  font-family: var(--ds-font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  fill: var(--ds-ink);
+}
+
+.d-note {
+  font-family: var(--ds-font-body);
+  font-size: 11px;
+  fill: var(--ds-ink-3);
+}
+
+/* Anchored to its right edge so it cannot run past the drawing's bounds, and
+ * kept quieter than the boundary label above it — it is a caption, not a
+ * second heading. */
+.d-boundary text.d-boundary-note {
+  text-anchor: end;
+  font-family: var(--ds-font-body);
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: 0;
+  fill: var(--ds-ink-3);
+}
+
+.d-box rect {
+  fill: var(--ds-inset);
+  stroke: var(--ds-line-strong);
+  stroke-width: 1;
+}
+
+.d-box--agent rect {
+  fill: var(--ds-panel);
+  stroke: var(--ds-ink-2);
+}
+
+.d-box text {
+  font-family: var(--ds-font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  fill: var(--ds-ink);
+}
+
+.d-box text.d-sub {
+  font-weight: 400;
+  font-size: 11px;
+  fill: var(--ds-ink-3);
+}
+
+.d-chip rect {
+  fill: var(--ds-panel);
+  stroke: var(--ds-line-strong);
+}
+
+.d-chip--planner rect {
+  fill: var(--ds-panel);
+  stroke: var(--ds-focus);
+}
+
+.d-chip text {
+  font-family: var(--ds-font-mono);
+  font-size: 11px;
+  fill: var(--ds-ink);
+}
+
+.d-flow line {
+  stroke: var(--ds-ink-3);
+  stroke-width: 1.25;
+}
+
+.d-flow path,
+marker path {
+  fill: var(--ds-ink-3);
+}
+
+.d-boundary line {
+  stroke: var(--ds-focus);
+  stroke-width: 1.5;
+  stroke-dasharray: 6 4;
+}
+
+.d-boundary text {
+  font-family: var(--ds-font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  fill: var(--ds-focus);
+}
+
+/* ===== Demos ============================================================== */
+
+.demo-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(24rem, 100%), 1fr));
+  gap: var(--ds-4);
+}
+
+.demo .ds-panel-body {
+  gap: var(--ds-4);
+}
+
+.demo .ds-facts dd.prose {
+  font-family: var(--ds-font-body);
+  font-size: var(--ds-step--1);
+  color: var(--ds-ink-2);
+}
+
+.demo .caveat {
+  border-left: 2px solid var(--ds-narrow);
+  padding-left: var(--ds-3);
+  color: var(--ds-narrow);
+}
+
+.demo .ds-btn {
+  align-self: flex-start;
+}
+
+/* ===== API reference ====================================================== */
+
+.api {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-5);
+}
+
+.role {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-3);
+}
+
+.role > h3 {
+  padding-bottom: var(--ds-2);
+  border-bottom: 1px solid var(--ds-line-strong);
+}
+
+.service .ds-panel-head {
+  padding-block: var(--ds-3);
+}
+
+.service h4 {
+  font-size: var(--ds-step-0);
+}
+
+.service-meta {
+  gap: var(--ds-2);
+}
+
+.service-meta .count {
+  font-size: var(--ds-step--1);
+  color: var(--ds-ink-3);
+}
+
+.ds-chip.alias {
+  background: var(--ds-narrow-bg);
+  color: var(--ds-narrow);
+  margin-right: var(--ds-2);
+  text-transform: none;
+}
+
+/* ===== Limits and footer ================================================== */
+
+.limits .ds-reasons li {
+  border-left-color: var(--ds-narrow);
+}
+
+.footer {
+  border-top: 1px solid var(--ds-line);
+  background: var(--ds-panel);
+}
+
+.footer-inner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--ds-4);
+  padding-block: var(--ds-5);
+}
+
+.footer nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ds-2) var(--ds-4);
+  font-family: var(--ds-font-mono);
+  font-size: var(--ds-step--1);
+}

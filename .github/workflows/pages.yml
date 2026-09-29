@@ -1,0 +1,187 @@
+name: Pages
+
+# Publishes three sites as one tree:
+#
+#   /                  the framework site — documentation, the generated API
+#                      reference, and links to the demos
+#   /healthcare-demo/  the stroke-triage demo
+#   /nl2sql-demo/      the natural-language-to-SQL demo
+#
+# The demos have no backend once published, so this workflow does not publish a
+# dead page or a faked one. It builds the OCaml planner, starts the real
+# backends against it, records what every request the UIs can make actually
+# returns, and ships that capture with the bundle. Each demo says which commit
+# it was captured from, and refuses anything the capture does not hold rather
+# than inventing an answer.
+#
+# That ordering is load-bearing: capture writes into each frontend's `public/`,
+# which Vite copies into `dist/`, so the capture has to finish before the build.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deploy at a time, and never cancel one mid-flight: a cancelled deployment
+# can leave the Pages site on a half-published tree.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build the published tree
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # First, so the builds can be told the base path this site is served from
+      # rather than hardcoding the repository name. `enablement` turns Pages on
+      # for the repository if it is not on already.
+      - name: Configure Pages
+        id: pages
+        uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
+      # --- the planner ----------------------------------------------------
+      - uses: ocaml/setup-ocaml@v3
+        with:
+          ocaml-compiler: "5.1"
+          dune-cache: true
+          opam-pin: false
+
+      - name: Install OCaml dependencies
+        run: opam install --yes dune yojson
+
+      - name: Build dagentsc
+        working-directory: bindings/ocaml
+        run: opam exec -- dune build ./bin/dagentsc.exe
+
+      # --- the backends the capture drives --------------------------------
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: |
+            agents/*/requirements.txt
+            services/*/requirements.txt
+            services/nl2sql-demo/backend/requirements.txt
+            apps/healthcare-demo/requirements.txt
+
+      - name: Install backend dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r agents/lma/requirements.txt \
+                                -r agents/gma/requirements.txt \
+                                -r services/core-service/requirements.txt \
+                                -r services/pipeline-service/requirements.txt \
+                                -r services/nl2sql-demo/backend/requirements.txt \
+                                -r apps/healthcare-demo/requirements.txt
+
+      - name: Install model-service dependencies
+        # Optional: it is the one service that needs torch, and the CPU wheel is
+        # still a large download. The capture treats it as optional and records
+        # it as unavailable if it is not running, which is the truth of that
+        # capture rather than a hidden failure.
+        continue-on-error: true
+        run: |
+          python -m pip install --extra-index-url https://download.pytorch.org/whl/cpu \
+            -r services/model-service/requirements.txt
+
+      - name: Capture real backend responses
+        env:
+          DAGENTSC_BIN: ${{ github.workspace }}/bindings/ocaml/_build/default/bin/dagentsc.exe
+        run: python scripts/capture_demo_recordings.py --demo all
+
+      - name: Check the captures are usable
+        # A capture that produced no guard denials, or no permits, would mean the
+        # levers do nothing in the published demo — worth failing the deploy over,
+        # because the page would look fine and prove nothing.
+        run: python scripts/check_demo_recordings.py
+
+      # --- the three frontends --------------------------------------------
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: |
+            site/package-lock.json
+            apps/healthcare-demo/frontend/package-lock.json
+            services/nl2sql-demo/frontend/package-lock.json
+
+      - name: The design system is in sync
+        run: python scripts/sync_design_system.py --check
+
+      - name: Build the framework site
+        env:
+          SITE_BASE_PATH: ${{ steps.pages.outputs.base_path }}/
+        working-directory: site
+        run: |
+          npm ci
+          npm run build
+
+      - name: Build the healthcare demo
+        env:
+          DEMO_BASE_PATH: ${{ steps.pages.outputs.base_path }}/healthcare-demo/
+          VITE_DAGENTS_STATIC: "1"
+        working-directory: apps/healthcare-demo/frontend
+        run: |
+          npm ci
+          npm run build
+
+      - name: Build the NL2SQL demo
+        env:
+          DEMO_BASE_PATH: ${{ steps.pages.outputs.base_path }}/nl2sql-demo/
+          VITE_DAGENTS_STATIC: "1"
+        working-directory: services/nl2sql-demo/frontend
+        run: |
+          npm ci
+          npm run build
+
+      - name: Assemble the published tree
+        run: |
+          rm -rf _site
+          mkdir -p _site
+          cp -r site/dist/. _site/
+          mkdir -p _site/healthcare-demo _site/nl2sql-demo
+          cp -r apps/healthcare-demo/frontend/dist/. _site/healthcare-demo/
+          cp -r services/nl2sql-demo/frontend/dist/. _site/nl2sql-demo/
+          # Pages serves this tree through Jekyll unless told otherwise, and
+          # Jekyll drops paths beginning with an underscore.
+          touch _site/.nojekyll
+          echo "--- published tree ---"
+          find _site -maxdepth 2 -type f | sort | head -40
+
+      - name: Every demo shipped its capture
+        # Vite copies `public/` into `dist/`. If that ever stops being true the
+        # demos would publish as permanently-loading pages, which is exactly the
+        # sort of break a deploy should not sail past.
+        run: |
+          for demo in healthcare-demo nl2sql-demo; do
+            test -s "_site/${demo}/recording.json" || {
+              echo "_site/${demo}/recording.json is missing or empty" >&2
+              exit 1
+            }
+            echo "ok  ${demo}/recording.json $(wc -c < "_site/${demo}/recording.json") bytes"
+          done
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    name: Deploy to Pages
+    runs-on: ubuntu-latest
+    needs: build
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

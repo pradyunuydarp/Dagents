@@ -68,27 +68,32 @@ try {
   await page.goto(baseUrl, { waitUntil: "networkidle", timeout: 30000 });
   await page.waitForTimeout(1200);
 
+  // Panels are located by their `data-panel` hook rather than by position, so
+  // reordering or restyling the page cannot silently retarget an assertion.
+  const consortiumPanel = page.locator('[data-panel="consortium"]');
+  const guardPanel = page.locator('[data-panel="guard"]');
+  const pilotPanel = page.locator('[data-panel="pilot"]');
+
   // 1. The page renders and the backend answered.
   const heading = (await page.locator("h1").first().textContent())?.trim() ?? "";
   check("page renders its heading", heading.length > 0, heading);
-  const hospitalRows = await page.locator("section.card").first().locator("table tbody tr").count();
+  const hospitalRows = await consortiumPanel.locator("table tbody tr").count();
   check("consortium table is populated from the API", hospitalRows === 3, `${hospitalRows} hospitals`);
   if (shotDir) await page.screenshot({ path: `${shotDir}/01-landing.png`, fullPage: true });
 
   // The guard panel has three levers. Each is asserted separately, because
   // each proves a different rule and any of them can regress on its own.
-  const guardPanel = page.locator("section.card").nth(2);
   const strategyFor = async (field) =>
     (await guardPanel.locator(`tbody tr:has(td:text-is("${field}")) td`).last().textContent())?.trim() ?? "";
   const askGuard = async ({ verified, granularity, cohort }) => {
-    const box = page.getByLabel("requester verified");
+    const box = guardPanel.getByLabel("requester verified");
     if (verified) await box.check();
     else await box.uncheck();
-    await page.locator("select").first().selectOption(granularity);
-    await page.getByLabel("cohort").fill(String(cohort));
+    await guardPanel.locator("select").first().selectOption(granularity);
+    await guardPanel.getByLabel("cohort").fill(String(cohort));
     await page.getByRole("button", { name: "Ask the guard" }).click();
     await page.waitForTimeout(1000);
-    return (await page.locator(".verdict").first().textContent())?.trim() ?? "";
+    return (await guardPanel.locator(".verdict").first().textContent())?.trim() ?? "";
   };
 
   // 2. Trust: the same request, generalized for a verified requester and
@@ -125,16 +130,16 @@ try {
 
   // 6. A full pilot runs and the release gates reject the candidate.
   await page.getByRole("button", { name: "Run governed pilot" }).click();
-  await page.waitForSelector(".gates li", { timeout: 120000 });
+  await pilotPanel.locator(".gates li").first().waitFor({ timeout: 120000 });
   await page.waitForTimeout(600);
-  const gates = await page.locator(".gates li").count();
+  const gates = await pilotPanel.locator(".gates li").count();
   check("every release gate is reported", gates === 5, `${gates} gates`);
-  const verdict = (await page.locator("section.card").nth(1).locator(".verdict").first().textContent()) ?? "";
+  const verdict = (await pilotPanel.locator(".verdict").first().textContent()) ?? "";
   check("a candidate failing a safety gate is rejected", verdict.toLowerCase().includes("reject"), verdict.trim());
-  const chains = await page.locator("section.card").nth(1).locator("table").last().textContent();
+  const chains = await pilotPanel.locator("table").last().textContent();
   check("every site's audit chain verifies", !(chains ?? "").includes("BROKEN"));
   if (shotDir) {
-    await page.locator("section.card").nth(1).screenshot({ path: `${shotDir}/04-pilot.png` });
+    await pilotPanel.screenshot({ path: `${shotDir}/04-pilot.png` });
     await page.screenshot({ path: `${shotDir}/05-full.png`, fullPage: true });
   }
 
