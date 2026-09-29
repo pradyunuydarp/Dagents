@@ -1,6 +1,6 @@
 ---
 name: ci
-description: Strict rules for the Dagents CI pipeline and for what counts as a verified change — the GitHub Actions workflow in .github/workflows/ci.yml, the guard scripts in scripts/, the generated service inventory, and the commands each suite runs. Use before editing a workflow, adding a test suite or a job, changing a requirements file, or reporting that a change passes. States the repo's polyglot layout, its TDD loop, and the specific ways a green run here has been false in the past.
+description: Strict rules for the Dagents CI pipeline and the Pages publishing pipeline, and for what counts as a verified change — the GitHub Actions workflows in .github/workflows/, the guard scripts in scripts/, the generated service inventory and demo recordings, and the commands each suite runs. Use before editing a workflow, adding a test suite or a job, changing a requirements file, or reporting that a change passes. States the repo's polyglot layout, its TDD loop, and the specific ways a green run here has been false in the past.
 ---
 
 # Dagents CI
@@ -28,7 +28,7 @@ planner is a **build artifact every downstream job depends on**, not an optional
 extra. `planners` builds it once and uploads it; `agents`, `framework-services`,
 `demo-apps` and `frontends` download it.
 
-## 2. The four false greens — each has a defence in the workflow
+## 2. The false greens — each has a defence in the workflow
 
 Do not remove any of these. Each one is there because the repo actually shipped
 the failure.
@@ -91,6 +91,37 @@ and fails if the log contains a skip or contains no passing assertions.
 Never make a job tolerate exit 2, and never report a skipped smoke test as a
 pass in your own summary either.
 
+### e. A published demo that proves nothing
+
+`pages.yml` publishes both demos as static sites that replay a capture. A
+capture can be written successfully and still be worthless: without the planner
+the Guard fails closed, so every probe comes back denied and the published page
+shows three governance levers that change nothing — while looking entirely
+fine.
+
+Defence: `scripts/capture_demo_recordings.py` refuses to run without
+`dagentsc`, and `scripts/check_demo_recordings.py` inspects the capture's
+*content* before the deploy — both permits and denials present, at least three
+distinct field strategies, a pilot that reached its release gates, real SQL and
+a non-empty trace, and at least one framework service reachable.
+`tests/test_publishing_guards.py` builds the all-denied capture deliberately and
+asserts the checker still refuses it.
+
+The Pages build also fails if a demo's `dist/` did not ship its
+`recording.json`, because a published demo missing its capture is a
+permanently-loading page.
+
+### f. Three frontends drifting apart visually
+
+The design system is shared by generated copy, not by import, because
+`apps/healthcare-demo/` must stay extractable. A copy edited directly would
+diverge silently.
+
+Defence: `scripts/sync_design_system.py --check` in both workflows, plus a test
+asserting every token is defined on bare `:root` before any dark block — a token
+defined only inside a dark block leaves one theme's text on the other theme's
+background, and is invisible until someone opens the theme nobody tested.
+
 ## 3. The TDD loop CI enforces
 
 CI runs the same commands a contributor runs. Write the failing assertion first,
@@ -116,10 +147,10 @@ DAGENTSC_BIN=$PWD/bindings/ocaml/_build/default/bin/dagentsc.exe \
 .venv/bin/python scripts/service_inventory.py --check
 .venv/bin/python -m unittest discover -s tests -t .
 
-# 5. the JVM side, if you touched it
+# 6. the JVM side, if you touched it
 mvn --batch-mode -f services/spring-services/pom.xml verify
 
-# 6. the frontend, if you touched it
+# 7. the frontend, if you touched it
 apps/healthcare-demo/scripts/run_frontend_demo.sh --check
 ```
 
@@ -156,6 +187,11 @@ is a false report, whoever is reading it.
 
 ## 5. Known limits, stated rather than hidden
 
+- **Pages deployment needs the site enabled by a repository admin.** The
+  workflow token may deploy to an existing Pages site but may not create one, so
+  `configure-pages` is allowed to fail and the base path falls back to the
+  repository name. Everything before the deploy still runs and is checked; the
+  deploy job 404s until Settings → Pages → Source is set to GitHub Actions.
 - **Docker and Kubernetes are not covered.** `docker compose --env-file
   env/.env.compose up --build` and Minikube validation are still manual; the
   latter is the main item in `TODO.md`, blocked on local disk capacity (see

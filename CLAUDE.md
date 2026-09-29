@@ -426,7 +426,7 @@ file, and they are binding where they say **never**:
   governance and federation invariants, and the test-first loop per layer.
 - `frontend` — what a demo UI may own, why a typecheck and a bundle are not evidence, and why
   exit 2 from the smoke test is not a pass.
-- `ci` — the pipeline's shape, the four specific false greens it defends against, and the rules
+- `ci` — the pipeline's shape, the specific false greens it defends against, and the rules
   for changing a workflow.
 
 They are first-party repo skills only; no third-party marketplace plugin is wired in.
