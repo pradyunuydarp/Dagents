@@ -41,13 +41,36 @@ jobs:
       - uses: actions/checkout@v4
 
       # First, so the builds can be told the base path this site is served from
-      # rather than hardcoding the repository name. `enablement` turns Pages on
-      # for the repository if it is not on already.
+      # rather than hardcoding the repository name.
+      #
+      # `enablement` asks the API to turn Pages on, but the workflow token is
+      # only allowed to deploy to an existing Pages site, not to create one —
+      # that needs a repository admin to set Settings → Pages → Build and
+      # deployment → Source to "GitHub Actions", once. Until then this step
+      # fails, so it is allowed to: everything after it is worth running and
+      # checking regardless, and the deploy job is where the absence actually
+      # bites.
       - name: Configure Pages
         id: pages
+        continue-on-error: true
         uses: actions/configure-pages@v5
         with:
           enablement: true
+
+      - name: Resolve the base path
+        # Falls back to the repository name, which is where a project site is
+        # served from, so a build before Pages is switched on still produces the
+        # tree that will be published afterwards.
+        run: |
+          resolved="${{ steps.pages.outputs.base_path }}"
+          if [ -z "${resolved}" ]; then
+            resolved="/${{ github.event.repository.name }}"
+            echo "::warning::Pages is not enabled for this repository yet, so the base path was" \
+                 "derived as ${resolved}. A repository admin enables it under" \
+                 "Settings → Pages → Build and deployment → Source: GitHub Actions."
+          fi
+          echo "BASE_PATH=${resolved}" >> "$GITHUB_ENV"
+          echo "Serving from ${resolved}/"
 
       # --- the planner ----------------------------------------------------
       - uses: ocaml/setup-ocaml@v3
@@ -120,7 +143,7 @@ jobs:
 
       - name: Build the framework site
         env:
-          SITE_BASE_PATH: ${{ steps.pages.outputs.base_path }}/
+          SITE_BASE_PATH: ${{ env.BASE_PATH }}/
         working-directory: site
         run: |
           npm ci
@@ -128,7 +151,7 @@ jobs:
 
       - name: Build the healthcare demo
         env:
-          DEMO_BASE_PATH: ${{ steps.pages.outputs.base_path }}/healthcare-demo/
+          DEMO_BASE_PATH: ${{ env.BASE_PATH }}/healthcare-demo/
           VITE_DAGENTS_STATIC: "1"
         working-directory: apps/healthcare-demo/frontend
         run: |
@@ -137,7 +160,7 @@ jobs:
 
       - name: Build the NL2SQL demo
         env:
-          DEMO_BASE_PATH: ${{ steps.pages.outputs.base_path }}/nl2sql-demo/
+          DEMO_BASE_PATH: ${{ env.BASE_PATH }}/nl2sql-demo/
           VITE_DAGENTS_STATIC: "1"
         working-directory: services/nl2sql-demo/frontend
         run: |
