@@ -2,6 +2,13 @@
 
 Shared agentic framework extracted from product repos such as Watchdog and intended to be reused across future systems like Datalytics, with a primary focus on ML automation and workload generation.
 
+**[Documentation site and live demos →](https://pradyunuydarp.github.io/Dagents/)**
+
+The site documents the framework and publishes both demo apps. Neither demo has a backend once
+published, so each replays a capture recorded from the real backends with the OCaml planner built,
+and names the commit it was captured from. Ask one for something the capture does not hold and it
+says so rather than inventing an answer.
+
 ## Current Scope
 
 - `agents/`: reusable LMA and GMA ML-orchestration services with layered application boundaries
@@ -14,6 +21,8 @@ Shared agentic framework extracted from product repos such as Watchdog and inten
 - `services/pipeline-service/`: reusable JSON pipeline orchestration and ML workflow service
 - `contracts/grpc/dagents/agents/v1/`: shared control-plane protobuf contract
 - `docs/agents/`: architecture notes for the LMA/GMA control plane
+- `site/`: the framework's own documentation site, with a generated API reference
+- `design/`: the design-system source shared by all three frontends
 
 ## Design Intent
 
