@@ -58,19 +58,25 @@ jobs:
           enablement: true
 
       - name: Resolve the base path
-        # Falls back to the repository name, which is where a project site is
-        # served from, so a build before Pages is switched on still produces the
-        # tree that will be published afterwards.
+        # Whether Pages answered is the question, not whether the answer is
+        # non-empty: a site on a custom domain is served from the root, so its
+        # base path is legitimately empty. Testing for emptiness would mistake
+        # that for "Pages is off" and rewrite every asset URL to
+        # /<repository>/…, which 404s on the custom domain — the failure would
+        # appear only after someone pointed a domain at this, and would look
+        # like a DNS problem.
         run: |
-          resolved="${{ steps.pages.outputs.base_path }}"
-          if [ -z "${resolved}" ]; then
+          if [ "${{ steps.pages.outcome }}" = "success" ]; then
+            resolved="${{ steps.pages.outputs.base_path }}"
+            echo "Pages reports base_url=${{ steps.pages.outputs.base_url }}"
+          else
             resolved="/${{ github.event.repository.name }}"
             echo "::warning::Pages is not enabled for this repository yet, so the base path was" \
                  "derived as ${resolved}. A repository admin enables it under" \
                  "Settings → Pages → Build and deployment → Source: GitHub Actions."
           fi
           echo "BASE_PATH=${resolved}" >> "$GITHUB_ENV"
-          echo "Serving from ${resolved}/"
+          echo "Serving from ${resolved:-}/"
 
       # --- the planner ----------------------------------------------------
       - uses: ocaml/setup-ocaml@v3
@@ -178,6 +184,15 @@ jobs:
           # Pages serves this tree through Jekyll unless told otherwise, and
           # Jekyll drops paths beginning with an underscore.
           touch _site/.nojekyll
+          # A custom domain, when one is configured. Setting it in the Pages UI
+          # stores it server-side, but an Actions deployment that ships no CNAME
+          # can clear it, so the domain is declared here instead — as a
+          # repository variable, so it is configuration rather than a literal
+          # buried in a workflow.
+          if [ -n "${{ vars.PAGES_CUSTOM_DOMAIN }}" ]; then
+            echo "${{ vars.PAGES_CUSTOM_DOMAIN }}" > _site/CNAME
+            echo "custom domain: ${{ vars.PAGES_CUSTOM_DOMAIN }}"
+          fi
           echo "--- published tree ---"
           find _site -maxdepth 2 -type f | sort | head -40
 
