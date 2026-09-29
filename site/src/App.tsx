@@ -1,7 +1,11 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
 import { Diagram } from "./Diagram";
-import { ROLE_ORDER, inventory, servicesWithRole, type ServiceEntry } from "./inventory";
+import { GuardBoundaries } from "./GuardBoundaries";
+import { RoundLifecycle } from "./RoundLifecycle";
+import { ThemeToggle } from "./ThemeToggle";
+import { DEMOS, REPO_LINKS, REPO_URL, demoHref } from "./config";
+import { ROLE_ORDER, inventory, type ServiceEntry } from "./inventory";
 
 /**
  * The Dagents framework site.
@@ -17,12 +21,7 @@ import { ROLE_ORDER, inventory, servicesWithRole, type ServiceEntry } from "./in
  *   page that only lists capabilities is asking to be trusted.
  */
 
-const REPO = "https://github.com/pradyunuydarp/Dagents";
 
-/** Path to a demo, resolved against whatever base the site is served from. */
-function demoHref(slug: string): string {
-  return `${import.meta.env.BASE_URL}${slug}/`;
-}
 
 const LAYERS = [
   {
@@ -64,26 +63,6 @@ const PLANNERS = [
   }
 ];
 
-const DEMOS = [
-  {
-    slug: "healthcare-demo",
-    name: "Stroke triage across three hospitals",
-    owns: "Its clinical feature contract, scoring rule, FHIR mapping and intended-use statement",
-    framework: "Governance, federation, and everything generic",
-    proves:
-      "That the governance and federation layers really decide things, and what they cost. Three levers change the guard's strategy; a candidate beats its baseline on AUC and is still refused release because a fairness gate fails.",
-    caveat: "Synthetic patients. Not a medical device, not clinically validated."
-  },
-  {
-    slug: "nl2sql-demo",
-    name: "Natural language to SQL",
-    owns: "Its UI and its SQL generation",
-    framework: "Validation, planning, service checks and workload compilation",
-    proves:
-      "That an ordinary app can consume the framework end to end: a trace of SourceSpec validation, extraction planning, schema contracts, quality rules, DAG planning and model routing, then the service calls behind them.",
-    caveat: "The published run uses the deterministic fallback adapter, not a GPU model."
-  }
-];
 
 export default function App() {
   return (
@@ -99,8 +78,9 @@ export default function App() {
             <a href="#governance">Governance</a>
             <a href="#demos">Demos</a>
             <a href="#api">API</a>
-            <a href={REPO}>Repository</a>
+            <a href={REPO_URL}>Repository</a>
           </nav>
+          <ThemeToggle />
         </div>
       </header>
 
@@ -288,6 +268,13 @@ export default function App() {
                 An enforcement layer whose absence grants access is not one.
               </span>
             </div>
+            <div className="boundaries-lead">
+              <p className="ds-eyebrow">the four boundaries it stands at</p>
+              <p className="ds-note">
+                A guard only at the API edge is a warning label. Pick one to see what it stops.
+              </p>
+            </div>
+            <GuardBoundaries />
             <p className="ds-note">
               A site's local runner is handed the guarded payload, not its raw records, even though
               that data never leaves the site — the code running a round is the coordinator's, so
@@ -313,6 +300,7 @@ export default function App() {
                 default.
               </li>
             </ul>
+            <RoundLifecycle />
             <p className="ds-note">
               Eligibility, quorum, aggregation readiness and the release gates are all decided in
               the planner. The runtime owns state and side effects and delegates the rest. The
@@ -384,28 +372,7 @@ export default function App() {
           </div>
         </section>
 
-        <section id="api" className="api">
-          <div className="section-head">
-            <h2>API reference</h2>
-            <p className="ds-note">
-              Every endpoint the framework and its demo apps expose:{" "}
-              <strong>{inventory.endpoint_count}</strong> across{" "}
-              <strong>{inventory.services.length}</strong> services. This table is generated from
-              the live FastAPI routing tables and the Spring controllers, and a test fails when it
-              drifts from the code — so it cannot describe an endpoint that is not served. Ports come
-              from the environment files; nothing hardcodes them.
-            </p>
-          </div>
-          {ROLE_ORDER.map((group) => (
-            <div className="role" key={group.role}>
-              <h3>{group.label}</h3>
-              <p className="ds-note">{group.blurb}</p>
-              {servicesWithRole(group.role).map((service) => (
-                <ServiceTable key={service.name} service={service} />
-              ))}
-            </div>
-          ))}
-        </section>
+        <ApiReference />
 
         <section className="ds-panel limits">
           <div className="ds-panel-head">
@@ -443,10 +410,10 @@ export default function App() {
             reference docs live in the repository.
           </p>
           <nav aria-label="Repository links">
-            <a href={REPO}>Source</a>
-            <a href={`${REPO}/blob/main/AGENTS.md`}>Contributor guide</a>
-            <a href={`${REPO}/blob/main/docs/reference/service-inventory.md`}>Service inventory</a>
-            <a href={`${REPO}/tree/main/bindings/ocaml`}>Planner layer</a>
+            <a href={REPO_URL}>Source</a>
+            <a href={REPO_LINKS.contributing}>Contributor guide</a>
+            <a href={REPO_LINKS.serviceInventory}>Service inventory</a>
+            <a href={REPO_LINKS.planners}>Planner layer</a>
           </nav>
         </div>
       </footer>
@@ -454,9 +421,91 @@ export default function App() {
   );
 }
 
+
+/**
+ * The generated API reference, with a filter.
+ *
+ * 167 endpoints is past the point where scrolling is a reasonable way to find
+ * one, so the filter is here to make the reference usable rather than to add
+ * motion. It matches path, method and handler, and says how many endpoints
+ * matched so an empty result reads as "nothing matches" rather than "broken".
+ */
+function ApiReference() {
+  const [query, setQuery] = useState("");
+  const needle = query.trim().toLowerCase();
+
+  const filtered = useMemo(() => {
+    if (!needle) return inventory.services;
+    return inventory.services
+      .map((service) => ({
+        ...service,
+        endpoints: service.endpoints.filter((endpoint) =>
+          `${endpoint.method} ${endpoint.path} ${endpoint.handler ?? ""}`.toLowerCase().includes(needle)
+        )
+      }))
+      .filter((service) => service.endpoints.length > 0);
+  }, [needle]);
+
+  const matches = filtered.reduce((total, service) => total + service.endpoints.length, 0);
+
+  return (
+    <section id="api" className="api">
+      <div className="section-head">
+        <h2>API reference</h2>
+        <p className="ds-note">
+          Every endpoint the framework and its demo apps expose:{" "}
+          <strong>{inventory.endpoint_count}</strong> across{" "}
+          <strong>{inventory.services.length}</strong> services. This table is generated from the
+          live FastAPI routing tables and the Spring controllers, and a test fails when it drifts
+          from the code — so it cannot describe an endpoint that is not served. Ports come from the
+          environment files; nothing hardcodes them.
+        </p>
+        <div className="api-filter">
+          <label className="ds-field">
+            <span>Filter by path, method or handler</span>
+            <input
+              className="ds-input"
+              type="search"
+              value={query}
+              placeholder="governance, :validate, PUT, federation…"
+              onChange={(event) => setQuery(event.target.value)}
+            />
+          </label>
+          <p className="ds-mono api-count">
+            {needle ? `${matches} of ${inventory.endpoint_count}` : `${inventory.endpoint_count} endpoints`}
+          </p>
+        </div>
+      </div>
+
+      {needle && filtered.length === 0 && (
+        <p className="ds-note">
+          Nothing matches <span className="ds-mono">{query.trim()}</span>.
+        </p>
+      )}
+
+      {ROLE_ORDER.map((group) => {
+        const services = filtered.filter((service) => service.role === group.role);
+        if (services.length === 0) return null;
+        return (
+          <div className="role" key={group.role}>
+            <h3>{group.label}</h3>
+            <p className="ds-note">{group.blurb}</p>
+            {services.map((service) => (
+              <ServiceTable key={service.name} service={service} forceOpen={needle.length > 0} />
+            ))}
+          </div>
+        );
+      })}
+    </section>
+  );
+}
+
 /** One service's endpoints, collapsed by default so the page stays scannable. */
-function ServiceTable({ service }: { service: ServiceEntry }) {
+function ServiceTable({ service, forceOpen = false }: { service: ServiceEntry; forceOpen?: boolean }) {
   const [open, setOpen] = useState(false);
+  // A filter that hid its own matches behind a collapsed panel would be worse
+  // than no filter.
+  const expanded = open || forceOpen;
   const aliases = service.endpoints.filter((endpoint) => endpoint.alias_of !== null).length;
   return (
     <div className="ds-panel service">
@@ -469,12 +518,12 @@ function ServiceTable({ service }: { service: ServiceEntry }) {
           <span className="ds-chip">:{service.port}</span>
           <span className="ds-mono count">{service.endpoints.length} endpoints</span>
           {aliases > 0 && <span className="ds-mono count">{aliases} versioned aliases</span>}
-          <button className="ds-btn" onClick={() => setOpen(!open)} aria-expanded={open}>
-            {open ? "Hide" : "Show"}
+          <button className="ds-btn" onClick={() => setOpen(!expanded)} aria-expanded={expanded}>
+            {expanded ? "Hide" : "Show"}
           </button>
         </div>
       </div>
-      {open && (
+      {expanded && (
         <div className="ds-panel-body">
           <div className="ds-table-scroll">
             <table className="ds-table">
