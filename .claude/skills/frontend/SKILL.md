@@ -1,6 +1,6 @@
 ---
 name: frontend
-description: Strict rules for changing Dagents frontend code — the React + Vite + TypeScript UIs at apps/healthcare-demo/frontend and services/nl2sql-demo/frontend. Use before editing any .tsx, .ts, .css, package.json, vite.config.ts or smoke.mjs under either frontend, or when adding a panel, control, chart or API call to a demo UI. States what a demo frontend is allowed to own, and why a typecheck and a bundle are not evidence that the UI works.
+description: Strict rules for changing Dagents frontend code — the React + Vite + TypeScript UIs at apps/healthcare-demo/frontend and services/nl2sql-demo/frontend, and the framework site at site/, plus the shared design system in design/ and the recorded static mode the published demos replay. Use before editing any .tsx, .ts, .css, package.json, vite.config.ts or smoke.mjs under either frontend, or when adding a panel, control, chart or API call to a demo UI. States what a demo frontend is allowed to own, and why a typecheck and a bundle are not evidence that the UI works.
 ---
 
 # Dagents frontend
@@ -30,7 +30,40 @@ healthcare demo additionally has `playwright-core` and a real browser smoke test
 else outside `apps/healthcare-demo/` in its frontend, and never add a dependency on
 another app's code.
 
-## 2. Hard rules
+## 2. The design system
+
+`design/dagents-design-system.css` is the single source. `scripts/sync_design_system.py --write`
+generates a copy into each frontend, and `tests/test_publishing_guards.py` fails on drift.
+
+- **Never edit a copy.** Edit the source and re-run the sync. The copies exist only because
+  `apps/healthcare-demo/` must stay extractable and cannot import across the tree.
+- **Never introduce a literal colour.** Every colour comes from a `--ds-*` token, and every token
+  is defined on bare `:root` before any dark block redefines it. A colour defined only inside a
+  dark block leaves one theme's text on the other theme's background.
+- **Colour carries meaning only.** Decision states — permit, narrow, deny — plus one functional
+  blue for links and focus. There is no accent colour to spend. In a framework whose argument is
+  that a decision is computed by a typed planner, a decorative accent would make a styled panel
+  indistinguishable from a refused request. Hierarchy comes from type, weight and hairline rules.
+- State is never carried by colour alone: a chip spells its own word, and a severity stripe
+  repeats it, so the page survives being read in greyscale.
+
+## 3. The published demos replay a real run
+
+Both demos are published as static sites with no backend. `src/api.ts` is live locally and, when
+built with `VITE_DAGENTS_STATIC=1`, replays `public/recording.json`.
+
+- **Never fake a response, and never widen the replay into a fallback.** A request the capture
+  does not hold raises `NotRecordedError` and the UI says so. A governance demo that invented a
+  permit would demonstrate the opposite of the framework's point — this is the same rule as
+  "never hide a denial", applied to the transport.
+- **Never capture without the planner.** The Guard fails closed, so an unplanned capture is
+  nothing but denials: it looks fine and proves nothing. `capture_demo_recordings.py` refuses,
+  and `check_demo_recordings.py` refuses a capture whose levers change nothing.
+- The page names the commit it was captured from. Keep that visible.
+- Changing what the UI requests means re-capturing. A new request shape the capture does not
+  cover publishes as "not captured", not as a working demo.
+
+## 4. Hard rules
 
 ### The boundary
 
@@ -81,7 +114,7 @@ swallowed.
 - Show *why*: the strategy, the gate, the missing metric. A bare "something went wrong"
   throws away the thing the demo is demonstrating.
 
-## 3. The TDD loop
+## 5. The TDD loop
 
 **A typecheck and a bundle prove the app compiles and nothing about whether it works.**
 This is written on the smoke test itself, and it is the rule for this layer.
@@ -132,21 +165,27 @@ cd bindings/ocaml && opam exec -- dune build ./bin/dagentsc.exe
 `dune` is not on PATH — always `opam exec --`. The demo scripts check for the binary and
 say so, because without it every governed panel shows a denial.
 
-## 4. Before you call a frontend change done
+## 6. Before you call a frontend change done
 
 ```bash
 cd apps/healthcare-demo/frontend && npm run build && npm run smoke   # or the NL2SQL equivalent
+python scripts/sync_design_system.py --check                         # no copy drifted
+python -m unittest discover -s tests -t .                            # publishing guards
 ```
 
 Report the smoke result honestly, including a skip. Then, if the change touched an API
 shape, re-run the backend suite that owns it — a frontend change that needed a new field
-is a backend change too, and the service inventory has to be regenerated:
+is a backend change too, and both generated artifacts have to be refreshed:
 
 ```bash
 .venv/bin/python scripts/service_inventory.py --check
+.venv/bin/python scripts/capture_demo_recordings.py --demo all   # needs dagentsc built
 ```
 
-## 5. When the design is handed to you
+A change to what the UI requests and no re-capture means the published demo answers "not
+captured" where it used to work. The build will not tell you; only the capture will.
+
+## 7. When the design is handed to you
 
 A visual design for a demo frontend may arrive as a spec, mockup or artifact. Implement
 it within these rules: the design decides layout, hierarchy, colour and wording; it does
