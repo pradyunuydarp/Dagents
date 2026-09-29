@@ -1,203 +1,415 @@
-:root {
-  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  color: #17202a;
-  background: #eef2f5;
-}
+/* NL2SQL demo — app-specific layer on top of the shared design system.
+ *
+ * `design-system.css` owns the tokens, the base type and every `ds-*`
+ * primitive; this file only arranges them for this page. Nothing here
+ * introduces a colour of its own: the only chromatic values are the decision
+ * and status tokens, used where a status is being reported.
+ *
+ * The page is an instrument panel with three regions: which framework services
+ * answered, the request that was sent, and what came back — the SQL, which is
+ * the payoff and carries the most typographic weight, and the trace, which is
+ * the proof and reads as an ordered run.
+ */
 
-body {
-  margin: 0;
-}
+/* ===== Shell ============================================================== */
 
-button, textarea, select {
-  font: inherit;
-}
-
-.app-shell {
-  max-width: 1440px;
-  margin: 0 auto;
-  padding: 28px;
-}
-
-.topbar {
+.app {
   display: flex;
+  flex-direction: column;
+  gap: var(--ds-5);
+}
+
+/* Grid and flex children need this or a wide payload widens the page instead of
+ * scrolling inside its own container. */
+.app .ds-panel,
+.app .outputs,
+.app .controls {
+  min-width: 0;
+}
+
+/* ===== Masthead =========================================================== */
+
+.masthead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
   justify-content: space-between;
-  gap: 24px;
-  align-items: center;
-  margin-bottom: 18px;
+  gap: var(--ds-4) var(--ds-5);
+  padding-bottom: var(--ds-4);
+  border-bottom: 1px solid var(--ds-line-strong);
 }
 
-h1, h2, h3, p {
-  margin-top: 0;
-}
-
-h1 {
-  font-size: 30px;
-  margin-bottom: 8px;
-}
-
-h2 {
-  font-size: 18px;
+.masthead-id {
   display: flex;
-  align-items: center;
-  gap: 8px;
+  flex-direction: column;
+  gap: var(--ds-2);
+  min-width: 0;
+  flex: 1 1 24rem;
 }
 
-h3 {
-  font-size: 14px;
-  margin: 18px 0 8px;
+.masthead h1 {
+  font-size: clamp(var(--ds-step-2), 4.6vw, var(--ds-step-3));
 }
 
-.primary {
+.masthead-run {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--ds-1);
+}
+
+.run-btn {
+  font-size: var(--ds-step-0);
+  padding: var(--ds-2) var(--ds-5);
+}
+
+.run-note {
+  font-size: 0.7rem;
+  letter-spacing: 0.06em;
+}
+
+/* ===== Banners ============================================================ */
+
+/* Provenance, refusals and fallbacks are first-class states, so they sit in the
+ * page flow with a stripe and a word — never a toast, never dismissible. */
+.ds-banner p {
+  flex: 1 1 22rem;
+  min-width: 0;
+}
+
+.ds-banner strong {
+  color: var(--ds-ink);
+  font-weight: 600;
+}
+
+.notice {
+  border-left-color: var(--ds-ink-3);
+}
+
+.notice--warn,
+.fallback {
+  border-left-color: var(--ds-narrow);
+  background: var(--ds-narrow-bg);
+  color: var(--ds-narrow);
+}
+
+.notice--warn strong,
+.fallback strong {
+  color: inherit;
+}
+
+.break {
+  overflow-wrap: anywhere;
+}
+
+/* ===== Service strip ====================================================== */
+
+.services {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-2);
+}
+
+.services-key {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--ds-3);
+}
+
+.services-count {
+  font-size: var(--ds-step--1);
+  color: var(--ds-ink-3);
+}
+
+.service-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ds-2);
+}
+
+/* Square, bordered, left-striped: an instrument reading, not a pill. */
+.service {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  border: 0;
-  color: #fff;
-  background: #1264a3;
-  padding: 11px 16px;
-  border-radius: 6px;
-  cursor: pointer;
-  min-width: 150px;
-  justify-content: center;
+  gap: var(--ds-2);
+  padding: var(--ds-1) var(--ds-3);
+  background: var(--ds-panel);
+  border: 1px solid var(--ds-line);
+  border-left: 2px solid var(--ds-line-strong);
+  border-radius: 0 var(--ds-r-1) var(--ds-r-1) 0;
+  font-size: var(--ds-step--1);
+  cursor: help;
 }
 
-.primary:disabled {
-  opacity: 0.65;
-  cursor: wait;
+/* The mark repeats the state as a shape — filled square for reachable, a
+ * struck-through outline for anything else — so the strip survives being read
+ * in greyscale or by a reader who cannot separate the two hues. */
+.service-mark {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border: 1.5px solid currentColor;
+  border-radius: 1px;
 }
 
-.grid {
+.service-name {
+  color: var(--ds-ink);
+}
+
+.service-state {
+  color: var(--ds-ink-3);
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.service--ok {
+  border-left-color: var(--ds-permit);
+  color: var(--ds-permit);
+}
+
+.service--ok .service-mark {
+  background: currentColor;
+}
+
+.service:not(.service--ok) {
+  border-left-color: var(--ds-deny);
+  color: var(--ds-deny);
+}
+
+.service:not(.service--ok) .service-mark {
+  background: linear-gradient(
+    to bottom right,
+    transparent 42%,
+    currentColor 42%,
+    currentColor 58%,
+    transparent 58%
+  );
+}
+
+.service:not(.service--ok) .service-state {
+  color: inherit;
+}
+
+/* ===== Workspace ========================================================== */
+
+.workspace {
   display: grid;
-  grid-template-columns: minmax(320px, 0.9fr) minmax(420px, 1.15fr) minmax(360px, 1fr);
-  gap: 16px;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--ds-4);
   align-items: start;
 }
 
-.panel {
-  background: #fff;
-  border: 1px solid #d8e0e7;
-  border-radius: 8px;
-  padding: 18px;
-  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.05);
+@media (min-width: 1000px) {
+  .workspace {
+    grid-template-columns: minmax(0, 19.5rem) minmax(0, 1fr);
+    gap: var(--ds-5);
+  }
 }
 
-label {
-  display: grid;
-  gap: 7px;
-  font-weight: 650;
-  font-size: 13px;
-  margin-bottom: 14px;
+.outputs {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-5);
 }
 
-select, textarea {
-  border: 1px solid #c9d3dc;
-  border-radius: 6px;
-  padding: 10px;
-  background: #fbfcfd;
+/* ===== Control column ===================================================== */
+
+.controls .ds-panel-body {
+  gap: var(--ds-3);
 }
 
-textarea {
-  resize: vertical;
+.controls label {
+  margin: 0;
 }
 
-pre {
-  background: #101820;
-  color: #e7eef6;
-  padding: 12px;
-  border-radius: 6px;
-  overflow: auto;
-  white-space: pre-wrap;
-  word-break: break-word;
-  font-size: 12px;
-  line-height: 1.45;
+.adapter-note {
+  padding-bottom: var(--ds-1);
+  border-bottom: 1px solid var(--ds-line);
+  color: var(--ds-ink-3);
 }
 
-.sql {
-  min-height: 72px;
-  font-size: 14px;
+.adapter-note .ds-mono {
+  color: var(--ds-ink-2);
 }
 
-.mono {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 12px;
+textarea.question {
+  font-family: var(--ds-font-body);
+  font-size: var(--ds-step-0);
 }
 
-.hint {
-  color: #5b6773;
-  font-size: 13px;
-  line-height: 1.45;
+textarea.schema {
+  font-size: 0.78rem;
+  line-height: 1.55;
+  white-space: pre;
+  overflow-wrap: normal;
+  overflow-x: auto;
+  max-height: 24rem;
 }
 
-.warning, .error {
-  border-radius: 6px;
-  padding: 10px 12px;
-  margin-bottom: 14px;
-}
+/* ===== Generated SQL — the payoff ========================================= */
 
-.warning {
-  color: #6d4c00;
-  background: #fff4ce;
-}
-
-.error {
-  color: #7a1f1f;
-  background: #ffe3e3;
-}
-
-.status-strip {
+.run-facts {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
-  margin-bottom: 16px;
-}
-
-.status {
-  display: inline-flex;
   align-items: center;
-  gap: 7px;
-  border: 1px solid #d5dde5;
-  background: #fff;
-  border-radius: 999px;
-  padding: 7px 11px;
-  font-size: 13px;
+  gap: var(--ds-2);
+  font-size: var(--ds-step--1);
+  color: var(--ds-ink-3);
 }
 
-.status.ok, .ok {
-  color: #17633a;
+/* The one place on the page allowed to be large: the statement the run
+ * produced. Mono, generous leading, wrapping rather than clipping. */
+pre.sql {
+  padding: var(--ds-4);
+  border-left: 3px solid var(--ds-ink);
+  border-radius: 0 var(--ds-r-1) var(--ds-r-1) 0;
+  font-size: clamp(var(--ds-step-0), 0.82rem + 0.6vw, var(--ds-step-2));
+  font-weight: 500;
+  line-height: 1.65;
+  color: var(--ds-ink);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
-.status.unavailable, .warning {
-  color: #7a4f00;
+.placeholder {
+  color: var(--ds-ink-3);
 }
 
-.error {
-  color: #8a1c1c;
-}
-
-details {
-  border-top: 1px solid #e3e8ed;
-  padding: 10px 0;
-}
-
-summary {
-  cursor: pointer;
+/* DDL and prompt are context for the statement, so they are legible but
+ * plainly subordinate to it. */
+.sub {
   display: flex;
-  align-items: center;
-  gap: 8px;
-  font-weight: 650;
+  flex-direction: column;
+  gap: var(--ds-2);
+  padding-top: var(--ds-3);
+  border-top: 1px solid var(--ds-line);
 }
 
-summary span {
+.sub h3 {
+  font-weight: 500;
+}
+
+.sub .ds-code {
+  font-size: 0.8rem;
+  color: var(--ds-ink-2);
+  max-height: 22rem;
+  overflow: auto;
+}
+
+/* ===== Trace — the proof ================================================== */
+
+.trace-meta {
+  font-size: var(--ds-step--1);
+  color: var(--ds-ink-3);
+}
+
+.trace {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+/* No gap between steps: the stripes join into one continuous rail, so the
+ * sequence reads as a single run rather than a stack of cards. */
+.step {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-2);
+  padding: var(--ds-3) var(--ds-3) var(--ds-3) var(--ds-4);
+  border-left: 3px solid var(--ds-line-strong);
+  border-bottom: 1px solid var(--ds-line);
+}
+
+.step:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.step-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--ds-2) var(--ds-3);
+}
+
+.step-index {
+  flex: none;
+  font-size: 0.72rem;
+  font-weight: 500;
+  color: var(--ds-ink-3);
+}
+
+.step-name {
+  flex: 1 1 12rem;
+  min-width: 0;
+  font-size: var(--ds-step-0);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.step-head .ds-chip {
   margin-left: auto;
 }
 
-@media (max-width: 1120px) {
-  .grid {
-    grid-template-columns: 1fr;
+.step-detail {
+  font-size: var(--ds-step--1);
+  color: var(--ds-ink-3);
+  overflow-wrap: anywhere;
+}
+
+/* A warning step is unmistakable — amber rail, amber chip, and the failure text
+ * in the mono face because it is what the framework said — without shouting: no
+ * red, no filled block, the run still reads as a run. */
+.step--warning {
+  border-left-color: var(--ds-narrow);
+  background: linear-gradient(to right, var(--ds-narrow-bg), transparent 70%);
+}
+
+.step--warning .step-detail {
+  font-family: var(--ds-font-mono);
+  color: var(--ds-ink-2);
+}
+
+.step-payload {
+  border-top-style: dashed;
+}
+
+.step-payload > summary {
+  font-size: 0.75rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.step-payload .ds-code {
+  font-size: 0.75rem;
+  max-height: 20rem;
+  overflow: auto;
+}
+
+/* ===== Narrow ============================================================= */
+
+/* At 400px the panel gutters would eat the content, so they tighten; nothing
+ * else changes, and no region scrolls the page sideways. */
+@media (max-width: 560px) {
+  .app .ds-panel > * {
+    padding-inline: var(--ds-4);
   }
 
-  .topbar {
-    align-items: flex-start;
-    flex-direction: column;
+  .masthead-run {
+    width: 100%;
+  }
+
+  .run-btn {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .step {
+    padding-right: 0;
   }
 }

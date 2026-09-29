@@ -1,5 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
 
+import {
+  NotRecordedError,
+  getJson,
+  isRecorded,
+  postJson,
+  recordingInfo,
+  type Recording
+} from "./api";
+
 /**
  * The demo's operator view.
  *
@@ -7,6 +16,15 @@ import { useCallback, useEffect, useState } from "react";
  * and why, which contributions were rejected, how each release gate decided,
  * and whether each site's audit chain still verifies. A dashboard that only
  * showed the outcome would be asking to be trusted.
+ *
+ * The published build replays a captured run of the real backend rather than
+ * calling one, so it says which commit it was captured from and refuses to
+ * answer a combination nobody recorded. See `./api`.
+ *
+ * Layout follows the shared design system: hairline panels rather than floating
+ * cards, mono for anything the framework itself emits, and colour spent only on
+ * decision states. Every state also carries its own word, so the panels still
+ * read in greyscale.
  */
 
 type Metrics = Record<string, number>;
@@ -134,24 +152,63 @@ interface GuardProbe {
   };
 }
 
-async function getJson<T>(url: string): Promise<T> {
-  const response = await fetch(url);
-  if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
-  return (await response.json()) as T;
-}
-
-async function postJson<T>(url: string, body: unknown): Promise<T> {
-  const response = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body)
-  });
-  if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
-  return (await response.json()) as T;
-}
-
 function formatMetric(value: number): string {
   return Math.abs(value) >= 100 ? value.toFixed(1) : value.toFixed(4);
+}
+
+/**
+ * The design system's four state tones.
+ *
+ * These are presentation only. The decision itself always arrives from the
+ * backend, which asks the planner; the helpers below choose which token set
+ * paints a decision the framework already made, and every chip also carries the
+ * framework's own word so the state survives greyscale.
+ */
+type Tone = "permit" | "narrow" | "deny" | "inert";
+
+function chipClass(tone: Tone): string {
+  return `ds-chip ds-chip--${tone}`;
+}
+
+function releaseTone(action: string): Tone {
+  if (action === "release") return "permit";
+  if (action === "reject") return "deny";
+  return "narrow";
+}
+
+function gateTone(outcome: GateResult["outcome"]): Tone {
+  if (outcome === "passed") return "permit";
+  if (outcome === "failed") return "deny";
+  return "narrow";
+}
+
+function priorityTone(priority: string): Tone {
+  if (priority === "urgent") return "deny";
+  if (priority === "elevated") return "narrow";
+  return "inert";
+}
+
+function guardTone(probe: GuardProbe): Tone {
+  if (!probe.permitted) return "deny";
+  return probe.plan.decision.toLowerCase() === "permit" ? "permit" : "narrow";
+}
+
+/**
+ * The cohort sizes a capture actually covers.
+ *
+ * Read out of the recording rather than hardcoded, so the message cannot claim
+ * a value the capture does not hold.
+ */
+function recordedCohorts(recording: Recording | null): number[] {
+  if (!recording) return [];
+  const sizes = new Set<number>();
+  for (const entry of recording.entries) {
+    const request = entry.request as { cohort_size?: number } | undefined;
+    if (entry.path === "/api/v1/governance:probe" && typeof request?.cohort_size === "number") {
+      sizes.add(request.cohort_size);
+    }
+  }
+  return [...sizes].sort((a, b) => a - b);
 }
 
 export default function App() {
@@ -167,6 +224,17 @@ export default function App() {
   const [probeCohort, setProbeCohort] = useState(25);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // A replayed build can be asked for a lever combination the capture never
+  // covered. That is not an error in the demo, and it must not be reported as
+  // one — nor answered with a made-up verdict.
+  const [notRecorded, setNotRecorded] = useState<NotRecordedError | null>(null);
+  const [recording, setRecording] = useState<Recording | null>(null);
+
+  useEffect(() => {
+    recordingInfo()
+      .then(setRecording)
+      .catch((exc) => setError(String(exc)));
+  }, []);
 
   useEffect(() => {
     getJson<Overview>("/api/v1/overview")
@@ -198,6 +266,7 @@ export default function App() {
 
   const runProbe = useCallback(async () => {
     setError(null);
+    setNotRecorded(null);
     try {
       setProbe(
         await postJson<GuardProbe>("/api/v1/governance:probe", {
@@ -208,369 +277,569 @@ export default function App() {
         })
       );
     } catch (exc) {
-      setError(String(exc));
+      if (exc instanceof NotRecordedError) {
+        setProbe(null);
+        setNotRecorded(exc);
+      } else {
+        setError(String(exc));
+      }
     }
   }, [probeVerified, probeGranularity, probeCohort]);
 
   return (
-    <div className="page">
-      <header>
+    <div className="shell ds-shell">
+      <header className="masthead">
+        <p className="ds-eyebrow">Dagents framework · healthcare demo</p>
         <h1>Stroke triage, governed across three hospitals</h1>
-        <p className="lede">
+        <p className="lede ds-measure">
           A demo app built on the Dagents framework. Patient data is entirely synthetic and the
           scoring rule is a transparent illustration, not a validated triage model. Nothing shown
           here is clinical advice.
         </p>
       </header>
 
-      {error && <div className="banner error">{error}</div>}
-
-      {overview && (
-        <section className="card">
-          <h2>Consortium</h2>
-          <dl className="facts">
-            <div>
-              <dt>Study</dt>
-              <dd>{overview.study_id}</dd>
-            </div>
-            <div>
-              <dt>Feature contract</dt>
-              <dd>{overview.feature_contract.version}</dd>
-            </div>
-            <div>
-              <dt>Federated engine</dt>
-              <dd>{overview.engine}</dd>
-            </div>
-            <div>
-              <dt>Secure-aggregation threshold</dt>
-              <dd>{overview.secure_aggregation_threshold} sites</dd>
-            </div>
-          </dl>
-          <table>
-            <thead>
-              <tr>
-                <th>Hospital</th>
-                <th>Cohort</th>
-                <th>AUC</th>
-                <th>Sensitivity</th>
-                <th>Subgroup gap</th>
-              </tr>
-            </thead>
-            <tbody>
-              {overview.hospitals.map((hospital) => (
-                <tr key={hospital.site_id}>
-                  <td>{hospital.display_name}</td>
-                  <td>{hospital.cohort_size}</td>
-                  <td>{hospital.local_metrics.auc?.toFixed(3) ?? "—"}</td>
-                  <td>{hospital.local_metrics.sensitivity?.toFixed(3) ?? "—"}</td>
-                  <td>{hospital.local_metrics.subgroup_auc_gap?.toFixed(3) ?? "—"}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          <p className="note">
-            The sites differ on purpose. A consortium where every hospital looked identical would
-            never exercise the drift checks, the cohort floors, or the fairness gate.
-          </p>
-        </section>
+      {isRecorded && (
+        <div className="banner recorded">
+          <strong>Recorded run.</strong> This published page has no backend. Every verdict,
+          strategy and denial below is one the OCaml planner really returned, captured from a
+          live run of this demo
+          {recording ? (
+            <>
+              {" "}
+              at commit <span className="mono">{recording.commit.slice(0, 10)}</span> on{" "}
+              {recording.captured_at}
+            </>
+          ) : null}
+          . The levers work because every combination was captured; nothing here is generated
+          by the page. To drive the real backend, run it locally — see the README.
+        </div>
       )}
 
-      <section className="card">
-        <div className="card-head">
-          <h2>Federated pilot</h2>
-          <button onClick={runPilot} disabled={busy}>
-            {busy ? "Running…" : "Run governed pilot"}
-          </button>
-        </div>
-        <p className="note">
-          Analytics, then baseline evaluation, then training, then cross-site validation of the
-          candidate, then the release gates. Aggregation produces a candidate, never a release.
-        </p>
+      {error && <div className="banner error">{error}</div>}
 
-        {pilot && (
-          <>
-            {Object.entries(pilot.rounds).map(([name, round]) =>
-              round ? (
-                <div key={name} className="round">
-                  <h3>
-                    {name} <span className="digest">{round.plan.round_digest}</span>
-                  </h3>
-                  <p>
-                    quorum {String(round.plan.quorum_met)} · {round.plan.selected_sites.length}/
-                    {round.plan.required_participants} required ·{" "}
-                    {round.readiness?.aggregation_permitted
-                      ? "aggregation permitted"
-                      : "aggregation blocked"}
-                  </p>
-                  {round.plan.excluded_sites.length > 0 && (
-                    <ul className="reasons">
-                      {round.plan.excluded_sites.map((exclusion) => (
-                        <li key={exclusion.site_id}>
-                          <strong>{exclusion.site_id}</strong> excluded — {exclusion.reason}
+      <main className="panels">
+        {overview && (
+          <section className="panel ds-panel" data-panel="consortium">
+            <div className="ds-panel-head">
+              <div className="head-titles">
+                <p className="ds-eyebrow">consortium · {overview.condition_id}</p>
+                <h2>Three hospitals, one feature contract</h2>
+              </div>
+              <span className="head-meta ds-mono">{overview.hospitals.length} sites</span>
+            </div>
+            <div className="ds-panel-body">
+              <dl className="ds-facts">
+                <div>
+                  <dt>Study</dt>
+                  <dd>{overview.study_id}</dd>
+                </div>
+                <div>
+                  <dt>Feature contract</dt>
+                  <dd>{overview.feature_contract.version}</dd>
+                </div>
+                <div>
+                  <dt>Federated engine</dt>
+                  <dd>{overview.engine}</dd>
+                </div>
+                <div>
+                  <dt>Secure-aggregation threshold</dt>
+                  <dd>{overview.secure_aggregation_threshold} sites</dd>
+                </div>
+              </dl>
+              <div className="ds-table-scroll">
+                <table className="ds-table">
+                  <thead>
+                    <tr>
+                      <th>Hospital</th>
+                      <th className="num">Cohort</th>
+                      <th className="num">AUC</th>
+                      <th className="num">Sensitivity</th>
+                      <th className="num">Subgroup gap</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {overview.hospitals.map((hospital) => (
+                      <tr key={hospital.site_id}>
+                        <td>{hospital.display_name}</td>
+                        <td className="num">{hospital.cohort_size}</td>
+                        <td className="num">{hospital.local_metrics.auc?.toFixed(3) ?? "—"}</td>
+                        <td className="num">
+                          {hospital.local_metrics.sensitivity?.toFixed(3) ?? "—"}
+                        </td>
+                        <td className="num">
+                          {hospital.local_metrics.subgroup_auc_gap?.toFixed(3) ?? "—"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <p className="note ds-note">
+                The sites differ on purpose. A consortium where every hospital looked identical
+                would never exercise the drift checks, the cohort floors, or the fairness gate.
+              </p>
+            </div>
+          </section>
+        )}
+
+        <section className="panel guard ds-panel" data-panel="guard">
+          <div className="ds-panel-head">
+            <div className="head-titles">
+              <p className="ds-eyebrow">guard boundary · before_read</p>
+              <h2>Ethical Guard</h2>
+            </div>
+            <span className="head-meta ds-mono">three levers · one planner</span>
+          </div>
+          <div className="ds-panel-body">
+            <p className="note ds-note">
+              Three levers, each a real one. Unticking <em>verified</em> drops trust and hardens
+              the strategy — at row grain, generalizing a score becomes redacting it. Widening the
+              granularity coarsens it — a column or a table can only come back as an aggregate.
+              And a <em>cohort</em> below the classification&rsquo;s floor of 20 denies the request
+              outright, whoever is asking. None of that is a branch in this app&rsquo;s code; every
+              decision is a lookup in the typed planner.
+            </p>
+
+            <div className="guard-grid">
+              <div className="levers ds-inset">
+                <p className="ds-eyebrow">request</p>
+                <label className="ds-check lever-check">
+                  <input
+                    type="checkbox"
+                    checked={probeVerified}
+                    onChange={(event) => setProbeVerified(event.target.checked)}
+                  />
+                  requester verified
+                </label>
+                <label className="ds-field">
+                  <span>granularity</span>
+                  <select
+                    className="ds-input"
+                    value={probeGranularity}
+                    onChange={(event) => setProbeGranularity(event.target.value)}
+                  >
+                    <option value="cell">cell</option>
+                    <option value="row">row</option>
+                    <option value="column">column</option>
+                    <option value="table">table</option>
+                    <option value="model_update">model update</option>
+                  </select>
+                </label>
+                <label className="ds-field">
+                  <span>cohort</span>
+                  <input
+                    className="ds-input"
+                    type="number"
+                    min={0}
+                    max={999}
+                    value={probeCohort}
+                    onChange={(event) => setProbeCohort(Number(event.target.value))}
+                  />
+                </label>
+                <button className="ds-btn ds-btn--primary lever-go" onClick={runProbe}>
+                  Ask the guard
+                </button>
+              </div>
+
+              <div className="outcome">
+                {notRecorded && (
+                  <div className="banner recorded">
+                    <strong>Not captured.</strong> {notRecorded.message} Rather than show you a
+                    verdict nobody computed, this page is telling you so. The captured cohort sizes
+                    are <span className="mono">{recordedCohorts(recording).join(", ")}</span>; the
+                    floor for this classification is 20, so 19 and 20 are the interesting pair.
+                  </div>
+                )}
+
+                {probe ? (
+                  <>
+                    <div className={`verdict ds-verdict ds-verdict--${guardTone(probe)}`}>
+                      <strong>{probe.plan.decision.toUpperCase()}</strong>
+                      <span className="verdict-metrics">
+                        <span>filtering score {probe.plan.filtering_score.toFixed(2)}</span>
+                        <span>
+                          trust {probe.plan.assessment.trust} (
+                          {probe.plan.assessment.kyu_score.toFixed(2)})
+                        </span>
+                      </span>
+                    </div>
+
+                    {probe.message && <p className="guard-message">{probe.message}</p>}
+
+                    {/* A denial the planner never reached carries no per-field
+                        plan, so there is nothing to tabulate. Showing an empty
+                        header would read as a rendering fault at exactly the
+                        moment the reader needs the refusal to be clear. */}
+                    {probe.plan.field_restrictions.length > 0 ? (
+                      <div className="ds-table-scroll">
+                        <table className="ds-table restrictions">
+                          <thead>
+                            <tr>
+                              <th>Field</th>
+                              <th>Sensitivity</th>
+                              <th>Reason</th>
+                              <th className="strategy-col">Strategy</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {probe.plan.field_restrictions.map((restriction) => (
+                              <tr key={restriction.field}>
+                                <td className="mono">{restriction.field}</td>
+                                <td>{restriction.sensitivity}</td>
+                                <td className="why">{restriction.reason || "—"}</td>
+                                <td className="mono strategy">{restriction.strategy}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : (
+                      <p className="ds-note">
+                        No per-field plan came back with this decision, so there is nothing to
+                        show here. The request was refused before it reached one.
+                      </p>
+                    )}
+
+                    {probe.plan.violations.length > 0 && (
+                      <ul className="reasons ds-reasons">
+                        {probe.plan.violations.map((violation) => (
+                          <li key={violation}>{violation}</li>
+                        ))}
+                      </ul>
+                    )}
+
+                    <details className="ds-details">
+                      <summary>What the guard returned ({probe.payload.length} rows)</summary>
+                      <pre className="ds-code">{JSON.stringify(probe.payload.slice(0, 5), null, 2)}</pre>
+                    </details>
+                    <details className="ds-details">
+                      <summary>Obligations the guard must discharge</summary>
+                      <ul className="reasons ds-reasons">
+                        {probe.plan.obligations.map((obligation) => (
+                          <li key={obligation}>{obligation}</li>
+                        ))}
+                      </ul>
+                    </details>
+                  </>
+                ) : (
+                  !notRecorded && (
+                    <p className="outcome-idle ds-note">
+                      Nothing asked yet. Set the levers and ask the guard: the verdict, and the
+                      strategy for every field, come back from the planner.
+                    </p>
+                  )
+                )}
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="panel ds-panel" data-panel="pilot">
+          <div className="ds-panel-head">
+            <div className="head-titles">
+              <p className="ds-eyebrow">round phases</p>
+              <h2>Federated pilot</h2>
+            </div>
+            <button className="ds-btn ds-btn--primary" onClick={runPilot} disabled={busy}>
+              {busy ? "Running…" : "Run governed pilot"}
+            </button>
+          </div>
+          <div className="ds-panel-body">
+            <p className="note ds-note">
+              Analytics, then baseline evaluation, then training, then cross-site validation of the
+              candidate, then the release gates. Aggregation produces a candidate, never a release.
+            </p>
+
+            {pilot && (
+              <>
+                <dl className="ds-facts pilot-summary">
+                  <div>
+                    <dt>Phases run</dt>
+                    <dd>{Object.keys(pilot.rounds).length}</dd>
+                  </div>
+                  <div>
+                    <dt>Candidate</dt>
+                    <dd>{pilot.candidate ? pilot.candidate.candidate_version : "none"}</dd>
+                  </div>
+                  <div>
+                    <dt>Contributing sites</dt>
+                    <dd>{pilot.candidate ? pilot.candidate.contributing_sites.length : 0}</dd>
+                  </div>
+                  <div>
+                    <dt>Release</dt>
+                    <dd>
+                      {pilot.release ? (
+                        <span className={chipClass(releaseTone(pilot.release.gates.action))}>
+                          {pilot.release.gates.action.replace("_", " ")}
+                        </span>
+                      ) : (
+                        "—"
+                      )}
+                    </dd>
+                  </div>
+                </dl>
+
+                <div className="phases">
+                  {Object.entries(pilot.rounds).map(([name, round]) =>
+                    round ? (
+                      <div key={name} className="round phase">
+                        <div className="round-head">
+                          <h3>{name}</h3>
+                          <span className="digest mono">{round.plan.round_digest}</span>
+                        </div>
+                        <div className="round-state ds-row">
+                          <span
+                            className={chipClass(round.plan.quorum_met ? "permit" : "deny")}
+                          >
+                            {round.plan.quorum_met ? "quorum met" : "quorum not met"}
+                          </span>
+                          <span
+                            className={chipClass(
+                              round.readiness?.aggregation_permitted ? "permit" : "narrow"
+                            )}
+                          >
+                            {round.readiness?.aggregation_permitted
+                              ? "aggregation permitted"
+                              : "aggregation blocked"}
+                          </span>
+                          <span className="round-count ds-mono">
+                            {round.plan.selected_sites.length} of{" "}
+                            {round.plan.required_participants} required sites
+                          </span>
+                        </div>
+                        {round.plan.excluded_sites.length > 0 && (
+                          <ul className="reasons ds-reasons">
+                            {round.plan.excluded_sites.map((exclusion) => (
+                              <li key={exclusion.site_id}>
+                                <strong>{exclusion.site_id}</strong> excluded — {exclusion.reason}
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                        {round.readiness && round.readiness.rejected_contributions.length > 0 && (
+                          <ul className="reasons ds-reasons">
+                            {round.readiness.rejected_contributions.map((rejection) => (
+                              <li key={rejection.site_id}>
+                                <strong>{rejection.site_id}</strong> rejected — {rejection.reason}
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                        <details className="ds-details">
+                          <summary>What each site returned ({round.results.length})</summary>
+                          <div className="ds-table-scroll">
+                            <table className="ds-table">
+                              <thead>
+                                <tr>
+                                  <th>Site</th>
+                                  <th>Participation</th>
+                                  <th className="num">Examples</th>
+                                  <th className="num">Bounded norm</th>
+                                  <th>Evidence</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {round.results.map((result) => (
+                                  <tr key={result.site_id}>
+                                    <td className="mono">{result.site_id}</td>
+                                    <td>{result.participation}</td>
+                                    <td className="num">{result.contributed_examples}</td>
+                                    <td className="num">{result.update_norm?.toFixed(4) ?? "—"}</td>
+                                    <td className="mono wrap">
+                                      {result.local_evidence_pointer ?? "—"}
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                          <p className="note ds-note">
+                            No column here is patient-level. Counts, bounded norms, approved
+                            metrics and a pointer that stays addressed to the site — that is the
+                            whole egress contract.
+                          </p>
+                        </details>
+                      </div>
+                    ) : null
+                  )}
+                </div>
+
+                {pilot.candidate && pilot.release && (
+                  <div className="round candidate">
+                    <div className="round-head">
+                      <h3>candidate</h3>
+                      <span className="digest mono">{pilot.candidate.candidate_version}</span>
+                    </div>
+
+                    <div className={`verdict ds-verdict ds-verdict--${releaseTone(pilot.release.gates.action)}`}>
+                      <span className="verdict-key">release decision</span>
+                      <strong>{pilot.release.gates.action.replace("_", " ")}</strong>
+                      {pilot.release.gates.rollback_version &&
+                      pilot.release.gates.action !== "release" ? (
+                        <span className="verdict-note">
+                          keeping {pilot.release.gates.rollback_version}
+                        </span>
+                      ) : null}
+                    </div>
+
+                    <div className="ds-table-scroll">
+                      <table className="ds-table">
+                        <thead>
+                          <tr>
+                            <th>Metric</th>
+                            <th className="num">Candidate</th>
+                            <th className="num">Baseline</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {Object.keys(pilot.candidate.metrics)
+                            .sort()
+                            .map((key) => (
+                              <tr key={key}>
+                                <td className="mono">{key}</td>
+                                <td className="num">{formatMetric(pilot.candidate!.metrics[key])}</td>
+                                <td className="num">
+                                  {pilot.baseline_metrics[key] !== undefined
+                                    ? formatMetric(pilot.baseline_metrics[key])
+                                    : "—"}
+                                </td>
+                              </tr>
+                            ))}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    <h4>Release gates</h4>
+                    <ul className="gates">
+                      {pilot.release.gates.gate_results.map((gate) => (
+                        <li key={gate.gate_id} className={gate.outcome}>
+                          <span className={`tag ${chipClass(gateTone(gate.outcome))}`}>
+                            {gate.outcome.replace("_", " ")}
+                          </span>
+                          <strong>{gate.gate_id}</strong>
+                          <span className="detail">{gate.detail}</span>
                         </li>
                       ))}
                     </ul>
-                  )}
-                  {round.readiness && round.readiness.rejected_contributions.length > 0 && (
-                    <ul className="reasons">
-                      {round.readiness.rejected_contributions.map((rejection) => (
-                        <li key={rejection.site_id}>
-                          <strong>{rejection.site_id}</strong> rejected — {rejection.reason}
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                  <details>
-                    <summary>What each site returned ({round.results.length})</summary>
-                    <table>
+                    {pilot.release.gates.blocking_failures.length > 0 && (
+                      <p className="note ds-note">
+                        The candidate beats its baseline on AUC and is still not releasable. That
+                        is the framework doing its job, not failing at it.
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                <div className="round audit">
+                  <div className="round-head">
+                    <h3>audit</h3>
+                    <span className="digest mono">
+                      {Object.keys(pilot.site_audits).length} site chains
+                    </span>
+                  </div>
+                  <div className="ds-table-scroll">
+                    <table className="ds-table">
                       <thead>
                         <tr>
                           <th>Site</th>
-                          <th>Participation</th>
-                          <th>Examples</th>
-                          <th>Bounded norm</th>
-                          <th>Evidence</th>
+                          <th>Chain</th>
+                          <th className="num">Decisions</th>
+                          <th>Boundaries seen</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {round.results.map((result) => (
-                          <tr key={result.site_id}>
-                            <td>{result.site_id}</td>
-                            <td>{result.participation}</td>
-                            <td>{result.contributed_examples}</td>
-                            <td>{result.update_norm?.toFixed(4) ?? "—"}</td>
-                            <td className="mono">{result.local_evidence_pointer ?? "—"}</td>
+                        {Object.entries(pilot.site_audits).map(([siteId, audit]) => (
+                          <tr key={siteId}>
+                            <td className="mono">{siteId}</td>
+                            <td>
+                              <span className={chipClass(audit.chain_intact ? "permit" : "deny")}>
+                                {audit.chain_intact ? "intact" : "BROKEN"}
+                              </span>
+                            </td>
+                            <td className="num">{audit.records.length}</td>
+                            <td className="mono wrap">
+                              {Array.from(
+                                new Set(audit.records.map((record) => record.boundary))
+                              ).join(", ")}
+                            </td>
                           </tr>
                         ))}
                       </tbody>
                     </table>
-                    <p className="note">
-                      No column here is patient-level. Counts, bounded norms, approved metrics and a
-                      pointer that stays addressed to the site — that is the whole egress contract.
-                    </p>
-                  </details>
+                  </div>
                 </div>
-              ) : null
+              </>
             )}
+          </div>
+        </section>
 
-            {pilot.candidate && pilot.release && (
-              <div className="round">
-                <h3>Candidate {pilot.candidate.candidate_version}</h3>
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Metric</th>
-                      <th>Candidate</th>
-                      <th>Baseline</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {Object.keys(pilot.candidate.metrics)
-                      .sort()
-                      .map((key) => (
-                        <tr key={key}>
-                          <td>{key}</td>
-                          <td>{formatMetric(pilot.candidate!.metrics[key])}</td>
-                          <td>
-                            {pilot.baseline_metrics[key] !== undefined
-                              ? formatMetric(pilot.baseline_metrics[key])
-                              : "—"}
-                          </td>
-                        </tr>
-                      ))}
-                  </tbody>
-                </table>
-
-                <h4>Release gates</h4>
-                <ul className="gates">
-                  {pilot.release.gates.gate_results.map((gate) => (
-                    <li key={gate.gate_id} className={gate.outcome}>
-                      <span className="tag">{gate.outcome.replace("_", " ")}</span>
-                      <strong>{gate.gate_id}</strong>
-                      <span className="detail">{gate.detail}</span>
-                    </li>
-                  ))}
-                </ul>
-                <p className={`verdict ${pilot.release.gates.action}`}>
-                  Decision: {pilot.release.gates.action.replace("_", " ")}
-                  {pilot.release.gates.rollback_version &&
-                    pilot.release.gates.action !== "release" &&
-                    ` · keeping ${pilot.release.gates.rollback_version}`}
-                </p>
-                {pilot.release.gates.blocking_failures.length > 0 && (
-                  <p className="note">
-                    The candidate beats its baseline on AUC and is still not releasable. That is the
-                    framework doing its job, not failing at it.
-                  </p>
-                )}
-              </div>
-            )}
-
-            <div className="round">
-              <h3>Audit</h3>
-              <table>
+        <section className="panel ds-panel" data-panel="worklist">
+          <div className="ds-panel-head">
+            <div className="head-titles">
+              <p className="ds-eyebrow">site view · stays inside the hospital</p>
+              <h2>Local worklist</h2>
+            </div>
+            <label className="ds-field head-select">
+              <span>site</span>
+              <select
+                className="ds-input"
+                value={selectedSite}
+                onChange={(event) => setSelectedSite(event.target.value)}
+              >
+                {overview?.hospitals.map((hospital) => (
+                  <option key={hospital.site_id} value={hospital.site_id}>
+                    {hospital.display_name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+          <div className="ds-panel-body">
+            <p className="ds-eyebrow">queue · {worklist.length} cases · re-ordered, never filtered</p>
+            <p className="note ds-note">
+              This view never leaves the hospital. Cases are re-ordered so an urgent one reaches a
+              specialist sooner; nothing is removed from the queue, including cases that could not
+              be scored.
+            </p>
+            <div className="ds-table-scroll">
+              <table className="ds-table worklist">
                 <thead>
                   <tr>
-                    <th>Site</th>
-                    <th>Chain</th>
-                    <th>Decisions</th>
-                    <th>Boundaries seen</th>
+                    <th>Encounter</th>
+                    <th>Age band</th>
+                    <th className="num">NIHSS</th>
+                    <th>Priority</th>
+                    <th className="num">Score</th>
+                    <th className="basis">Basis</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {Object.entries(pilot.site_audits).map(([siteId, audit]) => (
-                    <tr key={siteId}>
-                      <td>{siteId}</td>
-                      <td>{audit.chain_intact ? "intact" : "BROKEN"}</td>
-                      <td>{audit.records.length}</td>
+                  {worklist.map((entry, index) => (
+                    <tr key={entry.encounter_id ?? index} className={entry.assessment.priority}>
+                      <td className="mono">{entry.encounter_id ?? "—"}</td>
+                      <td>{entry.age_band ?? "—"}</td>
+                      <td className="num">{entry.nihss_total ?? "—"}</td>
                       <td>
-                        {Array.from(new Set(audit.records.map((record) => record.boundary))).join(", ")}
+                        <span
+                          className={`tag ${entry.assessment.priority} ${chipClass(
+                            priorityTone(entry.assessment.priority)
+                          )}`}
+                        >
+                          {entry.assessment.suppressed ? "not assessed" : entry.assessment.priority}
+                        </span>
                       </td>
+                      <td className="num">{entry.assessment.score.toFixed(3)}</td>
+                      <td className="basis">{entry.assessment.basis.join("; ") || "—"}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
-          </>
-        )}
-      </section>
-
-      <section className="card">
-        <div className="card-head">
-          <h2>Ethical Guard</h2>
-          <div className="controls">
-            <label>
-              <input
-                type="checkbox"
-                checked={probeVerified}
-                onChange={(event) => setProbeVerified(event.target.checked)}
-              />
-              requester verified
-            </label>
-            <select value={probeGranularity} onChange={(event) => setProbeGranularity(event.target.value)}>
-              <option value="cell">cell</option>
-              <option value="row">row</option>
-              <option value="column">column</option>
-              <option value="table">table</option>
-              <option value="model_update">model update</option>
-            </select>
-            <label>
-              cohort
-              <input
-                type="number"
-                min={0}
-                max={999}
-                value={probeCohort}
-                onChange={(event) => setProbeCohort(Number(event.target.value))}
-              />
-            </label>
-            <button onClick={runProbe}>Ask the guard</button>
           </div>
-        </div>
-        <p className="note">
-          Three levers, each a real one. Unticking <em>verified</em> drops trust and hardens the
-          strategy — at row grain, generalizing a score becomes redacting it. Widening the
-          granularity coarsens it — a column or a table can only come back as an aggregate. And a{" "}
-          <em>cohort</em> below the classification&rsquo;s floor of 20 denies the request outright,
-          whoever is asking. None of that is a branch in this app&rsquo;s code; every decision is a
-          lookup in the typed planner.
-        </p>
-        {probe && (
-          <div className="round">
-            <p className={`verdict ${probe.permitted ? "release" : "reject"}`}>
-              {probe.plan.decision.toUpperCase()} · filtering score{" "}
-              {probe.plan.filtering_score.toFixed(2)} · trust {probe.plan.assessment.trust} (
-              {probe.plan.assessment.kyu_score.toFixed(2)})
-            </p>
-            {probe.message && <p>{probe.message}</p>}
-            <table>
-              <thead>
-                <tr>
-                  <th>Field</th>
-                  <th>Sensitivity</th>
-                  <th>Strategy</th>
-                </tr>
-              </thead>
-              <tbody>
-                {probe.plan.field_restrictions.map((restriction) => (
-                  <tr key={restriction.field}>
-                    <td>{restriction.field}</td>
-                    <td>{restriction.sensitivity}</td>
-                    <td className="mono">{restriction.strategy}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            {probe.plan.violations.length > 0 && (
-              <ul className="reasons">
-                {probe.plan.violations.map((violation) => (
-                  <li key={violation}>{violation}</li>
-                ))}
-              </ul>
-            )}
-            <details>
-              <summary>What the guard returned ({probe.payload.length} rows)</summary>
-              <pre>{JSON.stringify(probe.payload.slice(0, 5), null, 2)}</pre>
-            </details>
-            <details>
-              <summary>Obligations the guard must discharge</summary>
-              <ul className="reasons">
-                {probe.plan.obligations.map((obligation) => (
-                  <li key={obligation}>{obligation}</li>
-                ))}
-              </ul>
-            </details>
-          </div>
-        )}
-      </section>
+        </section>
+      </main>
 
-      <section className="card">
-        <div className="card-head">
-          <h2>Local worklist</h2>
-          <select value={selectedSite} onChange={(event) => setSelectedSite(event.target.value)}>
-            {overview?.hospitals.map((hospital) => (
-              <option key={hospital.site_id} value={hospital.site_id}>
-                {hospital.display_name}
-              </option>
-            ))}
-          </select>
-        </div>
-        <p className="note">
-          This view never leaves the hospital. Cases are re-ordered so an urgent one reaches a
-          specialist sooner; nothing is removed from the queue, including cases that could not be
-          scored.
-        </p>
-        <table>
-          <thead>
-            <tr>
-              <th>Encounter</th>
-              <th>Age band</th>
-              <th>NIHSS</th>
-              <th>Priority</th>
-              <th>Score</th>
-              <th>Basis</th>
-            </tr>
-          </thead>
-          <tbody>
-            {worklist.map((entry, index) => (
-              <tr key={entry.encounter_id ?? index} className={entry.assessment.priority}>
-                <td className="mono">{entry.encounter_id ?? "—"}</td>
-                <td>{entry.age_band ?? "—"}</td>
-                <td>{entry.nihss_total ?? "—"}</td>
-                <td>
-                  <span className={`tag ${entry.assessment.priority}`}>
-                    {entry.assessment.suppressed ? "not assessed" : entry.assessment.priority}
-                  </span>
-                </td>
-                <td>{entry.assessment.score.toFixed(3)}</td>
-                <td className="basis">{entry.assessment.basis.join("; ") || "—"}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </section>
-
-      <footer>
+      <footer className="foot">
         <p>
           Dagents healthcare demo. Synthetic data only. Not a medical device, not clinically
           validated, and not a substitute for clinical judgement.

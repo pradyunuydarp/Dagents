@@ -1,143 +1,418 @@
-:root {
-  --bg: #0f1115;
-  --panel: #171a21;
-  --panel-2: #1e222b;
-  --line: #2a2f3a;
-  --text: #e6e9ef;
-  --muted: #98a1b3;
-  --accent: #6aa9ff;
-  --pass: #4ec98a;
-  --fail: #ef6f6f;
-  --warn: #e3b341;
+/* Healthcare demo — app layer on top of the shared design system.
+ *
+ * Everything structural (tokens, panels, tables, chips, verdicts, controls)
+ * comes from `design-system.css`, which is imported first. This file only adds
+ * what is specific to this app: the masthead, the guard panel's lever rail, the
+ * round/phase sequence, the gate list, and the worklist's severity stripe.
+ *
+ * Two rules hold throughout, and they are the design system's rules:
+ *   - Colour carries meaning only. Every chromatic element here is a decision
+ *     state (permit / narrow / deny) or the one functional blue for focus.
+ *   - No state is carried by colour alone. A stripe encodes it in form and the
+ *     chip beside it spells the word out, so the page reads in greyscale.
+ *
+ * Both themes come from the tokens. There is no literal colour below.
+ */
+
+/* ===== Shell ============================================================== */
+
+.shell {
+  padding-block: var(--ds-6) var(--ds-7);
 }
 
-@media (prefers-color-scheme: light) {
-  :root {
-    --bg: #f6f7f9;
-    --panel: #ffffff;
-    --panel-2: #f0f2f6;
-    --line: #dde1e8;
-    --text: #1b1f27;
-    --muted: #5d6675;
-    --accent: #1f6feb;
-    --pass: #1a7f4b;
-    --fail: #c13c3c;
-    --warn: #9a6b06;
+.masthead {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-2);
+  padding-bottom: var(--ds-5);
+  border-bottom: 1px solid var(--ds-line-strong);
+}
+
+.masthead h1 {
+  font-size: clamp(var(--ds-step-3), 4.2vw, var(--ds-step-4));
+  max-width: 34ch;
+}
+
+.lede {
+  color: var(--ds-ink-2);
+}
+
+.panels {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-5);
+  margin-top: var(--ds-5);
+}
+
+.foot {
+  margin-top: var(--ds-6);
+  padding-top: var(--ds-4);
+  border-top: 1px solid var(--ds-line);
+  color: var(--ds-ink-3);
+  font-size: var(--ds-step--1);
+}
+
+/* ===== Panel heads ======================================================== */
+
+.head-titles {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-1);
+  min-width: 0;
+}
+
+.head-meta {
+  font-size: var(--ds-step--1);
+  color: var(--ds-ink-3);
+}
+
+.head-select {
+  flex: 0 1 14rem;
+}
+
+/* The guard panel is the argument this demo makes, so it is the one panel that
+ * announces itself — a heavier top rule, not a different colour. */
+.panel.guard {
+  border-top: 2px solid var(--ds-ink-2);
+}
+
+.panel.guard > .ds-panel-head {
+  background: var(--ds-inset);
+  border-bottom-color: var(--ds-line-strong);
+}
+
+/* ===== Shared text ======================================================== */
+
+.note {
+  max-width: var(--ds-measure);
+  color: var(--ds-ink-2);
+  font-size: var(--ds-step--1);
+}
+
+.note em {
+  font-style: normal;
+  font-family: var(--ds-font-mono);
+  font-size: 0.95em;
+  color: var(--ds-ink);
+}
+
+.mono {
+  font-family: var(--ds-font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.92em;
+}
+
+.wrap {
+  overflow-wrap: anywhere;
+}
+
+.ds-chip--inert {
+  background: var(--ds-inert-bg);
+  color: var(--ds-inert);
+}
+
+/* ===== Banners ============================================================ */
+
+/* A recorded run and an uncaptured combination are both first-class states, so
+ * they are stated in place rather than shown as a transient message. */
+.banner {
+  margin-block: var(--ds-4);
+  padding: var(--ds-3) var(--ds-4);
+  border: 1px solid var(--ds-line);
+  border-left: 3px solid var(--ds-line-strong);
+  border-radius: 0 var(--ds-r-1) var(--ds-r-1) 0;
+  background: var(--ds-panel);
+  color: var(--ds-ink-2);
+  font-size: var(--ds-step--1);
+  line-height: 1.6;
+  max-width: 86ch;
+}
+
+.banner strong {
+  font-family: var(--ds-font-mono);
+  font-size: 0.86em;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.banner .mono {
+  color: var(--ds-ink);
+  overflow-wrap: anywhere;
+}
+
+.banner.recorded {
+  border-left-color: var(--ds-narrow);
+  background: var(--ds-narrow-bg);
+}
+
+.banner.recorded strong {
+  color: var(--ds-narrow);
+}
+
+.banner.error {
+  border-left-color: var(--ds-deny);
+  background: var(--ds-deny-bg);
+  color: var(--ds-deny);
+  overflow-wrap: anywhere;
+}
+
+.outcome > .banner:first-child {
+  margin-top: 0;
+}
+
+/* ===== Guard panel ======================================================== */
+
+.guard-grid {
+  display: grid;
+  gap: var(--ds-4);
+  align-items: start;
+  min-width: 0;
+}
+
+@media (min-width: 920px) {
+  .guard-grid {
+    grid-template-columns: minmax(12rem, 16rem) minmax(0, 1fr);
+    gap: var(--ds-5);
   }
 }
 
-* { box-sizing: border-box; }
+.levers {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-3);
+  padding: var(--ds-4);
+}
 
-body {
+.lever-check {
+  align-self: start;
+  color: var(--ds-ink);
+}
+
+.lever-go {
+  justify-content: center;
+  margin-top: var(--ds-1);
+}
+
+.outcome {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-4);
+  min-width: 0;
+}
+
+.outcome-idle {
+  border-left: 2px solid var(--ds-line-strong);
+  padding-left: var(--ds-3);
+}
+
+/* The verdict is the answer, so the decision word is the largest thing in the
+ * panel and the numbers that produced it sit directly under it. */
+.guard .verdict {
+  display: block;
+  padding: var(--ds-4);
+}
+
+.guard .verdict strong {
+  display: block;
+  font-size: clamp(var(--ds-step-2), 5vw, var(--ds-step-3));
+  letter-spacing: 0.04em;
+}
+
+.verdict-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 var(--ds-4);
+  margin-top: var(--ds-1);
+  font-size: var(--ds-step--1);
+}
+
+.guard-message {
+  border-left: 2px solid var(--ds-line-strong);
+  padding-left: var(--ds-3);
+  color: var(--ds-ink);
+  font-size: var(--ds-step--1);
+  max-width: var(--ds-measure);
+}
+
+/* The strategy is the lever's consequence, so it owns the last column and is
+ * the only emphasised cell in the table. */
+.restrictions .strategy-col,
+.restrictions .strategy {
+  border-left: 1px solid var(--ds-line-strong);
+  padding-left: var(--ds-3);
+}
+
+.restrictions .strategy {
+  font-weight: 600;
+  color: var(--ds-ink);
+  white-space: nowrap;
+}
+
+.restrictions .why {
+  color: var(--ds-ink-3);
+  max-width: 34ch;
+}
+
+/* ===== Rounds and phases ================================================== */
+
+.pilot-summary {
+  padding-bottom: var(--ds-1);
+  border-bottom: 1px solid var(--ds-line);
+}
+
+.phases {
+  counter-reset: phase;
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-4);
+}
+
+.round {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-3);
+  border-top: 1px solid var(--ds-line);
+  padding-top: var(--ds-4);
+}
+
+.round-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--ds-2) var(--ds-3);
+}
+
+.round-head h3 {
+  font-family: var(--ds-font-mono);
+  font-size: var(--ds-step-0);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+/* The phases really are a sequence, so they are numbered. Nothing else is. */
+.phase .round-head h3::before {
+  counter-increment: phase;
+  content: counter(phase, decimal-leading-zero) " ";
+  color: var(--ds-ink-3);
+  font-weight: 500;
+}
+
+.digest {
+  color: var(--ds-ink-3);
+  font-size: 0.78rem;
+  overflow-wrap: anywhere;
+}
+
+.round-count {
+  font-size: var(--ds-step--1);
+  color: var(--ds-ink-2);
+}
+
+.round h4 {
+  margin-top: var(--ds-2);
+  font-family: var(--ds-font-mono);
+  font-size: var(--ds-step--1);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ds-ink-3);
+}
+
+.candidate .verdict strong {
+  text-transform: uppercase;
+}
+
+.verdict-key {
+  font-size: 0.72rem;
+  font-weight: 500;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.verdict-note {
+  font-size: var(--ds-step--1);
+}
+
+.reasons {
+  max-width: var(--ds-measure);
+}
+
+/* ===== Release gates ====================================================== */
+
+/* One row per gate, each stating its own outcome in words, with the stripe
+ * repeating it in form. A gate that was not evaluated is not a pass. */
+.gates {
+  list-style: none;
   margin: 0;
-  background: var(--bg);
-  color: var(--text);
-  font: 15px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-2);
 }
 
-.page { max-width: 1120px; margin: 0 auto; padding: 32px 16px 64px; }
-
-header h1 { font-size: 1.6rem; margin: 0 0 8px; }
-.lede { color: var(--muted); margin: 0 0 8px; max-width: 70ch; }
-
-.banner { padding: 12px 14px; border-radius: 8px; margin: 16px 0; }
-.banner.error { background: rgba(239, 111, 111, 0.12); border: 1px solid var(--fail); }
-
-.card {
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  padding: 20px;
-  margin: 20px 0;
-}
-
-.card h2 { margin: 0 0 12px; font-size: 1.15rem; }
-.card-head { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; }
-.controls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
-
-button, select {
-  background: var(--panel-2);
-  color: var(--text);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 8px 14px;
-  font: inherit;
-  cursor: pointer;
-}
-button:hover:not(:disabled), select:hover { border-color: var(--accent); }
-button:disabled { opacity: 0.55; cursor: progress; }
-
-label { display: inline-flex; gap: 6px; align-items: center; color: var(--muted); }
-
-input[type="number"] {
-  background: var(--panel-2);
-  color: var(--text);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 7px 8px;
-  font: inherit;
-  width: 5.5rem;
-}
-input[type="number"]:hover, input[type="number"]:focus { border-color: var(--accent); }
-
-.facts { display: flex; flex-wrap: wrap; gap: 24px; margin: 0 0 16px; }
-.facts div { margin: 0; }
-.facts dt { color: var(--muted); font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.04em; }
-.facts dd { margin: 2px 0 0; font-weight: 600; }
-
-table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 0.92rem; }
-th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
-th { color: var(--muted); font-weight: 600; font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.03em; }
-
-.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.85em; }
-.basis { color: var(--muted); font-size: 0.85em; max-width: 34ch; }
-
-.note { color: var(--muted); font-size: 0.88rem; max-width: 76ch; margin: 10px 0 0; }
-
-.round { border-top: 1px solid var(--line); margin-top: 18px; padding-top: 16px; }
-.round h3 { margin: 0 0 6px; font-size: 1rem; display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
-.round h4 { margin: 18px 0 6px; font-size: 0.95rem; }
-.digest { color: var(--muted); font-family: ui-monospace, monospace; font-size: 0.78rem; font-weight: 400; }
-
-.reasons { margin: 8px 0; padding-left: 18px; color: var(--muted); font-size: 0.9rem; }
-.reasons li { margin: 3px 0; }
-
-.gates { list-style: none; margin: 8px 0; padding: 0; }
 .gates li {
-  display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap;
-  padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; margin-bottom: 6px;
-  background: var(--panel-2);
-}
-.gates li .detail { color: var(--muted); font-size: 0.86rem; }
-.gates li.passed { border-left: 3px solid var(--pass); }
-.gates li.failed { border-left: 3px solid var(--fail); }
-.gates li.not_evaluated { border-left: 3px solid var(--warn); }
-
-.tag {
-  display: inline-block; padding: 1px 8px; border-radius: 999px;
-  font-size: 0.74rem; text-transform: uppercase; letter-spacing: 0.04em;
-  border: 1px solid var(--line); background: var(--bg);
-}
-.tag.urgent { color: var(--fail); border-color: var(--fail); }
-.tag.elevated { color: var(--warn); border-color: var(--warn); }
-.tag.routine { color: var(--muted); }
-
-.verdict { font-weight: 600; margin: 12px 0 0; }
-.verdict.release { color: var(--pass); }
-.verdict.reject { color: var(--fail); }
-.verdict.another_round { color: var(--warn); }
-
-details { margin: 10px 0; }
-summary { cursor: pointer; color: var(--accent); font-size: 0.9rem; }
-pre {
-  background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px;
-  padding: 12px; overflow-x: auto; font-size: 0.82rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--ds-2) var(--ds-3);
+  padding: var(--ds-2) var(--ds-3);
+  border: 1px solid var(--ds-line);
+  border-left: 3px solid var(--ds-line-strong);
+  border-radius: 0 var(--ds-r-1) var(--ds-r-1) 0;
+  background: var(--ds-inset);
+  font-size: var(--ds-step--1);
 }
 
-footer { color: var(--muted); font-size: 0.85rem; border-top: 1px solid var(--line); padding-top: 16px; margin-top: 32px; }
+.gates li.passed { border-left-color: var(--ds-permit); }
+.gates li.failed { border-left-color: var(--ds-deny); }
+.gates li.not_evaluated { border-left-color: var(--ds-narrow); }
 
-@media (max-width: 640px) {
-  .page { padding: 20px 16px 48px; }
-  table { font-size: 0.85rem; }
-  .basis { display: none; }
+.gates li strong {
+  font-family: var(--ds-font-mono);
+  font-weight: 600;
+}
+
+.gates li .detail {
+  flex: 1 1 22ch;
+  color: var(--ds-ink-2);
+}
+
+/* ===== Worklist =========================================================== */
+
+/* Priority is a left stripe on the row plus the chip's own word. */
+.worklist tbody td:first-child {
+  border-left: 3px solid transparent;
+  padding-left: var(--ds-2);
+}
+
+.worklist tbody tr.urgent td:first-child { border-left-color: var(--ds-deny); }
+.worklist tbody tr.elevated td:first-child { border-left-color: var(--ds-narrow); }
+.worklist tbody tr.routine td:first-child { border-left-color: var(--ds-line-strong); }
+
+.basis {
+  color: var(--ds-ink-3);
+  max-width: 32ch;
+}
+
+/* ===== Narrow screens ===================================================== */
+
+/* At 400px the panels keep their hairlines and lose their generous gutter;
+ * wide tables scroll inside their own container, never the page. */
+@media (max-width: 560px) {
+  .shell {
+    padding-block: var(--ds-5) var(--ds-6);
+  }
+
+  .ds-panel > * {
+    padding-inline: var(--ds-4);
+  }
+
+  .head-select {
+    flex: 1 1 100%;
+  }
+
+  .basis {
+    display: none;
+  }
 }
