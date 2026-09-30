@@ -113,6 +113,31 @@ def _safe_site_id(site_id: str) -> str:
     return site_id
 
 
+def connection_hint(database_url: str) -> str:
+    """Extra guidance for the one connection failure that looks like nothing else.
+
+    Supabase's direct host, `db.<ref>.supabase.co`, resolves to an IPv6 address
+    only. GitHub Actions runners and Render's egress are both IPv4-only, so the
+    connection string the Supabase dashboard shows first cannot work from
+    either — and the failure arrives as a bare "Network is unreachable" with
+    nothing pointing at the cause. The pooler host is dual-stack.
+
+    Returns an empty string when the URL is not that shape, so this never
+    editorialises about an unrelated error.
+    """
+    host = urlparse(database_url).hostname or ""
+    if not (host.startswith("db.") and host.endswith(".supabase.co")):
+        return ""
+    return (
+        "\n\nThis is Supabase's direct host, which has no IPv4 address. GitHub Actions and "
+        "Render are IPv4-only, so it is unreachable from both. Use the pooler connection "
+        "string instead: Supabase → Connect → Session pooler, which looks like\n"
+        "  postgresql://postgres.<project-ref>:<password>@aws-0-<region>.pooler.supabase.com:5432/postgres\n"
+        "Note the username carries the project ref, and the password must be percent-encoded "
+        "if it contains special characters."
+    )
+
+
 def _clean(row: dict[str, Any]) -> dict[str, Any]:
     """Shape a database row like a generated record.
 
@@ -159,6 +184,7 @@ def load_from_database(
     except Exception as exc:  # the adapter raises driver errors verbatim
         raise CohortUnavailableError(
             f"Could not read {profile.site_id} from the configured database: {exc}"
+            + connection_hint(database_url)
         ) from exc
 
     records = [_clean(record) for batch in batches for record in batch.records]

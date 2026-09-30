@@ -39,6 +39,7 @@ sys.path.insert(0, str(APP_ROOT / "backend"))
 sys.path.insert(0, str(REPO_ROOT))
 
 from app.domain.synthetic import DEFAULT_HOSPITALS, HospitalProfile, generate_cohort  # noqa: E402
+from app.services.encounters import connection_hint  # noqa: E402
 
 #: Columns written per encounter, in the order the insert binds them. Derived
 #: from `stroke-triage-features-v2`; a field added to the contract and not here
@@ -111,7 +112,11 @@ def seed(dsn: str, cohort_size: int, *, replace: bool) -> dict[str, int]:
         raise SystemExit(f"psycopg is required to seed: {exc}")
 
     written: dict[str, int] = {}
-    with psycopg.connect(dsn) as connection:
+    try:
+        connection = psycopg.connect(dsn)
+    except Exception as exc:
+        raise SystemExit(f"Could not connect: {exc}{connection_hint(dsn)}")
+    with connection:
         with connection.cursor() as cursor:
             if replace:
                 # Encounters cascade from hospitals, but be explicit: a reseed
