@@ -29,7 +29,8 @@ from app.domain.conditions import (
     STROKE_FEATURE_CONTRACT,
     STROKE_FEATURE_CONTRACT_VERSION,
 )
-from app.domain.synthetic import HospitalProfile, generate_cohort
+from app.domain.synthetic import HospitalProfile
+from app.services.encounters import load_cohort
 
 
 class StrokeDataSource:
@@ -40,9 +41,11 @@ class StrokeDataSource:
     consortium never calls it.
     """
 
-    def __init__(self, profile: HospitalProfile, cohort_size: int) -> None:
+    def __init__(self, profile: HospitalProfile, cohort_size: int, database_url: str = "") -> None:
         self._profile = profile
-        self._records = generate_cohort(profile, cohort_size)
+        # Where the cohort came from travels with it, so the API can report the
+        # provenance rather than leaving a reader to assume.
+        self._records, self.provenance = load_cohort(profile, cohort_size, database_url)
 
     @property
     def records_held(self) -> list[dict[str, Any]]:
@@ -126,11 +129,11 @@ class Hospital:
     boundaries are active: before read, before train, and before send.
     """
 
-    def __init__(self, profile: HospitalProfile, cohort_size: int = 400) -> None:
+    def __init__(self, profile: HospitalProfile, cohort_size: int = 400, database_url: str = "") -> None:
         self.profile = profile
         self.site_id = profile.site_id
         self.display_name = profile.display_name
-        self.data_source = StrokeDataSource(profile, cohort_size)
+        self.data_source = StrokeDataSource(profile, cohort_size, database_url)
         self.governance = GovernanceService()
         self.governance.register_classification(STROKE_CLASSIFICATION)
         self._worker: LocalFederatedWorker | None = None

@@ -159,6 +159,12 @@ jobs:
         env:
           DEMO_BASE_PATH: ${{ env.BASE_PATH }}/healthcare-demo/
           VITE_DAGENTS_STATIC: "1"
+          # When the deployed API is configured, the published demo calls it
+          # instead of replaying the capture. Set `HEALTHCARE_API_BASE` as a
+          # repository variable once the API is live; until then this is empty
+          # and the demo stays a replay, which is the honest default rather than
+          # a page pointing at a backend that does not exist.
+          VITE_HEALTHCARE_API_BASE: ${{ vars.HEALTHCARE_API_BASE }}
         working-directory: apps/healthcare-demo/frontend
         run: |
           npm ci

@@ -63,9 +63,11 @@ class Consortium:
         profiles: list[HospitalProfile] | None = None,
         cohort_size: int = 400,
         secure_aggregation_threshold: int = 3,
+        database_url: str = "",
     ) -> None:
         self.hospitals: dict[str, Hospital] = {
-            profile.site_id: Hospital(profile, cohort_size) for profile in (profiles or DEFAULT_HOSPITALS)
+            profile.site_id: Hospital(profile, cohort_size, database_url)
+            for profile in (profiles or DEFAULT_HOSPITALS)
         }
         self._engine = InProcessFederationEngine()
         self.controller = FederatedRoundController(engine=self._engine)

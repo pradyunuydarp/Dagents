@@ -31,7 +31,20 @@ class Settings:
     api_host: str = os.getenv("HEALTHCARE_DEMO_API_HOST", "0.0.0.0")
     api_port: int = int(os.getenv("HEALTHCARE_DEMO_API_PORT", "8080"))
 
-    #: Synthetic cohort size per simulated hospital.
+    #: Browser origins allowed to call this API, comma-separated. Empty means
+    #: any origin, which is right for a local run and for a public read-only
+    #: demo that holds no credentials — but a deployment should name the
+    #: frontend it serves, so an unexpected origin is a question rather than a
+    #: default.
+    cors_origins: str = os.getenv("HEALTHCARE_DEMO_CORS_ORIGINS", "")
+
+    #: Postgres/Supabase URL for the encounter store. Empty means the cohort is
+    #: generated in process instead. When it is set and cannot be read the app
+    #: fails rather than falling back: showing generated data while reporting a
+    #: live database would be the one lie this demo cannot afford.
+    database_url: str = os.getenv("HEALTHCARE_DEMO_DATABASE_URL", "")
+
+    #: Cohort size per simulated hospital — generated, or read back per site.
     cohort_size: int = int(os.getenv("HEALTHCARE_DEMO_COHORT_SIZE", "400"))
 
     #: Sites below which secure aggregation must not reveal a contribution.
@@ -50,6 +63,11 @@ class Settings:
     register_extension: bool = _bool_env("HEALTHCARE_DEMO_REGISTER_EXTENSION", True)
 
     artifacts_dir: Path = Path(os.getenv("HEALTHCARE_DEMO_ARTIFACTS_DIR", "artifacts"))
+
+    def allowed_origins(self) -> list[str]:
+        """The CORS origin list, falling back to any origin when unset."""
+        origins = [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
+        return origins or ["*"]
 
     def as_health_payload(self) -> dict[str, str]:
         return {
