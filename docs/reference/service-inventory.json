@@ -682,7 +682,7 @@
           "path": "/api/v1/framework/status",
           "handler": "framework_status",
           "status_code": null,
-          "summary": "Which Dagents services are reachable from here.",
+          "summary": "Which Dagents services are reachable, and where the cohorts came from.",
           "alias_of": null
         },
         {

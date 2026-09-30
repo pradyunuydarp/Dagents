@@ -120,7 +120,7 @@ Ports come from `env/`; never hardcode them — each service has distinct
 |---|---|---|---|
 | GET | `/api/v1/conditions` | `conditions` | What this app implements, and what it deliberately does not |
 | GET | `/api/v1/extension` | `extension` | Exactly what this app contributes to the framework |
-| GET | `/api/v1/framework/status` | `framework_status` | Which Dagents services are reachable from here |
+| GET | `/api/v1/framework/status` | `framework_status` | Which Dagents services are reachable, and where the cohorts came from |
 | GET | `/api/v1/framework/trace` | `framework_trace` | Run stroke records through the framework's planners, step by step |
 | POST | `/api/v1/governance:probe` | `governance_probe` | Run one request through the Guard and show exactly what came back |
 | GET | `/api/v1/health` | `health_v1` | versioned alias of `GET /health`; Versioned alias for the health endpoint |

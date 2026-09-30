@@ -1,0 +1,56 @@
+# Render blueprint for the healthcare demo API.
+#
+# The existing Dockerfile is used unchanged: it already builds `dagentsc` in a
+# first stage and copies the binary into the runtime image, which this service
+# cannot work without — the Ethical Guard fails closed, so an image missing the
+# planner denies every request and the demo shows nothing but denials.
+#
+# No secret value appears in this file. Everything sensitive is marked
+# `sync: false`, which makes Render prompt for it once at create time and store
+# it in the service's own environment. A value committed here would be a value
+# in every clone of the repository and in its history.
+#
+# To deploy: Render dashboard → New → Blueprint → connect the repository and
+# point it at this file.
+
+services:
+  - type: web
+    name: dagents-healthcare-api
+    runtime: docker
+    plan: free
+    region: oregon
+    # Build from the repository root, because the Dockerfile copies `agents/`
+    # and `env/` from there as well as the app itself.
+    dockerfilePath: ./apps/healthcare-demo/backend/Dockerfile
+    dockerContext: .
+    healthCheckPath: /api/v1/health
+    autoDeployTrigger: commit
+
+    envVars:
+      # --- set once, in the Render dashboard -----------------------------
+      # The Supabase pooled connection string. Use the pooler (port 6543) on a
+      # free instance: a container that restarts often will exhaust direct
+      # connections, and the failure looks like an unrelated timeout.
+      - key: HEALTHCARE_DEMO_DATABASE_URL
+        sync: false
+
+      # Comma-separated browser origins allowed to call this API. The published
+      # frontend lives on a different origin from the API, so without this the
+      # browser blocks every request and the page looks broken rather than
+      # blocked.
+      - key: HEALTHCARE_DEMO_CORS_ORIGINS
+        sync: false
+
+      # --- safe to keep in the blueprint ---------------------------------
+      - key: HEALTHCARE_DEMO_APP_ENV
+        value: production
+      - key: HEALTHCARE_DEMO_API_HOST
+        value: 0.0.0.0
+      # Render injects PORT and expects the service to bind it.
+      - key: HEALTHCARE_DEMO_API_PORT
+        fromService:
+          type: web
+          name: dagents-healthcare-api
+          property: port
+      - key: HEALTHCARE_DEMO_COHORT_SIZE
+        value: "400"

@@ -47,6 +47,7 @@ if settings.register_extension:
 consortium = Consortium(
     cohort_size=settings.cohort_size,
     secure_aggregation_threshold=settings.secure_aggregation_threshold,
+    database_url=settings.database_url,
 )
 framework = FrameworkClient(settings)
 
@@ -60,7 +61,10 @@ app = FastAPI(
 )
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    # The published frontend is on a different origin from the API, so this is
+    # what stands between a working demo and a page whose every request the
+    # browser blocks — which looks like the API being down, not like a policy.
+    allow_origins=settings.allowed_origins(),
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -258,8 +262,18 @@ def run_pilot(request: PilotRequest) -> dict[str, Any]:
 
 @app.get("/api/v1/framework/status")
 def framework_status() -> dict[str, Any]:
-    """Which Dagents services are reachable from here."""
-    return {"services": framework.service_status()}
+    """Which Dagents services are reachable, and where the cohorts came from.
+
+    The provenance is reported rather than implied. A reader looking at a
+    deployed demo should be able to tell a cohort read from the encounter store
+    from one generated in process, without inferring it from the URL.
+    """
+    provenance = sorted({hospital.data_source.provenance for hospital in consortium.hospitals.values()})
+    return {
+        "services": framework.service_status(),
+        "cohort_source": provenance[0] if len(provenance) == 1 else provenance,
+        "records_are_synthetic": True,
+    }
 
 
 @app.get("/api/v1/framework/trace")

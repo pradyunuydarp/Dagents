@@ -46,8 +46,25 @@ export class NotRecordedError extends Error {
   }
 }
 
-/** True when this build replays a capture instead of calling a backend. */
-export const isRecorded = import.meta.env.VITE_DAGENTS_STATIC === "1";
+/**
+ * A deployed API to call, when one is configured at build time.
+ *
+ * With this set the published build stops replaying and talks to the real
+ * backend, which is reading its cohorts from the encounter store. Empty means
+ * same-origin, which is what the local dev proxy serves.
+ */
+export const apiBase = (import.meta.env.VITE_HEALTHCARE_API_BASE ?? "").replace(/\/$/, "");
+
+/**
+ * True when this build replays a capture instead of calling a backend.
+ *
+ * A configured API wins over the capture. There is deliberately no fallback
+ * from live to recorded: if the deployed backend is unreachable the page says
+ * so, because quietly serving a recording from another commit as though it were
+ * live would misreport both the data and the framework's behaviour — and the
+ * reader would have no way to tell.
+ */
+export const isRecorded = import.meta.env.VITE_DAGENTS_STATIC === "1" && apiBase === "";
 
 /**
  * Stable key for a request, so lookup does not depend on key order.
@@ -121,7 +138,7 @@ async function replay<T>(method: string, path: string, body?: unknown): Promise<
 /** GET a JSON document, live or recorded. */
 export async function getJson<T>(path: string): Promise<T> {
   if (isRecorded) return replay<T>("GET", path);
-  const response = await fetch(path);
+  const response = await fetch(`${apiBase}${path}`);
   if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
   return (await response.json()) as T;
 }
@@ -129,7 +146,7 @@ export async function getJson<T>(path: string): Promise<T> {
 /** POST a JSON body and read a JSON document back, live or recorded. */
 export async function postJson<T>(path: string, body: unknown): Promise<T> {
   if (isRecorded) return replay<T>("POST", path, body);
-  const response = await fetch(path, {
+  const response = await fetch(`${apiBase}${path}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body)

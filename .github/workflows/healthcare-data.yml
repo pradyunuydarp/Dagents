@@ -1,0 +1,123 @@
+name: Healthcare data
+
+# Applies the stroke demo's migrations to Supabase and seeds it.
+#
+# Manual only. A migration that ran on every push would apply a half-finished
+# schema the moment it was committed, and a seed that ran on every push would
+# rewrite the consortium under a running deployment. Both are things you should
+# have to ask for.
+#
+# This is also the only place the database credential is used. It lives in the
+# repository's Actions secrets, never in the repository — and never in this
+# container: the environment running the assistant cannot reach Supabase at all,
+# which is why applying the schema is a CI job rather than something done by
+# hand from a laptop.
+#
+# Required secret:
+#   SUPABASE_DB_URL  Supabase → Project settings → Database → Connection string
+#                    (URI). Use the pooler host on a free instance.
+
+on:
+  workflow_dispatch:
+    inputs:
+      seed:
+        description: "Seed synthetic encounters after migrating"
+        type: boolean
+        default: true
+      cohort_size:
+        description: "Encounters per site"
+        type: string
+        default: "400"
+      append:
+        description: "Keep existing encounters instead of replacing them"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: healthcare-data
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    name: Migrate and seed
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: apps/healthcare-demo/requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r apps/healthcare-demo/requirements.txt "psycopg[binary]>=3.2,<3.4"
+
+      - name: Refuse to run without a credential
+        # A missing secret would otherwise surface as a confusing connection
+        # error several steps later.
+        run: |
+          if [ -z "${{ secrets.SUPABASE_DB_URL }}" ]; then
+            echo "::error::SUPABASE_DB_URL is not set. Add it under Settings → Secrets and variables → Actions."
+            exit 1
+          fi
+
+      - name: The schema still matches the feature contract
+        # Checked before anything is applied: a migration that has drifted from
+        # `stroke-triage-features-v2` would store a narrower record than the
+        # consortium agreed to, and the round would measure less than it claims.
+        working-directory: apps/healthcare-demo
+        env:
+          PYTHONPATH: ${{ github.workspace }}:${{ github.workspace }}/apps/healthcare-demo/backend
+        run: python -m unittest discover -s tests -t . -p "test_supabase_schema.py" -v
+
+      - name: Apply migrations
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: python apps/healthcare-demo/scripts/apply_migrations.py
+
+      - name: Seed synthetic encounters
+        if: ${{ inputs.seed }}
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          python apps/healthcare-demo/scripts/seed_supabase.py \
+            --cohort-size "${{ inputs.cohort_size }}" \
+            ${{ inputs.append && '--append' || '' }}
+
+      - name: Confirm what is stored
+        # Reads the database back rather than trusting the seed's own report, and
+        # checks the properties the demo depends on: three sites, and recording
+        # gaps still present. A seeded database with no missingness would make
+        # the data-quality path unreachable and nothing else would notice.
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          python - <<'PY'
+          import os, psycopg
+          with psycopg.connect(os.environ["SUPABASE_DB_URL"]) as conn, conn.cursor() as cur:
+              cur.execute("""
+                  select site_id, count(*),
+                         count(*) filter (where nihss_total is null)
+                  from public.encounters group by site_id order by site_id
+              """)
+              rows = cur.fetchall()
+          if not rows:
+              raise SystemExit("No encounters are stored.")
+          gaps = 0
+          for site, total, missing in rows:
+              print(f"  {site:24} {total:5} encounters, {missing:4} missing NIHSS")
+              gaps += missing
+          if len(rows) < 3:
+              raise SystemExit(f"Expected three sites, found {len(rows)}.")
+          if gaps == 0:
+              raise SystemExit(
+                  "No recording gaps are stored, so the data-quality path has nothing to find."
+              )
+          print(f"{len(rows)} sites stored, {gaps} recorded gaps preserved")
+          PY
