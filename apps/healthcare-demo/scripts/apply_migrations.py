@@ -26,6 +26,16 @@ import sys
 APP_ROOT = Path(__file__).resolve().parents[1]
 MIGRATIONS = APP_ROOT / "supabase" / "migrations"
 
+# The hint for Supabase's IPv6-only direct host lives with the app's data code,
+# so there is one copy of it rather than three that drift.
+sys.path.insert(0, str(APP_ROOT / "backend"))
+sys.path.insert(0, str(APP_ROOT.parents[1]))
+try:
+    from app.services.encounters import connection_hint
+except ImportError:  # pragma: no cover - the app is importable in every real run
+    def connection_hint(_: str) -> str:
+        return ""
+
 LEDGER = """
 create table if not exists public.schema_migrations (
     filename   text primary key,
@@ -57,7 +67,11 @@ def apply(dsn: str) -> list[str]:
         raise SystemExit(f"psycopg is required to apply migrations: {exc}")
 
     applied: list[str] = []
-    with psycopg.connect(dsn) as connection:
+    try:
+        connection = psycopg.connect(dsn)
+    except Exception as exc:
+        raise SystemExit(f"Could not connect: {exc}{connection_hint(dsn)}")
+    with connection:
         with connection.cursor() as cursor:
             cursor.execute(LEDGER)
             cursor.execute("select filename from public.schema_migrations")
