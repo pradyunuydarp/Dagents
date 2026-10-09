@@ -337,10 +337,11 @@ export default function App() {
           <div className="section-head">
             <h2>Built on it</h2>
             <p className="ds-note">
-              Both demos are published below. Neither has a backend on this site, so each replays a
-              capture of a real run: the responses were recorded from the live backends with the
-              OCaml planner built, and each page names the commit it was captured from. Ask one for
-              something the capture does not hold and it says so rather than inventing an answer.
+              Both demos are published below, and neither invents an answer. They get theirs
+              differently — one calls a deployed backend, the other replays a capture of a real run
+              — so each says which, on its card and on its own page. Nothing here is a mock: a
+              question the capture does not cover is refused, and a backend that cannot be reached
+              is reported rather than papered over.
             </p>
           </div>
           <div className="demo-grid">
@@ -360,6 +361,10 @@ export default function App() {
                     <div>
                       <dt>Dagents owns</dt>
                       <dd className="prose">{demo.framework}</dd>
+                    </div>
+                    <div>
+                      <dt>Where its answers come from</dt>
+                      <dd className="prose">{demo.transport}</dd>
                     </div>
                   </dl>
                   <p className="ds-note caveat">{demo.caveat}</p>

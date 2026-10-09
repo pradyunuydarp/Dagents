@@ -28,6 +28,14 @@ export interface DemoLink {
   owns: string;
   framework: string;
   proves: string;
+  /**
+   * Where the published page gets its answers.
+   *
+   * The two demos differ, and the difference is the kind of thing a reader is
+   * entitled to know before trusting a panel — so each states its own rather
+   * than one sentence covering both.
+   */
+  transport: string;
   caveat: string;
 }
 
@@ -46,6 +54,8 @@ export const DEMOS: DemoLink[] = [
     framework: "Governance, federation, and everything generic",
     proves:
       "That the governance and federation layers really decide things, and what they cost. Three levers change the guard's strategy; a candidate beats its baseline on AUC and is still refused release because a fairness gate fails.",
+    transport:
+      "Calls a deployed API that reads its encounters from Postgres, with the planner in the image. The page names the backend and prints the provenance that backend reports, so a replay cannot be mistaken for a live read.",
     caveat: "Synthetic patients. Not a medical device, not clinically validated."
   },
   {
@@ -55,6 +65,8 @@ export const DEMOS: DemoLink[] = [
     framework: "Validation, planning, service checks and workload compilation",
     proves:
       "That an ordinary app can consume the framework end to end: a trace of SourceSpec validation, extraction planning, schema contracts, quality rules, DAG planning and model routing, then the service calls behind them.",
+    transport:
+      "No deployed backend, so it replays a capture of a real run — recorded from the live services with the planner built, at a commit the page names. A request the capture does not hold is refused rather than answered.",
     caveat: "The published run uses the deterministic fallback adapter, not a GPU model."
   }
 ];
