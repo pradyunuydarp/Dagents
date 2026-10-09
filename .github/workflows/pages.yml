@@ -409,3 +409,32 @@ jobs:
     steps:
       - id: deployment
         uses: actions/deploy-pages@v4
+
+      - uses: actions/checkout@v4
+
+      - name: The published pages answer at the addresses the docs give
+        # Six documents link these paths, and a README cannot notice that a demo
+        # now 404s. The addresses are read from `env/.env.published` rather than
+        # repeated here, so a moved site is one edit and this step checks the
+        # edit was true. Pages can take a moment to serve a fresh deployment, so
+        # each URL gets a few attempts before it counts as missing.
+        run: |
+          set -uo pipefail
+          failed=0
+          while IFS='=' read -r key url; do
+            case "${key}" in ''|'#'*) continue ;; esac
+            [ -n "${url}" ] || continue
+            code=""
+            for attempt in 1 2 3 4 5; do
+              code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 "${url}" || true)
+              [ "${code}" = "200" ] && break
+              sleep 5
+            done
+            printf '%-36s %s  %s\n' "${key}" "${code:-no response}" "${url}"
+            if [ "${code}" != "200" ]; then
+              echo "::error::${url} (${key}) returned ${code:-no response}. Every README linking it" \
+                   "is now pointing at a page that does not load."
+              failed=1
+            fi
+          done < <(grep -E '^[A-Z0-9_]+_PUBLIC_SITE_URL=' env/.env.published)
+          exit "${failed}"

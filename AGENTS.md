@@ -243,6 +243,12 @@ Implemented framework capabilities currently include:
   condition packs, pipeline steps, and model adapters without forking the framework
 - separate Docker images for `lma`, `gma`, `core-service`, `model-service`, and `pipeline-service`
 - top-level `docker-compose.yml` for multi-container local or cloud-like deployment
+- a published site at <https://pradyunuydarp.github.io/Dagents/> carrying the documentation, the
+  generated API reference, and both demos; and a deployed healthcare-demo API reading its encounters
+  from Postgres through the framework's own source adapter, with the planner in the image. The
+  stroke demo calls it; the NL2SQL demo replays a capture, because it has no deployed backend. A
+  workflow exercises the deployment itself — guard levers, cohort floor, a governed pilot, the audit
+  chains — because every fault that deployment has had was invisible to the local suites
 
 Deliberately **not** implemented, and named so nobody assumes otherwise:
 
@@ -350,3 +356,13 @@ This keeps failure isolation, upgrade independence, explicit contracts, and simp
 
 - Watchdog
 - Datalytics
+
+Two in-repo consumers prove the boundary from different directions, and both are published:
+
+- [`apps/healthcare-demo/`](apps/healthcare-demo/README.md) — governance and federated rounds.
+  Live: <https://pradyunuydarp.github.io/Dagents/healthcare-demo/>. The app owns its clinical
+  feature contract, scoring rule, FHIR mapping and intended-use statement; nothing in `agents/`
+  knows what a stroke is, and nothing in the app re-implements a quorum rule.
+- [`services/nl2sql-demo/`](services/nl2sql-demo/README.md) — validation, planning, service checks
+  and workload compilation. Live: <https://pradyunuydarp.github.io/Dagents/nl2sql-demo/>. The app
+  owns its UI and its SQL generation.
