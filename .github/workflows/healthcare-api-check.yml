@@ -1,0 +1,165 @@
+name: Healthcare API check
+
+# Asks the deployed healthcare API what it is doing, from somewhere that can
+# reach it.
+#
+# This exists because the question comes up constantly and cannot be answered
+# from a development container: the agent sandbox has no route to the host, and
+# the Pages gate only reports pass or fail. When the published demo falls back
+# to its recording, this says which of the handful of reasons it was — the
+# service was never deployed, it is asleep, it is crash-looping, it is up but
+# generating its own cohorts, or it will not accept browser requests from the
+# published page.
+#
+# It reads nothing secret and prints nothing secret. The address comes from
+# `env/.env.published`, which is committed because it is a published URL.
+
+on:
+  workflow_dispatch:
+    inputs:
+      api:
+        description: "API base to probe (default: the one in env/.env.published)"
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    name: Probe the deployed API
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve the address
+        env:
+          # Through `env:`, not `${{ }}`: a dispatch input interpolated into a
+          # script is shell supplied by whoever pressed the button.
+          OVERRIDE: ${{ inputs.api }}
+        run: |
+          set -euo pipefail
+          resolved="${OVERRIDE}"
+          if [ -z "${resolved}" ]; then
+            resolved=$(sed -n 's/^HEALTHCARE_DEMO_PUBLIC_API_URL=//p' env/.env.published | tail -1)
+          fi
+          case "${resolved}" in
+            https://*) ;;
+            *)
+              echo "::error::'${resolved}' is not an https URL."
+              exit 1
+              ;;
+          esac
+          echo "API=${resolved}" >> "$GITHUB_ENV"
+          echo "probing ${resolved}"
+
+      - name: Is it answering at all
+        env:
+          API: ${{ env.API }}
+        run: |
+          set -uo pipefail
+          # No retry loop here, on purpose: this is a diagnosis, and the first
+          # response is the one that says what state the service is in. The
+          # Pages gate is the place that waits out a cold start.
+          #
+          # Headers to their own file and stderr to another, so `-w` is the only
+          # thing on stdout: mixing curl's error text into the same capture
+          # makes `tail -1` a race between the status code and the message.
+          code=$(curl -sS -o /tmp/body -D /tmp/headers -w '%{http_code}' --max-time 45 \
+                   "${API}/api/v1/health" 2>/tmp/curl-err) || true
+          echo "status: ${code:-<no response>}"
+          if [ -s /tmp/curl-err ]; then
+            echo "--- curl said ---"
+            cat /tmp/curl-err
+          fi
+          echo "--- response headers of interest ---"
+          tr -d '\r' < /tmp/headers \
+            | grep -iE '^(server|x-render-routing|rndr-id|retry-after|content-type|access-control-allow-origin):' \
+            || echo "(none of the usual ones were sent)"
+          echo "--- first 300 bytes of body ---"
+          head -c 300 /tmp/body 2>/dev/null || true
+          echo
+
+          # Render's own routing header is the fastest way to tell these apart,
+          # and the reason this job prints headers rather than just a code.
+          routing=$(tr -d '\r' < /tmp/headers \
+                      | sed -n 's/^[Xx]-[Rr]ender-[Rr]outing: //p' | tail -1)
+          case "${routing}" in
+            no-server)
+              echo "::error::Render says no-server: nothing is deployed at this address. Either" \
+                   "the blueprint was never applied, the first build failed, or the service was" \
+                   "suspended or deleted. Check the service's Events and Logs tabs."
+              ;;
+            hibernate*|suspend*)
+              echo "::error::Render says the service is suspended or hibernating (${routing})." \
+                   "A free instance that exceeded its monthly hours stays down until the quota" \
+                   "resets or the plan changes."
+              ;;
+            dynamic|"")
+              : # routed to the service; the status code below is the story
+              ;;
+            *)
+              echo "::notice::x-render-routing: ${routing}"
+              ;;
+          esac
+
+          echo "HEALTH_CODE=${code}" >> "$GITHUB_ENV"
+          [ "${code}" = "200" ] || {
+            echo "::error::${API} is not serving. Everything below is skipped."
+            exit 1
+          }
+
+      - name: What it says about itself
+        if: ${{ env.HEALTH_CODE == '200' }}
+        env:
+          API: ${{ env.API }}
+        run: |
+          set -euo pipefail
+          echo "--- /api/v1/framework/status ---"
+          curl -sS --max-time 45 "${API}/api/v1/framework/status" | python3 -c "
+          import json, sys
+          d = json.load(sys.stdin)
+          print('cohort_source     :', d.get('cohort_source'))
+          print('records synthetic :', d.get('records_are_synthetic'))
+          for service in d.get('services', []):
+              print(f\"  {service['name']:22} {service['status']}\")
+          if d.get('cohort_source') != 'supabase':
+              print()
+              print('This API is generating its cohorts in process. The published demo would')
+              print('claim live data for invented data, so the Pages gate refuses it. Set')
+              print('HEALTHCARE_DEMO_DATABASE_URL on the service to the Supabase pooler URL.')
+          "
+
+          echo "--- /api/v1/overview ---"
+          curl -sS --max-time 45 "${API}/api/v1/overview" | python3 -c "
+          import json, sys
+          d = json.load(sys.stdin)
+          print('study            :', d.get('study_id'))
+          for hospital in d.get('hospitals', []):
+              print(f\"  {hospital['site_id']:22} cohort {hospital['cohort_size']}\")
+          "
+
+      - name: Will a browser be allowed to call it
+        if: ${{ env.HEALTH_CODE == '200' }}
+        env:
+          API: ${{ env.API }}
+          ORIGIN: https://${{ github.repository_owner }}.github.io
+        run: |
+          set -uo pipefail
+          # With an Origin header, because without one this is not the request a
+          # browser makes and a blocked API looks perfectly healthy.
+          allow=$(curl -sS -o /dev/null -D - --max-time 45 -H "Origin: ${ORIGIN}" \
+                    "${API}/api/v1/health" | tr -d '\r' \
+                  | sed -n 's/^[Aa]ccess-[Cc]ontrol-[Aa]llow-[Oo]rigin: //p' | tail -1)
+          echo "Access-Control-Allow-Origin for ${ORIGIN}: ${allow:-<absent>}"
+          case "${allow}" in
+            "*" | "${ORIGIN}")
+              echo "a browser on ${ORIGIN} may call this API"
+              ;;
+            *)
+              echo "::error::Every request from the published page would be blocked by the" \
+                   "browser. Set HEALTHCARE_DEMO_CORS_ORIGINS on the service to include" \
+                   "${ORIGIN}, or unset it to allow any origin."
+              exit 1
+              ;;
+          esac
