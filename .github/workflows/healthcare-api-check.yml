@@ -153,14 +153,26 @@ jobs:
                     "${API}/api/v1/health" | tr -d '\r' \
                   | sed -n 's/^[Aa]ccess-[Cc]ontrol-[Aa]llow-[Oo]rigin: //p' | tail -1)
           echo "Access-Control-Allow-Origin for ${ORIGIN}: ${allow:-<absent>}"
+
+          # What the service says it will accept, so the failure names the
+          # actual configured value rather than only the missing header. An
+          # annotation is the cheapest thing to read back from a finished run,
+          # so the diagnosis belongs in it and not only in the log.
+          configured=$(curl -sS --max-time 45 "${API}/api/v1/framework/status" \
+                       | python3 -c "import json,sys; print(json.load(sys.stdin).get('allowed_origins', 'not reported'))" \
+                       || echo "could not be read")
+          echo "the service reports it allows: ${configured}"
+
           case "${allow}" in
             "*" | "${ORIGIN}")
               echo "a browser on ${ORIGIN} may call this API"
               ;;
             *)
               echo "::error::Every request from the published page would be blocked by the" \
-                   "browser. Set HEALTHCARE_DEMO_CORS_ORIGINS on the service to include" \
-                   "${ORIGIN}, or unset it to allow any origin."
+                   "browser. Asked as ${ORIGIN}, the API sent Access-Control-Allow-Origin:" \
+                   "${allow:-<absent>}, and reports its allowed origins as ${configured}." \
+                   "Set HEALTHCARE_DEMO_CORS_ORIGINS on the service to ${ORIGIN} exactly" \
+                   "(an origin, with no path), or unset it to allow any origin."
               exit 1
               ;;
           esac
