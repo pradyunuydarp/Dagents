@@ -72,22 +72,33 @@ jobs:
         # /<repository>/…, which 404s on the custom domain — the failure would
         # appear only after someone pointed a domain at this, and would look
         # like a DNS problem.
+        #
+        # Every repository variable reaches this script through `env:` rather
+        # than `${{ }}`. Anyone who can set a variable could otherwise set it to
+        # shell, and it would run here with the workflow's token.
+        env:
+          PAGES_OUTCOME: ${{ steps.pages.outcome }}
+          PAGES_BASE_PATH: ${{ steps.pages.outputs.base_path }}
+          PAGES_BASE_URL: ${{ steps.pages.outputs.base_url }}
+          CUSTOM_DOMAIN: ${{ vars.PAGES_CUSTOM_DOMAIN }}
+          REPOSITORY_NAME: ${{ github.event.repository.name }}
+          REPOSITORY_OWNER: ${{ github.repository_owner }}
         run: |
-          if [ "${{ steps.pages.outcome }}" = "success" ]; then
-            resolved="${{ steps.pages.outputs.base_path }}"
-            echo "Pages reports base_url=${{ steps.pages.outputs.base_url }}"
-            origin=$(printf '%s' "${{ steps.pages.outputs.base_url }}" | sed -E 's#^(https?://[^/]+).*#\1#')
+          if [ "${PAGES_OUTCOME}" = "success" ]; then
+            resolved="${PAGES_BASE_PATH}"
+            echo "Pages reports base_url=${PAGES_BASE_URL}"
+            origin=$(printf '%s' "${PAGES_BASE_URL}" | sed -E 's#^(https?://[^/]+).*#\1#')
           else
-            resolved="/${{ github.event.repository.name }}"
-            origin="https://${{ github.repository_owner }}.github.io"
+            resolved="/${REPOSITORY_NAME}"
+            origin="https://${REPOSITORY_OWNER}.github.io"
             echo "::warning::Pages is not enabled for this repository yet, so the base path was" \
                  "derived as ${resolved}. A repository admin enables it under" \
                  "Settings → Pages → Build and deployment → Source: GitHub Actions."
           fi
           # A custom domain wins: that is where the browser will be when it
           # calls the API, which is what the CORS check below has to ask about.
-          if [ -n "${{ vars.PAGES_CUSTOM_DOMAIN }}" ]; then
-            origin="https://${{ vars.PAGES_CUSTOM_DOMAIN }}"
+          if [ -n "${CUSTOM_DOMAIN}" ]; then
+            origin="https://${CUSTOM_DOMAIN}"
           fi
           echo "BASE_PATH=${resolved}" >> "$GITHUB_ENV"
           echo "PAGES_ORIGIN=${origin}" >> "$GITHUB_ENV"
@@ -179,15 +190,43 @@ jobs:
         # copy of it. A `HEALTHCARE_API_BASE` repository variable overrides the
         # file without a commit, which is how a branch gets pointed at a
         # staging API.
+        env:
+          OVERRIDE: ${{ vars.HEALTHCARE_API_BASE }}
         run: |
           set -euo pipefail
-          resolved="${{ vars.HEALTHCARE_API_BASE }}"
-          if [ -n "${resolved}" ]; then
-            echo "source: the HEALTHCARE_API_BASE repository variable"
-          else
-            resolved=$(sed -n 's/^HEALTHCARE_DEMO_PUBLIC_API_URL=//p' env/.env.published | tail -1)
-            echo "source: env/.env.published"
+          resolved=$(sed -n 's/^HEALTHCARE_DEMO_PUBLIC_API_URL=//p' env/.env.published | tail -1)
+          source="env/.env.published"
+
+          if [ -n "${OVERRIDE}" ]; then
+            # An override carrying a query string or credentials is refused and
+            # never echoed. Pasting a deploy hook in here instead of the service
+            # URL is an easy mistake with two costs: every request the published
+            # page made would be rejected, and because repository variables are
+            # not masked, the key lands in this log in plain text.
+            case "${OVERRIDE}" in
+              *'?'* | *'@'* | *'api.render.com/sync/'*)
+                echo "::warning::The HEALTHCARE_API_BASE repository variable carries a query" \
+                     "string or credentials, so it is a deploy hook or a connection string" \
+                     "rather than a service URL. It is being ignored in favour of" \
+                     "env/.env.published. Delete the variable, and rotate whatever key it" \
+                     "holds: repository variables are not masked, so its value has been" \
+                     "printed in this run's log."
+                {
+                  echo "### Ignored the HEALTHCARE_API_BASE variable"
+                  echo
+                  echo "Its value carries a query string or credentials, which an API base URL"
+                  echo "does not. Delete the variable and rotate the key it holds — variables"
+                  echo "are not masked in logs."
+                } >> "$GITHUB_STEP_SUMMARY"
+                ;;
+              *)
+                resolved="${OVERRIDE}"
+                source="the HEALTHCARE_API_BASE repository variable"
+                ;;
+            esac
           fi
+
+          echo "source: ${source}"
           echo "healthcare API: ${resolved:-<none — the demo will publish as a replay>}"
           echo "HEALTHCARE_API_BASE=${resolved}" >> "$GITHUB_ENV"
 
@@ -297,6 +336,8 @@ jobs:
           npm run build
 
       - name: Assemble the published tree
+        env:
+          CUSTOM_DOMAIN: ${{ vars.PAGES_CUSTOM_DOMAIN }}
         run: |
           rm -rf _site
           mkdir -p _site
@@ -312,9 +353,9 @@ jobs:
           # can clear it, so the domain is declared here instead — as a
           # repository variable, so it is configuration rather than a literal
           # buried in a workflow.
-          if [ -n "${{ vars.PAGES_CUSTOM_DOMAIN }}" ]; then
-            echo "${{ vars.PAGES_CUSTOM_DOMAIN }}" > _site/CNAME
-            echo "custom domain: ${{ vars.PAGES_CUSTOM_DOMAIN }}"
+          if [ -n "${CUSTOM_DOMAIN}" ]; then
+            echo "${CUSTOM_DOMAIN}" > _site/CNAME
+            echo "custom domain: ${CUSTOM_DOMAIN}"
           fi
           echo "--- published tree ---"
           find _site -maxdepth 2 -type f | sort | head -40

@@ -266,6 +266,93 @@ class DesignSystemTests(unittest.TestCase):
         )
 
 
+def workflow_step_script(text: str, name: str) -> str:
+    """The shell body of one `run:` step, lifted out of a workflow.
+
+    Deliberately not a YAML parse: PyYAML is not a declared dependency of this
+    repository, and a guard that skips itself when an import is missing is
+    green without having run. The slice is strict instead — a step that stops
+    matching raises here rather than quietly testing nothing.
+    """
+    lines = text.splitlines()
+    start = next(i for i, line in enumerate(lines) if line.strip() == f"- name: {name}")
+    run = next(i for i in range(start, len(lines)) if lines[i].strip() == "run: |")
+    indent = len(lines[run]) - len(lines[run].lstrip()) + 2
+    body = []
+    for line in lines[run + 1 :]:
+        if line.strip() and not line.startswith(" " * indent):
+            break
+        body.append(line[indent:] if line.strip() else "")
+    if not any(body):
+        raise AssertionError(f"found no script under {name!r}")
+    return "\n".join(body)
+
+
+class ApiAddressResolutionTests(unittest.TestCase):
+    """What the published demo is pointed at, and what it refuses to be.
+
+    This runs the workflow's own resolution step rather than a copy of it. The
+    case that matters is the third: a deploy hook pasted into the override
+    variable instead of the service URL. Using it would publish a demo whose
+    every request is rejected, and — because repository variables are not
+    masked — print its key in a public log.
+    """
+
+    WORKFLOW = REPO_ROOT / ".github" / "workflows" / "pages.yml"
+    STEP = "Resolve the deployed healthcare API"
+
+    def resolve(self, override: str) -> tuple[str, str]:
+        """Run the step with that override; return (resolved address, stdout)."""
+        import subprocess
+        import tempfile
+
+        script = workflow_step_script(self.WORKFLOW.read_text(encoding="utf-8"), self.STEP)
+        with tempfile.TemporaryDirectory() as tmp:
+            env_file = Path(tmp) / "env"
+            summary = Path(tmp) / "summary"
+            env_file.touch()
+            summary.touch()
+            proc = subprocess.run(
+                ["bash", "-c", script],
+                cwd=REPO_ROOT,
+                capture_output=True,
+                text=True,
+                env={
+                    "PATH": "/usr/bin:/bin",
+                    "OVERRIDE": override,
+                    "GITHUB_ENV": str(env_file),
+                    "GITHUB_STEP_SUMMARY": str(summary),
+                },
+            )
+            self.assertEqual(0, proc.returncode, proc.stderr)
+            written = env_file.read_text(encoding="utf-8").strip()
+        prefix = "HEALTHCARE_API_BASE="
+        self.assertTrue(written.startswith(prefix), written)
+        return written[len(prefix) :], proc.stdout
+
+    def test_without_an_override_it_uses_the_committed_address(self) -> None:
+        resolved, out = self.resolve("")
+        self.assertTrue(resolved.startswith("https://"), resolved)
+        self.assertIn("env/.env.published", out)
+
+    def test_a_plain_override_wins(self) -> None:
+        resolved, out = self.resolve("https://staging-api.example.com")
+        self.assertEqual("https://staging-api.example.com", resolved)
+        self.assertIn("repository variable", out)
+
+    def test_an_override_carrying_a_key_is_refused_and_not_used(self) -> None:
+        committed, _ = self.resolve("")
+        resolved, out = self.resolve("https://api.render.com/sync/exs-abc?key=secret")
+        self.assertEqual(committed, resolved, "a deploy hook was used as the API base")
+        self.assertIn("::warning::", out)
+        self.assertIn("rotate", out)
+
+    def test_an_override_carrying_credentials_is_refused(self) -> None:
+        committed, _ = self.resolve("")
+        resolved, _ = self.resolve("https://user:pass@api.example.com")
+        self.assertEqual(committed, resolved)
+
+
 class PublishedEndpointTests(unittest.TestCase):
     """`env/.env.published` is where a deployed address lives, and only that.
 
