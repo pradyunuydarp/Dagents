@@ -231,25 +231,35 @@ jobs:
           echo "HEALTHCARE_API_BASE=${resolved}" >> "$GITHUB_ENV"
 
       - name: The live API is up and serving the encounter store
-        # Two different failures, treated differently on purpose.
+        # Four things have to hold before the demo may be published live: the
+        # API answers, it reports reading the encounter store, that store has
+        # rows, and a browser on this site's origin is allowed to call it. Any
+        # one of them failing clears the address, and the demo publishes as a
+        # replay instead.
         #
-        # A backend that cannot be woken is an outage, and failing the deploy
-        # over it would also stop the framework site and the other demo from
-        # shipping. So this falls back to the replay — which is labelled as a
-        # replay on the page, so nothing is misrepresented — and warns.
+        # None of them fails the deploy, and that is a deliberate reversal of
+        # how this started. Failing meant an external service's configuration
+        # could stop the framework site and the other demo from publishing at
+        # all — a docs change blocked by somebody else's environment variable.
+        # And it bought nothing, because the replay is *correct*: the page says
+        # it is replaying a capture and names the commit, so nothing is
+        # misrepresented either way. What the honesty argument actually demands
+        # is that the demo never claims live data it does not have, which
+        # clearing the address guarantees.
         #
-        # A backend that answers but is serving cohorts it generated itself, or
-        # an empty store, or one a browser is not allowed to call, is a
-        # misconfiguration: the page would claim live data for invented data,
-        # or break for every visitor. Those fail the deploy, because each is a
-        # one-line fix on the service and nobody would go looking for it behind
-        # a warning.
+        # So the loudness lives in the warning and the run summary, and the
+        # `Healthcare API check` workflow is the one that fails on demand when
+        # someone wants a red mark to chase.
         if: ${{ env.HEALTHCARE_API_BASE != '' }}
         env:
           API: ${{ env.HEALTHCARE_API_BASE }}
           ORIGIN: ${{ env.PAGES_ORIGIN }}
         run: |
-          set -euo pipefail
+          set -uo pipefail
+
+          # Each check appends its reason here. Empty at the end means live.
+          reason=""
+
           # Render's free tier sleeps, so the first request may take ~60s to
           # wake the service. That is a cold start, not a failure.
           echo "waking ${API} ..."
@@ -261,57 +271,69 @@ jobs:
             sleep 10
           done
           if [ "${code}" != "200" ]; then
-            echo "::warning::${API} never woke up, so the healthcare demo is publishing as a" \
-                 "replay of its capture instead of calling the live API. The page says so."
-            {
-              echo "### Healthcare demo: published as a replay"
-              echo
-              echo "\`${API}\` did not return a healthy response within two minutes, so this"
-              echo "deploy shipped the recorded capture rather than a page pointing at a"
-              echo "backend that is down. Re-run this workflow once the API is up."
-            } >> "$GITHUB_STEP_SUMMARY"
-            echo "HEALTHCARE_API_BASE=" >> "$GITHUB_ENV"
-            exit 0
+            reason="it did not return a healthy response within two minutes (last status: ${code:-no response})"
           fi
 
-          status=$(curl -sS --max-time 30 "${API}/api/v1/framework/status")
-          echo "$status" | python3 -c "
-          import json, sys
-          d = json.load(sys.stdin)
-          source = d.get('cohort_source')
-          print('cohort_source:', source)
-          if source != 'supabase':
-              raise SystemExit(
-                  f'The deployed API reports cohort_source={source!r}. It is generating cohorts '
-                  'in process, so the published demo would claim live data for invented data. '
-                  'Set HEALTHCARE_DEMO_DATABASE_URL on the API service.'
-              )
-          "
+          if [ -z "${reason}" ]; then
+            source=$(curl -sS --max-time 30 "${API}/api/v1/framework/status" \
+                     | python3 -c "import json,sys; print(json.load(sys.stdin).get('cohort_source'))" \
+                     || echo "unreadable")
+            echo "cohort_source: ${source}"
+            if [ "${source}" != "supabase" ]; then
+              reason="it reports cohort_source=${source}, so it is generating cohorts in process rather than reading the encounter store"
+            fi
+          fi
 
-          # And it must actually return rows, not an empty store.
-          site=$(curl -sS --max-time 30 "${API}/api/v1/overview" | python3 -c "import json,sys; print(json.load(sys.stdin)['hospitals'][0]['site_id'])")
-          rows=$(curl -sS --max-time 30 "${API}/api/v1/hospitals/${site}/worklist?limit=5" | python3 -c "import json,sys; print(len(json.load(sys.stdin)['worklist']))")
-          echo "${site}: ${rows} worklist rows"
-          [ "${rows}" -gt 0 ] || { echo "::error::The API returned an empty worklist."; exit 1; }
+          if [ -z "${reason}" ]; then
+            site=$(curl -sS --max-time 30 "${API}/api/v1/overview" \
+                   | python3 -c "import json,sys; print(json.load(sys.stdin)['hospitals'][0]['site_id'])" || true)
+            rows=$(curl -sS --max-time 30 "${API}/api/v1/hospitals/${site}/worklist?limit=5" \
+                   | python3 -c "import json,sys; print(len(json.load(sys.stdin)['worklist']))" || echo 0)
+            echo "${site}: ${rows} worklist rows"
+            if [ "${rows:-0}" -lt 1 ]; then
+              reason="its encounter store returned no rows for ${site}"
+            fi
+          fi
 
-          # The page is on a different origin from the API, so the browser asks
-          # permission before it asks for data. Without this header every
-          # request is blocked and the demo looks like it is down — the one
-          # failure that cannot be seen from a curl that does not send Origin.
-          allow=$(curl -sS -o /dev/null -D - --max-time 30 -H "Origin: ${ORIGIN}" \
-                    "${API}/api/v1/health" \
-                  | tr -d '\r' | sed -n 's/^[Aa]ccess-[Cc]ontrol-[Aa]llow-[Oo]rigin: //p' | tail -1)
-          echo "CORS for ${ORIGIN}: ${allow:-<absent>}"
-          case "${allow}" in
-            "*"|"${ORIGIN}") : ;;
-            *)
-              echo "::error::${API} does not allow browser requests from ${ORIGIN}" \
-                   "(Access-Control-Allow-Origin: ${allow:-absent}), so every request from the" \
-                   "published page would be blocked. Set HEALTHCARE_DEMO_CORS_ORIGINS on the" \
-                   "service to include ${ORIGIN}, or unset it to allow any origin."
-              exit 1
-              ;;
-          esac
+          if [ -z "${reason}" ]; then
+            # The page is on a different origin from the API, so the browser asks
+            # permission before it asks for data. Without this header every
+            # request is blocked and the demo looks like it is down — the one
+            # failure that cannot be seen from a curl that does not send Origin.
+            allow=$(curl -sS -o /dev/null -D - --max-time 30 -H "Origin: ${ORIGIN}" \
+                      "${API}/api/v1/health" \
+                    | tr -d '\r' | sed -n 's/^[Aa]ccess-[Cc]ontrol-[Aa]llow-[Oo]rigin: //p' | tail -1)
+            echo "CORS for ${ORIGIN}: ${allow:-<absent>}"
+            case "${allow}" in
+              "*"|"${ORIGIN}") ;;
+              *)
+                reason="it does not allow browser requests from ${ORIGIN} (Access-Control-Allow-Origin: ${allow:-absent}), so every request from the published page would be blocked"
+                ;;
+            esac
+          fi
+
+          if [ -n "${reason}" ]; then
+            echo "::warning::The healthcare demo is publishing as a replay, not against" \
+                 "${API}, because ${reason}. The page says it is a replay, so nothing is" \
+                 "misrepresented — but the live data is not live."
+            {
+              echo "### Healthcare demo: published as a replay, not live"
+              echo
+              echo "\`${API}\` was not used, because ${reason}."
+              echo
+              echo "The page ships the recorded capture and says so. Run the"
+              echo "**Healthcare API check** workflow for the full diagnosis, fix the service,"
+              echo "then re-run this one."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "HEALTHCARE_API_BASE=" >> "$GITHUB_ENV"
+          else
+            echo "the deployed API is live, reading the encounter store, and callable from ${ORIGIN}"
+            {
+              echo "### Healthcare demo: published live"
+              echo
+              echo "Calling \`${API}\`, which reports \`cohort_source: supabase\`."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       - name: Build the healthcare demo
         env:

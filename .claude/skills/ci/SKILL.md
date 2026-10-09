@@ -120,13 +120,21 @@ or the service does not allow browser requests from the Pages origin — which a
 plain `curl` cannot see, because without an `Origin` header it is not the
 request a browser makes.
 
-Defence: the Pages build probes the API before building the frontend, and treats
-the three differently on purpose. **An outage publishes the replay** with a
-warning and a run-summary note, because failing the deploy would also stop the
-framework site and the other demo from shipping over somebody else's downtime.
-**A misconfiguration fails the deploy** — wrong `cohort_source`, an empty
-worklist, or a missing `Access-Control-Allow-Origin` — because each publishes a
-page that is broken or dishonest and each is a one-line fix on the service.
+Defence: the Pages build probes the API before building the frontend — it must
+answer, report `cohort_source: supabase`, return rows, and send
+`Access-Control-Allow-Origin` for the Pages origin. **Any of those failing
+clears the address and the demo publishes as a replay**, with a warning and a
+run-summary note naming the reason. None of them fails the deploy.
+
+That last part was the other way round first, and the reversal is the lesson.
+Failing meant an external service's environment variable could stop the
+framework site and the other demo from publishing at all — a docs change
+blocked by somebody else's CORS setting — and it bought nothing, because the
+replay is *correct*: the page says it is replaying a capture and names the
+commit. The honesty rule is "never claim live data you do not have", and
+clearing the address satisfies it. Loudness belongs in the warning and the
+summary; `healthcare-api-check.yml` is the workflow that fails on demand when
+someone wants a red mark to chase.
 
 ### f. Three frontends drifting apart visually
 

@@ -89,18 +89,34 @@ demo holding no credentials.
 
 ## What the publish gate checks
 
-Before the healthcare demo is published against a live API, the Pages workflow probes it. Two
-kinds of failure, treated differently on purpose:
+Before the healthcare demo is published against a live API, the Pages workflow probes it. Four
+things have to hold:
 
-- **It cannot be woken** — the deploy continues and the demo publishes as a replay of its
-  capture, labelled as one on the page, with a warning and a line in the run summary. Failing the
-  whole deploy would also stop the framework site and the other demo from shipping over somebody
-  else's outage.
-- **It answers, but wrongly** — `cohort_source` is not `supabase` (it is generating cohorts in
-  process, so the page would claim live data for invented data), the worklist is empty, or the
-  API does not allow browser requests from the Pages origin (every request would be blocked and
-  the demo would look down rather than misconfigured). Each fails the deploy, because each is a
-  one-line fix on the service and nobody goes looking for it behind a warning.
+- it answers `/api/v1/health` within two minutes, which allows for a cold start;
+- it reports `cohort_source: supabase`, so it is reading the store rather than generating cohorts
+  in process;
+- that store returns rows;
+- it sends `Access-Control-Allow-Origin` for the Pages origin, asked *with* an `Origin` header —
+  without one it is not the request a browser makes, and an API that blocks every published
+  request looks perfectly healthy.
+
+Any of them failing means the demo publishes as a **replay** instead, with a warning and a line in
+the run summary naming the reason. None of them fails the deploy: the framework site and the other
+demo should not stop publishing because an environment variable on another service is wrong, and
+the replay is correct in any case — the page says it is replaying a capture and names the commit.
+What must never happen is the page claiming live data it does not have, and clearing the address is
+what prevents that.
+
+Run the **Healthcare API check** workflow for the diagnosis. That one does fail, loudly, and its
+failure annotation names the status, the header, and the origins the service says it allows.
+
+### Deploys are not always automatic
+
+`autoDeployTrigger: commit` applies to a service Render created from this blueprint and linked to
+the branch. A service created by hand, or with auto-deploy off, keeps serving its last image
+however many commits land — and the symptom is subtle, because everything works except the thing
+you just fixed. The tell is `GET /api/v1/framework/status` missing a field the committed code
+returns. **Manual Deploy → Deploy latest commit** settles it.
 
 ## Cold starts
 
