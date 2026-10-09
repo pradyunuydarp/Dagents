@@ -155,6 +155,48 @@ jobs:
           npm ci
           npm run build
 
+      - name: The live API is up and serving the encounter store
+        # Only when the demo is being pointed at a deployed API. Publishing a
+        # page that calls a backend which is down gives every visitor a broken
+        # demo, and publishing one that calls a backend quietly serving
+        # generated cohorts would claim live data for invented data. A runner
+        # can reach Render, so this is checked where it can be.
+        if: ${{ vars.HEALTHCARE_API_BASE != '' }}
+        env:
+          API: ${{ vars.HEALTHCARE_API_BASE }}
+        run: |
+          set -euo pipefail
+          # Render's free tier sleeps, so the first request may take ~60s to
+          # wake the service. That is a cold start, not a failure.
+          echo "waking ${API} ..."
+          for attempt in $(seq 1 12); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 "${API}/api/v1/health" || true)
+            [ "$code" = "200" ] && { echo "health 200 after ${attempt} attempt(s)"; break; }
+            echo "  attempt ${attempt}: ${code:-no response}"
+            sleep 10
+          done
+          [ "${code:-}" = "200" ] || { echo "::error::${API} never returned a healthy response."; exit 1; }
+
+          status=$(curl -sS --max-time 30 "${API}/api/v1/framework/status")
+          echo "$status" | python3 -c "
+          import json, sys
+          d = json.load(sys.stdin)
+          source = d.get('cohort_source')
+          print('cohort_source:', source)
+          if source != 'supabase':
+              raise SystemExit(
+                  f'The deployed API reports cohort_source={source!r}. It is generating cohorts '
+                  'in process, so the published demo would claim live data for invented data. '
+                  'Set HEALTHCARE_DEMO_DATABASE_URL on the API service.'
+              )
+          "
+
+          # And it must actually return rows, not an empty store.
+          site=$(curl -sS --max-time 30 "${API}/api/v1/overview" | python3 -c "import json,sys; print(json.load(sys.stdin)['hospitals'][0]['site_id'])")
+          rows=$(curl -sS --max-time 30 "${API}/api/v1/hospitals/${site}/worklist?limit=5" | python3 -c "import json,sys; print(len(json.load(sys.stdin)['worklist']))")
+          echo "${site}: ${rows} worklist rows"
+          [ "${rows}" -gt 0 ] || { echo "::error::The API returned an empty worklist."; exit 1; }
+
       - name: Build the healthcare demo
         env:
           DEMO_BASE_PATH: ${{ env.BASE_PATH }}/healthcare-demo/
