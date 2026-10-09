@@ -297,6 +297,12 @@ def framework_status() -> dict[str, Any]:
         "services": framework.service_status(),
         "cohort_source": provenance[0] if len(provenance) == 1 else provenance,
         "records_are_synthetic": True,
+        # Which browser origins this deployment will answer. Not a secret — a
+        # browser discovers it by asking — and the one piece of configuration
+        # whose being wrong is invisible from outside: every request is blocked
+        # before it arrives, so the page looks down rather than refused. Stating
+        # it turns that into something a reader can check in one request.
+        "allowed_origins": settings.allowed_origins(),
     }
 
 

@@ -54,6 +54,20 @@ The username carries the project ref, and a password with special characters has
 percent-encoded. `connection_hint()` in `backend/app/services/encounters.py` prints this when a
 connection to the direct host fails, so the next person loses minutes rather than an afternoon.
 
+### `HEALTHCARE_DEMO_CORS_ORIGINS` takes origins, not page URLs
+
+A browser's `Origin` header is scheme, host, and port — never a path. So
+`https://example.github.io/Dagents/healthcare-demo/`, which is what you get by
+copying the address bar, matches nothing: the API refuses every request before it
+arrives, and the published page looks down rather than blocked. The right value
+is `https://example.github.io`.
+
+The app normalizes each entry to its origin for exactly this reason, and
+`GET /api/v1/framework/status` reports the list it ended up with, so the setting
+can be checked in one request instead of inferred from a blank page. Leaving the
+variable unset allows any origin, which is a reasonable default for a read-only
+demo holding no credentials.
+
 ## Standing it up
 
 1. **Create the database.** Nothing to do beyond creating the Supabase project; the schema is

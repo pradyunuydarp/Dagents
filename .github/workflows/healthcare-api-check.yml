@@ -121,6 +121,7 @@ jobs:
           d = json.load(sys.stdin)
           print('cohort_source     :', d.get('cohort_source'))
           print('records synthetic :', d.get('records_are_synthetic'))
+          print('allowed origins   :', d.get('allowed_origins', '<not reported by this version>'))
           for service in d.get('services', []):
               print(f\"  {service['name']:22} {service['status']}\")
           if d.get('cohort_source') != 'supabase':

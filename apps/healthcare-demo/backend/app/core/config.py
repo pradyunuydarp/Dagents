@@ -9,10 +9,41 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlparse
 
 from agents.common.env import load_env_files
 
 load_env_files("env/.env.shared", "env/.env.healthcare-demo", "apps/healthcare-demo/env/.env.healthcare-demo")
+
+
+def normalize_origins(configured: str) -> list[str]:
+    """Turn a comma-separated setting into origins a browser can match.
+
+    Params:
+    - `configured`: the raw `HEALTHCARE_DEMO_CORS_ORIGINS` value.
+
+    Returns:
+    - Bare origins, in the order given, without duplicates. `*` is passed
+      through untouched, since it is a wildcard rather than a URL.
+
+    An entry that carries a path, a query, or a trailing slash is reduced to its
+    origin, and one that is not a URL at all is kept as written so a
+    misconfiguration is visible rather than silently discarded.
+    """
+    origins: list[str] = []
+    for entry in configured.split(","):
+        entry = entry.strip()
+        if not entry:
+            continue
+        if entry == "*":
+            origins.append(entry)
+            continue
+        parsed = urlparse(entry)
+        if parsed.scheme and parsed.netloc:
+            entry = f"{parsed.scheme}://{parsed.netloc}".rstrip("/")
+        if entry not in origins:
+            origins.append(entry)
+    return origins
 
 
 def _bool_env(name: str, default: bool) -> bool:
@@ -65,9 +96,18 @@ class Settings:
     artifacts_dir: Path = Path(os.getenv("HEALTHCARE_DEMO_ARTIFACTS_DIR", "artifacts"))
 
     def allowed_origins(self) -> list[str]:
-        """The CORS origin list, falling back to any origin when unset."""
-        origins = [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
-        return origins or ["*"]
+        """The CORS origin list, falling back to any origin when unset.
+
+        Each entry is reduced to a bare origin — scheme, host, and port if one
+        is given — because that is the only thing a browser ever sends in an
+        `Origin` header. An entry written as a page URL,
+        `https://example.github.io/Dagents`, cannot match anything, so a
+        service configured that way blocks every request from the very site it
+        was configured for, and the page looks down rather than refused. The
+        path is dropped rather than honoured: in an origin allowlist it has no
+        meaning to honour.
+        """
+        return normalize_origins(self.cors_origins) or ["*"]
 
     def as_health_payload(self) -> dict[str, str]:
         return {
