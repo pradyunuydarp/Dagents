@@ -114,31 +114,58 @@ jobs:
         env:
           API: ${{ env.API }}
         run: |
-          set -euo pipefail
+          set -uo pipefail
           # Fetched once and reused: asking twice could print two different
           # answers and would make the report self-contradicting.
-          curl -sS --max-time 45 "${API}/api/v1/framework/status" > /tmp/status.json
-          curl -sS --max-time 45 "${API}/api/v1/overview" > /tmp/overview.json
+          #
+          # The status code is captured, not discarded. An earlier version of
+          # this step read the body and ignored the code, so a 503 saying "the
+          # database cannot be read" was reported as the service describing
+          # itself normally — a diagnostic that hid the fault it exists to find.
+          status_code=$(curl -sS -o /tmp/status.json -w '%{http_code}' --max-time 45 \
+                          "${API}/api/v1/framework/status" || echo 000)
+          overview_code=$(curl -sS -o /tmp/overview.json -w '%{http_code}' --max-time 45 \
+                            "${API}/api/v1/overview" || echo 000)
+          echo "status: ${status_code}   overview: ${overview_code}"
 
-          python3 - <<'PY'
+          STATUS_CODE="${status_code}" OVERVIEW_CODE="${overview_code}" python3 - <<'PY'
           import json
+          import os
 
-          status = json.load(open("/tmp/status.json"))
-          overview = json.load(open("/tmp/overview.json"))
+
+          def body(path):
+              try:
+                  with open(path) as handle:
+                      return json.load(handle)
+              except Exception as exc:
+                  return {"detail": f"the response was not JSON: {exc}"}
+
+
+          status = body("/tmp/status.json")
+          overview = body("/tmp/overview.json")
+          status_code = os.environ["STATUS_CODE"]
+          overview_code = os.environ["OVERVIEW_CODE"]
           source = status.get("cohort_source")
           origins = status.get("allowed_origins", "not reported")
+          failed = [code for code in (status_code, overview_code) if not code.startswith("2")]
 
-          print("--- /api/v1/framework/status ---")
+          print(f"--- /api/v1/framework/status ({status_code}) ---")
           print("cohort_source     :", source)
           print("records synthetic :", status.get("records_are_synthetic"))
           print("allowed origins   :", origins)
           for service in status.get("services", []):
               print(f"  {service['name']:22} {service['status']}")
+          if status.get("detail"):
+              # The 503 carries the driver's own words, which is the whole
+              # reason that endpoint answers at all when the store is down.
+              print("detail            :", status["detail"])
 
-          print("--- /api/v1/overview ---")
+          print(f"--- /api/v1/overview ({overview_code}) ---")
           print("study             :", overview.get("study_id"))
           for hospital in overview.get("hospitals", []):
               print(f"  {hospital['site_id']:22} cohort {hospital['cohort_size']}")
+          if overview.get("detail"):
+              print("detail            :", overview["detail"])
 
           # A notice as well as the log. Annotations are the one part of a
           # finished run that can be read back in a single cheap request, which
@@ -146,19 +173,37 @@ jobs:
           # whoever is debugging cannot reach directly.
           print(f"::notice::cohort_source={source} allowed_origins={origins}")
 
-          if source != "supabase":
-              print()
-              print("This API is generating its cohorts in process rather than reading the")
-              print("encounter store, so the published demo falls back to its recording. Set")
-              print("HEALTHCARE_DEMO_DATABASE_URL on the service to the Supabase pooler URL.")
-          if origins == "not reported":
-              print()
-              print("This build predates the field, so the service is running an older image")
-              print("than the repository. Render → Manual Deploy → Deploy latest commit.")
+          if status.get("detail"):
+              print(f"::error::The encounter store could not be read: {status['detail']}")
+          elif source == "synthetic":
+              print(
+                  "::error::This API is generating its cohorts in process rather than reading "
+                  "the encounter store, so the published demo falls back to its recording. Set "
+                  "HEALTHCARE_DEMO_DATABASE_URL on the service to the Supabase pooler URL."
+              )
+          # Only a *healthy* status response that omits the field says anything
+          # about the image's age. An error body omits it too, and reading that
+          # as "an old build" sends the next person to redeploy a service whose
+          # code was never the problem.
+          if origins == "not reported" and status_code.startswith("2"):
+              print(
+                  "::notice::This build predates the allowed_origins field, so the service is "
+                  "running an older image than the repository. Render → Manual Deploy → Deploy "
+                  "latest commit."
+              )
+
+          if failed:
+              raise SystemExit(
+                  f"The API answered {', '.join(failed)} rather than 2xx. It is running, but it "
+                  "cannot serve the demo in this state."
+              )
           PY
 
       - name: Will a browser be allowed to call it
-        if: ${{ env.HEALTH_CODE == '200' }}
+        # Runs even when the step above failed: a store that cannot be read and
+        # an origin that is refused are independent faults, and finding one
+        # should not hide the other. Only a cancelled run skips it.
+        if: ${{ !cancelled() && env.HEALTH_CODE == '200' }}
         env:
           API: ${{ env.API }}
           ORIGIN: https://${{ github.repository_owner }}.github.io
