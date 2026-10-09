@@ -117,6 +117,26 @@ what prevents that.
 Run the **Healthcare API check** workflow for the diagnosis. That one does fail, loudly, and its
 failure annotation names the status, the header, and the origins the service says it allows.
 
+## Testing the deployed services
+
+The same workflow then runs `tests/test_deployed_api.py` against the deployment: the guard's levers
+produce different protection strategies (which is how you know the planner is in the image and
+answering), a cohort below the floor is denied, an out-of-range lever is a 422 rather than a 500, a
+full pilot produces a candidate and is still refused release by a blocking gate, and every site's
+audit chain verifies. It also reports how long the first request took, against the budget the page
+waits out.
+
+Run it by hand against anything:
+
+```bash
+cd apps/healthcare-demo
+HEALTHCARE_DEPLOYED_API=https://… python -m unittest discover -s tests -t . -p "test_deployed_api.py" -v
+```
+
+Without that variable it skips, with a warning. These are the only tests that exercise what
+actually serves the published demo, and every fault this deployment has had was invisible to the
+rest of the suite.
+
 ### Deploys are not always automatic
 
 `autoDeployTrigger: commit` applies to a service Render created from this blueprint and linked to

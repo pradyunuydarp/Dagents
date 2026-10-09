@@ -43,6 +43,11 @@ Granularity = Literal["cell", "row", "column", "table", "model_update"]
 #: is released.
 GuardBoundary = Literal["before_read", "before_train", "before_send", "before_release"]
 
+#: Who is asking. Named rather than inlined on `Requester`, so a consumer's API
+#: can declare its own request bodies with the same closed set instead of taking
+#: a `str` and discovering the mismatch when the domain model rejects it.
+RequesterKind = Literal["human", "site", "coordinator", "service"]
+
 PlanDecision = Literal["permit", "narrow", "deny"]
 
 
@@ -67,7 +72,7 @@ class Requester(DagentsModel):
     """
 
     requester_id: str
-    requester_kind: Literal["human", "site", "coordinator", "service"] = "service"
+    requester_kind: RequesterKind = "service"
     affiliation: str | None = None
     stated_purpose: str | None = None
     attributes: list[KyuAttribute] = Field(default_factory=list)
