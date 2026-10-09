@@ -31,6 +31,31 @@ class NormalizeOriginsTests(unittest.TestCase):
     def test_a_trailing_slash_is_dropped(self) -> None:
         self.assertEqual(["https://example.github.io"], normalize_origins("https://example.github.io/"))
 
+    def test_wrapping_punctuation_is_stripped(self) -> None:
+        """The one that actually happened.
+
+        The deployed service held `https://pradyunuydarp.github.io)` — a stray
+        closing parenthesis from a pasted link. No origin a browser sends ends
+        in one, so the API refused every request from the published page while
+        looking perfectly healthy from a plain curl.
+        """
+        for written in (
+            "https://example.github.io)",
+            "(https://example.github.io)",
+            "<https://example.github.io>",
+            "'https://example.github.io',",
+        ):
+            with self.subTest(written=written):
+                self.assertEqual(["https://example.github.io"], normalize_origins(written))
+
+    def test_an_uppercased_host_is_lowered(self) -> None:
+        """Browsers send the host lowercased and the comparison is exact."""
+        self.assertEqual(["https://example.github.io"], normalize_origins("HTTPS://Example.GitHub.IO"))
+
+    def test_an_ipv6_origin_keeps_its_brackets(self) -> None:
+        """Stripping `]` as punctuation would corrupt a correct value."""
+        self.assertEqual(["http://[::1]:8080"], normalize_origins("http://[::1]:8080"))
+
     def test_a_port_is_kept_because_it_is_part_of_the_origin(self) -> None:
         self.assertEqual(["http://127.0.0.1:5174"], normalize_origins("http://127.0.0.1:5174"))
 
@@ -52,6 +77,15 @@ class NormalizeOriginsTests(unittest.TestCase):
     def test_something_that_is_not_a_url_is_kept_as_written(self) -> None:
         """Visibly wrong beats silently dropped: the status endpoint shows it."""
         self.assertEqual(["github.io"], normalize_origins("github.io"))
+
+    def test_an_entry_whose_host_is_mangled_is_kept_as_written(self) -> None:
+        """The limit on repairing configuration.
+
+        Noise at the ends is a paste artifact with one obvious reading. Noise in
+        the middle is not, so it is left alone and reported rather than guessed
+        at — which is why `/api/v1/framework/status` prints this list.
+        """
+        self.assertEqual(["https://exa mple.github.io"], normalize_origins("https://exa mple.github.io"))
 
 
 class SettingsOriginsTests(unittest.TestCase):
