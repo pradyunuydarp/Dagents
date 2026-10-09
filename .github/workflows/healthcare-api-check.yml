@@ -65,9 +65,26 @@ jobs:
           # Headers to their own file and stderr to another, so `-w` is the only
           # thing on stdout: mixing curl's error text into the same capture
           # makes `tail -1` a race between the status code and the message.
-          code=$(curl -sS -o /tmp/body -D /tmp/headers -w '%{http_code}' --max-time 45 \
+          # Timed, because this is the only place the wake can be measured: by
+          # the request that does the waking. A container that sleeps when idle
+          # takes as long to start as its image takes to load, and if that
+          # exceeds what the published page waits out, whoever arrives first
+          # sees an error. The number is reported as a notice so it can be read
+          # back from a finished run without opening the log.
+          started=$(date +%s)
+          code=$(curl -sS -o /tmp/body -D /tmp/headers -w '%{http_code}' --max-time 120 \
                    "${API}/api/v1/health" 2>/tmp/curl-err) || true
-          echo "status: ${code:-<no response>}"
+          elapsed=$(( $(date +%s) - started ))
+          echo "status: ${code:-<no response>}   after ${elapsed}s"
+          if [ "${code}" = "200" ]; then
+            if [ "${elapsed}" -gt 5 ]; then
+              echo "::notice::Cold start: the first request took ${elapsed}s. The published page" \
+                   "waits 90s, so a visitor arriving at a sleeping service recovers as long as" \
+                   "this stays under that."
+            else
+              echo "::notice::The service was already awake (first request ${elapsed}s)."
+            fi
+          fi
           if [ -s /tmp/curl-err ]; then
             echo "--- curl said ---"
             cat /tmp/curl-err
