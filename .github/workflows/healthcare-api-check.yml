@@ -199,6 +199,32 @@ jobs:
               )
           PY
 
+      - uses: actions/setup-python@v5
+        if: ${{ !cancelled() && env.HEALTH_CODE == '200' }}
+        with:
+          python-version: "3.11"
+
+      - name: Install what the deployed-service tests need
+        # Only httpx. These tests talk to the deployment over HTTP and import
+        # nothing from the app, so there is no reason to build the app's whole
+        # environment — this is a diagnostic that gets run repeatedly and should
+        # stay quick.
+        if: ${{ !cancelled() && env.HEALTH_CODE == '200' }}
+        run: python -m pip install "httpx<1"
+
+      - name: Exercise the deployed services
+        # The checks above establish that the service is reachable and reading
+        # the right store. These exercise what the demo actually does — the
+        # guard's levers, the cohort floor, a full governed pilot, the audit
+        # chains — against the deployment rather than a local process. Every
+        # fault this deployment has had was invisible to the local suite and
+        # obvious within one request to the running service.
+        if: ${{ !cancelled() && env.HEALTH_CODE == '200' }}
+        env:
+          HEALTHCARE_DEPLOYED_API: ${{ env.API }}
+        working-directory: apps/healthcare-demo
+        run: python -m unittest discover -s tests -t . -p "test_deployed_api.py" -v
+
       - name: Will a browser be allowed to call it
         # Runs even when the step above failed: a store that cannot be read and
         # an origin that is refused are independent faults, and finding one

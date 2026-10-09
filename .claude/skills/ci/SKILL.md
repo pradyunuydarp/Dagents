@@ -238,6 +238,16 @@ is a false report, whoever is reading it.
   fully verified by a green run alone.
 - **The NL2SQL frontend has no browser smoke test.** Its job builds the bundle,
   which proves it compiles and nothing more.
+- **Nothing in CI tests the deployed healthcare API.** `tests/test_deployed_api.py`
+  does, but only when `HEALTHCARE_DEPLOYED_API` is set, which is why it skips in
+  the `demo-apps` job and runs in `healthcare-api-check.yml` instead. That is
+  deliberate: a hermetic pipeline must not fail because a free-tier container is
+  asleep. It also means a green CI run says nothing about what is serving the
+  published demo — and every fault that deployment has had (an image with no
+  Postgres driver, a port nothing routed to, a CORS value with a stray
+  parenthesis) was invisible to every test here and obvious within one request
+  to the running service. Run the probe after changing anything the image
+  installs, the port it binds, or what it reads.
 
 When you report on a CI run, say which of these applied. That is the difference
 between a green run that means something and one that only looks like it does.
