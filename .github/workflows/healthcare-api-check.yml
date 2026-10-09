@@ -223,7 +223,36 @@ jobs:
         env:
           HEALTHCARE_DEPLOYED_API: ${{ env.API }}
         working-directory: apps/healthcare-demo
-        run: python -m unittest discover -s tests -t . -p "test_deployed_api.py" -v
+        run: |
+          set -o pipefail
+          # Failures are re-emitted as annotations. unittest writes them to the
+          # log, and a log is the expensive part of a finished run to read back;
+          # whoever is diagnosing a deployment they cannot reach should get the
+          # assertion in the one cheap request, not four hundred lines around it.
+          if python -m unittest discover -s tests -t . -p "test_deployed_api.py" -v 2>&1 \
+               | tee /tmp/deployed-tests.log; then
+            exit 0
+          fi
+          python3 - <<'PY'
+          import re
+
+          log = open("/tmp/deployed-tests.log", encoding="utf-8", errors="replace").read()
+          # Each block starts at a FAIL:/ERROR: header and runs to the next rule.
+          for block in re.split(r"={20,}", log):
+              header = re.search(r"^(FAIL|ERROR): (\S+)", block.strip(), re.MULTILINE)
+              if not header:
+                  continue
+              reason = [
+                  line.strip()
+                  for line in block.splitlines()
+                  if line.startswith(("AssertionError", "httpx.", "KeyError", "TypeError"))
+                  or " : " in line.strip()[:0]
+              ]
+              detail = reason[-1] if reason else "see the log for the traceback"
+              name = header.group(2).rsplit(".", 1)[-1]
+              print(f"::error::{header.group(1)} {name}: {detail[:800]}")
+          PY
+          exit 1
 
       - name: Will a browser be allowed to call it
         # Runs even when the step above failed: a store that cannot be read and

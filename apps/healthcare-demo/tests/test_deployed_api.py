@@ -181,8 +181,19 @@ class DeployedApiTests(unittest.TestCase):
                     "/api/v1/governance:probe",
                 )
                 key = (verified, granularity)
+                restrictions = plan["plan"]["field_restrictions"]
+                # An empty plan is what a planner-less deployment produces: the
+                # Guard fails closed, denies, and names no strategy. Said
+                # plainly here, because "every combination matched" is a
+                # confusing way to report "nothing decided anything".
+                self.assertTrue(
+                    restrictions,
+                    f"{key} came back with no field restrictions at all. The Guard fails "
+                    "closed, so this is what a deployment without the OCaml planner looks "
+                    "like — check that dagentsc is in the image.",
+                )
                 strategies[key] = sorted(
-                    restriction["strategy"] for restriction in plan["plan"]["field_restrictions"]
+                    restriction["strategy"] for restriction in restrictions
                 )
         self.assertGreater(
             len({tuple(value) for value in strategies.values()}),
