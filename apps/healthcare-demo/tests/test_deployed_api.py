@@ -201,21 +201,45 @@ class DeployedApiTests(unittest.TestCase):
             f"every lever combination produced the same protection: {strategies}",
         )
 
-    def test_a_cohort_below_the_floor_is_denied(self) -> None:
-        """The classification's minimum cohort, enforced by the deployment."""
-        plan = self.json_of(
-            self.client.post(
-            "/api/v1/governance:probe",
-            json={
-                "verified": True,
-                "granularity": "row",
-                "cohort_size": 5,
-                "boundary": "before_read",
-            },
-            ),
-            "/api/v1/governance:probe",
+    def test_the_cohort_floor_applies_where_the_granularity_makes_it_matter(self) -> None:
+        """The minimum cohort, and the condition on it.
+
+        `cohort_sensitive_granularity` in the governance compiler holds for
+        column, table and model-update requests and not for cell or row ones:
+        five rows are five records, while an aggregate over five subjects is a
+        disclosure risk. So the floor refuses the coarse request and leaves the
+        row-level one alone, and this asserts the contrast rather than half of
+        it — getting that backwards is what made this test fail against a
+        deployment that was behaving correctly.
+        """
+        def probe(granularity: str) -> dict:
+            return self.json_of(
+                self.client.post(
+                    "/api/v1/governance:probe",
+                    json={
+                        "verified": True,
+                        "granularity": granularity,
+                        "cohort_size": 5,
+                        "boundary": "before_read",
+                    },
+                ),
+                f"/api/v1/governance:probe at {granularity} granularity",
+            )
+
+        coarse = probe("table")
+        self.assertFalse(
+            coarse["permitted"],
+            "an aggregate over five subjects was permitted, below a floor of 20",
         )
-        self.assertFalse(plan["permitted"], "a five-subject cohort was permitted")
+        self.assertTrue(
+            any("below minimum_cohort" in violation for violation in coarse["plan"]["violations"]),
+            f"it was refused for some other reason: {coarse['plan']['violations']}",
+        )
+
+        self.assertTrue(
+            probe("row")["permitted"],
+            "a five-row request was refused; the floor is for cohort-sensitive granularities",
+        )
 
     def test_a_lever_outside_its_set_is_refused_at_the_boundary(self) -> None:
         """A wrong value is the client's mistake, and must be reported as one.
