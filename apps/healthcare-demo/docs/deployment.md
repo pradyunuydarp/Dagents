@@ -68,6 +68,13 @@ can be checked in one request instead of inferred from a blank page. Leaving the
 variable unset allows any origin, which is a reasonable default for a read-only
 demo holding no credentials.
 
+Three paste artifacts are repaired, because each means "block everything" rather
+than anything a deployment could have intended: a path or trailing slash,
+wrapping punctuation (`(https://example.github.io)` — this one was real, and the
+stray `)` cost an afternoon), and an uppercased host. An entry that does not
+parse into a plausible host is left exactly as written and reported, so a
+genuine mistake stays visible instead of being guessed at.
+
 ## Standing it up
 
 1. **Create the database.** Nothing to do beyond creating the Supabase project; the schema is
