@@ -499,6 +499,16 @@ def _chunk_records(records: list[dict[str, Any]], batch_size: int, max_records: 
 
 
 def _postgres_connection_args(resolved_connection: dict[str, Any]) -> dict[str, Any]:
+    """Translate a resolved connection into libpq keywords.
+
+    The mapping is an allowlist, so a connection payload cannot smuggle
+    arbitrary keywords into the driver. `connect_timeout` is on it because a
+    host that accepts packets and never answers — a wrong region, a firewall
+    that drops rather than refuses, a database that has gone away — otherwise
+    holds the caller indefinitely. A source adapter that can hang forever makes
+    every service above it able to hang forever, so the bound belongs here
+    rather than in each consumer.
+    """
     connection_args: dict[str, Any] = {}
     aliases = {
         "dbname": ("dbname", "database"),
@@ -507,6 +517,7 @@ def _postgres_connection_args(resolved_connection: dict[str, Any]) -> dict[str, 
         "host": ("host",),
         "port": ("port",),
         "sslmode": ("sslmode",),
+        "connect_timeout": ("connect_timeout",),
     }
     for target, keys in aliases.items():
         for key in keys:
@@ -514,8 +525,9 @@ def _postgres_connection_args(resolved_connection: dict[str, Any]) -> dict[str, 
             if value not in (None, ""):
                 connection_args[target] = value
                 break
-    if "port" in connection_args:
-        connection_args["port"] = int(connection_args["port"])
+    for integer_key in ("port", "connect_timeout"):
+        if integer_key in connection_args:
+            connection_args[integer_key] = int(connection_args[integer_key])
     return connection_args
 
 

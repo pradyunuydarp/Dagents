@@ -74,8 +74,22 @@ class Consortium:
         self.governance = GovernanceService()
         self.governance.register_classification(STROKE_CLASSIFICATION)
         self._secure_threshold = secure_aggregation_threshold
-        for hospital in self.hospitals.values():
+        self._sites_registered = False
+
+    def _ensure_sites_registered(self) -> None:
+        """Enrol every hospital, the first time a round needs them.
+
+        Not in ``__init__``, because a registration declares the site's real
+        cohort size and so has to read the site's records. Doing that while the
+        module is being imported is what made a deployment with an unreachable
+        database fail to become a process at all: nothing bound the port, so
+        every request hung instead of being answered with the reason.
+        """
+        if self._sites_registered:
+            return
+        for hospital in sorted(self.hospitals.values(), key=lambda site: site.site_id):
             self.controller.register_site(hospital.registration())
+        self._sites_registered = True
 
     def manifest(self, round_id: str, phase: RoundPhase = "analytics") -> RoundManifest:
         """Build the round contract every site verifies before accepting.
@@ -112,6 +126,7 @@ class Consortium:
 
     def run_round(self, round_id: str, phase: RoundPhase = "analytics") -> dict[str, Any]:
         """Plan, dispatch, and collect one round, reporting what happened."""
+        self._ensure_sites_registered()
         manifest = self.manifest(round_id, phase)
         digest = self._attach_workers(manifest)
         record = self.controller.dispatch_round(manifest)
