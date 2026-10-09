@@ -17,6 +17,7 @@ process starting is not a governance question — so neither skips.
 from __future__ import annotations
 
 import unittest
+from pathlib import Path
 from unittest import mock
 
 from app.services.consortium import Consortium
@@ -52,6 +53,54 @@ class ImportTimeTests(unittest.TestCase):
         with self.assertRaises(CohortUnavailableError) as caught:
             _ = source.records_held
         self.assertIn("riverside-general", str(caught.exception))
+
+
+class DeployedDependencyTests(unittest.TestCase):
+    """What the image has to contain for the database mode to work at all.
+
+    The deployed API answered 503 for every data request for want of one line in
+    a requirements file. Nothing caught it: a local run generates its cohorts,
+    so the Postgres path is never taken, and the test suite does the same. The
+    code path existed and its dependency did not, and the first thing to notice
+    was a container already serving requests.
+    """
+
+    REQUIREMENTS = Path(__file__).resolve().parents[1] / "requirements.txt"
+
+    def test_a_postgres_driver_is_declared(self) -> None:
+        """The Dockerfile installs this file and nothing else."""
+        declared = self.REQUIREMENTS.read_text(encoding="utf-8")
+        self.assertRegex(
+            declared,
+            r"(?m)^psycopg\b",
+            "the deployed image would have no Postgres driver, so every cohort read "
+            "would fail with 'requires psycopg to execute live SQL scans'",
+        )
+
+    def test_the_adapter_is_what_fails_without_it(self) -> None:
+        """Ties the requirement to the failure, so the link is not folklore.
+
+        If someone drops the dependency again, this says exactly what breaks and
+        where — the framework adapter, not this app's code.
+        """
+        from agents.common.domain.sources import (
+            ConnectionRef,
+            PostgresSelection,
+            PostgresSourceSpec,
+            SourceBatching,
+        )
+        from agents.common.infrastructure import sources
+
+        spec = PostgresSourceSpec(
+            source_id="stroke-encounters-test",
+            connection_ref=ConnectionRef(connection_id="test"),
+            selection=PostgresSelection(table="public.encounters", columns=["encounter_id"]),
+            batching=SourceBatching(batch_size=10, max_records=10),
+        )
+        with mock.patch.object(sources, "psycopg", None):
+            with self.assertRaises(ValueError) as caught:
+                sources.PostgresSourceAdapter().scan(spec, {"host": "db"})
+        self.assertIn("requires psycopg", str(caught.exception))
 
 
 class ServingWhileTheStoreIsDownTests(unittest.TestCase):

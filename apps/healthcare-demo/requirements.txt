@@ -2,3 +2,9 @@ fastapi==0.115.0
 uvicorn==0.30.6
 pydantic>=2.11,<3
 httpx<1
+# The encounter store. Required, not optional: the app's database mode goes
+# through the framework's Postgres adapter, which raises "requires psycopg to
+# execute live SQL scans" without it — and nothing says so until a container is
+# already serving requests, because a local run generates its cohorts instead.
+# The `binary` extra avoids needing libpq and a compiler in the image.
+psycopg[binary]>=3.2,<3.4

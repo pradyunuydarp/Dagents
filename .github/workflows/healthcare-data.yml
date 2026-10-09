@@ -54,9 +54,12 @@ jobs:
           cache-dependency-path: apps/healthcare-demo/requirements.txt
 
       - name: Install dependencies
+        # psycopg comes from the app's own requirements now, so this job and the
+        # deployed image install the same driver from the same line. It used to
+        # be appended here only, which is how the image ended up without it.
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -r apps/healthcare-demo/requirements.txt "psycopg[binary]>=3.2,<3.4"
+          python -m pip install -r apps/healthcare-demo/requirements.txt
 
       - name: Refuse to run without a credential
         # A missing secret would otherwise surface as a confusing connection
