@@ -168,8 +168,16 @@ Docker and Minikube are not in CI; see **Current State**.
 ### The published site
 
 `.github/workflows/pages.yml` publishes three trees to GitHub Pages: the framework site at the
-root, and the two demos beneath it. The demos have no backend once published, so the workflow
-records real ones first:
+root, and the two demos beneath it. The addresses are declared in `env/.env.published`:
+
+| | |
+|---|---|
+| framework site | <https://pradyunuydarp.github.io/Dagents/> |
+| stroke-triage demo | <https://pradyunuydarp.github.io/Dagents/healthcare-demo/> — calls the live API |
+| NL2SQL demo | <https://pradyunuydarp.github.io/Dagents/nl2sql-demo/> — replays a capture |
+| healthcare API | <https://dagents-healthcare-api.onrender.com> — Postgres-backed, planner in the image |
+
+NL2SQL has no deployed backend, so the workflow records a real one first:
 
 ```bash
 cd bindings/ocaml && opam exec -- dune build ./bin/dagentsc.exe && cd -

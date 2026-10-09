@@ -2,6 +2,15 @@
 
 This demo app shows how to build an NL2SQL product on top of Dagents rather than as a standalone backend.
 
+**Live:** <https://pradyunuydarp.github.io/Dagents/nl2sql-demo/>
+
+That page has no backend, so it replays a capture: the responses were recorded from the real
+services with the OCaml planner built, and the page names the commit they came from. Every trace
+step, schema contract and routing decision shown is one the framework really produced. Ask it for
+something the capture does not hold and it says so rather than inventing an answer — a demo that
+fabricated a plan would be demonstrating the opposite of the point. The published run uses the
+deterministic fallback adapter rather than a GPU model.
+
 ## What It Uses From Dagents
 
 - `agents.common.domain`: shared Pydantic contracts and base models.

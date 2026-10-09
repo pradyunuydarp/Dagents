@@ -8,6 +8,19 @@ evaluate one stroke-triage model without any of them sending patient records any
 > rule is a transparent illustration, not a validated triage model. Nothing this app produces is
 > clinical advice, and none of it is a medical device.** See [Honest limits](#honest-limits).
 
+**Live:** <https://pradyunuydarp.github.io/Dagents/healthcare-demo/>, calling
+<https://dagents-healthcare-api.onrender.com/api/v1/health>.
+
+That page is this app, deployed. It reads its encounters from Postgres through the framework's own
+source adapter, and the OCaml planner in the image makes every governance and federation decision —
+so the strategies, denials and gate verdicts on screen are ones the typed planner really computed,
+against rows really in a database. The page prints the provenance the backend reports rather than
+claiming it. The API sleeps after about fifteen minutes idle, so the first request waits roughly
+twenty seconds behind a banner that says what it is waiting for.
+
+Running it locally needs no database and no account: the cohorts are generated in process. See
+[Quick start](#quick-start), and [`docs/deployment.md`](docs/deployment.md) for the deployed pieces.
+
 ## What this demonstrates
 
 The interesting claim is not "federated learning works". It is that the hard parts — deciding what

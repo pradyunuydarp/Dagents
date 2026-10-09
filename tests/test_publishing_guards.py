@@ -397,14 +397,37 @@ class PublishedEndpointTests(unittest.TestCase):
                 )
                 self.assertNotIn("@", value, f"{key} looks like it carries credentials")
 
-    def test_the_pages_workflow_reads_the_key_this_file_defines(self) -> None:
+    def test_the_pages_workflow_reads_the_api_address(self) -> None:
+        """The build has to resolve the one key it needs from this file."""
         workflow = self.WORKFLOW.read_text(encoding="utf-8")
-        for key in self.values():
+        self.assertIn(
+            "HEALTHCARE_DEMO_PUBLIC_API_URL",
+            workflow,
+            "the API address is declared but the Pages build does not read it, so the "
+            "published demo would fall back to its recording",
+        )
+
+    def test_every_published_address_is_linked_from_the_readme(self) -> None:
+        """A moved site should fail here, not rot as a dead link in the docs.
+
+        The `*_SITE_URL` values are not read by any build — the workflow derives
+        the base path from `configure-pages`. They are declared so that the links
+        in the README have a source of truth, which is only worth anything if the
+        two are checked against each other.
+        """
+        readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+        published = {
+            key: value
+            for key, value in self.values().items()
+            if key.endswith("_SITE_URL") or key.endswith("_API_URL")
+        }
+        self.assertTrue(published, "no published addresses are declared")
+        for key, value in published.items():
             with self.subTest(key=key):
                 self.assertIn(
-                    key,
-                    workflow,
-                    f"{key} is declared but nothing reads it — a dead constant",
+                    value,
+                    readme,
+                    f"{key} is {value} and the README does not link it",
                 )
 
     def test_the_healthcare_build_uses_the_resolved_value(self) -> None:

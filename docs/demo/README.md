@@ -2,6 +2,17 @@
 
 This demo package is designed for a 25-minute course presentation: 20 minutes of demo/talk and 5 minutes of Q&A. It covers the whole Dagents app while keeping the main grading focus on the OCaml functional planner layer.
 
+Both apps are also published, which is the fallback if anything local refuses to start on the day —
+and the stroke demo is the better opener either way, since it is running against a real database
+rather than a laptop:
+
+- framework site: <https://pradyunuydarp.github.io/Dagents/>
+- stroke triage, calling its deployed API: <https://pradyunuydarp.github.io/Dagents/healthcare-demo/>
+- NL2SQL, replaying a recorded run: <https://pradyunuydarp.github.io/Dagents/nl2sql-demo/>
+
+The API sleeps when idle, so open the stroke demo a minute before presenting: the first request
+takes about twenty seconds and the page says what it is waiting for.
+
 ## Prerequisites
 
 - OCaml toolchain available through `opam`.
