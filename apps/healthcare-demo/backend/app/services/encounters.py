@@ -62,6 +62,13 @@ ENCOUNTER_FIELDS = (
 #: deployment from a local one without guessing.
 Provenance = str
 
+#: How long to wait for the database to answer before giving up on it.
+#:
+#: Ten seconds is long enough for a pooled connection across a region and short
+#: enough that a wedged host produces an error a reader can act on instead of a
+#: request that never finishes.
+CONNECT_TIMEOUT_SECONDS = 10
+
 
 class CohortUnavailableError(RuntimeError):
     """A database was configured and could not be read."""
@@ -95,6 +102,13 @@ def connection_args(database_url: str) -> dict[str, Any]:
     # libpq means a misconfigured deployment fails to connect instead of
     # succeeding over plaintext.
     args["sslmode"] = "require" if "supabase" in (parsed.hostname or "") else "prefer"
+    # Fail in seconds rather than hanging. The characteristic failure of a
+    # managed database reached over the public internet is a host that accepts
+    # the connection and never answers — a wrong region, an IPv6-only address,
+    # a firewall that drops rather than refuses. Without a bound, the request
+    # waiting on it never returns at all, and "no response" is the one outcome
+    # a reader cannot interpret.
+    args["connect_timeout"] = CONNECT_TIMEOUT_SECONDS
     return args
 
 

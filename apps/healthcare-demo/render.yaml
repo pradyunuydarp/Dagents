@@ -46,11 +46,16 @@ services:
         value: production
       - key: HEALTHCARE_DEMO_API_HOST
         value: 0.0.0.0
-      # Render injects PORT and expects the service to bind it.
-      - key: HEALTHCARE_DEMO_API_PORT
-        fromService:
-          type: web
-          name: dagents-healthcare-api
-          property: port
       - key: HEALTHCARE_DEMO_COHORT_SIZE
         value: "400"
+
+      # No HEALTHCARE_DEMO_API_PORT here, deliberately.
+      #
+      # Render injects `PORT` and routes to it, and the image's command falls
+      # back to `PORT` when this repository's own variable is unset — so leaving
+      # it unset is what makes the service reachable. An earlier version of this
+      # file set it from `fromService … property: port` pointing at this same
+      # service, which is circular: it resolved to nothing, the app bound 8080,
+      # Render kept routing to its own port, and every request timed out having
+      # received no bytes at all. That looks exactly like a service that is
+      # down, which is the worst kind of configuration error.

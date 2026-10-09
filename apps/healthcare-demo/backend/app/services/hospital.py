@@ -36,21 +36,50 @@ from app.services.encounters import load_cohort
 class StrokeDataSource:
     """A hospital's local suspected-stroke cohort.
 
-    The cohort is materialized once and kept here, inside the site. Nothing in
-    this class hands records to anything outside the hospital's worker; the
-    consortium never calls it.
+    The cohort is materialized once, on first use, and kept here inside the
+    site. Nothing in this class hands records to anything outside the hospital's
+    worker; the consortium never calls it.
+
+    **First use, not construction.** A deployed site reads its cohort from a
+    database, and a database can be slow, firewalled, or named by a URL that
+    does not resolve. Loading in ``__init__`` made that failure arrive while the
+    app was still being imported — so the process never bound its port, the
+    platform's health check never got an answer, and every request hung with no
+    response at all. A service has to become a process before it can report a
+    problem. Deferring the read means the app starts, answers ``/api/v1/health``,
+    and reports the real error on the endpoints that need data.
     """
 
     def __init__(self, profile: HospitalProfile, cohort_size: int, database_url: str = "") -> None:
         self._profile = profile
-        # Where the cohort came from travels with it, so the API can report the
-        # provenance rather than leaving a reader to assume.
-        self._records, self.provenance = load_cohort(profile, cohort_size, database_url)
+        self._cohort_size = cohort_size
+        self._database_url = database_url
+        self._cohort: tuple[list[dict[str, Any]], str] | None = None
+
+    def _materialize(self) -> tuple[list[dict[str, Any]], str]:
+        """Load the cohort once, and remember where it came from.
+
+        Raises `CohortUnavailableError` when a configured database cannot be
+        read — never a generated cohort in its place, which would leave the app
+        claiming live data while showing invented data.
+        """
+        if self._cohort is None:
+            self._cohort = load_cohort(self._profile, self._cohort_size, self._database_url)
+        return self._cohort
+
+    @property
+    def provenance(self) -> str:
+        """Where this site's records actually came from.
+
+        Read from the load rather than inferred from configuration: a URL being
+        set says what was intended, not what happened.
+        """
+        return self._materialize()[1]
 
     @property
     def records_held(self) -> list[dict[str, Any]]:
         """The site's own view of its records, for the site's own UI."""
-        return self._records
+        return self._materialize()[0]
 
     def records(self, job: FederatedJob) -> list[dict[str, Any]]:
         """Return the records this job may consider.
@@ -59,16 +88,23 @@ class StrokeDataSource:
         training round has no business reading the confirmed outcome it is
         supposed to be learning to anticipate.
         """
+        records, _ = self._materialize()
         if job.task == "evaluate":
-            return [dict(record) for record in self._records]
+            return [dict(record) for record in records]
         return [
             {key: value for key, value in record.items() if key != "confirmed_stroke"}
-            for record in self._records
+            for record in records
         ]
 
     def cohort_size(self, job: FederatedJob) -> int:
-        """How many subjects the cohort holds, without materializing it."""
-        return len(self._records)
+        """How many subjects the cohort holds.
+
+        This materializes the cohort, because the honest count is the number of
+        records the site actually has. A figure taken from configuration would
+        be a declaration, and eligibility and the cohort floor would then be
+        decided on a number nobody checked.
+        """
+        return len(self.records_held)
 
 
 class StrokeLocalRunner:

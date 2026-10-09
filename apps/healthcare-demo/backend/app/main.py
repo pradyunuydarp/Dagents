@@ -14,8 +14,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from agents.common.domain.governance import KyuAttribute, Requester, RestrictionRequest
 from agents.common.extensions import default_registry
@@ -39,6 +40,7 @@ from app.models import (
     WorklistRequest,
 )
 from app.services.consortium import Consortium
+from app.services.encounters import CohortUnavailableError
 from app.services.framework_client import FrameworkClient
 
 if settings.register_extension:
@@ -69,6 +71,28 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.exception_handler(CohortUnavailableError)
+def cohort_unavailable(request: Request, exc: CohortUnavailableError) -> JSONResponse:
+    """A configured encounter store that cannot be read is a 503.
+
+    Not a 500, which would say the app is broken, and emphatically not a
+    generated cohort in its place, which would say the data is live when it is
+    invented. 503 is the honest answer: this service is configured to serve
+    something it currently cannot reach, and the reason travels with it.
+
+    `/api/v1/health` deliberately does not touch the store, so the platform's
+    health check keeps the service up and this message stays reachable.
+    """
+    return JSONResponse(
+        status_code=503,
+        content={
+            "detail": str(exc),
+            "cohort_source": "configured but unreadable",
+            "records_are_synthetic": True,
+        },
+    )
 
 
 def _hospital(site_id: str):
