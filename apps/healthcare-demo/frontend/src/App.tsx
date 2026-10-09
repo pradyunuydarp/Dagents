@@ -2,8 +2,10 @@ import { useCallback, useEffect, useState } from "react";
 
 import {
   NotRecordedError,
+  apiBase,
   getJson,
   isRecorded,
+  onApiWaking,
   postJson,
   recordingInfo,
   type Recording
@@ -52,6 +54,19 @@ interface Overview {
   hospitals: Hospital[];
   release_gates: Gate[];
   baseline_metrics: Metrics;
+}
+
+/**
+ * What a live backend says about itself.
+ *
+ * `cohort_source` is the one claim this page cannot make on its own: whether
+ * the rows below were read from the encounter store or generated in the API
+ * process. So it is read back from the deployed service and printed, rather
+ * than asserted by the frontend because a URL was configured.
+ */
+interface FrameworkStatus {
+  cohort_source: string | string[];
+  records_are_synthetic: boolean;
 }
 
 interface GateResult {
@@ -211,6 +226,23 @@ function recordedCohorts(recording: Recording | null): number[] {
   return [...sizes].sort((a, b) => a - b);
 }
 
+/**
+ * How the live backend describes its cohort source.
+ *
+ * `undefined` is the question still being asked and `null` is a question that
+ * failed, and the two must not print the same word: one is a page that has just
+ * opened, the other a backend that would not answer. The API reports a list
+ * when its sites disagree — a half-configured deployment — so that is shown
+ * rather than reduced to one word.
+ */
+function cohortSourceLabel(status: FrameworkStatus | null | undefined): string {
+  if (status === undefined) return "reading…";
+  if (status === null) return "unreported";
+  return Array.isArray(status.cohort_source)
+    ? status.cohort_source.join(" + ")
+    : status.cohort_source;
+}
+
 export default function App() {
   const [overview, setOverview] = useState<Overview | null>(null);
   const [pilot, setPilot] = useState<Pilot | null>(null);
@@ -229,11 +261,30 @@ export default function App() {
   // one — nor answered with a made-up verdict.
   const [notRecorded, setNotRecorded] = useState<NotRecordedError | null>(null);
   const [recording, setRecording] = useState<Recording | null>(null);
+  // Three states, not two: still asking, answered, and asked-and-failed. The
+  // banner prints a different word for each, because "unreported" the instant
+  // the page opens would read as a backend that refuses to say.
+  const [status, setStatus] = useState<FrameworkStatus | null | undefined>(undefined);
+  // A live build usually arrives at a sleeping container, so the wait is a
+  // state of the page rather than a slow promise nobody is told about.
+  const [waking, setWaking] = useState(false);
 
   useEffect(() => {
     recordingInfo()
       .then(setRecording)
       .catch((exc) => setError(String(exc)));
+  }, []);
+
+  useEffect(() => onApiWaking(setWaking), []);
+
+  useEffect(() => {
+    if (isRecorded) return;
+    // Only the banner depends on this, and the data calls below report an
+    // outage perfectly well on their own — so a failure here leaves the
+    // provenance unstated rather than covering the page in an error.
+    getJson<FrameworkStatus>("/api/v1/framework/status")
+      .then(setStatus)
+      .catch(() => setStatus(null));
   }, []);
 
   useEffect(() => {
@@ -312,6 +363,26 @@ export default function App() {
           ) : null}
           . The levers work because every combination was captured; nothing here is generated
           by the page. To drive the real backend, run it locally — see the README.
+        </div>
+      )}
+
+      {!isRecorded && (
+        <div className="banner">
+          <strong>Live backend.</strong> This page calls the deployed API at{" "}
+          <span className="mono">{apiBase || "this origin"}</span>, which reports its cohorts
+          as{" "}
+          <span className="mono">{cohortSourceLabel(status)}</span>. Every
+          encounter is synthetic: the store holds generated patients, and keeping them in a
+          database does not make them real. Nothing here is clinical advice.
+        </div>
+      )}
+
+      {waking && (
+        <div className="banner">
+          <strong>Waking the backend.</strong> The API runs on a free tier that stops the
+          container after a quarter of an hour without traffic, so the first request has to
+          start it again. This takes up to a minute. Nothing is being served from a cache in
+          the meantime.
         </div>
       )}
 

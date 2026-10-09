@@ -47,15 +47,35 @@ generates a copy into each frontend, and `tests/test_publishing_guards.py` fails
 - State is never carried by colour alone: a chip spells its own word, and a severity stripe
   repeats it, so the page survives being read in greyscale.
 
-## 3. The published demos replay a real run
+## 3. The published demos replay a real run — or call a real one
 
-Both demos are published as static sites with no backend. `src/api.ts` is live locally and, when
-built with `VITE_DAGENTS_STATIC=1`, replays `public/recording.json`.
+`src/api.ts` has three modes and the page says which one it is in:
+
+| Build | Mode |
+|---|---|
+| local dev | live, same origin, through the Vite proxy |
+| `VITE_DAGENTS_STATIC=1` | replays `public/recording.json` |
+| `VITE_HEALTHCARE_API_BASE` set | live against the deployed API, which reads the encounter store |
+
+The third is the healthcare demo in production. NL2SQL has no deployed backend and replays.
 
 - **Never fake a response, and never widen the replay into a fallback.** A request the capture
   does not hold raises `NotRecordedError` and the UI says so. A governance demo that invented a
   permit would demonstrate the opposite of the framework's point — this is the same rule as
   "never hide a denial", applied to the transport.
+- **A live build never falls back to the recording.** `isRecorded` is false the moment an API is
+  configured, and it stays false when that API is unreachable. Serving a capture from another
+  commit as though it were live would misreport the data *and* the framework, and the reader
+  would have no way to tell. The page reports the outage instead.
+- **The page prints the provenance the backend reported**, read from
+  `/api/v1/framework/status`, never inferred from the fact that a URL was configured. A build
+  pointed at an API that is generating cohorts in process must say `synthetic`.
+- **A cold start is waited out visibly.** The API runs on a tier that stops the container when
+  idle, so the first request is usually the one that wakes it. `liveFetch` retries only the
+  statuses that mean the request never reached the app (502/503/504, and a network-level
+  failure), announces the wait through `onApiWaking` so a banner can say what is happening, and
+  returns an application error on the first attempt — retrying that would hide a real failure
+  behind ninety seconds of patience.
 - **Never capture without the planner.** The Guard fails closed, so an unplanned capture is
   nothing but denials: it looks fine and proves nothing. `capture_demo_recordings.py` refuses,
   and `check_demo_recordings.py` refuses a capture whose levers change nothing.

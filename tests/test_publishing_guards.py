@@ -266,5 +266,71 @@ class DesignSystemTests(unittest.TestCase):
         )
 
 
+class PublishedEndpointTests(unittest.TestCase):
+    """`env/.env.published` is where a deployed address lives, and only that.
+
+    The healthcare demo is published calling a real API, so its address has to
+    be in the repository somewhere. This file is that place — one copy, next to
+    the other env files — and these tests hold the two properties that make it
+    safe: it stays free of credentials, and the workflow still reads the key it
+    defines. A rename in one of the two files and not the other would publish a
+    demo that silently falls back to its recording.
+    """
+
+    PUBLISHED = REPO_ROOT / "env" / ".env.published"
+    WORKFLOW = REPO_ROOT / ".github" / "workflows" / "pages.yml"
+
+    def values(self) -> dict[str, str]:
+        text = self.PUBLISHED.read_text(encoding="utf-8")
+        pairs = {}
+        for line in text.splitlines():
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            key, _, value = line.partition("=")
+            pairs[key.strip()] = value.strip()
+        return pairs
+
+    def test_the_healthcare_api_is_declared(self) -> None:
+        url = self.values().get("HEALTHCARE_DEMO_PUBLIC_API_URL", "")
+        self.assertTrue(url.startswith("https://"), f"expected an https URL, got {url!r}")
+        self.assertFalse(
+            url.endswith("/"),
+            "a trailing slash doubles the separator in every URL the workflow builds",
+        )
+
+    def test_nothing_in_it_looks_like_a_credential(self) -> None:
+        """The file is committed, so a secret here is a secret in every clone."""
+        for key, value in self.values().items():
+            with self.subTest(key=key):
+                lowered = key.lower()
+                self.assertFalse(
+                    any(word in lowered for word in ("secret", "password", "token", "_key")),
+                    f"{key} belongs in Actions secrets, not in a committed file",
+                )
+                self.assertNotIn("@", value, f"{key} looks like it carries credentials")
+
+    def test_the_pages_workflow_reads_the_key_this_file_defines(self) -> None:
+        workflow = self.WORKFLOW.read_text(encoding="utf-8")
+        for key in self.values():
+            with self.subTest(key=key):
+                self.assertIn(
+                    key,
+                    workflow,
+                    f"{key} is declared but nothing reads it — a dead constant",
+                )
+
+    def test_the_healthcare_build_uses_the_resolved_value(self) -> None:
+        """The probe clears the address when the API will not wake.
+
+        It does that by rewriting `HEALTHCARE_API_BASE` in the job environment,
+        which only works if the build step reads `env.` and not `vars.`. Reading
+        the repository variable directly would publish a page pointing at a
+        backend the same workflow just found to be down.
+        """
+        workflow = self.WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("VITE_HEALTHCARE_API_BASE: ${{ env.HEALTHCARE_API_BASE }}", workflow)
+
+
 if __name__ == "__main__":
     unittest.main()
