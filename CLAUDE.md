@@ -332,16 +332,26 @@ computed by a typed planner, so a decorative accent would make a styled panel in
 from a refused request. There is no accent colour to spend — hierarchy comes from type, weight and
 hairline rules.
 
-### The published demos replay a real run
+### The published demos replay a real run — or call a real one
 
 Both demo frontends have a transport in `src/api.ts` that is live locally and, when built with
-`VITE_DAGENTS_STATIC=1`, replays `public/recording.json`. Rules:
+`VITE_DAGENTS_STATIC=1`, replays `public/recording.json`. The healthcare demo has a third mode:
+built with `VITE_HEALTHCARE_API_BASE` it calls the deployed API, which reads its cohorts from the
+Supabase encounter store. The Pages workflow resolves that address from `env/.env.published`
+(committed — it is a published URL, not a secret) or from a `HEALTHCARE_API_BASE` repository
+variable. Rules:
 
 - **Never fake a response.** A request the capture does not hold raises `NotRecordedError` and the
   UI says so. A governance demo that invented a permit would demonstrate the opposite of the
   framework's point.
 - **Never capture without the planner.** The Guard fails closed, so an unplanned capture is all
   denials — which looks fine and proves nothing. Both the capture script and the checker refuse it.
+- **A live build never falls back to the recording**, even when the API is down. It reports the
+  outage. Deciding between the two happens once, at build time, in the workflow — which probes
+  the API first and publishes the replay if it cannot be woken, so the choice is made where it
+  can be logged rather than hidden in the browser.
+- **The page prints the provenance the backend reports** (`/api/v1/framework/status`), so a
+  reader can tell a cohort read from the store from one generated in process.
 - The page names the commit it was captured from, so a reader can check the claim.
 
 ### Governance: where a decision lives

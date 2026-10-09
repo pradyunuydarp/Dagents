@@ -7,12 +7,19 @@ name: Pages
 #   /healthcare-demo/  the stroke-triage demo
 #   /nl2sql-demo/      the natural-language-to-SQL demo
 #
-# The demos have no backend once published, so this workflow does not publish a
-# dead page or a faked one. It builds the OCaml planner, starts the real
-# backends against it, records what every request the UIs can make actually
-# returns, and ships that capture with the bundle. Each demo says which commit
-# it was captured from, and refuses anything the capture does not hold rather
-# than inventing an answer.
+# Neither demo publishes a dead page or a faked one, by two different routes.
+#
+# The healthcare demo has a deployed API, so it is published pointing at it:
+# the address is resolved from `env/.env.published`, the API is probed here, and
+# the page reads live rows out of the encounter store. If that API cannot be
+# woken this workflow falls back to the capture and says so, because the
+# alternative is a page whose every panel is an error.
+#
+# NL2SQL has no deployed backend, so it replays. This workflow builds the OCaml
+# planner, starts the real backends against it, records what every request the
+# UI can make actually returns, and ships that capture with the bundle. The page
+# names the commit it was captured from, and refuses anything the capture does
+# not hold rather than inventing an answer.
 #
 # That ordering is load-bearing: capture writes into each frontend's `public/`,
 # which Vite copies into `dist/`, so the capture has to finish before the build.
@@ -69,14 +76,22 @@ jobs:
           if [ "${{ steps.pages.outcome }}" = "success" ]; then
             resolved="${{ steps.pages.outputs.base_path }}"
             echo "Pages reports base_url=${{ steps.pages.outputs.base_url }}"
+            origin=$(printf '%s' "${{ steps.pages.outputs.base_url }}" | sed -E 's#^(https?://[^/]+).*#\1#')
           else
             resolved="/${{ github.event.repository.name }}"
+            origin="https://${{ github.repository_owner }}.github.io"
             echo "::warning::Pages is not enabled for this repository yet, so the base path was" \
                  "derived as ${resolved}. A repository admin enables it under" \
                  "Settings → Pages → Build and deployment → Source: GitHub Actions."
           fi
+          # A custom domain wins: that is where the browser will be when it
+          # calls the API, which is what the CORS check below has to ask about.
+          if [ -n "${{ vars.PAGES_CUSTOM_DOMAIN }}" ]; then
+            origin="https://${{ vars.PAGES_CUSTOM_DOMAIN }}"
+          fi
           echo "BASE_PATH=${resolved}" >> "$GITHUB_ENV"
-          echo "Serving from ${resolved:-}/"
+          echo "PAGES_ORIGIN=${origin}" >> "$GITHUB_ENV"
+          echo "Serving from ${origin}${resolved:-}/"
 
       # --- the planner ----------------------------------------------------
       - uses: ocaml/setup-ocaml@v3
@@ -155,27 +170,70 @@ jobs:
           npm ci
           npm run build
 
+      - name: Resolve the deployed healthcare API
+        # The published demo calls a real backend instead of replaying its
+        # capture, so the build has to be told where that backend is. The
+        # address is a published URL — it ends up in the page source, readable
+        # by anyone who opens the demo — so it is configuration, not a
+        # credential, and it lives in `env/.env.published` where there is one
+        # copy of it. A `HEALTHCARE_API_BASE` repository variable overrides the
+        # file without a commit, which is how a branch gets pointed at a
+        # staging API.
+        run: |
+          set -euo pipefail
+          resolved="${{ vars.HEALTHCARE_API_BASE }}"
+          if [ -n "${resolved}" ]; then
+            echo "source: the HEALTHCARE_API_BASE repository variable"
+          else
+            resolved=$(sed -n 's/^HEALTHCARE_DEMO_PUBLIC_API_URL=//p' env/.env.published | tail -1)
+            echo "source: env/.env.published"
+          fi
+          echo "healthcare API: ${resolved:-<none — the demo will publish as a replay>}"
+          echo "HEALTHCARE_API_BASE=${resolved}" >> "$GITHUB_ENV"
+
       - name: The live API is up and serving the encounter store
-        # Only when the demo is being pointed at a deployed API. Publishing a
-        # page that calls a backend which is down gives every visitor a broken
-        # demo, and publishing one that calls a backend quietly serving
-        # generated cohorts would claim live data for invented data. A runner
-        # can reach Render, so this is checked where it can be.
-        if: ${{ vars.HEALTHCARE_API_BASE != '' }}
+        # Two different failures, treated differently on purpose.
+        #
+        # A backend that cannot be woken is an outage, and failing the deploy
+        # over it would also stop the framework site and the other demo from
+        # shipping. So this falls back to the replay — which is labelled as a
+        # replay on the page, so nothing is misrepresented — and warns.
+        #
+        # A backend that answers but is serving cohorts it generated itself, or
+        # an empty store, or one a browser is not allowed to call, is a
+        # misconfiguration: the page would claim live data for invented data,
+        # or break for every visitor. Those fail the deploy, because each is a
+        # one-line fix on the service and nobody would go looking for it behind
+        # a warning.
+        if: ${{ env.HEALTHCARE_API_BASE != '' }}
         env:
-          API: ${{ vars.HEALTHCARE_API_BASE }}
+          API: ${{ env.HEALTHCARE_API_BASE }}
+          ORIGIN: ${{ env.PAGES_ORIGIN }}
         run: |
           set -euo pipefail
           # Render's free tier sleeps, so the first request may take ~60s to
           # wake the service. That is a cold start, not a failure.
           echo "waking ${API} ..."
+          code=""
           for attempt in $(seq 1 12); do
             code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 "${API}/api/v1/health" || true)
             [ "$code" = "200" ] && { echo "health 200 after ${attempt} attempt(s)"; break; }
             echo "  attempt ${attempt}: ${code:-no response}"
             sleep 10
           done
-          [ "${code:-}" = "200" ] || { echo "::error::${API} never returned a healthy response."; exit 1; }
+          if [ "${code}" != "200" ]; then
+            echo "::warning::${API} never woke up, so the healthcare demo is publishing as a" \
+                 "replay of its capture instead of calling the live API. The page says so."
+            {
+              echo "### Healthcare demo: published as a replay"
+              echo
+              echo "\`${API}\` did not return a healthy response within two minutes, so this"
+              echo "deploy shipped the recorded capture rather than a page pointing at a"
+              echo "backend that is down. Re-run this workflow once the API is up."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "HEALTHCARE_API_BASE=" >> "$GITHUB_ENV"
+            exit 0
+          fi
 
           status=$(curl -sS --max-time 30 "${API}/api/v1/framework/status")
           echo "$status" | python3 -c "
@@ -197,16 +255,33 @@ jobs:
           echo "${site}: ${rows} worklist rows"
           [ "${rows}" -gt 0 ] || { echo "::error::The API returned an empty worklist."; exit 1; }
 
+          # The page is on a different origin from the API, so the browser asks
+          # permission before it asks for data. Without this header every
+          # request is blocked and the demo looks like it is down — the one
+          # failure that cannot be seen from a curl that does not send Origin.
+          allow=$(curl -sS -o /dev/null -D - --max-time 30 -H "Origin: ${ORIGIN}" \
+                    "${API}/api/v1/health" \
+                  | tr -d '\r' | sed -n 's/^[Aa]ccess-[Cc]ontrol-[Aa]llow-[Oo]rigin: //p' | tail -1)
+          echo "CORS for ${ORIGIN}: ${allow:-<absent>}"
+          case "${allow}" in
+            "*"|"${ORIGIN}") : ;;
+            *)
+              echo "::error::${API} does not allow browser requests from ${ORIGIN}" \
+                   "(Access-Control-Allow-Origin: ${allow:-absent}), so every request from the" \
+                   "published page would be blocked. Set HEALTHCARE_DEMO_CORS_ORIGINS on the" \
+                   "service to include ${ORIGIN}, or unset it to allow any origin."
+              exit 1
+              ;;
+          esac
+
       - name: Build the healthcare demo
         env:
           DEMO_BASE_PATH: ${{ env.BASE_PATH }}/healthcare-demo/
           VITE_DAGENTS_STATIC: "1"
-          # When the deployed API is configured, the published demo calls it
-          # instead of replaying the capture. Set `HEALTHCARE_API_BASE` as a
-          # repository variable once the API is live; until then this is empty
-          # and the demo stays a replay, which is the honest default rather than
-          # a page pointing at a backend that does not exist.
-          VITE_HEALTHCARE_API_BASE: ${{ vars.HEALTHCARE_API_BASE }}
+          # Resolved above, and cleared again if the API could not be woken, in
+          # which case the demo publishes as a replay — the honest default
+          # rather than a page pointing at a backend that is not answering.
+          VITE_HEALTHCARE_API_BASE: ${{ env.HEALTHCARE_API_BASE }}
         working-directory: apps/healthcare-demo/frontend
         run: |
           npm ci

@@ -3,9 +3,10 @@
 A demo application built on the [Dagents](../../README.md) framework. Three hospitals improve and
 evaluate one stroke-triage model without any of them sending patient records anywhere.
 
-> **All patient data here is synthetic and generated at runtime. The scoring rule is a transparent
-> illustration, not a validated triage model. Nothing this app produces is clinical advice, and none
-> of it is a medical device.** See [Honest limits](#honest-limits).
+> **All patient data here is synthetic. A local run generates it; the deployed demo reads it from a
+> database that the same generator seeded, which does not make it any less generated. The scoring
+> rule is a transparent illustration, not a validated triage model. Nothing this app produces is
+> clinical advice, and none of it is a medical device.** See [Honest limits](#honest-limits).
 
 ## What this demonstrates
 
@@ -61,7 +62,12 @@ scripts/run_pilot.sh              # no UI: run one pilot and print the evidence
 `run_frontend_demo.sh` starts the backend, starts the frontend in front of it, waits until both
 actually answer, and prints what to click and what each panel is showing. Ctrl-C stops both.
 
-No Docker, no database, and no model download. For the full stack including the framework services:
+No Docker, no database, and no model download — the cohorts are generated in process. The deployed
+demo instead reads them from Postgres through the framework's own source adapter, and reports which
+of the two it is doing at `/api/v1/framework/status`; see
+[`docs/deployment.md`](docs/deployment.md).
+
+For the full stack including the framework services:
 
 ```bash
 docker compose -f docker-compose.yml --env-file ../../env/.env.compose up --build
@@ -303,6 +309,8 @@ wrong kind of demo.
 
 ## Reading
 
+- [`docs/deployment.md`](docs/deployment.md) — the encounter store, the deployed API, where each
+  credential lives, and what the publish gate refuses
 - [`docs/presentation/healthcare-case-study/`](../../docs/presentation/healthcare-case-study/) — the
   case study and the federated use case this app implements
 - [`bindings/ocaml/README.md`](../../bindings/ocaml/README.md) — the planner modules, including

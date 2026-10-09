@@ -67,6 +67,90 @@ export const apiBase = (import.meta.env.VITE_HEALTHCARE_API_BASE ?? "").replace(
 export const isRecorded = import.meta.env.VITE_DAGENTS_STATIC === "1" && apiBase === "";
 
 /**
+ * How long a live build keeps trying while the hosted API wakes up.
+ *
+ * The API is deployed on a free tier that stops the container after a quarter
+ * of an hour of inactivity, so most visitors arrive at a sleeping service and
+ * the first request is the one that wakes it. Thirty seconds of apparent
+ * nothing followed by an error would read as a broken demo; this waits, and the
+ * page says what it is waiting for.
+ */
+const COLD_START_BUDGET_MS = 90_000;
+
+/**
+ * Statuses that mean the request never reached the application.
+ *
+ * The platform's edge answers these while the container behind it is starting.
+ * Separating them from an application error is what makes retrying safe: a
+ * request that was not delivered cannot have had an effect, so the one POST
+ * this UI makes is not at risk of running twice.
+ */
+const WAKING_STATUSES = new Set([502, 503, 504]);
+
+type WakeListener = (waking: boolean) => void;
+
+const wakeListeners = new Set<WakeListener>();
+let waking = false;
+
+/**
+ * Subscribe to whether a live request is currently waiting on a cold start.
+ *
+ * The transport knows this and the UI has to say it, so it is published rather
+ * than inferred from a slow promise.
+ */
+export function onApiWaking(listener: WakeListener): () => void {
+  wakeListeners.add(listener);
+  listener(waking);
+  return () => {
+    wakeListeners.delete(listener);
+  };
+}
+
+function setWaking(next: boolean): void {
+  if (next === waking) return;
+  waking = next;
+  for (const listener of wakeListeners) listener(waking);
+}
+
+const pause = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Fetch from the deployed API, waiting out a cold start.
+ *
+ * Only the two undelivered cases are retried — a network-level failure and a
+ * gateway status from `WAKING_STATUSES`. An application error is returned to
+ * the caller on the first attempt, because retrying it would hide a real
+ * failure behind a minute and a half of patience.
+ */
+async function liveFetch(path: string, init?: RequestInit): Promise<Response> {
+  const deadline = Date.now() + COLD_START_BUDGET_MS;
+  for (let attempt = 1; ; attempt += 1) {
+    let response: Response | null = null;
+    try {
+      response = await fetch(`${apiBase}${path}`, init);
+    } catch {
+      response = null;
+    }
+    if (response !== null && !WAKING_STATUSES.has(response.status)) {
+      setWaking(false);
+      return response;
+    }
+    if (Date.now() >= deadline) {
+      setWaking(false);
+      if (response !== null) return response;
+      throw new Error(
+        `${apiBase || "The API"} did not answer within ` +
+          `${Math.round(COLD_START_BUDGET_MS / 1000)}s. The hosted backend may be down; ` +
+          `nothing is being shown from a cache, because a recording from another commit ` +
+          `presented as live data would misreport both the data and the framework.`
+      );
+    }
+    setWaking(true);
+    await pause(Math.min(5_000, 1_000 * attempt));
+  }
+}
+
+/**
  * Stable key for a request, so lookup does not depend on key order.
  *
  * The guard probe differs only by its body, so the body has to be part of the
@@ -138,7 +222,7 @@ async function replay<T>(method: string, path: string, body?: unknown): Promise<
 /** GET a JSON document, live or recorded. */
 export async function getJson<T>(path: string): Promise<T> {
   if (isRecorded) return replay<T>("GET", path);
-  const response = await fetch(`${apiBase}${path}`);
+  const response = await liveFetch(path);
   if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
   return (await response.json()) as T;
 }
@@ -146,7 +230,7 @@ export async function getJson<T>(path: string): Promise<T> {
 /** POST a JSON body and read a JSON document back, live or recorded. */
 export async function postJson<T>(path: string, body: unknown): Promise<T> {
   if (isRecorded) return replay<T>("POST", path, body);
-  const response = await fetch(`${apiBase}${path}`, {
+  const response = await liveFetch(path, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body)
