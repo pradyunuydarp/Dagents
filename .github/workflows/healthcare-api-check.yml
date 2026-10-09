@@ -115,30 +115,47 @@ jobs:
           API: ${{ env.API }}
         run: |
           set -euo pipefail
-          echo "--- /api/v1/framework/status ---"
-          curl -sS --max-time 45 "${API}/api/v1/framework/status" | python3 -c "
-          import json, sys
-          d = json.load(sys.stdin)
-          print('cohort_source     :', d.get('cohort_source'))
-          print('records synthetic :', d.get('records_are_synthetic'))
-          print('allowed origins   :', d.get('allowed_origins', '<not reported by this version>'))
-          for service in d.get('services', []):
-              print(f\"  {service['name']:22} {service['status']}\")
-          if d.get('cohort_source') != 'supabase':
-              print()
-              print('This API is generating its cohorts in process. The published demo would')
-              print('claim live data for invented data, so the Pages gate refuses it. Set')
-              print('HEALTHCARE_DEMO_DATABASE_URL on the service to the Supabase pooler URL.')
-          "
+          # Fetched once and reused: asking twice could print two different
+          # answers and would make the report self-contradicting.
+          curl -sS --max-time 45 "${API}/api/v1/framework/status" > /tmp/status.json
+          curl -sS --max-time 45 "${API}/api/v1/overview" > /tmp/overview.json
 
-          echo "--- /api/v1/overview ---"
-          curl -sS --max-time 45 "${API}/api/v1/overview" | python3 -c "
-          import json, sys
-          d = json.load(sys.stdin)
-          print('study            :', d.get('study_id'))
-          for hospital in d.get('hospitals', []):
-              print(f\"  {hospital['site_id']:22} cohort {hospital['cohort_size']}\")
-          "
+          python3 - <<'PY'
+          import json
+
+          status = json.load(open("/tmp/status.json"))
+          overview = json.load(open("/tmp/overview.json"))
+          source = status.get("cohort_source")
+          origins = status.get("allowed_origins", "not reported")
+
+          print("--- /api/v1/framework/status ---")
+          print("cohort_source     :", source)
+          print("records synthetic :", status.get("records_are_synthetic"))
+          print("allowed origins   :", origins)
+          for service in status.get("services", []):
+              print(f"  {service['name']:22} {service['status']}")
+
+          print("--- /api/v1/overview ---")
+          print("study             :", overview.get("study_id"))
+          for hospital in overview.get("hospitals", []):
+              print(f"  {hospital['site_id']:22} cohort {hospital['cohort_size']}")
+
+          # A notice as well as the log. Annotations are the one part of a
+          # finished run that can be read back in a single cheap request, which
+          # is what matters when the thing being diagnosed is a service that
+          # whoever is debugging cannot reach directly.
+          print(f"::notice::cohort_source={source} allowed_origins={origins}")
+
+          if source != "supabase":
+              print()
+              print("This API is generating its cohorts in process rather than reading the")
+              print("encounter store, so the published demo falls back to its recording. Set")
+              print("HEALTHCARE_DEMO_DATABASE_URL on the service to the Supabase pooler URL.")
+          if origins == "not reported":
+              print()
+              print("This build predates the field, so the service is running an older image")
+              print("than the repository. Render → Manual Deploy → Deploy latest commit.")
+          PY
 
       - name: Will a browser be allowed to call it
         if: ${{ env.HEALTH_CODE == '200' }}
