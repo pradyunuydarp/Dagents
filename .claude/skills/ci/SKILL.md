@@ -111,6 +111,23 @@ The Pages build also fails if a demo's `dist/` did not ship its
 `recording.json`, because a published demo missing its capture is a
 permanently-loading page.
 
+### e2. A published demo pointed at a backend that is down or wrong
+
+The healthcare demo is published calling a deployed API, not replaying. Three
+ways that goes wrong quietly: the service is asleep, the service is up but
+generating cohorts in process (so the page claims live data for invented data),
+or the service does not allow browser requests from the Pages origin — which a
+plain `curl` cannot see, because without an `Origin` header it is not the
+request a browser makes.
+
+Defence: the Pages build probes the API before building the frontend, and treats
+the three differently on purpose. **An outage publishes the replay** with a
+warning and a run-summary note, because failing the deploy would also stop the
+framework site and the other demo from shipping over somebody else's downtime.
+**A misconfiguration fails the deploy** — wrong `cohort_source`, an empty
+worklist, or a missing `Access-Control-Allow-Origin` — because each publishes a
+page that is broken or dishonest and each is a one-line fix on the service.
+
 ### f. Three frontends drifting apart visually
 
 The design system is shared by generated copy, not by import, because
@@ -179,6 +196,17 @@ is a false report, whoever is reading it.
 - **Prefer a guard script to a comment.** A rule the pipeline does not check is a
   rule that will decay; that is failure mode (c) above. Put it in `scripts/`,
   give it a test in `tests/`, and call it from the workflow.
+- **Never interpolate a secret, a repository variable or a dispatch input into a
+  `run:` script.** `${{ vars.X }}` pastes someone else's text into the shell
+  before bash sees it, so a value like `; curl …` runs with the workflow's
+  token, and a password containing `$(…)` stops being data. Pass it through
+  `env:` and reference `"$X"`, then validate it — `healthcare-data.yml` checks
+  its cohort size is an integer, and `pages.yml` refuses an API override that
+  carries a query string or credentials.
+- **A repository variable is not a secret store.** Variables are unmasked:
+  whatever is in one is printed in the log of every run that reads it, and on a
+  public repository that log is public. A credential pasted into one has to be
+  rotated, not just corrected.
 - **Keep jobs independently runnable.** Each installs only what it needs, so a
   contributor can reproduce one job locally without provisioning the whole repo.
 - Pin action versions to a major tag (`actions/checkout@v4`,

@@ -61,8 +61,15 @@ jobs:
       - name: Refuse to run without a credential
         # A missing secret would otherwise surface as a confusing connection
         # error several steps later.
+        #
+        # The secret reaches this check through `env:`, never through `${{ }}`.
+        # Interpolating it would paste a connection string into the script
+        # itself, where a password containing a quote or `$(…)` stops being data
+        # and starts being shell.
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
         run: |
-          if [ -z "${{ secrets.SUPABASE_DB_URL }}" ]; then
+          if [ -z "${SUPABASE_DB_URL}" ]; then
             echo "::error::SUPABASE_DB_URL is not set. Add it under Settings → Secrets and variables → Actions."
             exit 1
           fi
@@ -85,10 +92,26 @@ jobs:
         if: ${{ inputs.seed }}
         env:
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          # Through `env:` and then checked: a dispatch input interpolated
+          # straight into the command line is shell supplied by whoever pressed
+          # the button.
+          COHORT_SIZE: ${{ inputs.cohort_size }}
+          APPEND: ${{ inputs.append }}
         run: |
-          python apps/healthcare-demo/scripts/seed_supabase.py \
-            --cohort-size "${{ inputs.cohort_size }}" \
-            ${{ inputs.append && '--append' || '' }}
+          set -euo pipefail
+          case "${COHORT_SIZE}" in
+            ''|*[!0-9]*)
+              echo "::error::cohort_size must be a positive integer, got '${COHORT_SIZE}'."
+              exit 1
+              ;;
+          esac
+          args=(--cohort-size "${COHORT_SIZE}")
+          # An `if`, not `&&`: under `set -e` a false test as the whole
+          # statement would exit the step with no output at all.
+          if [ "${APPEND}" = "true" ]; then
+            args+=(--append)
+          fi
+          python apps/healthcare-demo/scripts/seed_supabase.py "${args[@]}"
 
       - name: Confirm what is stored
         # Reads the database back rather than trusting the seed's own report, and
