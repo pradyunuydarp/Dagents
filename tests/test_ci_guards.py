@@ -75,5 +75,75 @@ class PlannerSkipGuardTests(unittest.TestCase):
         self.assertEqual(2, guard.main([]))
 
 
+def run_blocks(workflow: str) -> list[str]:
+    """Return the body of every `run:` step in a workflow file.
+
+    A small hand parser, because PyYAML is not a dependency of this suite. It
+    handles the two forms the workflows use: `run: command` on one line, and
+    `run: |` followed by an indented block.
+    """
+    lines = workflow.splitlines()
+    blocks: list[str] = []
+    for index, line in enumerate(lines):
+        stripped = line.strip()
+        # A step can start with `run:` itself, as in `- run: make test`.
+        if stripped.startswith("- "):
+            stripped = stripped[2:].lstrip()
+        if not stripped.startswith("run:"):
+            continue
+        rest = stripped[len("run:"):].strip()
+        if rest not in ("|", ">"):
+            blocks.append(rest)
+            continue
+        indent = len(line) - len(line.lstrip()) + 2
+        body = []
+        for following in lines[index + 1:]:
+            if following.strip() and not following.startswith(" " * indent):
+                break
+            body.append(following)
+        blocks.append("\n".join(body))
+    return blocks
+
+
+class PipefailTests(unittest.TestCase):
+    """A step that pipes a test run into `tee` must also set `pipefail`.
+
+    GitHub runs `run:` steps with `bash -e`, without `pipefail`. In
+    `unittest ... | tee log`, the step's exit code is `tee`'s, which is 0, so
+    a failing suite passes. This hid two real test failures in the healthcare
+    demo for several commits.
+    """
+
+    WORKFLOWS = sorted((REPO_ROOT / ".github" / "workflows").glob("*.yml"))
+
+    def test_every_tee_pipeline_sets_pipefail(self) -> None:
+        self.assertTrue(self.WORKFLOWS, "no workflows found")
+        for path in self.WORKFLOWS:
+            for block in run_blocks(path.read_text(encoding="utf-8")):
+                if "| tee" not in block:
+                    continue
+                with self.subTest(workflow=path.name, step=block.strip().splitlines()[-1][:60]):
+                    self.assertIn(
+                        "set -o pipefail",
+                        block,
+                        f"{path.name}: a step pipes into tee without `set -o pipefail`, "
+                        "so a failing command would pass",
+                    )
+
+    def test_the_parser_finds_both_step_forms(self) -> None:
+        sample = (
+            "    steps:\n"
+            "      - run: echo one\n"
+            "      - run: |\n"
+            "          set -o pipefail\n"
+            "          make test | tee out.log\n"
+            "      - name: after\n"
+        )
+        self.assertEqual(
+            ["echo one", "          set -o pipefail\n          make test | tee out.log"],
+            run_blocks(sample),
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -119,6 +119,7 @@ jobs:
         env:
           DAGENTSC_BIN: ${{ env.PLANNER_DIR }}/dagentsc.exe
         run: |
+          set -o pipefail
           python -m unittest discover -s agents/tests -t . -v 2>&1 | tee agents-suite.log
 
       - name: Fail if the governance tests skipped
@@ -183,6 +184,7 @@ jobs:
         env:
           PYTHONPATH: .:services/model-service
         run: |
+          set -o pipefail
           python -m unittest discover -s services/model-service/tests \
             -t services/model-service/tests -v 2>&1 | tee model-service.log
 
@@ -294,6 +296,7 @@ jobs:
           DAGENTSC_BIN: ${{ env.PLANNER_DIR }}/dagentsc.exe
           PYTHONPATH: ../..:backend
         run: |
+          set -o pipefail
           python -m unittest discover -s tests -t . -v 2>&1 | tee healthcare-suite.log
 
       - name: Fail if the healthcare governance tests skipped
@@ -401,7 +404,9 @@ jobs:
         env:
           DAGENTSC_BIN: ${{ env.PLANNER_DIR }}/dagentsc.exe
           PYTHON: python
-        run: apps/healthcare-demo/scripts/run_frontend_demo.sh --check 2>&1 | tee smoke.log
+        run: |
+          set -o pipefail
+          apps/healthcare-demo/scripts/run_frontend_demo.sh --check 2>&1 | tee smoke.log
 
       - name: Fail if the smoke test skipped
         # The script maps exit 2 to a friendly "skipped" and exits 0, which is
