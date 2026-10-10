@@ -129,13 +129,13 @@ audit.
   weights, reported rather than applied.
 - `evaluate_release`: release gates against a candidate's metrics.
 
-Two behaviours are load-bearing. A secure-aggregation threshold raises the participation floor
-above the manifest's stated minimum, because that threshold is the reason the coordinator cannot
-resolve any single site's update. And a gate whose metric the candidate never reported is
-`GateNotEvaluated` rather than a pass, so omitting a subgroup measurement is not a way to ship an
-unevaluated model.
+Two behaviours matter most. A secure aggregation threshold raises the minimum number of
+participants above the manifest's stated minimum, because the threshold is what stops the
+coordinator from seeing any single site's update. And a gate whose metric the candidate never
+reported is `GateNotEvaluated`, not a pass, so leaving out a subgroup measurement cannot get an
+unevaluated model released.
 
-The invariant the module exists to hold: aggregation produces a candidate, never a release.
+The module's main rule: aggregation produces a candidate, never a release.
 
 ## CLI Surface
 

@@ -89,6 +89,12 @@
   font-size: var(--ds-step--1);
 }
 
+ul.lever-notes {
+  display: grid;
+  gap: var(--ds-1);
+  padding-left: var(--ds-5);
+}
+
 .note em {
   font-style: normal;
   font-family: var(--ds-font-mono);
@@ -113,8 +119,8 @@
 
 /* ===== Banners ============================================================ */
 
-/* A recorded run and an uncaptured combination are both first-class states, so
- * they are stated in place rather than shown as a transient message. */
+/* A recorded run and an unrecorded combination are normal states of the page,
+ * so they appear in place, not as a message that disappears. */
 .banner {
   margin-block: var(--ds-4);
   padding: var(--ds-3) var(--ds-4);

@@ -1,25 +1,20 @@
 import { useEffect, useState } from "react";
 
 /**
- * Light / dark / system, as an explicit choice.
+ * Light, dark or system theme.
  *
- * The design tokens already answer all three states — `:root` carries light,
- * a `prefers-color-scheme` block carries dark for anyone who has not chosen,
- * and `:root[data-theme="…"]` lets a choice win over the OS either way. What
- * was missing was any way to make that choice: a reader on a light OS had no
- * route to the dark palette at all.
- *
- * "System" is a real third option rather than a default hidden behind one of
- * the other two, so choosing it removes the attribute and hands control back.
+ * The design tokens define light on `:root`, dark under `prefers-color-scheme`,
+ * and `:root[data-theme]` overrides the OS setting. Choosing "system" removes
+ * the attribute so the OS setting applies again.
  */
 
 type Theme = "light" | "dark" | "system";
 
 const STORAGE_KEY = "dagents-theme";
 const OPTIONS: { value: Theme; label: string }[] = [
-  { value: "light", label: "light" },
-  { value: "dark", label: "dark" },
-  { value: "system", label: "system" }
+  { value: "light", label: "Light" },
+  { value: "dark", label: "Dark" },
+  { value: "system", label: "System" }
 ];
 
 /** Read the stored choice, tolerating a browser that refuses storage. */

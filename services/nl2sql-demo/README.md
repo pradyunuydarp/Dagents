@@ -1,54 +1,59 @@
-# Dagents NL2SQL Demo App
+# Dagents NL2SQL demo
 
-This demo app shows how to build an NL2SQL product on top of Dagents rather than as a standalone backend.
+This demo turns a natural language question into SQL. It shows how to build an
+NL2SQL product on top of Dagents: the app owns its UI and its SQL models, and
+Dagents provides validation, planning, service checks and workload compilation.
 
 **Live:** <https://pradyunuydarp.github.io/Dagents/nl2sql-demo/>
 
-That page has no backend, so it replays a capture: the responses were recorded from the real
-services with the OCaml planner built, and the page names the commit they came from. Every trace
-step, schema contract and routing decision shown is one the framework really produced. Ask it for
-something the capture does not hold and it says so rather than inventing an answer — a demo that
-fabricated a plan would be demonstrating the opposite of the point. The published run uses the
-deterministic fallback adapter rather than a GPU model.
+The published page has no backend. It replays responses recorded from the real
+services, with the OCaml planner built, and names the commit they came from.
+Only the bundled samples were recorded; an edited question gets no answer. The
+recorded run uses the rule-based fallback adapter, not a GPU model.
 
-## What It Uses From Dagents
+## What it uses from Dagents
 
 - `agents.common.domain`: shared Pydantic contracts and base models.
-- `agents.common.infrastructure.dagents_runner`: subprocess bridge to the OCaml functional planner.
-- `bindings/ocaml`: source validation, extraction planning, schema validation, quality rules, pipeline planning, model routing, and manifest rendering.
-- Dagents backend services: core-service, pipeline-service, model-service, LMA, and GMA are checked and displayed in the UI as part of the app trace.
-- Core-service is used for catalog/topology lookup and workload manifest planning.
-- Pipeline-service is used to register and run a schema-profiling workflow before SQL generation.
-- Model-service is used for reusable model catalog/job visibility while the NL2SQL-specific adapters load notebook artifacts.
-- LMA and GMA are used for source-scoped and assimilated schema profiling.
+- `agents.common.infrastructure.dagents_runner`: the bridge to the OCaml planner.
+- `bindings/ocaml`: source validation, extraction planning, schema validation,
+  quality rules, pipeline planning, model routing and manifest rendering.
+- The framework services. The UI shows a status check of each one, and a trace
+  of every call:
+  - core-service: catalog and topology lookup, and workload manifest planning;
+  - pipeline-service: registers and runs a schema profiling workflow before
+    SQL generation;
+  - model-service: the shared model catalog and jobs (the NL2SQL adapters load
+    their own model files);
+  - LMA and GMA: schema profiling for one source and across sources.
 
-## Model Artifacts
+## Model files
 
-The app discovers zip files in `./models`:
+The app looks for zip files in `./models`:
 
-- CodeQwen LoRA adapters use the Qwen chat prompt:
-  `Context: {DDL}\n\nQuestion: {question}` with a SQL-only system instruction.
-- CodeT5+/T5 artifacts use:
-  `question: {question} context: {DDL}`
+- CodeQwen LoRA adapters use the Qwen chat prompt
+  `Context: {DDL}\n\nQuestion: {question}`, with a system instruction to
+  return only SQL.
+- CodeT5+ and T5 models use `question: {question} context: {DDL}`.
 
-The real model adapters are implemented, but the app defaults to a deterministic fallback when local dependencies, GPU, or base model downloads are unavailable. This keeps the demo reliable while still allowing model execution when the environment supports it.
-
-To try the real model adapters, install the optional packages into your local Python environment:
+The real model adapters are implemented. When the optional packages, a GPU or
+the base model download are missing, the app uses a rule-based fallback adapter,
+so the demo always runs. To try the real adapters, install the optional
+packages:
 
 ```bash
 .venv/bin/pip install -r services/nl2sql-demo/backend/requirements-optional-models.txt
 ```
 
-## Run Locally
+## Run locally
 
-Presenter-friendly scripts:
+Scripts:
 
 ```bash
 services/nl2sql-demo/scripts/run_local_demo.sh
 services/nl2sql-demo/scripts/probe_api.sh
 ```
 
-Docker Compose demo:
+With Docker Compose:
 
 ```bash
 services/nl2sql-demo/scripts/run_compose_demo.sh
@@ -56,7 +61,7 @@ services/nl2sql-demo/scripts/probe_api.sh
 services/nl2sql-demo/scripts/stop_compose_demo.sh
 ```
 
-Backend:
+Backend only:
 
 ```bash
 PYTHONPATH=services/nl2sql-demo/backend:. \
@@ -65,7 +70,7 @@ PYTHONPATH=services/nl2sql-demo/backend:. \
   .venv/bin/uvicorn app.main:app --app-dir services/nl2sql-demo/backend --reload --port 8070
 ```
 
-Frontend:
+Frontend only:
 
 ```bash
 cd services/nl2sql-demo/frontend
@@ -77,12 +82,8 @@ Open `http://127.0.0.1:5173`.
 
 ## Docker Compose
 
-The top-level compose file includes:
-
-- `nl2sql-demo-backend`
-- `nl2sql-demo-frontend`
-
-Run:
+The top-level compose file includes `nl2sql-demo-backend` and
+`nl2sql-demo-frontend`:
 
 ```bash
 docker compose --env-file env/.env.compose up --build nl2sql-demo-backend nl2sql-demo-frontend

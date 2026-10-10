@@ -396,6 +396,14 @@ jobs:
           echo "Using ${browser}"
           echo "CHROMIUM_PATH=${browser}" >> "$GITHUB_ENV"
 
+      - name: Check the framework site in a browser
+        # Visits every guide page, draws every Mermaid diagram, loads every
+        # image, follows the links between pages and searches the API list. A
+        # diagram with a syntax error only fails in a browser, so the build
+        # above cannot catch it. Exit 2 (no browser) fails this step.
+        working-directory: site
+        run: npm run check
+
       - name: Smoke-test the real UI against a live backend
         # `run_frontend_demo.sh --check` starts the backend and the Vite dev
         # server, waits for both, runs the smoke test, and exits. Without

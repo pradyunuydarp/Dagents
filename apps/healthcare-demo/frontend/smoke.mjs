@@ -1,11 +1,10 @@
 /**
  * Frontend smoke test.
  *
- * A typecheck and a bundle prove the app compiles. They prove nothing about
- * whether it renders, whether the proxy reaches the backend, or whether the
- * governance controls actually change anything — which is the whole point of
- * this UI. This drives the three interactions that carry the demo's argument
- * and fails if any of them stops working.
+ * A typecheck and a bundle only prove that the app compiles. They do not show
+ * that it renders, that the proxy reaches the backend, or that the governance
+ * controls change anything. This test drives the guard controls and the pilot
+ * in a real browser and fails if any of them stops working.
  *
  * Usage:
  *   node smoke.mjs [baseUrl] [--screenshots <dir>]
@@ -59,7 +58,12 @@ if (shotDir) await mkdir(shotDir, { recursive: true });
 
 const browser = await chromium.launch({ executablePath });
 const page = await browser.newPage({ viewport: { width: 1280, height: 1100 } });
-page.on("console", (m) => { if (m.type() === "error") consoleErrors.push(m.text()); });
+// Web fonts are optional: the design tokens list fallback fonts, and some
+// sandboxes block the font host. Everything else must load.
+const optional = (text) => /fonts\.(googleapis|gstatic)\.com/.test(text);
+page.on("console", (m) => {
+  if (m.type() === "error" && !optional(`${m.text()} ${m.location()?.url ?? ""}`)) consoleErrors.push(m.text());
+});
 page.on("pageerror", (e) => consoleErrors.push(`pageerror: ${e.message}`));
 page.on("response", (r) => { if (r.status() >= 400) consoleErrors.push(`HTTP ${r.status()} ${r.url()}`); });
 
@@ -129,7 +133,7 @@ try {
   if (shotDir) await guardPanel.screenshot({ path: `${shotDir}/02-guard-deny.png` });
 
   // 6. A full pilot runs and the release gates reject the candidate.
-  await page.getByRole("button", { name: "Run governed pilot" }).click();
+  await page.getByRole("button", { name: "Run the pilot" }).click();
   await pilotPanel.locator(".gates li").first().waitFor({ timeout: 120000 });
   await page.waitForTimeout(600);
   const gates = await pilotPanel.locator(".gates li").count();

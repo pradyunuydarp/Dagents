@@ -1,0 +1,43 @@
+{
+  "requestId": "example-1",
+  "boundary": "before_read",
+  "requester": {
+    "requesterId": "analyst-7",
+    "requesterKind": "human",
+    "affiliation": null,
+    "statedPurpose": null,
+    "attributes": [
+      {
+        "attributeId": "verified_identity",
+        "weight": 1.0,
+        "verified": true
+      },
+      {
+        "attributeId": "signed_dua",
+        "weight": 1.0,
+        "verified": true
+      }
+    ],
+    "complianceHistory": 0.9
+  },
+  "classification": {
+    "classificationId": "patients",
+    "fieldSensitivity": {
+      "diagnosis": "high",
+      "age_band": "medium",
+      "region": "low"
+    },
+    "defaultSensitivity": "high",
+    "regulations": [],
+    "minimumCohort": 20
+  },
+  "requestedFields": [
+    "diagnosis",
+    "age_band",
+    "region"
+  ],
+  "granularity": "row",
+  "cohortSize": 120,
+  "declaredPurpose": null,
+  "approvedPurposes": []
+}

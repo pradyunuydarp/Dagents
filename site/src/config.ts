@@ -1,87 +1,71 @@
 /**
- * Everything about *where* this site lives, in one place.
+ * Site addresses and the demo list, in one place.
  *
- * The site has to work at three different addresses without a code change: a
- * dev server at the root, a project page under `/<repository>/`, and a custom
- * domain back at the root. So nothing here writes an absolute site URL. Paths
- * are resolved against `import.meta.env.BASE_URL`, which Vite fills from the
- * `SITE_BASE_PATH` the Pages workflow derives from `configure-pages` — moving
- * to a custom domain changes that value and nothing else.
- *
- * The only absolute URL is the repository, which does not move with the domain.
+ * The site can be served at the root (local dev, a custom domain) or under
+ * `/<repository>/` (GitHub Pages). Paths are therefore built from
+ * `import.meta.env.BASE_URL`, which the Pages workflow sets. The only absolute
+ * addresses are the repository's.
  */
 
-/** The source repository. Not derived, because it is not a site path. */
 export const REPO_URL = "https://github.com/pradyunuydarp/Dagents";
 
-/** Repository-relative links, so a fork or a rename needs one edit here. */
+/** Raw files on the main branch, for images in the guide. */
+export const RAW_URL = "https://raw.githubusercontent.com/pradyunuydarp/Dagents/main";
+
 export const REPO_LINKS = {
   contributing: `${REPO_URL}/blob/main/AGENTS.md`,
   serviceInventory: `${REPO_URL}/blob/main/docs/reference/service-inventory.md`,
-  planners: `${REPO_URL}/tree/main/bindings/ocaml`
+  guide: `${REPO_URL}/tree/main/docs/learn`
 } as const;
 
 export interface DemoLink {
-  /** Directory the demo is published under, and its id in the repository. */
+  /** The folder the demo is published under. */
   slug: string;
   name: string;
-  owns: string;
-  framework: string;
-  proves: string;
-  /**
-   * Where the published page gets its answers.
-   *
-   * The two demos differ, and the difference is the kind of thing a reader is
-   * entitled to know before trusting a panel — so each states its own rather
-   * than one sentence covering both.
-   */
-  transport: string;
-  caveat: string;
+  summary: string;
+  /** What to try first. */
+  tryThis: string[];
+  /** Where the page gets its data. */
+  data: string;
+  source: string;
 }
 
 /**
- * The demos published beneath this site.
- *
- * `slug` is the single source for the published path: the Pages workflow
- * assembles `_site/<slug>/` and this list builds the links to it, so the two
- * cannot drift into pointing at different directories.
+ * The demos published under this site. `slug` matches the folder the Pages
+ * workflow publishes each demo to.
  */
 export const DEMOS: DemoLink[] = [
   {
     slug: "healthcare-demo",
     name: "Stroke triage across three hospitals",
-    owns: "Its clinical feature contract, scoring rule, FHIR mapping and intended-use statement",
-    framework: "Governance, federation, and everything generic",
-    proves:
-      "That the governance and federation layers really decide things, and what they cost. Three levers change the guard's strategy; a candidate beats its baseline on AUC and is still refused release because a fairness gate fails.",
-    transport:
-      "Calls a deployed API that reads its encounters from Postgres, with the planner in the image. The page names the backend and prints the provenance that backend reports, so a replay cannot be mistaken for a live read.",
-    caveat: "Synthetic patients. Not a medical device, not clinically validated."
+    summary:
+      "Governance and federated learning in one app. Three simulated hospitals train and evaluate a triage model without sharing patient records.",
+    tryThis: [
+      "Change who is asking and how much they ask for, and watch the protection change.",
+      "Run the pilot. The new model scores higher than the current one, but it fails the fairness and sensitivity gates, so it is not released."
+    ],
+    data: "Calls a deployed API backed by a Postgres database. All patients are synthetic.",
+    source: `${REPO_URL}/tree/main/apps/healthcare-demo`
   },
   {
     slug: "nl2sql-demo",
     name: "Natural language to SQL",
-    owns: "Its UI and its SQL generation",
-    framework: "Validation, planning, service checks and workload compilation",
-    proves:
-      "That an ordinary app can consume the framework end to end: a trace of SourceSpec validation, extraction planning, schema contracts, quality rules, DAG planning and model routing, then the service calls behind them.",
-    transport:
-      "No deployed backend, so it replays a capture of a real run — recorded from the live services with the planner built, at a commit the page names. A request the capture does not hold is refused rather than answered.",
-    caveat: "The published run uses the deterministic fallback adapter, not a GPU model."
+    summary:
+      "An ordinary app built on the framework. It uses Dagents for source validation, planning, schema checks and model routing.",
+    tryThis: [
+      "Ask a question and follow the trace of framework steps behind the answer."
+    ],
+    data: "Replays a recorded run of the real services, so it needs no backend.",
+    source: `${REPO_URL}/tree/main/services/nl2sql-demo`
   }
 ];
 
-/**
- * Resolve a path against whatever base this build is served from.
- *
- * `BASE_URL` already carries its trailing slash, so a leading slash here would
- * produce `//` on a project page and silently leave the site.
- */
+/** A path under the site's base URL. */
 export function sitePath(path: string): string {
   return `${import.meta.env.BASE_URL}${path.replace(/^\//, "")}`;
 }
 
-/** Link to one published demo. */
+/** The address of a published demo. */
 export function demoHref(slug: string): string {
   return sitePath(`${slug}/`);
 }

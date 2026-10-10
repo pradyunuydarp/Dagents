@@ -342,7 +342,7 @@ This keeps failure isolation, upgrade independence, explicit contracts, and simp
   it to real data, with an audit record, belongs in Python. Do not re-derive a planning rule in a
   service because calling out to `dagentsc` felt inconvenient.
 - Never make the Ethical Guard fail open. If the planner is unreachable, the request is denied and
-  the denial is recorded. A fallback that permits on planner failure defeats the entire layer.
+  the denial is recorded. Never add a fallback that permits a request when the planner fails.
 - Never let aggregation imply release. A candidate model is produced by aggregation; a release
   requires its gates to pass and a human to approve. A gate whose metric is missing blocks.
 - Prefer typed contracts and deterministic planning over ad hoc branching in orchestration code.
@@ -351,13 +351,23 @@ This keeps failure isolation, upgrade independence, explicit contracts, and simp
 - Treat `services/core-service` as the external orchestration façade, even if manifest synthesis moves into OCaml later.
 - Treat `services/pipeline-service` as the execution surface for registered workflows, with planning logic eligible for extraction into typed compiler layers.
 - Introduce new infrastructure through replaceable interfaces so the repo can evolve from in-memory delivery to broker-backed and persisted deployments without a structural rewrite.
+- Write in easy, professional English: short sentences, plain words, facts and numbers instead of
+  adjectives, and no slogans or dramatic phrasing. This applies to UI text, docs, comments and
+  commit messages. The full rules are in `.claude/skills/writing/SKILL.md`.
+
+## Learning Guide
+
+New contributors should start with [`docs/learn/`](docs/learn/README.md). It covers federated
+learning, data governance, the architecture and the APIs, with diagrams, videos, papers and
+exercises. The framework site renders the same pages:
+<https://pradyunuydarp.github.io/Dagents/#/learn>.
 
 ## First Consumers
 
 - Watchdog
 - Datalytics
 
-Two in-repo consumers prove the boundary from different directions, and both are published:
+Two consumers in this repository show the boundary, and both are published:
 
 - [`apps/healthcare-demo/`](apps/healthcare-demo/README.md) — governance and federated rounds.
   Live: <https://pradyunuydarp.github.io/Dagents/healthcare-demo/>. The app owns its clinical

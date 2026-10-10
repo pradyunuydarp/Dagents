@@ -70,8 +70,9 @@
 
 /* ===== Banners ============================================================ */
 
-/* Provenance, refusals and fallbacks are first-class states, so they sit in the
- * page flow with a stripe and a word — never a toast, never dismissible. */
+/* The data source, refusals and fallbacks are normal states of the page, so
+ * they sit in the page flow with a stripe and a word. They are never pop-up
+ * messages and cannot be dismissed. */
 .ds-banner p {
   flex: 1 1 22rem;
   min-width: 0;

@@ -1,180 +1,206 @@
 ---
 name: frontend
-description: Strict rules for changing Dagents frontend code — the React + Vite + TypeScript UIs at apps/healthcare-demo/frontend and services/nl2sql-demo/frontend, and the framework site at site/, plus the shared design system in design/ and the recorded static mode the published demos replay. Use before editing any .tsx, .ts, .css, package.json, vite.config.ts or smoke.mjs under either frontend, or when adding a panel, control, chart or API call to a demo UI. States what a demo frontend is allowed to own, and why a typecheck and a bundle are not evidence that the UI works.
+description: Strict rules for the Dagents frontends — the framework site in site/, the healthcare demo UI in apps/healthcare-demo/frontend and the NL2SQL demo UI in services/nl2sql-demo/frontend. Use before changing a component, a page, the guide renderer, styling, the API calls a UI makes, or anything under a frontend/ or site/ directory. States what a UI may own, the design system rules, and the browser checks that must pass before the change is finished.
 ---
 
 # Dagents frontend
 
-This skill is binding, not advisory. Where it says **never**, a change that does it is
-wrong even if it renders.
+These rules are binding. A change that breaks a **never** rule is wrong even if
+the page renders. Text on every page follows the `writing` skill.
 
-## 1. What a Dagents frontend is for
+## 1. The three frontends
 
-Dagents is a **reusable framework**, not a product. Its frontends exist to prove a
-consumer app can really consume the framework, and to make the framework's decisions
-visible — which strategy the governance planner chose, which sites a federated round
-selected, what a release gate blocked on.
-
-There are two, and they are separate apps with separate package trees:
-
-| App | Path | Port | Owns | Proves |
+| App | Path | Port | Owns | Shows |
 |---|---|---|---|---|
-| Healthcare demo | `apps/healthcare-demo/frontend/` | 5174 | Stroke-triage UI, the guard's three levers, the pilot view | That governance and federation are real and have a measurable cost |
-| NL2SQL demo | `services/nl2sql-demo/frontend/` | 5173 | Prompt UI, schema editor, SQL display | That an app can consume the framework's validation, planning and checks |
+| Framework site | `site/` | 5175 | Home page, the learning guide, the API reference | How Dagents works and how to use it |
+| Healthcare demo | `apps/healthcare-demo/frontend/` | 5174 | Stroke triage UI, the guard controls, the pilot view | Governance and federation work, and their cost can be measured |
+| NL2SQL demo | `services/nl2sql-demo/frontend/` | 5173 | Prompt UI, schema editor, SQL display | An app can use the framework's validation, planning and checks |
 
-Both are React 19 + Vite 7 + TypeScript, built with `tsc -b && vite build`. The
-healthcare demo additionally has `playwright-core` and a real browser smoke test.
+All three are React 19 + Vite 7 + TypeScript, built with `tsc -b && vite build`.
+The healthcare demo and the site use `playwright-core` for browser checks.
 
-`apps/healthcare-demo/` is extractable into a standalone repository via
-`scripts/extract_repo.sh` — so **never** import from `agents/`, `services/` or anything
-else outside `apps/healthcare-demo/` in its frontend, and never add a dependency on
-another app's code.
+`apps/healthcare-demo/` can be extracted into its own repository with
+`scripts/extract_repo.sh`. So its frontend must **never** import from `agents/`,
+`services/` or anything else outside `apps/healthcare-demo/`.
 
 ## 2. The design system
 
-`design/dagents-design-system.css` is the single source. `scripts/sync_design_system.py --write`
-generates a copy into each frontend, and `tests/test_publishing_guards.py` fails on drift.
+`design/dagents-design-system.css` is the single source.
+`scripts/sync_design_system.py --write` copies it into each frontend, and
+`tests/test_publishing_guards.py` fails if a copy differs.
 
-- **Never edit a copy.** Edit the source and re-run the sync. The copies exist only because
-  `apps/healthcare-demo/` must stay extractable and cannot import across the tree.
-- **Never introduce a literal colour.** Every colour comes from a `--ds-*` token, and every token
-  is defined on bare `:root` before any dark block redefines it. A colour defined only inside a
-  dark block leaves one theme's text on the other theme's background.
-- **Colour carries meaning only.** Decision states — permit, narrow, deny — plus one functional
-  blue for links and focus. There is no accent colour to spend. In a framework whose argument is
-  that a decision is computed by a typed planner, a decorative accent would make a styled panel
-  indistinguishable from a refused request. Hierarchy comes from type, weight and hairline rules.
-- State is never carried by colour alone: a chip spells its own word, and a severity stripe
-  repeats it, so the page survives being read in greyscale.
+- **Never edit a copy.** Edit the source and run the sync. The copies exist
+  because the healthcare demo must not import across the tree.
+- **Never use a literal colour.** Every colour comes from a `--ds-*` token, and
+  every token is defined on bare `:root` before a dark block redefines it. A
+  token defined only in a dark block leaves one theme's text on the other
+  theme's background.
+- **Colour carries meaning only:** the decision states (permit, narrow, deny)
+  and one blue for links and focus. There is no accent colour, because a
+  decorative colour could be mistaken for a decision. Use type, weight and thin
+  rules for hierarchy.
+- **Never show state by colour alone.** A chip includes its word, so the page
+  still reads in greyscale.
+- Mermaid diagrams on the site take their colours from the tokens
+  (`site/src/Mermaid.tsx`), so they stay grey and follow light and dark mode.
 
-## 3. The published demos replay a real run — or call a real one
+## 3. The framework site
 
-`src/api.ts` has three modes and the page says which one it is in:
+- Pages live in the URL hash (`#/learn/04-apis`), because GitHub Pages has no
+  server-side routing. A second `#` selects a heading:
+  `#/learn/04-apis#plan-a-federated-round`.
+- **The guide is written once, in `docs/learn/*.md`.** The site bundles those
+  files, so the guide reads the same on GitHub and on the site. Edit the
+  Markdown, never a copy in `site/`. The page order is `ORDER` in
+  `site/src/learn.ts`.
+- Links between guide pages use relative `.md` paths. The renderer turns them
+  into site routes and turns other repository paths into GitHub links. Heading
+  ids match GitHub's, so anchors work in both places.
+- Diagrams are Mermaid code blocks. Images under `docs/presentation/puml/` are
+  bundled with the site.
+- The API reference reads `docs/reference/service-inventory.json`. Never copy
+  that file into `site/`.
+
+## 4. Published demos replay a real run or call a real API
+
+`src/api.ts` has three modes, and the page says which one it is in:
 
 | Build | Mode |
 |---|---|
 | local dev | live, same origin, through the Vite proxy |
 | `VITE_DAGENTS_STATIC=1` | replays `public/recording.json` |
-| `VITE_HEALTHCARE_API_BASE` set | live against the deployed API, which reads the encounter store |
+| `VITE_HEALTHCARE_API_BASE` set | live, against the deployed API, which reads the encounter store |
 
-The third is the healthcare demo in production. NL2SQL has no deployed backend and replays.
+The third mode is the healthcare demo in production. NL2SQL has no deployed
+backend and replays.
 
-- **Never fake a response, and never widen the replay into a fallback.** A request the capture
-  does not hold raises `NotRecordedError` and the UI says so. A governance demo that invented a
-  permit would demonstrate the opposite of the framework's point — this is the same rule as
-  "never hide a denial", applied to the transport.
-- **A live build never falls back to the recording.** `isRecorded` is false the moment an API is
-  configured, and it stays false when that API is unreachable. Serving a capture from another
-  commit as though it were live would misreport the data *and* the framework, and the reader
-  would have no way to tell. The page reports the outage instead.
-- **The page prints the provenance the backend reported**, read from
-  `/api/v1/framework/status`, never inferred from the fact that a URL was configured. A build
-  pointed at an API that is generating cohorts in process must say `synthetic`.
-- **A cold start is waited out visibly.** The API runs on a tier that stops the container when
-  idle, so the first request is usually the one that wakes it. `liveFetch` retries only the
-  statuses that mean the request never reached the app (502/503/504, and a network-level
-  failure), announces the wait through `onApiWaking` so a banner can say what is happening, and
-  returns an application error on the first attempt — retrying that would hide a real failure
-  behind ninety seconds of patience.
-- **Never capture without the planner.** The Guard fails closed, so an unplanned capture is
-  nothing but denials: it looks fine and proves nothing. `capture_demo_recordings.py` refuses,
-  and `check_demo_recordings.py` refuses a capture whose levers change nothing.
-- The page names the commit it was captured from. Keep that visible.
-- Changing what the UI requests means re-capturing. A new request shape the capture does not
-  cover publishes as "not captured", not as a working demo.
+- **Never fake a response, and never use the replay as a fallback.** A request
+  the recording does not hold raises `NotRecordedError`, and the UI says so. An
+  invented permit would misrepresent the framework.
+- **A live build never falls back to the recording.** `isRecorded` is false
+  whenever an API is configured, even when that API is unreachable. A recording
+  from another commit shown as live would misreport the data and the framework.
+  The page reports the outage instead.
+- **The page prints the data source the backend reports**
+  (`/api/v1/framework/status`), never one inferred from the configured URL. An
+  API that generates its cohorts in process must show `synthetic`.
+- **Show the wait for a cold start.** The hosted API stops after 15 minutes
+  without traffic, so the first request usually starts it (about 20 seconds).
+  `liveFetch` retries only requests that never reached the app (502, 503, 504,
+  or a network failure), reports the wait through `onApiWaking` so the page can
+  show a banner, and returns an application error on the first attempt.
+  Retrying an application error would hide a real failure.
+- **Never record without the planner.** The Guard fails closed, so a recording
+  made without `dagentsc` holds only denials. `capture_demo_recordings.py`
+  refuses to run without it, and `check_demo_recordings.py` refuses a recording
+  whose controls change nothing.
+- The page names the commit it was recorded from. Keep that visible.
+- If you change what the UI requests, record again. Otherwise the published
+  demo answers "not recorded" where it used to work.
 
-## 4. Hard rules
+## 5. Hard rules
 
 ### The boundary
 
-- The app owns its UI, its wording, its clinical or SQL domain language, and its
-  presentation choices. **The framework owns every decision the UI displays.**
-- **Never compute a framework decision in the browser.** If a panel needs to know which
-  protection strategy applies, which sites are eligible, or whether a gate passes, it
-  asks the backend, which asks the planner. A threshold, a quorum rule, or a
-  sensitivity level reimplemented in TypeScript is a second implementation of a planner
-  rule, and it will drift. Fetch it.
-- A UI may hold presentation state (which tab, which row is expanded, a draft input). It
-  must not hold the authoritative copy of anything the backend owns.
+- The app owns its UI, its wording, its domain language and its layout. **The
+  framework owns every decision the UI displays.**
+- **Never compute a framework decision in the browser.** If a panel needs a
+  protection strategy, the eligible sites or a gate result, it asks the backend,
+  which asks the planner. A threshold, quorum rule or sensitivity level written
+  again in TypeScript is a second copy of a planner rule, and it will drift.
+- A UI may hold presentation state (the open tab, an expanded row, a draft). It
+  must not hold the only copy of anything the backend owns.
 
 ### Configuration
 
-- **Never hardcode a backend URL or port in a component.** Vite proxies `/api` to the
-  backend, and the target is env-driven:
+- **Never hardcode a backend URL or port in a component.** Vite proxies `/api`
+  to the backend, and the target comes from the environment:
 
   ```ts
   // apps/healthcare-demo/frontend/vite.config.ts
   server: { proxy: { "/api": process.env.HEALTHCARE_DEMO_API_URL ?? "http://127.0.0.1:8080" } }
   ```
 
-  Components call relative `/api/v1/...` paths. Adding a new backend means extending the
-  proxy config and the env file, not embedding a host.
-- Ports are the ones in the table above, and they are env-driven by design. Do not
-  invent a new one.
+  Components call relative `/api/v1/...` paths. A new backend means extending
+  the proxy config and the env file.
+- Site addresses are built from `import.meta.env.BASE_URL` (`site/src/config.ts`),
+  so the site works at the root and under `/Dagents/`. Never hardcode the base path.
+- Use the ports in the table above. Do not invent a new one.
 
 ### Dependencies
 
-- Keep the dependency list short and justified. These are demos that must start on a
-  machine with no GPU, no database and no Docker. A new runtime dependency needs a
-  reason that the existing ones cannot serve.
-- `playwright-core` stays a devDependency of the healthcare frontend only.
-- Never commit `node_modules/`, a `dist/` bundle, or a lockfile you did not regenerate
-  with the matching `npm install`.
+- Keep the dependency list short. The demos must start on a machine with no GPU,
+  no database and no Docker. A new runtime dependency needs a reason the
+  existing ones cannot meet.
+- `playwright-core` is a devDependency only.
+- Large libraries load only where needed: the site imports Mermaid lazily, on
+  pages with a diagram.
+- Never commit `node_modules/`, a `dist/` bundle, or a lockfile you did not
+  regenerate with the matching `npm install`.
 
-### Failure display
+### Showing refusals and failures
 
-The demos exist partly to show the framework refusing things. A denial, a blocked gate,
-or an unreachable planner is a **first-class UI state**, not an error toast to be
-swallowed.
+The demos show the framework refusing things. A denial, a blocked gate or an
+unreachable planner is a normal UI state: show it clearly, with its reason.
 
-- Without `dagentsc` built, the Ethical Guard denies every request. That is correct
-  behaviour, and every panel showing a denial is the correct rendering of it. Do not add
-  a UI-side fallback that hides the denial or synthesises a permissive result — that
-  would lie about the framework's most important property.
-- Show *why*: the strategy, the gate, the missing metric. A bare "something went wrong"
-  throws away the thing the demo is demonstrating.
+- Without `dagentsc`, the Ethical Guard denies every request. Every panel
+  showing a denial is then the correct result. **Never** add a UI fallback that
+  hides the denial or creates a permissive result.
+- Show why: the strategy, the gate, or the missing metric. A bare "something
+  went wrong" hides the information the demo exists to show.
 
-## 5. The TDD loop
+## 6. The test loop
 
-**A typecheck and a bundle prove the app compiles and nothing about whether it works.**
-This is written on the smoke test itself, and it is the rule for this layer.
-
-So the loop is: write or extend the smoke assertion for the behaviour you are about to
-change, watch it fail against the running app, then make it pass.
+**A typecheck and a bundle only prove that the app compiles.** A browser check
+proves it works. Write or extend the browser assertion for the behaviour you are
+changing, watch it fail, then make it pass.
 
 ```bash
-# Healthcare demo — the full loop, no Docker and no database needed
-apps/healthcare-demo/scripts/run_frontend_demo.sh --check   # start, smoke-test the UI, exit
+# Healthcare demo: starts the API and the UI, runs the smoke test, exits.
+# Needs no Docker and no database.
+apps/healthcare-demo/scripts/run_frontend_demo.sh --check
 
-# Or, against an already-running stack:
+# Or against a running stack:
 cd apps/healthcare-demo/frontend && npm install && npm run build && npm run smoke
+
+# Framework site: every guide page, diagram, image and internal link.
+cd site && npm install && npm run build && npm run check
 ```
 
-`smoke.mjs` drives the real UI against a live backend: it asserts that **each of the
-guard's three levers changes the strategy**, runs a full pilot, and fails on any console
-error. Extend it when you add a control that carries an argument; a control nobody
-asserts on is a control that will silently stop working.
+The healthcare `smoke.mjs` drives the real UI against a live backend. It checks
+that **each of the guard's three controls changes the strategy**, runs a full
+pilot, and fails on any console error. It finds controls by their labels
+("Requester verified", "Cohort size") and buttons by name ("Ask the guard",
+"Run the pilot"); rename them only together with the test. When you add a
+control, add an assertion for it.
 
-Its exit codes matter:
+The site's `check.mjs` serves `dist/`, visits every guide page, and fails if a
+Mermaid diagram does not draw, an image does not load, an internal link or
+anchor is missing, raw Markdown shows on a page, or the console has an error.
+Mermaid syntax errors only appear in a browser, so the build cannot catch them.
+
+Both scripts use the same exit codes:
 
 | Exit | Meaning |
 |---|---|
 | 0 | Passed |
 | 1 | Failed |
-| 2 | `SKIP` — no Chromium or no `playwright-core` |
+| 2 | `SKIP`: no Chromium or no `playwright-core` |
 
-Exit 2 is **not** a pass. A machine without a browser must report "skipped", and a CI
-job or a report that treats 2 as success is a false green. Say "skipped" when it skips.
+**Exit 2 is not a pass.** Report it as "skipped".
 
-For the NL2SQL demo:
+Web fonts load from Google Fonts, and some sandboxes block that host. The fonts
+are optional (the tokens list fallbacks), so both checks ignore failed font
+requests. Every other failed request or console error fails the check.
+
+The NL2SQL demo has no browser test yet:
 
 ```bash
-services/nl2sql-demo/scripts/run_local_demo.sh   # app, no Docker
+services/nl2sql-demo/scripts/run_local_demo.sh   # the app, no Docker
 cd services/nl2sql-demo/frontend && npm install && npm run build
 ```
 
-It has no browser smoke test yet. If you change behaviour there that a bundle cannot
-prove, add the assertion rather than relying on the typecheck.
+If you change behaviour there that a bundle cannot prove, add the assertion.
 
 ### Both demos need `dagentsc`
 
@@ -182,33 +208,30 @@ prove, add the assertion rather than relying on the typecheck.
 cd bindings/ocaml && opam exec -- dune build ./bin/dagentsc.exe
 ```
 
-`dune` is not on PATH — always `opam exec --`. The demo scripts check for the binary and
-say so, because without it every governed panel shows a denial.
+`dune` is not on PATH, so always use `opam exec --`. The demo scripts check for
+the binary, because without it every governed panel shows a denial.
 
-## 6. Before you call a frontend change done
+## 7. Before you call a frontend change done
 
 ```bash
-cd apps/healthcare-demo/frontend && npm run build && npm run smoke   # or the NL2SQL equivalent
-python scripts/sync_design_system.py --check                         # no copy drifted
+cd apps/healthcare-demo/frontend && npm run build && npm run smoke   # or the site/NL2SQL equivalent
+python scripts/sync_design_system.py --check                         # no copy differs
 python -m unittest discover -s tests -t .                            # publishing guards
 ```
 
-Report the smoke result honestly, including a skip. Then, if the change touched an API
-shape, re-run the backend suite that owns it — a frontend change that needed a new field
-is a backend change too, and both generated artifacts have to be refreshed:
+Report the browser check result, including a skip. If the change touched an API
+shape, run the backend suite that owns it and refresh both generated files:
 
 ```bash
 .venv/bin/python scripts/service_inventory.py --check
 .venv/bin/python scripts/capture_demo_recordings.py --demo all   # needs dagentsc built
 ```
 
-A change to what the UI requests and no re-capture means the published demo answers "not
-captured" where it used to work. The build will not tell you; only the capture will.
+The build does not notice a request the recording lacks; only a new recording does.
 
-## 7. When the design is handed to you
+## 8. When a design is handed to you
 
-A visual design for a demo frontend may arrive as a spec, mockup or artifact. Implement
-it within these rules: the design decides layout, hierarchy, colour and wording; it does
-not get to move a framework decision into the browser, hardcode a URL, or hide a
-denial. If a design requires one of those, say which rule it hits and offer the nearest
-implementation that holds.
+A design may arrive as a spec, a mockup or an artifact. It decides layout,
+hierarchy, colour and wording. It does not move a framework decision into the
+browser, hardcode a URL, or hide a denial. If it requires one of those, name the
+rule it breaks and offer the closest version that keeps the rule.

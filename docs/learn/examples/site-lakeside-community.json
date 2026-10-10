@@ -1,0 +1,16 @@
+{
+  "site_id": "lakeside-community",
+  "capabilities": [
+    "local_profiling",
+    "local_evaluation",
+    "local_training",
+    "telemetry"
+  ],
+  "feature_contract_version": "stroke-triage-features-v2",
+  "approved_conditions": [
+    "suspected_stroke"
+  ],
+  "policy_version": "demo-hospital-policy-v1",
+  "cohort_size": 60,
+  "enrolled": true
+}

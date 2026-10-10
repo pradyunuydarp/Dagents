@@ -1,0 +1,32 @@
+{
+  "round_id": "example-round-1",
+  "study_id": "stroke-triage-pilot",
+  "condition_id": "suspected_stroke",
+  "phase": "analytics",
+  "model_version": "stroke-rule-seed-v1",
+  "model_artifact_digest": "sha256:demo-seed-rule",
+  "training_code_digest": "sha256:demo-stroke-rule-v1",
+  "feature_contract_version": "stroke-triage-features-v2",
+  "privacy_profile": "stroke-consortium-profile-v1",
+  "aggregation": {
+    "kind": "secure_aggregation",
+    "mu": null,
+    "optimizer": null,
+    "threshold": 3
+  },
+  "minimum_participants": 2,
+  "minimum_cohort_per_site": 20,
+  "required_capabilities": [
+    "local_evaluation"
+  ],
+  "stop_conditions": [
+    "schema_failure",
+    "quorum_not_met",
+    "unsafe_metric"
+  ],
+  "invited_sites": [
+    "lakeside-community",
+    "northgate-university",
+    "riverside-general"
+  ]
+}
