@@ -2,16 +2,16 @@
 
 This demo package is designed for a 25-minute course presentation: 20 minutes of demo/talk and 5 minutes of Q&A. It covers the whole Dagents app while keeping the main grading focus on the OCaml functional planner layer.
 
-Both apps are also published, which is the fallback if anything local refuses to start on the day —
-and the stroke demo is the better opener either way, since it is running against a real database
-rather than a laptop:
+Both apps are also published. Use them if something will not start locally. The stroke demo
+is a good opener, because it runs against a deployed API and database:
 
 - framework site: <https://pradyunuydarp.github.io/Dagents/>
 - stroke triage, calling its deployed API: <https://pradyunuydarp.github.io/Dagents/healthcare-demo/>
 - NL2SQL, replaying a recorded run: <https://pradyunuydarp.github.io/Dagents/nl2sql-demo/>
+- the learning guide, for background questions: <https://pradyunuydarp.github.io/Dagents/#/learn>
 
-The API sleeps when idle, so open the stroke demo a minute before presenting: the first request
-takes about twenty seconds and the page says what it is waiting for.
+The API sleeps when idle, so open the stroke demo a minute before presenting. The first request
+takes about 20 seconds, and the page shows a banner while it waits.
 
 ## Prerequisites
 
@@ -42,14 +42,14 @@ takes about twenty seconds and the page says what it is waiting for.
    bash docs/demo/run_governance_demo.sh
    ```
 
-   This is the strongest single argument for the OCaml layer being typed. It shows the
-   Ethical-Restriction Rails resolving the same request differently as trust and granularity
-   change, and a federated pilot rejecting a candidate model that beat its baseline — because two
-   safety gates failed. Both decisions come from `dagentsc`, not from the calling service.
+   This step shows the typed OCaml layer at work. The governance planner gives the same request
+   different strategies as trust and granularity change. A federated pilot then rejects a
+   candidate model that scores higher than the current one, because two safety gates fail. Both
+   decisions come from `dagentsc`, not from the calling service.
 
 ## What To Say While Running The Demo
 
-The key claim is: Dagents uses OCaml for pure, typed planning. Python and Java services still do runtime work, but OCaml handles deterministic transformations such as validation, source extraction planning, quality decisions, pipeline DAG planning, model routing, and manifest rendering.
+The main message: Dagents uses OCaml for pure, typed planning. Python and Java services still do runtime work, but OCaml handles deterministic transformations such as validation, source extraction planning, quality decisions, pipeline DAG planning, model routing, and manifest rendering.
 
 Use this contrast:
 

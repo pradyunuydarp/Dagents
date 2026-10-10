@@ -1,19 +1,13 @@
-/* Framework site — layout and page-specific treatment.
- *
- * Everything chromatic comes from the design tokens; this file only composes
- * them. The page is a documentation site, so the treatment is utilitarian:
- * real hierarchy, considered spacing, one characterful moment in the hero and
- * one in the diagram, and nothing else asking for attention.
- */
+/* Framework site styles. Colours, type and spacing come from the shared
+   design system tokens (design-system.css). */
 
-/* ===== Masthead =========================================================== */
+/* ===== Header ============================================================= */
 
 .masthead {
   position: sticky;
   top: 0;
   z-index: 10;
-  background: color-mix(in srgb, var(--ds-panel) 92%, transparent);
-  backdrop-filter: blur(8px);
+  background: var(--ds-ground);
   border-bottom: 1px solid var(--ds-line);
 }
 
@@ -21,42 +15,73 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  justify-content: space-between;
-  gap: var(--ds-3);
+  gap: var(--ds-2) var(--ds-5);
   padding-block: var(--ds-3);
 }
 
 .wordmark {
-  display: flex;
-  align-items: baseline;
-  gap: var(--ds-3);
-  min-width: 0;
-}
-
-.wordmark-name {
   font-family: var(--ds-font-display);
-  font-size: var(--ds-step-1);
+  font-size: var(--ds-step-2);
   font-weight: 700;
-  letter-spacing: -0.02em;
+  color: var(--ds-ink);
+  text-decoration: none;
 }
 
+/* Narrow screens: name and theme on the first line, sections on the second. */
 .masthead nav {
+  order: 3;
+  flex-basis: 100%;
   display: flex;
   flex-wrap: wrap;
-  gap: var(--ds-2) var(--ds-4);
-  font-family: var(--ds-font-mono);
-  font-size: var(--ds-step--1);
+  gap: var(--ds-1) var(--ds-4);
+}
+
+.masthead .theme-toggle { margin-left: auto; }
+
+@media (min-width: 760px) {
+  .masthead nav { order: 0; flex: 1; flex-basis: auto; }
+  .masthead .theme-toggle { margin-left: 0; }
 }
 
 .masthead nav a {
   color: var(--ds-ink-2);
   text-decoration: none;
+  padding-block: var(--ds-1);
+  border-bottom: 2px solid transparent;
 }
 
-.masthead nav a:hover {
+.masthead nav a:hover { color: var(--ds-ink); }
+
+.masthead nav a[aria-current="page"] {
   color: var(--ds-ink);
-  text-decoration: underline;
-  text-underline-offset: 3px;
+  border-bottom-color: var(--ds-ink);
+}
+
+.theme-toggle {
+  display: inline-flex;
+  border: 1px solid var(--ds-line);
+  border-radius: var(--ds-r-1);
+  overflow: hidden;
+}
+
+.theme-toggle button {
+  font: inherit;
+  font-size: var(--ds-step--1);
+  padding: var(--ds-1) var(--ds-3);
+  background: transparent;
+  color: var(--ds-ink-2);
+  border: 0;
+  border-right: 1px solid var(--ds-line);
+  cursor: pointer;
+}
+
+.theme-toggle button:last-child { border-right: 0; }
+.theme-toggle button:hover { color: var(--ds-ink); background: var(--ds-inset); }
+
+.theme-toggle button.is-active {
+  color: var(--ds-ink);
+  background: var(--ds-inset);
+  font-weight: 600;
 }
 
 /* ===== Page =============================================================== */
@@ -65,568 +90,375 @@
   display: flex;
   flex-direction: column;
   gap: var(--ds-7);
-  padding-block: var(--ds-6) var(--ds-8);
 }
 
-.section-head {
+.page h1 {
+  font-size: var(--ds-step-4);
+  line-height: 1.15;
+}
+
+.page h2 {
+  font-size: var(--ds-step-3);
+  line-height: 1.2;
+}
+
+.page h3 {
+  font-size: var(--ds-step-1);
+}
+
+.block {
   display: flex;
   flex-direction: column;
-  gap: var(--ds-3);
-  margin-bottom: var(--ds-4);
+  gap: var(--ds-4);
+  min-width: 0;
 }
 
-/* ===== Hero =============================================================== */
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ds-3);
+}
 
-/* Sized to its content, not the viewport, so the sections below are in the
- * first frame. */
+.plain-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-2);
+  padding-left: var(--ds-5);
+  max-width: var(--ds-measure);
+}
+
+/* ===== Home =============================================================== */
+
 .hero {
   display: flex;
   flex-direction: column;
   gap: var(--ds-4);
-  padding-block: var(--ds-4) var(--ds-2);
+  padding-block: var(--ds-6) var(--ds-2);
 }
 
-.hero h1 {
-  max-width: 34ch;
-  font-size: clamp(1.75rem, 1.1rem + 2.6vw, var(--ds-step-5));
-  font-weight: 700;
-  letter-spacing: -0.03em;
-  line-height: 1.08;
-}
+.hero h1 { font-size: var(--ds-step-5); }
 
-/* The one-line model, in the framework's own voice: a pipeline of stages, set
- * in the face the framework's own output uses. */
-.hero-model {
-  font-size: var(--ds-step-0);
-  font-weight: 500;
-  color: var(--ds-ink-2);
-  border-left: 3px solid var(--ds-ink);
-  padding-left: var(--ds-4);
-  max-width: 52ch;
-}
-
-.hero-note {
-  max-width: 62ch;
-  font-size: var(--ds-step-0);
-}
-
-.hero-facts {
-  border-top: 1px solid var(--ds-line);
-  padding-top: var(--ds-4);
-  margin-top: var(--ds-2);
-}
-
-.hero-facts dd {
+.hero .lead {
   font-size: var(--ds-step-2);
-  font-weight: 500;
+  line-height: 1.4;
+  max-width: 34em;
+  color: var(--ds-ink);
 }
 
-/* ===== Tables ============================================================= */
-
-.ds-table td.never {
-  color: var(--ds-ink-3);
-}
-
-.ds-table td.method {
-  font-weight: 600;
-  white-space: nowrap;
-}
-
-/* ===== Agents and splits ================================================== */
-
-.agent-pair,
-.split {
+.steps {
   display: grid;
-  gap: var(--ds-5);
+  gap: var(--ds-4);
+  padding: 0;
+  list-style: none;
+  counter-reset: step;
 }
 
-.agent-pair {
-  grid-template-columns: repeat(auto-fit, minmax(min(22rem, 100%), 1fr));
+@media (min-width: 800px) {
+  .steps { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 
-.split {
-  grid-template-columns: repeat(auto-fit, minmax(min(16rem, 100%), 1fr));
-}
-
-.agent-pair article,
-.split article {
+.steps li {
+  counter-increment: step;
   display: flex;
   flex-direction: column;
   gap: var(--ds-2);
-  min-width: 0;
+  padding: var(--ds-4);
+  border: 1px solid var(--ds-line);
+  border-radius: var(--ds-r-2);
+  background: var(--ds-panel);
 }
 
-.agent-pair h3 {
+.steps li h3::before {
+  content: counter(step) ". ";
+  color: var(--ds-ink-3);
+}
+
+.steps li p { color: var(--ds-ink-2); }
+
+.cards {
+  display: grid;
+  gap: var(--ds-4);
+}
+
+@media (min-width: 800px) {
+  .cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+.card .ds-panel-body { height: 100%; }
+.card .actions { margin-top: auto; }
+
+.guide-list {
   display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: var(--ds-3);
+  flex-direction: column;
+  gap: var(--ds-2);
+  padding-left: var(--ds-5);
 }
 
-.agent-note {
-  grid-column: 1 / -1;
-  border-top: 1px solid var(--ds-line);
-  padding-top: var(--ds-4);
-  max-width: none;
-}
-
-.invariants li {
-  border-left-color: var(--ds-ink);
-}
-
-/* ===== Diagram ============================================================ */
+/* ===== Diagrams =========================================================== */
 
 .diagram {
   margin: 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--ds-3);
-}
-
-/* The drawing has a minimum legible width; it scrolls in its own container
- * rather than shrinking its labels into illegibility or widening the page. */
-.diagram-scroll {
-  overflow-x: auto;
-  border: 1px solid var(--ds-line);
-  border-radius: var(--ds-r-1);
-  background: var(--ds-inset);
   padding: var(--ds-4);
-}
-
-.diagram svg {
-  display: block;
-  min-width: 760px;
-  width: 100%;
-  height: auto;
+  border: 1px solid var(--ds-line);
+  border-radius: var(--ds-r-2);
+  background: var(--ds-panel);
+  overflow-x: auto;
 }
 
 .diagram figcaption {
-  max-width: var(--ds-measure);
-  font-size: var(--ds-step--1);
+  margin-top: var(--ds-3);
   color: var(--ds-ink-2);
-  line-height: 1.6;
+  font-size: var(--ds-step--1);
 }
 
-.d-layer rect {
-  fill: var(--ds-panel);
-  stroke: var(--ds-line-strong);
-  stroke-width: 1;
+.mermaid {
+  display: flex;
+  justify-content: center;
+  min-height: 2rem;
 }
 
-.d-layer--planner rect {
-  fill: var(--ds-focus-soft);
+.mermaid svg {
+  max-width: 100%;
+  height: auto;
 }
 
-.d-layer-label {
+.mermaid.is-error {
+  justify-content: flex-start;
+  color: var(--ds-deny);
   font-family: var(--ds-font-mono);
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.09em;
-  fill: var(--ds-ink);
+  font-size: var(--ds-step--1);
 }
 
-.d-note {
-  font-family: var(--ds-font-body);
-  font-size: 11px;
-  fill: var(--ds-ink-3);
-}
+/* ===== Learn ============================================================== */
 
-/* Anchored to its right edge so it cannot run past the drawing's bounds, and
- * kept quieter than the boundary label above it — it is a caption, not a
- * second heading. */
-.d-boundary text.d-boundary-note {
-  text-anchor: end;
-  font-family: var(--ds-font-body);
-  font-size: 11px;
-  font-weight: 400;
-  letter-spacing: 0;
-  fill: var(--ds-ink-3);
-}
-
-.d-box rect {
-  fill: var(--ds-inset);
-  stroke: var(--ds-line-strong);
-  stroke-width: 1;
-}
-
-.d-box--agent rect {
-  fill: var(--ds-panel);
-  stroke: var(--ds-ink-2);
-}
-
-.d-box text {
-  font-family: var(--ds-font-mono);
-  font-size: 12px;
-  font-weight: 600;
-  fill: var(--ds-ink);
-}
-
-.d-box text.d-sub {
-  font-weight: 400;
-  font-size: 11px;
-  fill: var(--ds-ink-3);
-}
-
-.d-chip rect {
-  fill: var(--ds-panel);
-  stroke: var(--ds-line-strong);
-}
-
-.d-chip--planner rect {
-  fill: var(--ds-panel);
-  stroke: var(--ds-focus);
-}
-
-.d-chip text {
-  font-family: var(--ds-font-mono);
-  font-size: 11px;
-  fill: var(--ds-ink);
-}
-
-.d-flow line {
-  stroke: var(--ds-ink-3);
-  stroke-width: 1.25;
-}
-
-.d-flow path,
-marker path {
-  fill: var(--ds-ink-3);
-}
-
-.d-boundary line {
-  stroke: var(--ds-focus);
-  stroke-width: 1.5;
-  stroke-dasharray: 6 4;
-}
-
-.d-boundary text {
-  font-family: var(--ds-font-mono);
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.1em;
-  fill: var(--ds-focus);
-}
-
-/* ===== Demos ============================================================== */
-
-.demo-grid {
+.learn {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(24rem, 100%), 1fr));
-  gap: var(--ds-4);
+  gap: var(--ds-6);
+  align-items: start;
 }
 
-.demo .ds-panel-body {
-  gap: var(--ds-4);
+.learn-main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-5);
+  min-width: 0;
 }
 
-.demo .ds-facts dd.prose {
-  font-family: var(--ds-font-body);
-  font-size: var(--ds-step--1);
+/* The sidebar on wide screens; the folding menu on narrow ones. */
+.learn-nav { display: none; }
+
+@media (min-width: 960px) {
+  .learn { grid-template-columns: 15rem minmax(0, 1fr); }
+  .learn-nav {
+    display: flex;
+    flex-direction: column;
+    gap: var(--ds-3);
+    position: sticky;
+    top: 5rem;
+  }
+  .learn-menu { display: none; }
+}
+
+.learn-nav ol,
+.learn-menu ol {
+  list-style: none;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-1);
+}
+
+.learn-nav ol a,
+.learn-menu ol a {
+  display: block;
+  padding: var(--ds-1) var(--ds-3);
+  border-left: 2px solid var(--ds-line);
   color: var(--ds-ink-2);
+  text-decoration: none;
 }
 
-.demo .caveat {
-  border-left: 2px solid var(--ds-narrow);
-  padding-left: var(--ds-3);
-  color: var(--ds-narrow);
+.learn-nav ol a:hover,
+.learn-menu ol a:hover { color: var(--ds-ink); }
+
+.learn-nav ol a.is-current,
+.learn-menu ol a.is-current {
+  color: var(--ds-ink);
+  font-weight: 600;
+  border-left-color: var(--ds-ink);
 }
 
-.demo .ds-btn {
-  align-self: flex-start;
+.learn-menu {
+  border: 1px solid var(--ds-line);
+  border-radius: var(--ds-r-2);
+  background: var(--ds-panel);
+}
+
+.learn-menu summary {
+  padding: var(--ds-3) var(--ds-4);
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.learn-menu nav { padding: 0 var(--ds-4) var(--ds-4); }
+
+.pager {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--ds-4);
+  max-width: 50rem;
+  padding-top: var(--ds-5);
+  border-top: 1px solid var(--ds-line);
+}
+
+.pager a {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-1);
+  padding: var(--ds-3) var(--ds-4);
+  border: 1px solid var(--ds-line);
+  border-radius: var(--ds-r-2);
+  background: var(--ds-panel);
+  text-decoration: none;
+  color: var(--ds-ink);
+  font-weight: 600;
+}
+
+.pager a:hover { border-color: var(--ds-line-strong); }
+.pager .pager-next { text-align: right; margin-left: auto; }
+
+/* The rendered guide pages. */
+.doc {
+  min-width: 0;
+  max-width: 50rem;
+  line-height: 1.65;
+}
+
+.doc > * + * { margin-top: var(--ds-4); }
+
+.doc h1 { font-size: var(--ds-step-4); line-height: 1.15; }
+
+.doc h2 {
+  margin-top: var(--ds-7);
+  padding-top: var(--ds-2);
+  font-size: var(--ds-step-3);
+  border-top: 1px solid var(--ds-line);
+}
+
+.doc h3 { margin-top: var(--ds-6); font-size: var(--ds-step-2); }
+
+.doc h1,
+.doc h2,
+.doc h3 { scroll-margin-top: 5rem; }
+
+.doc ul,
+.doc ol { padding-left: var(--ds-5); }
+
+.doc li + li { margin-top: var(--ds-1); }
+
+.doc code {
+  padding: 0.1em 0.3em;
+  border-radius: var(--ds-r-1);
+  background: var(--ds-inset);
+}
+
+.doc pre.code {
+  padding: var(--ds-4);
+  border: 1px solid var(--ds-line);
+  border-radius: var(--ds-r-2);
+  background: var(--ds-inset);
+  overflow-x: auto;
+  line-height: 1.5;
+}
+
+.doc pre.code code {
+  padding: 0;
+  background: none;
+}
+
+.doc .table-scroll { overflow-x: auto; }
+
+.doc .figure-link { display: block; }
+
+.doc img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  border: 1px solid var(--ds-line);
+  border-radius: var(--ds-r-2);
+}
+
+.doc table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--ds-step--1);
+}
+
+.doc th {
+  text-align: left;
+  padding: var(--ds-2) var(--ds-3) var(--ds-2) 0;
+  border-bottom: 1px solid var(--ds-line-strong);
+  color: var(--ds-ink-2);
+  font-weight: 600;
+}
+
+.doc td {
+  padding: var(--ds-2) var(--ds-3) var(--ds-2) 0;
+  border-bottom: 1px solid var(--ds-line);
+  vertical-align: top;
+}
+
+.doc .mermaid {
+  padding: var(--ds-4);
+  border: 1px solid var(--ds-line);
+  border-radius: var(--ds-r-2);
+  background: var(--ds-panel);
+  overflow-x: auto;
 }
 
 /* ===== API reference ====================================================== */
 
-.api {
+.api-filter {
   display: flex;
-  flex-direction: column;
-  gap: var(--ds-5);
+  flex-wrap: wrap;
+  align-items: end;
+  gap: var(--ds-3) var(--ds-5);
 }
+
+.api-filter .ds-field {
+  flex: 1;
+  min-width: 16rem;
+  max-width: 32rem;
+}
+
+.api-count { color: var(--ds-ink-2); }
 
 .role {
   display: flex;
   flex-direction: column;
   gap: var(--ds-3);
+  margin-top: var(--ds-5);
 }
 
-.role > h3 {
-  padding-bottom: var(--ds-2);
-  border-bottom: 1px solid var(--ds-line-strong);
-}
+.service-meta { gap: var(--ds-2); }
+.service-meta .count { color: var(--ds-ink-2); font-size: var(--ds-step--1); }
+.ds-table td.method { white-space: nowrap; }
 
-.service .ds-panel-head {
-  padding-block: var(--ds-3);
-}
-
-.service h4 {
-  font-size: var(--ds-step-0);
-}
-
-.service-meta {
-  gap: var(--ds-2);
-}
-
-.service-meta .count {
-  font-size: var(--ds-step--1);
-  color: var(--ds-ink-3);
-}
-
-.ds-chip.alias {
-  background: var(--ds-narrow-bg);
-  color: var(--ds-narrow);
-  margin-right: var(--ds-2);
-  text-transform: none;
-}
-
-/* ===== Limits and footer ================================================== */
-
-.limits .ds-reasons li {
-  border-left-color: var(--ds-narrow);
-}
+/* ===== Footer ============================================================= */
 
 .footer {
+  margin-top: var(--ds-7);
   border-top: 1px solid var(--ds-line);
-  background: var(--ds-panel);
 }
 
 .footer-inner {
   display: flex;
   flex-wrap: wrap;
-  align-items: baseline;
   justify-content: space-between;
-  gap: var(--ds-4);
-  padding-block: var(--ds-5);
+  gap: var(--ds-3);
 }
 
 .footer nav {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--ds-2) var(--ds-4);
-  font-family: var(--ds-font-mono);
-  font-size: var(--ds-step--1);
-}
-
-/* ===== Theme toggle ======================================================= */
-
-/* A segmented control, not an icon that flips: "system" is a real third state
- * and a two-state icon cannot say which one is active. */
-.theme-toggle {
-  display: inline-flex;
-  border: 1px solid var(--ds-line-strong);
-  border-radius: var(--ds-r-1);
-  overflow: hidden;
-  background: var(--ds-panel);
-}
-
-.theme-toggle button {
-  appearance: none;
-  border: 0;
-  border-right: 1px solid var(--ds-line);
-  background: transparent;
-  color: var(--ds-ink-3);
-  font-family: var(--ds-font-mono);
-  font-size: 0.72rem;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  padding: var(--ds-1) var(--ds-3);
-  cursor: pointer;
-}
-
-.theme-toggle button:last-child { border-right: 0; }
-.theme-toggle button:hover { color: var(--ds-ink); background: var(--ds-inset); }
-
-.theme-toggle button.is-active {
-  background: var(--ds-ink);
-  color: var(--ds-panel);
-}
-
-/* ===== Guard boundaries =================================================== */
-
-.boundaries {
-  margin: 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--ds-3);
-}
-
-.boundaries-lead { display: flex; flex-direction: column; gap: var(--ds-1); }
-
-/* One path, four gates along it. The connector is a real claim: a request
- * cannot reach the end without passing each one. */
-.boundary-track {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(12rem, 100%), 1fr));
-  gap: var(--ds-2);
-}
-
-.boundary-track li { display: flex; min-width: 0; }
-
-.boundary-track button {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: var(--ds-1);
-  min-width: 0;
-  text-align: left;
-  cursor: pointer;
-  padding: var(--ds-3);
-  background: var(--ds-panel);
-  border: 1px solid var(--ds-line);
-  border-left: 3px solid var(--ds-line-strong);
-  border-radius: 0 var(--ds-r-1) var(--ds-r-1) 0;
-  color: inherit;
-  transition: border-color 120ms ease, background 120ms ease;
-}
-
-.boundary-track button:hover,
-.boundary-track button.is-active {
-  border-left-color: var(--ds-ink);
-  background: var(--ds-inset);
-}
-
-.boundary-id {
-  font-family: var(--ds-font-mono);
-  font-size: var(--ds-step--1);
-  font-weight: 600;
-  overflow-wrap: anywhere;
-}
-
-.boundary-stage {
-  font-size: var(--ds-step--1);
-  color: var(--ds-ink-3);
-}
-
-.boundaries figcaption {
-  border-left: 3px solid var(--ds-ink);
-  padding: var(--ds-2) 0 var(--ds-2) var(--ds-4);
-  display: flex;
-  flex-direction: column;
-  gap: var(--ds-1);
-  max-width: var(--ds-measure);
-  min-height: 5.5rem;
-}
-
-/* ===== Round lifecycle ==================================================== */
-
-.lifecycle {
-  display: flex;
-  flex-direction: column;
   gap: var(--ds-4);
-}
-
-.lifecycle-track {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(9rem, 100%), 1fr));
-  gap: 0;
-  border: 1px solid var(--ds-line);
-  border-radius: var(--ds-r-1);
-  overflow: hidden;
-}
-
-.lifecycle-track li { display: flex; min-width: 0; }
-
-.lifecycle-track button {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  align-items: flex-start;
-  min-width: 0;
-  text-align: left;
-  cursor: pointer;
-  padding: var(--ds-3);
-  background: var(--ds-panel);
-  border: 0;
-  border-right: 1px solid var(--ds-line);
-  border-top: 2px solid transparent;
-  color: var(--ds-ink-3);
-  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
-}
-
-.lifecycle-track li:last-child button { border-right: 0; }
-
-.lifecycle-track button:hover { background: var(--ds-inset); color: var(--ds-ink); }
-
-/* Phases before the current one stay marked: the sequence is the argument, so
- * how far along you are has to be visible. */
-.lifecycle-track button.is-past { color: var(--ds-ink-2); border-top-color: var(--ds-line-strong); }
-
-.lifecycle-track button.is-active {
-  background: var(--ds-inset);
-  color: var(--ds-ink);
-  border-top-color: var(--ds-ink);
-}
-
-.lifecycle-index {
-  font-family: var(--ds-font-mono);
-  font-size: 0.7rem;
-  letter-spacing: 0.08em;
-  color: var(--ds-ink-3);
-}
-
-.lifecycle-name {
-  font-family: var(--ds-font-display);
-  font-size: var(--ds-step--1);
-  font-weight: 600;
-}
-
-.lifecycle-detail {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(18rem, 100%), 1fr));
-  gap: var(--ds-5);
-  min-height: 7rem;
-}
-
-.lifecycle-detail > div {
-  display: flex;
-  flex-direction: column;
-  gap: var(--ds-2);
-  min-width: 0;
-}
-
-.lifecycle-detail p:last-child {
-  font-size: var(--ds-step--1);
-  color: var(--ds-ink-2);
-  line-height: 1.6;
-}
-
-/* The refusal is the half people skip, so it carries the stripe. */
-.lifecycle-detail > div:last-child {
-  border-left: 2px solid var(--ds-narrow);
-  padding-left: var(--ds-4);
-}
-
-.lifecycle-controls {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--ds-3);
-  border-top: 1px solid var(--ds-line);
-  padding-top: var(--ds-4);
-}
-
-.lifecycle-count { font-size: var(--ds-step--1); color: var(--ds-ink-3); }
-
-/* ===== API filter ========================================================= */
-
-.api-filter {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  gap: var(--ds-3);
-}
-
-.api-filter .ds-field { flex: 1 1 22rem; }
-
-.api-count {
-  font-size: var(--ds-step--1);
-  color: var(--ds-ink-3);
-  padding-bottom: var(--ds-2);
 }

@@ -1,22 +1,18 @@
 /**
- * The demo's transport: live against the backend, or a replay of real responses.
+ * The demo's transport: calls to a live backend, or a replay of real responses.
  *
- * Run locally this talks to the NL2SQL backend, which calls the Dagents
- * planners and the framework services — which is the only way to see the trace
- * actually happen. Published as a static site there is no backend, and the
- * honest options are a dead page or a replay.
+ * Locally the page calls the NL2SQL backend, which calls the Dagents planners
+ * and the framework services. The published build has no backend, so it
+ * replays a recording.
  *
- * It replays. `scripts/capture_demo_recordings.py` starts the backend with
- * `dagentsc` built and the framework services running, walks every request this
- * UI can make, and records what came back. So the SQL, the prompt and every
- * trace step in the published demo are what the framework really produced, at a
- * commit the page names.
+ * `scripts/capture_demo_recordings.py` makes the recording. It starts the
+ * backend with `dagentsc` built and the framework services running, sends every
+ * request this UI can make, and saves the responses. The page names the commit
+ * they were recorded from.
  *
- * What it will not do is invent an answer. A question that was never captured
- * raises `NotRecordedError`, and the UI says so rather than showing SQL nobody
- * generated.
+ * A request the recording does not hold raises `NotRecordedError`, and the UI
+ * says so. The replay never invents an answer.
  */
-
 
 /** One captured request/response pair. */
 export interface RecordedEntry {
@@ -46,18 +42,17 @@ export class NotRecordedError extends Error {
   }
 }
 
-/** True when this build replays a capture instead of calling a backend. */
+/** True when this build replays a recording instead of calling a backend. */
 export const isRecorded = import.meta.env.VITE_DAGENTS_STATIC === "1";
 
 /** Live-mode API origin. Empty means the Vite dev proxy. */
 const API_BASE = import.meta.env.VITE_NL2SQL_API_BASE ?? "";
 
 /**
- * Stable key for a request, so lookup does not depend on key order.
+ * A stable key for a request, so lookup does not depend on key order.
  *
- * The guard probe differs only by its body, so the body has to be part of the
- * key — and `JSON.stringify` alone would make `{a,b}` and `{b,a}` different
- * requests.
+ * Generate requests differ only by their body, so the body is part of the key.
+ * `JSON.stringify` alone would treat `{a,b}` and `{b,a}` as different requests.
  */
 function keyFor(method: string, path: string, body?: unknown): string {
   return `${method} ${path}${body === undefined ? "" : ` ${stable(body)}`}`;
@@ -75,11 +70,10 @@ function stable(value: unknown): string {
 let loaded: Promise<Recording> | null = null;
 
 /**
- * Fetch the capture once and memoise it.
+ * Fetch the recording once and keep it.
  *
- * It lives in `public/` rather than the bundle so a live build does not carry
- * it, and so CI can refresh it just before the static build without rebuilding
- * anything else.
+ * It lives in `public/` rather than in the bundle, so a live build does not
+ * carry it and CI can refresh it just before the static build.
  */
 function loadRecording(): Promise<Recording> {
   if (loaded === null) {
@@ -88,7 +82,7 @@ function loadRecording(): Promise<Recording> {
       if (!response.ok) {
         throw new Error(
           `This build replays a recorded run, but ${url} could not be loaded ` +
-            `(${response.status}). Rebuild with scripts/capture_demo_recordings.py.`
+            `(${response.status}). Record it again with scripts/capture_demo_recordings.py.`
         );
       }
       return response.json() as Promise<Recording>;
@@ -97,7 +91,7 @@ function loadRecording(): Promise<Recording> {
   return loaded;
 }
 
-/** Metadata for the banner that tells the reader what they are looking at. */
+/** Recording details for the banner. */
 export async function recordingInfo(): Promise<Recording | null> {
   return isRecorded ? loadRecording() : null;
 }
@@ -111,7 +105,7 @@ async function replay<T>(method: string, path: string, body?: unknown): Promise<
       .filter((entry) => entry.method === method && entry.path === path)
       .map((entry) => (entry.request === undefined ? entry.path : stable(entry.request)));
     throw new NotRecordedError(
-      `This published demo replays a captured run, and that exact request was not captured.`,
+      `This request was not recorded.`,
       alternatives
     );
   }
@@ -124,8 +118,8 @@ async function replay<T>(method: string, path: string, body?: unknown): Promise<
 /**
  * Call the backend, live or recorded.
  *
- * Params mirror the shape the app already used: a path, and an optional
- * `RequestInit` whose `method` and `body` select the recorded entry.
+ * Takes a path and an optional `RequestInit`. In a replay, its `method` and
+ * `body` select the recorded entry.
  */
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const method = (init?.method ?? "GET").toUpperCase();

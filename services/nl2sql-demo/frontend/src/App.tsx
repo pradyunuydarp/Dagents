@@ -44,8 +44,8 @@ export default function App() {
   const [result, setResult] = useState<GenerateResponse | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  // A replayed build can be asked for a question the capture never covered. It
-  // says so rather than showing SQL nobody generated.
+  // A replayed build can be asked for a question it did not record. It says so
+  // instead of showing invented SQL.
   const [notRecorded, setNotRecorded] = useState<NotRecordedError | null>(null);
   const [recording, setRecording] = useState<Recording | null>(null);
 
@@ -118,8 +118,8 @@ export default function App() {
     }
   }
 
-  // Read-only views of what the backend returned. Nothing here decides
-  // anything: the statuses, the steps and their outcomes are the framework's.
+  // Read-only views of what the backend returned. The statuses and steps come
+  // from the framework.
   const traceSteps = result?.dagents_trace ?? [];
   const traceWarnings = traceSteps.filter((step) => step.status === "warning").length;
   const reachable = services.filter((service) => service.status === "ok").length;
@@ -128,12 +128,12 @@ export default function App() {
     <div className="ds-shell app">
       <header className="masthead">
         <div className="masthead-id">
-          <p className="ds-eyebrow">Dagents / nl2sql-demo</p>
-          <h1>Natural language question to SQL</h1>
+          <p className="ds-eyebrow">Dagents demo</p>
+          <h1>Natural language to SQL</h1>
           <p className="ds-note">
-            A schema and a question go in. Dagents validates the source, plans the extraction and
-            the pipeline DAG, routes the model and reports every service it touched; this app's
-            adapter writes the SQL.
+            Enter a question and a database schema. Dagents validates the schema, plans the work
+            and picks a model. The app&rsquo;s own model then writes the SQL, and the trace shows
+            each framework step.
           </p>
         </div>
         <div className="masthead-run">
@@ -150,17 +150,16 @@ export default function App() {
         <div className="ds-banner notice">
           <span className="ds-chip">recorded</span>
           <p>
-            <strong>Recorded run.</strong> This published page has no backend. The SQL, the prompt
-            and every trace step below came from a live run of this demo against the Dagents
-            planners and services
+            <strong>Recorded run.</strong> This page has no backend. It replays results recorded
+            from the real backend
             {recording ? (
               <>
                 {" "}at commit <span className="ds-mono">{recording.commit.slice(0, 10)}</span> on{" "}
                 {recording.captured_at}
               </>
             ) : null}
-            . Edit the question and it will tell you the answer was not captured rather than invent
-            one. To generate against a live backend, run it locally — see the README.
+            . Only the samples were recorded, so an edited question gets no answer. To use a live
+            backend, run the demo locally as described in the README.
           </p>
         </div>
       )}
@@ -174,10 +173,9 @@ export default function App() {
 
       {notRecorded && (
         <div className="ds-banner notice notice--warn">
-          <span className="ds-chip ds-chip--narrow">not captured</span>
+          <span className="ds-chip ds-chip--narrow">not recorded</span>
           <p>
-            <strong>Not captured.</strong> {notRecorded.message} Pick one of the bundled samples to
-            see a generation the framework really produced.
+            <strong>Not recorded.</strong> Only the samples were recorded. Choose one of them.
           </p>
         </div>
       )}
@@ -191,8 +189,8 @@ export default function App() {
         </div>
         {services.length === 0 ? (
           <p className="ds-note">
-            Nothing has reported a service status yet, so this strip claims none. A run records what
-            every service call actually did, in the trace below.
+            No service status was reported. After a run, the trace below shows what each service
+            call did.
           </p>
         ) : (
           <ul className="service-list">
@@ -291,8 +289,7 @@ export default function App() {
                 <pre className="ds-code sql">{result.sql}</pre>
               ) : (
                 <p className="ds-note placeholder">
-                  No SQL yet. Pick a sample and press Generate SQL — the statement the adapter
-                  returns appears here.
+                  No SQL yet. Choose a sample and select Generate SQL.
                 </p>
               )}
 
@@ -301,8 +298,8 @@ export default function App() {
                 <pre className="ds-code">{result?.schema_ddl ?? ddlPreview(parsedTables)}</pre>
                 {!result && (
                   <p className="ds-note">
-                    Rendered from the schema JSON on the left. After a run this is the DDL the
-                    backend built.
+                    Built from the schema on the left. After a run, this shows the DDL the backend
+                    built.
                   </p>
                 )}
               </section>
@@ -330,10 +327,10 @@ export default function App() {
             <div className="ds-panel-body">
               {traceSteps.length === 0 ? (
                 <p className="ds-note placeholder">
-                  A run records each framework step in order: SourceSpec validation, extraction
-                  planning, the schema contract, quality rules, pipeline DAG planning, model
-                  routing, then the calls to the core, pipeline and model services and to the LMA
-                  and GMA.
+                  After a run, this lists each framework step in order: source validation,
+                  extraction planning, the schema contract, quality rules, pipeline planning and
+                  model routing, then the calls to the core, pipeline and model services and to the
+                  LMA and GMA.
                 </p>
               ) : (
                 <ol className="trace">

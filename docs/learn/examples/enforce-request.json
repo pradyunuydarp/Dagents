@@ -1,0 +1,51 @@
+{
+  "request": {
+    "request_id": "example-1",
+    "boundary": "before_read",
+    "requester": {
+      "requester_id": "analyst-7",
+      "requester_kind": "human",
+      "attributes": [
+        {
+          "attribute_id": "verified_identity",
+          "verified": true
+        },
+        {
+          "attribute_id": "signed_dua",
+          "verified": true
+        }
+      ],
+      "compliance_history": 0.9
+    },
+    "classification": {
+      "classification_id": "patients",
+      "field_sensitivity": {
+        "diagnosis": "high",
+        "age_band": "medium",
+        "region": "low"
+      },
+      "minimum_cohort": 20
+    },
+    "requested_fields": [
+      "diagnosis",
+      "age_band",
+      "region"
+    ],
+    "granularity": "row",
+    "cohort_size": 120
+  },
+  "payload": [
+    {
+      "patient_id": "p-001",
+      "diagnosis": "I63.9",
+      "age_band": "70-79",
+      "region": "north"
+    },
+    {
+      "patient_id": "p-002",
+      "diagnosis": "I61.0",
+      "age_band": "50-59",
+      "region": "south"
+    }
+  ]
+}

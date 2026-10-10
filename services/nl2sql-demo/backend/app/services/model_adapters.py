@@ -133,7 +133,7 @@ class NL2SQLModelRegistry:
             label="Dagents heuristic fallback",
             adapter_kind="heuristic",
             prompt_format="question: {question} context: {ddl}",
-            notes="Fast deterministic fallback for presentations without GPU/model dependencies.",
+            notes="A rule-based SQL writer that needs no GPU and no model download.",
         )
         descriptors = [*artifact_descriptors, fallback_descriptor]
         return descriptors

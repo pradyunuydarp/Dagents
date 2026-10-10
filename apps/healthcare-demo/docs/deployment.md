@@ -1,164 +1,173 @@
 # Deploying this demo
 
-The published demo is not a mock. It is this app, running on a host, reading synthetic encounters
-out of a Postgres database, with the OCaml planner in the image making every governance and
-federation decision. This describes how that is wired and where each credential lives.
+The published demo is this app running on a host. It reads synthetic patient
+records from a Postgres database, and the OCaml planner in its image makes every
+governance and federation decision. This page explains how the parts connect and
+where each credential is kept.
 
-Running it locally needs none of this — no database, no host, no account. See the README.
+A local run needs none of this: no database, no host and no account. See the
+README.
 
-## The four pieces
+## The four parts
 
-| Piece | What it is | Defined in |
+| Part | What it is | Defined in |
 |---|---|---|
-| Encounter store | Supabase Postgres holding the three sites' cohorts | `supabase/migrations/` |
-| API | this FastAPI app plus `dagentsc`, as a Docker service | `render.yaml`, `backend/Dockerfile` |
+| Encounter store | Supabase Postgres holding the three sites' patient records | `supabase/migrations/` |
+| API | this FastAPI app plus `dagentsc`, as a Docker service on Render | `render.yaml`, `backend/Dockerfile` |
 | Frontend | the Vite build, published to GitHub Pages under the framework site | `.github/workflows/pages.yml` |
-| Schema + seed | a manually dispatched workflow that migrates and seeds | `.github/workflows/healthcare-data.yml` |
+| Schema and seed | a manually started workflow that creates the tables and fills them | `.github/workflows/healthcare-data.yml` |
 
-Everything is synthetic. The generator in `backend/app/domain/synthetic.py` stays the source of
-what a cohort looks like, and the seed script calls it rather than inventing its own
-distributions — so the per-site differences, the recording gaps and the site that reports glucose
-in mg/dL without saying so are all still there to be caught. **Storing these records in a real
-database does not make them real patients, and no real record is ever used.** A demonstration of
-privacy controls carrying real patient data would be self-refuting.
+All records are synthetic. The generator in `backend/app/domain/synthetic.py`
+defines what a cohort looks like, and the seed script calls it instead of
+creating its own distributions. So the stored data keeps the generator's
+deliberate problems for the framework to catch: differences between sites,
+missing values, and one site that reports glucose in mg/dL without saying so.
+No real patient record is ever used.
 
-## Where the credentials live
+## Where the credentials are kept
 
-No secret is in the repository, and none is in this file. Each lives in exactly one place:
+No secret is in the repository or in this file. Each one is kept in one place:
 
-| Name | Lives in | Used by |
+| Name | Kept in | Used by |
 |---|---|---|
-| `SUPABASE_DB_URL` | GitHub → Settings → Secrets and variables → Actions → **Secrets** | the migrate-and-seed workflow |
-| `HEALTHCARE_DEMO_DATABASE_URL` | the API service's own environment on the host | the deployed API |
-| `HEALTHCARE_DEMO_CORS_ORIGINS` | the same | the deployed API |
-| `HEALTHCARE_API_BASE` (optional) | GitHub → the same page → **Variables** | the Pages build, overriding `env/.env.published` |
+| `SUPABASE_DB_URL` | GitHub → Settings → Secrets and variables → Actions → **Secrets** | the schema and seed workflow |
+| `HEALTHCARE_DEMO_DATABASE_URL` | the API service's environment on Render | the deployed API |
+| `HEALTHCARE_DEMO_CORS_ORIGINS` | the API service's environment on Render | the deployed API |
+| `HEALTHCARE_API_BASE` (optional) | GitHub → the same page → **Variables** | the Pages build, instead of `env/.env.published` |
 
-`env/.env.published` at the repository root holds the API's address. That is deliberate: it is a
-published URL — it ends up in the page source, readable by anyone who opens the demo — so it is
-configuration rather than a credential, and keeping one committed copy beats a literal in a
-workflow. The repository variable overrides it without a commit, which is how a branch gets
-pointed at a staging API.
+`env/.env.published` at the repository root holds the API's address. It is
+committed on purpose: the address appears in the published page's source, so it
+is configuration, not a credential. The repository variable overrides it without
+a commit, for example to point a branch at a staging API. Never put a
+credential in a repository variable: variables are not masked, so their values
+appear in public run logs.
 
-### Use the pooler, not the direct host
+### Use the session pooler, not the direct host
 
-Supabase shows `db.<project-ref>.supabase.co` first, and that host resolves to an **IPv6 address
-only**. GitHub Actions runners and most hosts' egress are IPv4-only, so it is unreachable from
-both, and the failure arrives as a bare `Network is unreachable` with nothing pointing at the
-cause. Use the session pooler:
+Supabase shows the direct host `db.<project-ref>.supabase.co` first. That host
+has an IPv6 address only, and GitHub Actions runners and most hosts can only
+reach IPv4. The connection then fails with `Network is unreachable`, which does
+not mention the cause. Use the session pooler:
 
 ```
 postgresql://postgres.<project-ref>:<password>@aws-0-<region>.pooler.supabase.com:5432/postgres
 ```
 
-The username carries the project ref, and a password with special characters has to be
-percent-encoded. `connection_hint()` in `backend/app/services/encounters.py` prints this when a
-connection to the direct host fails, so the next person loses minutes rather than an afternoon.
+The user name includes the project ref, and special characters in the password
+must be percent-encoded. When a connection to the direct host fails,
+`connection_hint()` in `backend/app/services/encounters.py` prints this advice.
 
 ### `HEALTHCARE_DEMO_CORS_ORIGINS` takes origins, not page URLs
 
-A browser's `Origin` header is scheme, host, and port — never a path. So
-`https://example.github.io/Dagents/healthcare-demo/`, which is what you get by
-copying the address bar, matches nothing: the API refuses every request before it
-arrives, and the published page looks down rather than blocked. The right value
-is `https://example.github.io`.
+A browser's `Origin` header is the scheme, host and port, never a path. The
+address bar value `https://example.github.io/Dagents/healthcare-demo/` matches
+no request, so the API blocks the page and the page looks as if the API is down.
+The correct value is `https://example.github.io`.
 
-The app normalizes each entry to its origin for exactly this reason, and
-`GET /api/v1/framework/status` reports the list it ended up with, so the setting
-can be checked in one request instead of inferred from a blank page. Leaving the
-variable unset allows any origin, which is a reasonable default for a read-only
-demo holding no credentials.
+The app reduces each entry to its origin, and `GET /api/v1/framework/status`
+reports the resulting list, so you can check the setting with one request. If
+the variable is unset, any origin is allowed, which is acceptable for a
+read-only demo that holds no credentials.
 
-Three paste artifacts are repaired, because each means "block everything" rather
-than anything a deployment could have intended: a path or trailing slash,
-wrapping punctuation (`(https://example.github.io)` — this one was real, and the
-stray `)` cost an afternoon), and an uppercased host. An entry that does not
-parse into a plausible host is left exactly as written and reported, so a
-genuine mistake stays visible instead of being guessed at.
+The app repairs three common paste mistakes: a path or trailing slash,
+surrounding punctuation such as `(https://example.github.io)`, and an upper-case
+host. An entry that does not look like a host is kept as written and reported,
+so a real mistake stays visible.
 
-## Standing it up
+## Setting it up
 
-1. **Create the database.** Nothing to do beyond creating the Supabase project; the schema is
-   applied by the workflow, not by hand, so what is in the database is what is committed.
+1. **Create the database.** Create the Supabase project. The workflow applies the
+   schema, so the database always matches what is committed.
 
-2. **Apply the schema and seed it.** Actions → *Healthcare data* → Run workflow. It checks the
-   migrations still match `stroke-triage-features-v2` **before** applying anything, applies each
-   migration once and records it in `public.schema_migrations`, seeds from the generator, and then
-   reads the database back to confirm three sites and non-zero recording gaps. A seeded database
-   with no missingness would make the data-quality path unreachable and nothing else would notice.
+2. **Create the tables and seed them.** Actions → *Healthcare data* → Run
+   workflow. Before applying anything, it checks that the migrations still match
+   `stroke-triage-features-v2`. It applies each migration once and records it in
+   `public.schema_migrations`, seeds from the generator, then reads the data back
+   to confirm three sites and some missing values. Without missing values, the
+   data quality checks would have nothing to find.
 
-3. **Deploy the API.** Render → New → Blueprint → point it at `apps/healthcare-demo/render.yaml`.
-   It builds `backend/Dockerfile`, which compiles `dagentsc` in a first stage — the service cannot
-   work without it, because the Guard fails closed and an image missing the planner denies every
-   request. Set `HEALTHCARE_DEMO_DATABASE_URL` when prompted.
+3. **Deploy the API.** Render → New → Blueprint, and choose
+   `apps/healthcare-demo/render.yaml`. It builds `backend/Dockerfile`, which
+   compiles `dagentsc` in its first stage; without the planner, the Guard denies
+   every request. Set `HEALTHCARE_DEMO_DATABASE_URL` when asked.
 
-4. **Point the published frontend at it.** Set `HEALTHCARE_DEMO_PUBLIC_API_URL` in
-   `env/.env.published` and push. The Pages workflow does the rest.
+4. **Point the published frontend at it.** Set `HEALTHCARE_DEMO_PUBLIC_API_URL`
+   in `env/.env.published` and push. The Pages workflow does the rest.
 
-## What the publish gate checks
+## What the publish check tests
 
-Before the healthcare demo is published against a live API, the Pages workflow probes it. Four
-things have to hold:
+Before publishing the healthcare demo against the live API, the Pages workflow
+checks four things:
 
-- it answers `/api/v1/health` within two minutes, which allows for a cold start;
-- it reports `cohort_source: supabase`, so it is reading the store rather than generating cohorts
-  in process;
-- that store returns rows;
-- it sends `Access-Control-Allow-Origin` for the Pages origin, asked *with* an `Origin` header —
-  without one it is not the request a browser makes, and an API that blocks every published
-  request looks perfectly healthy.
+- `/api/v1/health` answers within 12 attempts, 10 seconds apart, which allows
+  for a cold start;
+- the API reports `cohort_source: supabase`, so it reads the database instead of
+  generating records in memory;
+- the database returns rows;
+- the API sends `Access-Control-Allow-Origin` for the Pages origin. The check
+  sends an `Origin` header, as a browser does; without one, an API that blocks
+  every browser request would look healthy.
 
-Any of them failing means the demo publishes as a **replay** instead, with a warning and a line in
-the run summary naming the reason. None of them fails the deploy: the framework site and the other
-demo should not stop publishing because an environment variable on another service is wrong, and
-the replay is correct in any case — the page says it is replaying a capture and names the commit.
-What must never happen is the page claiming live data it does not have, and clearing the address is
-what prevents that.
+If any check fails, the demo is published as a **replay** instead, with a
+warning and a line in the run summary that names the reason. These checks never
+fail the deploy, so a setting on the API cannot stop the framework site and the
+other demo from publishing. The replay page says it is a replay and names its
+commit, so it never presents recorded data as live.
 
-Run the **Healthcare API check** workflow for the diagnosis. That one does fail, loudly, and its
-failure annotation names the status, the header, and the origins the service says it allows.
+To diagnose the API, run the **Healthcare API check** workflow. It fails when the
+API has a problem, and its annotations name the status, the header and the
+origins the API allows.
 
-## Testing the deployed services
+## Testing the deployed API
 
-The same workflow then runs `tests/test_deployed_api.py` against the deployment: the guard's levers
-produce different protection strategies (which is how you know the planner is in the image and
-answering), a cohort below the floor is denied, an out-of-range lever is a 422 rather than a 500, a
-full pilot produces a candidate and is still refused release by a blocking gate, and every site's
-audit chain verifies. It also reports how long the first request took, against the budget the page
-waits out.
+The same workflow runs `tests/test_deployed_api.py` against the deployment. It
+checks that:
 
-Run it by hand against anything:
+- the guard's controls produce different strategies, which shows the planner is
+  in the image and answering;
+- a cohort below the minimum is denied;
+- an invalid control value returns 422, not 500;
+- a full pilot produces a candidate that a blocking gate then rejects;
+- every site's audit chain is intact.
+
+It also reports how long the first request took, compared with the 90 seconds
+the page waits.
+
+To run it yourself against any deployment:
 
 ```bash
 cd apps/healthcare-demo
 HEALTHCARE_DEPLOYED_API=https://… python -m unittest discover -s tests -t . -p "test_deployed_api.py" -v
 ```
 
-Without that variable it skips, with a warning. These are the only tests that exercise what
-actually serves the published demo, and every fault this deployment has had was invisible to the
-rest of the suite.
+Without `HEALTHCARE_DEPLOYED_API` it skips with a warning. These are the only
+tests that check the service behind the published demo. Every fault this
+deployment has had passed the rest of the suite.
 
 ### Deploys are not always automatic
 
-`autoDeployTrigger: commit` applies to a service Render created from this blueprint and linked to
-the branch. A service created by hand, or with auto-deploy off, keeps serving its last image
-however many commits land — and the symptom is subtle, because everything works except the thing
-you just fixed. The tell is `GET /api/v1/framework/status` missing a field the committed code
-returns. **Manual Deploy → Deploy latest commit** settles it.
+`autoDeployTrigger: commit` applies only to a service that Render created from
+this blueprint and linked to the branch. A service created by hand, or with
+auto-deploy off, keeps serving its last image after new commits. Everything
+works except the change you just made. To check, look for a field the committed
+code returns that is missing from `GET /api/v1/framework/status`. Use **Manual
+Deploy → Deploy latest commit** to fix it.
 
 ## Cold starts
 
-The API runs on a free tier that stops the container after about fifteen minutes without traffic,
-so most visitors arrive at a sleeping service and the first request is the one that wakes it. The
-frontend waits this out and says what it is waiting for: `liveFetch` in `frontend/src/api.ts`
-retries only the statuses that mean the request never reached the app, for up to ninety seconds,
-and the page shows a banner while it does.
+The API runs on a free tier that stops the container after about 15 minutes
+without traffic, so the first request usually starts it. A measured start took
+about 22 seconds. `liveFetch` in `frontend/src/api.ts` retries only requests
+that never reached the app, for up to 90 seconds, and the page shows a banner
+while it waits.
 
-What it will not do is fall back to the recording. A capture from another commit presented as live
-data would misreport both the data and the framework's behaviour, and the reader would have no way
-to tell. A live build that cannot reach its backend says so.
+The page never falls back to the recording. A recording from another commit
+shown as live would misreport both the data and the framework. A live build that
+cannot reach its API says so.
 
-## Re-seeding
+## Seeding again
 
-Run *Healthcare data* again. It replaces the encounters by default rather than adding to them: a
-reseed that silently doubled every cohort would move every site above its floor and quietly change
-what the demo demonstrates. Pass `append` to keep what is there.
+Run *Healthcare data* again. By default it replaces the records instead of
+adding to them, because doubling every cohort would push every site above its
+cohort minimum and change what the demo shows. Pass `append` to keep the
+existing records.

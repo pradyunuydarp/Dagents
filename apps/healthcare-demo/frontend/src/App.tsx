@@ -12,21 +12,19 @@ import {
 } from "./api";
 
 /**
- * The demo's operator view.
+ * The demo's single page.
  *
- * Every panel shows evidence rather than a verdict: which sites were excluded
- * and why, which contributions were rejected, how each release gate decided,
- * and whether each site's audit chain still verifies. A dashboard that only
- * showed the outcome would be asking to be trusted.
+ * Each panel shows the details behind a decision: which sites were excluded and
+ * why, which contributions were rejected, how each release gate decided, and
+ * whether each site's audit chain is intact.
  *
- * The published build replays a captured run of the real backend rather than
- * calling one, so it says which commit it was captured from and refuses to
- * answer a combination nobody recorded. See `./api`.
+ * A published build either calls the deployed API or replays a recorded run of
+ * the real backend. A replay names the commit it was recorded from and refuses
+ * a request it does not hold. See `./api`.
  *
- * Layout follows the shared design system: hairline panels rather than floating
- * cards, mono for anything the framework itself emits, and colour spent only on
- * decision states. Every state also carries its own word, so the panels still
- * read in greyscale.
+ * Layout follows the shared design system: hairline panels, mono for values the
+ * framework returns, and colour only for decision states. Every state also has
+ * a word, so the page can be read in greyscale.
  */
 
 type Metrics = Record<string, number>;
@@ -59,10 +57,9 @@ interface Overview {
 /**
  * What a live backend says about itself.
  *
- * `cohort_source` is the one claim this page cannot make on its own: whether
- * the rows below were read from the encounter store or generated in the API
- * process. So it is read back from the deployed service and printed, rather
- * than asserted by the frontend because a URL was configured.
+ * `cohort_source` says whether the records were read from the encounter store
+ * or generated in the API process. The page prints what the API reports rather
+ * than assuming it from the configured URL.
  */
 interface FrameworkStatus {
   cohort_source: string | string[];
@@ -227,20 +224,29 @@ function recordedCohorts(recording: Recording | null): number[] {
 }
 
 /**
- * How the live backend describes its cohort source.
+ * The data source the live backend reports.
  *
- * `undefined` is the question still being asked and `null` is a question that
- * failed, and the two must not print the same word: one is a page that has just
- * opened, the other a backend that would not answer. The API reports a list
- * when its sites disagree — a half-configured deployment — so that is shown
- * rather than reduced to one word.
+ * `undefined` means the request is still in flight and `null` means it failed;
+ * they print different words. The API returns a list when its sites disagree,
+ * which happens in a half-configured deployment, so the list is shown in full.
  */
 function cohortSourceLabel(status: FrameworkStatus | null | undefined): string {
-  if (status === undefined) return "reading…";
-  if (status === null) return "unreported";
+  if (status === undefined) return "checking…";
+  if (status === null) return "not reported";
   return Array.isArray(status.cohort_source)
     ? status.cohort_source.join(" + ")
     : status.cohort_source;
+}
+
+/** What each data source the API can report means. */
+const SOURCE_NOTES: Record<string, string> = {
+  supabase: "read from the Supabase database",
+  synthetic: "generated in memory by the API"
+};
+
+function cohortSourceNote(status: FrameworkStatus | null | undefined): string | null {
+  if (!status || Array.isArray(status.cohort_source)) return null;
+  return SOURCE_NOTES[status.cohort_source] ?? null;
 }
 
 export default function App() {
@@ -256,17 +262,15 @@ export default function App() {
   const [probeCohort, setProbeCohort] = useState(25);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // A replayed build can be asked for a lever combination the capture never
-  // covered. That is not an error in the demo, and it must not be reported as
-  // one — nor answered with a made-up verdict.
+  // A replayed build can be asked for a combination it did not record. That is
+  // not an error, and it is never answered with an invented decision.
   const [notRecorded, setNotRecorded] = useState<NotRecordedError | null>(null);
   const [recording, setRecording] = useState<Recording | null>(null);
-  // Three states, not two: still asking, answered, and asked-and-failed. The
-  // banner prints a different word for each, because "unreported" the instant
-  // the page opens would read as a backend that refuses to say.
+  // Three states: still asking (undefined), answered, and failed (null). The
+  // banner prints a different word for each.
   const [status, setStatus] = useState<FrameworkStatus | null | undefined>(undefined);
-  // A live build usually arrives at a sleeping container, so the wait is a
-  // state of the page rather than a slow promise nobody is told about.
+  // The hosted API sleeps when idle, so the first request often has to wait
+  // for it to start. The page shows that wait.
   const [waking, setWaking] = useState(false);
 
   useEffect(() => {
@@ -279,9 +283,8 @@ export default function App() {
 
   useEffect(() => {
     if (isRecorded) return;
-    // Only the banner depends on this, and the data calls below report an
-    // outage perfectly well on their own — so a failure here leaves the
-    // provenance unstated rather than covering the page in an error.
+    // Only the banner uses this, and the data calls below report an outage
+    // themselves, so a failure here only leaves the data source unstated.
     getJson<FrameworkStatus>("/api/v1/framework/status")
       .then(setStatus)
       .catch(() => setStatus(null));
@@ -340,20 +343,20 @@ export default function App() {
   return (
     <div className="shell ds-shell">
       <header className="masthead">
-        <p className="ds-eyebrow">Dagents framework · healthcare demo</p>
-        <h1>Stroke triage, governed across three hospitals</h1>
+        <p className="ds-eyebrow">Dagents demo</p>
+        <h1>Stroke triage across three hospitals</h1>
         <p className="lede ds-measure">
-          A demo app built on the Dagents framework. Patient data is entirely synthetic and the
-          scoring rule is a transparent illustration, not a validated triage model. Nothing shown
-          here is clinical advice.
+          Three hospitals train and check a stroke triage model together without sharing patient
+          records. Every request for data goes through the Ethical Guard, and a new model is used
+          only if it passes its release gates. All patients are synthetic, and the scoring rule is
+          a simple example, not a validated clinical model.
         </p>
       </header>
 
       {isRecorded && (
         <div className="banner recorded">
-          <strong>Recorded run.</strong> This published page has no backend. Every verdict,
-          strategy and denial below is one the OCaml planner really returned, captured from a
-          live run of this demo
+          <strong>Recorded run.</strong> This page has no backend. It replays answers recorded
+          from the real backend
           {recording ? (
             <>
               {" "}
@@ -361,28 +364,25 @@ export default function App() {
               {recording.captured_at}
             </>
           ) : null}
-          . The levers work because every combination was captured; nothing here is generated
-          by the page. To drive the real backend, run it locally — see the README.
+          . Every combination of the controls was recorded, and the page computes nothing itself.
+          To use the live backend, run the demo locally as described in the README.
         </div>
       )}
 
       {!isRecorded && (
         <div className="banner">
-          <strong>Live backend.</strong> This page calls the deployed API at{" "}
-          <span className="mono">{apiBase || "this origin"}</span>, which reports its cohorts
-          as{" "}
-          <span className="mono">{cohortSourceLabel(status)}</span>. Every
-          encounter is synthetic: the store holds generated patients, and keeping them in a
-          database does not make them real. Nothing here is clinical advice.
+          <strong>Live backend.</strong> This page calls the API at{" "}
+          <span className="mono">{apiBase || "this origin"}</span>. Data source reported by the
+          API: <span className="mono">{cohortSourceLabel(status)}</span>
+          {cohortSourceNote(status) ? ` (${cohortSourceNote(status)})` : ""}. All patients are
+          synthetic.
         </div>
       )}
 
       {waking && (
         <div className="banner">
-          <strong>Waking the backend.</strong> The API runs on a free tier that stops the
-          container after a quarter of an hour without traffic, so the first request has to
-          start it again. This takes up to a minute. Nothing is being served from a cache in
-          the meantime.
+          <strong>Starting the backend.</strong> The API stops after 15 minutes without
+          traffic, and the first request starts it again. This can take up to a minute.
         </div>
       )}
 
@@ -394,7 +394,7 @@ export default function App() {
             <div className="ds-panel-head">
               <div className="head-titles">
                 <p className="ds-eyebrow">consortium · {overview.condition_id}</p>
-                <h2>Three hospitals, one feature contract</h2>
+                <h2>The hospitals</h2>
               </div>
               <span className="head-meta ds-mono">{overview.hospitals.length} sites</span>
             </div>
@@ -413,7 +413,7 @@ export default function App() {
                   <dd>{overview.engine}</dd>
                 </div>
                 <div>
-                  <dt>Secure-aggregation threshold</dt>
+                  <dt>Secure aggregation threshold</dt>
                   <dd>{overview.secure_aggregation_threshold} sites</dd>
                 </div>
               </dl>
@@ -425,7 +425,7 @@ export default function App() {
                       <th className="num">Cohort</th>
                       <th className="num">AUC</th>
                       <th className="num">Sensitivity</th>
-                      <th className="num">Subgroup gap</th>
+                      <th className="num">Subgroup AUC gap</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -446,8 +446,8 @@ export default function App() {
                 </table>
               </div>
               <p className="note ds-note">
-                The sites differ on purpose. A consortium where every hospital looked identical
-                would never exercise the drift checks, the cohort floors, or the fairness gate.
+                The hospitals have different patient mixes on purpose, so their results differ.
+                Identical sites would never trigger the fairness gate.
               </p>
             </div>
           </section>
@@ -459,17 +459,21 @@ export default function App() {
               <p className="ds-eyebrow">guard boundary · before_read</p>
               <h2>Ethical Guard</h2>
             </div>
-            <span className="head-meta ds-mono">three levers · one planner</span>
+            <span className="head-meta ds-mono">answers from the planner</span>
           </div>
           <div className="ds-panel-body">
             <p className="note ds-note">
-              Three levers, each a real one. Unticking <em>verified</em> drops trust and hardens
-              the strategy — at row grain, generalizing a score becomes redacting it. Widening the
-              granularity coarsens it — a column or a table can only come back as an aggregate.
-              And a <em>cohort</em> below the classification&rsquo;s floor of 20 denies the request
-              outright, whoever is asking. None of that is a branch in this app&rsquo;s code; every
-              decision is a lookup in the typed planner.
+              Choose who is asking and how much they ask for. The strategy for each field comes
+              from the planner; this app has no rules of its own.
             </p>
+            <ul className="note ds-note lever-notes">
+              <li>
+                An unverified requester has lower trust, so strategies get stricter. At row level,
+                a generalized score becomes redacted.
+              </li>
+              <li>A column or table request comes back only as an aggregate.</li>
+              <li>A cohort below 20 is denied, whoever is asking.</li>
+            </ul>
 
             <div className="guard-grid">
               <div className="levers ds-inset">
@@ -480,10 +484,10 @@ export default function App() {
                     checked={probeVerified}
                     onChange={(event) => setProbeVerified(event.target.checked)}
                   />
-                  requester verified
+                  Requester verified
                 </label>
                 <label className="ds-field">
-                  <span>granularity</span>
+                  <span>Granularity</span>
                   <select
                     className="ds-input"
                     value={probeGranularity}
@@ -497,7 +501,7 @@ export default function App() {
                   </select>
                 </label>
                 <label className="ds-field">
-                  <span>cohort</span>
+                  <span>Cohort size</span>
                   <input
                     className="ds-input"
                     type="number"
@@ -515,10 +519,9 @@ export default function App() {
               <div className="outcome">
                 {notRecorded && (
                   <div className="banner recorded">
-                    <strong>Not captured.</strong> {notRecorded.message} Rather than show you a
-                    verdict nobody computed, this page is telling you so. The captured cohort sizes
-                    are <span className="mono">{recordedCohorts(recording).join(", ")}</span>; the
-                    floor for this classification is 20, so 19 and 20 are the interesting pair.
+                    <strong>Not recorded.</strong> This page has answers for the cohort sizes{" "}
+                    <span className="mono">{recordedCohorts(recording).join(", ")}</span>. The
+                    minimum is 20, so compare 19 and 20.
                   </div>
                 )}
 
@@ -537,10 +540,8 @@ export default function App() {
 
                     {probe.message && <p className="guard-message">{probe.message}</p>}
 
-                    {/* A denial the planner never reached carries no per-field
-                        plan, so there is nothing to tabulate. Showing an empty
-                        header would read as a rendering fault at exactly the
-                        moment the reader needs the refusal to be clear. */}
+                    {/* A request refused before planning has no per-field plan.
+                        Say so instead of showing an empty table. */}
                     {probe.plan.field_restrictions.length > 0 ? (
                       <div className="ds-table-scroll">
                         <table className="ds-table restrictions">
@@ -566,25 +567,28 @@ export default function App() {
                       </div>
                     ) : (
                       <p className="ds-note">
-                        No per-field plan came back with this decision, so there is nothing to
-                        show here. The request was refused before it reached one.
+                        The request was refused before any field was planned, so there is no
+                        per-field table.
                       </p>
                     )}
 
-                    {probe.plan.violations.length > 0 && (
+                    {/* The message often repeats the only violation; list the rest. */}
+                    {probe.plan.violations.some((violation) => violation !== probe.message) && (
                       <ul className="reasons ds-reasons">
-                        {probe.plan.violations.map((violation) => (
-                          <li key={violation}>{violation}</li>
-                        ))}
+                        {probe.plan.violations
+                          .filter((violation) => violation !== probe.message)
+                          .map((violation) => (
+                            <li key={violation}>{violation}</li>
+                          ))}
                       </ul>
                     )}
 
                     <details className="ds-details">
-                      <summary>What the guard returned ({probe.payload.length} rows)</summary>
+                      <summary>Data returned ({probe.payload.length} rows)</summary>
                       <pre className="ds-code">{JSON.stringify(probe.payload.slice(0, 5), null, 2)}</pre>
                     </details>
                     <details className="ds-details">
-                      <summary>Obligations the guard must discharge</summary>
+                      <summary>Obligations attached to this decision</summary>
                       <ul className="reasons ds-reasons">
                         {probe.plan.obligations.map((obligation) => (
                           <li key={obligation}>{obligation}</li>
@@ -595,8 +599,8 @@ export default function App() {
                 ) : (
                   !notRecorded && (
                     <p className="outcome-idle ds-note">
-                      Nothing asked yet. Set the levers and ask the guard: the verdict, and the
-                      strategy for every field, come back from the planner.
+                      Set the controls and select <em>Ask the guard</em>. The decision and a
+                      strategy for each field come back from the planner.
                     </p>
                   )
                 )}
@@ -612,20 +616,22 @@ export default function App() {
               <h2>Federated pilot</h2>
             </div>
             <button className="ds-btn ds-btn--primary" onClick={runPilot} disabled={busy}>
-              {busy ? "Running…" : "Run governed pilot"}
+              {busy ? "Running…" : "Run the pilot"}
             </button>
           </div>
           <div className="ds-panel-body">
             <p className="note ds-note">
-              Analytics, then baseline evaluation, then training, then cross-site validation of the
-              candidate, then the release gates. Aggregation produces a candidate, never a release.
+              The pilot runs four federated rounds: analytics, baseline evaluation, training, and
+              validation of the new model at each hospital. Combining the hospitals&rsquo; updates
+              produces a candidate model. The release gates then decide whether it can replace the
+              current model.
             </p>
 
             {pilot && (
               <>
                 <dl className="ds-facts pilot-summary">
                   <div>
-                    <dt>Phases run</dt>
+                    <dt>Rounds run</dt>
                     <dd>{Object.keys(pilot.rounds).length}</dd>
                   </div>
                   <div>
@@ -655,7 +661,7 @@ export default function App() {
                     round ? (
                       <div key={name} className="round phase">
                         <div className="round-head">
-                          <h3>{name}</h3>
+                          <h3>{name.replace(/_/g, " ")}</h3>
                           <span className="digest mono">{round.plan.round_digest}</span>
                         </div>
                         <div className="round-state ds-row">
@@ -705,7 +711,7 @@ export default function App() {
                                   <th>Site</th>
                                   <th>Participation</th>
                                   <th className="num">Examples</th>
-                                  <th className="num">Bounded norm</th>
+                                  <th className="num">Update norm</th>
                                   <th>Evidence</th>
                                 </tr>
                               </thead>
@@ -725,9 +731,9 @@ export default function App() {
                             </table>
                           </div>
                           <p className="note ds-note">
-                            No column here is patient-level. Counts, bounded norms, approved
-                            metrics and a pointer that stays addressed to the site — that is the
-                            whole egress contract.
+                            None of these values describes a single patient. A site sends only
+                            counts, bounded update sizes, approved metrics, and a pointer to
+                            evidence that stays at the site.
                           </p>
                         </details>
                       </div>
@@ -794,8 +800,9 @@ export default function App() {
                     </ul>
                     {pilot.release.gates.blocking_failures.length > 0 && (
                       <p className="note ds-note">
-                        The candidate beats its baseline on AUC and is still not releasable. That
-                        is the framework doing its job, not failing at it.
+                        Not released: {pilot.release.gates.blocking_failures.length} blocking{" "}
+                        {pilot.release.gates.blocking_failures.length === 1 ? "gate" : "gates"}{" "}
+                        failed.
                       </p>
                     )}
                   </div>
@@ -838,6 +845,10 @@ export default function App() {
                       </tbody>
                     </table>
                   </div>
+                  <p className="note ds-note">
+                    Each audit record includes the digest of the record before it. Intact means no
+                    record was changed or removed.
+                  </p>
                 </div>
               </>
             )}
@@ -847,11 +858,11 @@ export default function App() {
         <section className="panel ds-panel" data-panel="worklist">
           <div className="ds-panel-head">
             <div className="head-titles">
-              <p className="ds-eyebrow">site view · stays inside the hospital</p>
+              <p className="ds-eyebrow">site view</p>
               <h2>Local worklist</h2>
             </div>
             <label className="ds-field head-select">
-              <span>site</span>
+              <span>Hospital</span>
               <select
                 className="ds-input"
                 value={selectedSite}
@@ -866,11 +877,11 @@ export default function App() {
             </label>
           </div>
           <div className="ds-panel-body">
-            <p className="ds-eyebrow">queue · {worklist.length} cases · re-ordered, never filtered</p>
+            <p className="ds-eyebrow">{worklist.length} cases · highest priority first</p>
             <p className="note ds-note">
-              This view never leaves the hospital. Cases are re-ordered so an urgent one reaches a
-              specialist sooner; nothing is removed from the queue, including cases that could not
-              be scored.
+              What staff at one hospital see. This data stays at the hospital. Cases are sorted so
+              urgent ones reach a specialist sooner, and none is removed, including cases that
+              could not be scored.
             </p>
             <div className="ds-table-scroll">
               <table className="ds-table worklist">

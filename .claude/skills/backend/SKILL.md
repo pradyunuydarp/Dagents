@@ -5,199 +5,205 @@ description: Strict rules for changing Dagents backend code — the OCaml planne
 
 # Dagents backend
 
-This skill is binding, not advisory. Where it says **never**, a change that does it is
-wrong even if it works, and even if the user's request seemed to ask for it. Say so and
-propose the placement this skill allows instead.
+These rules are binding. A change that breaks a **never** rule is wrong even if
+it works, and even if the request seemed to ask for it. Say so, and propose the
+placement these rules allow. Comments, docstrings and commit messages follow the
+`writing` skill.
 
-## 1. The architecture, in one rule
+## 1. Where code lives
 
-**Polyglot by layer. Each language owns what it is best at.** Dagents is
-planner-first where planning matters, runtime-first where side effects matter — not
-OCaml-first, not Python-first.
+Each language does the work it suits best:
 
 | Layer | Owns | Never owns |
 |---|---|---|
-| **OCaml** `bindings/ocaml/` | Pure planning: validate, compile, route, render | DB sockets, training loops, API servers |
-| **Python** `agents/`, `services/` | FastAPI surfaces, ML training/inference, source I/O, runtime state | Deterministic planning rules |
-| **Spring Boot** `services/spring-services/` | Orchestration APIs, policy entrypoints, external integration | ML execution |
+| **OCaml** `bindings/ocaml/` | Pure planning: validate, compile, route, render | Database connections, training loops, API servers |
+| **Python** `agents/`, `services/` | FastAPI services, model training and inference, source I/O, runtime state | Deterministic planning rules |
+| **Spring Boot** `services/spring-services/` | Orchestration APIs, policy entry points, external integration | Machine learning |
 
-The two agent roles:
+The two agents:
 
-- **LMA** (`agents/lma/`) — one per source boundary (tenant, database, service, event
-  stream, environment). Profiles data, partitions work, runs source-level models,
-  publishes summaries, enforces governance at three of the four guard boundaries.
-- **GMA** (`agents/gma/`) — registers LMAs, assimilates their outputs, runs aggregate
-  models, coordinates dispatch, owns federated round control and release governance.
+- **LMA** (`agents/lma/`): one per data source (a tenant, database, service,
+  event stream or environment). It profiles data, splits work, runs local
+  models, publishes summaries, and enforces governance at three of the four
+  guard boundaries.
+- **GMA** (`agents/gma/`): registers LMAs, combines their outputs, runs
+  aggregate models, coordinates dispatch, and runs federated rounds and release
+  decisions.
 
-Python reaches OCaml through a **JSON subprocess boundary** (`dagentsc`), never FFI,
-and always through `agents/common/infrastructure/dagents_runner.py` — it owns the
-snake_case ↔ camelCase conversion and the subprocess plumbing. The binary resolves from
-`DAGENTSC_BIN`, else `dagentsc` on PATH.
+Python calls OCaml through the `dagentsc` command-line program, sending JSON on
+standard input. **Never** link the languages directly (FFI). Always go through
+`agents/common/infrastructure/dagents_runner.py`, which converts between
+snake_case and camelCase and runs the subprocess. The binary comes from
+`DAGENTSC_BIN`, or from `dagentsc` on PATH.
 
 ### Where a decision is allowed to live
 
-Ask one question of every new rule: **is it deterministic?**
+Ask one question of every new rule: **does it always give the same answer for
+the same inputs?**
 
-- Deterministic (given the same inputs, always the same answer) → it is a planner rule.
-  It belongs in an OCaml compiler module, modelled as an algebraic data type with
-  exhaustive matching, and Python calls out to it.
-- Needs real data, a clock, a socket, a random seed, or an audit sink → it is runtime.
-  It belongs in Python, and it delegates the deterministic part.
+- Yes: it is a planner rule. It goes in an OCaml compiler module, as an
+  algebraic data type with exhaustive matching, and Python calls it.
+- No, because it needs real data, a clock, a socket, a random seed or an audit
+  log: it is runtime code. It goes in Python, and it calls the planner for the
+  deterministic part.
 
-**Never re-derive a planner rule in Python** because shelling out to `dagentsc` felt
-inconvenient. Two implementations of one rule is the specific failure this repo has
-already been bitten by; see §5.
+**Never write a planner rule again in Python** to avoid calling `dagentsc`. Two
+copies of one rule drift apart; this repo has had that bug (see §5).
 
-### The compiler modules and what they decide
+### The compiler modules
 
 | Module | Decides |
 |---|---|
-| `lib/common_ir` | The shared typed IR and its JSON codecs. Every new type starts here. |
-| `lib/dataset_compiler` | Source validation, profiling, schema contracts, quality, transforms |
-| `lib/pipeline_compiler` | DAG validation and topological ordering |
-| `lib/model_router` | dataset profile + task → model family + packaging mode |
-| `lib/manifest_compiler` | typed workload spec → Kubernetes YAML |
-| `lib/governance_compiler` | GRAILS Ethical-Restriction Rails: what protection a request needs |
-| `lib/federation_compiler` | Federated round manifests, eligibility, quorum, release gates |
+| `lib/common_ir` | The shared types and their JSON format. Every new type starts here. |
+| `lib/dataset_compiler` | Source validation, profiling, schema contracts, quality rules, transforms |
+| `lib/pipeline_compiler` | Whether a pipeline is a valid DAG, and the order of its steps |
+| `lib/model_router` | Dataset profile + task → model family + packaging mode |
+| `lib/manifest_compiler` | Typed workload spec → Kubernetes YAML |
+| `lib/governance_compiler` | GRAILS: the protection each field of a request needs |
+| `lib/federation_compiler` | Round manifests, eligibility, quorum, aggregation readiness, release gates |
 
 ## 2. Hard rules
 
 ### Governance
 
-- **The Ethical Guard fails closed.** If the planner cannot be reached, the request is
-  denied and the denial is recorded. **Never** add a fallback that permits on planner
-  failure. An enforcement layer whose absence grants access is not one.
-- Deciding lives in `bindings/ocaml/lib/governance_compiler`; sensitivity, trust,
-  granularity and strategy are ADTs and `select_strategy` matches the full triple
-  exhaustively. Adding a level must fail to compile until every combination is handled.
-- Enforcing lives in `agents/common/application/ethical_guard.py`: apply the plan,
-  project away what the request did not ask for, write a digest-chained audit record.
-- Policy is configuration, not code — a `DataClassification`, contributed by an
-  extension or registered at runtime. Changing a field's sensitivity must change no
+- **The Ethical Guard fails closed.** If the planner cannot be reached, the
+  Guard denies the request and records the denial. **Never** add a fallback that
+  permits a request when the planner fails.
+- Deciding happens in `bindings/ocaml/lib/governance_compiler`. Sensitivity,
+  trust, granularity and strategy are algebraic data types, and
+  `select_strategy` matches every combination of the three inputs. Adding a
+  level must fail to compile until every combination has a strategy.
+- Enforcing happens in `agents/common/application/ethical_guard.py`: apply the
+  plan, drop every field the request did not ask for, and write an audit record
+  that includes the digest of the previous record.
+- Policy is configuration: a `DataClassification`, contributed by an extension
+  or registered at runtime. Changing a field's sensitivity must not change any
   code path.
-- A site's local runner is handed the **guarded** payload, not its raw records, even
-  though that data never leaves the site. The lever for a deployment that finds the
-  accuracy cost too high is the field's classification, not this code path.
+- A site's local runner receives the **guarded** payload, not its raw records,
+  even though that data never leaves the site. This costs accuracy (the
+  healthcare demo measures it). A deployment that finds the cost too high
+  changes the field's classification, not this code path.
 
 ### Federation
 
-- `bindings/ocaml/lib/federation_compiler` owns eligibility, quorum, aggregation
-  readiness and release gates. `agents/common/application/federation.py` owns state and
-  side effects and delegates the rest.
-- **Never let aggregation imply release.** Aggregation produces a candidate; a release
-  needs its gates passed and a human to approve.
-- **A release gate whose metric is absent blocks.** It never passes by default.
-- The federated protocol belongs to a specialist runtime behind `FederationEngine`. The
-  in-process engine is a simulator for tests and demos — **never** grow it into a
-  federated optimizer.
+- `bindings/ocaml/lib/federation_compiler` decides eligibility, quorum,
+  aggregation readiness and release gates.
+  `agents/common/application/federation.py` holds state and side effects and
+  calls the planner for the rest.
+- **Aggregation produces a candidate, never a release.** A release needs its
+  gates to pass and a person to approve it.
+- **A release gate whose metric is missing blocks the release.** It never passes
+  by default.
+- The federated protocol belongs to a dedicated runtime behind
+  `FederationEngine`. The in-process engine is a simulator for tests and demos.
+  **Never** turn it into a federated optimizer.
 
-### Agent layering
+### Agent layout
 
-Both `agents/lma/` and `agents/gma/` use the same shape, and a new agent must too:
+`agents/lma/` and `agents/gma/` use the same layout, and a new agent must too:
 
 ```text
-domain/          pure typed models, no I/O
-application/     orchestration and use-cases
-adapters/        technology-facing boundaries
-infrastructure/  messaging, persistence, concrete implementations
-config.py di.py main.py    composition root
+domain/          typed models, no I/O
+application/     use cases
+adapters/        code for specific technologies
+infrastructure/  messaging, storage, concrete implementations
+config.py di.py main.py    wiring
 ```
 
-`domain/` stays pure — no imports that open a socket, read a file, or read the clock.
-New infrastructure goes behind a replaceable interface so the repo can move from
-in-memory delivery to broker-backed and persisted deployments without a structural
-rewrite.
+`domain/` stays pure: no imports that open a socket, read a file or read the
+clock. New infrastructure goes behind an interface, so in-memory delivery can be
+replaced by a message broker and a database without restructuring.
 
 ### Endpoints
 
-- LMA and GMA expose legacy short paths (`/health`, `/datasets/profile`, `/models/run`)
-  **and** versioned equivalents (`/api/v1/health`, `/api/v1/datasets:profile`,
-  `/api/v1/model-jobs`). This is deliberate. When you add an endpoint to either agent,
-  add both forms, and make the versioned one call the legacy handler so they cannot
-  drift.
-- The framework services (`core`, `pipeline`, `model`) are uniformly `/api/v1/...`.
-- **Never hardcode a URL or a port.** Config comes from `env/.env.shared` plus a
-  per-service file, with distinct `*_PUBLIC_URL` (host) and `*_INTERNAL_URL` (compose
-  network) values.
-- Every endpoint you add or change must be reflected in the service inventory:
+- The LMA and GMA have short paths (`/health`, `/datasets/profile`,
+  `/models/run`) **and** versioned paths (`/api/v1/health`,
+  `/api/v1/datasets:profile`, `/api/v1/model-jobs`). This is deliberate. When
+  you add an endpoint to either agent, add both forms and make the versioned one
+  call the same handler.
+- The framework services (`core`, `pipeline`, `model`) use only `/api/v1/...`.
+- **Never hardcode a URL or a port.** Configuration comes from `env/.env.shared`
+  plus a file per service, with separate `*_PUBLIC_URL` (host) and
+  `*_INTERNAL_URL` (compose network) values.
+- Every endpoint change must be reflected in the service inventory:
 
   ```bash
   .venv/bin/python scripts/service_inventory.py --write
   ```
 
-  Then commit the regenerated `docs/reference/service-inventory.json` and `.md`. The
-  inventory test fails on drift, so this is not optional.
+  Commit the regenerated `docs/reference/service-inventory.json` and `.md`. The
+  inventory test fails if they are out of date.
 
 ### Scope
 
-Product-specific logic does not belong in Dagents unless it is genuinely reusable
-across consumers. The test: **if a capability would need a domain word in `agents/`, it
-belongs in the consumer**, reached through `agents/common/extensions`. Nothing in
-`agents/` knows what a stroke is; nothing in `apps/healthcare-demo/` re-implements a
-quorum rule.
+Product-specific code belongs in Dagents only if several consumers can reuse it.
+The test: **if a capability needs a domain word in `agents/`, it belongs in the
+consumer**, through `agents/common/extensions`. Nothing in `agents/` knows what
+a stroke is, and nothing in `apps/healthcare-demo/` implements a quorum rule.
 
-A consumer contributes feature contracts, data classifications, condition packs, named
-pipeline steps and named model adapters through `agents/common/extensions` — never by
-patching the framework. Registration is explicit and id conflicts are errors, because
-two extensions claiming one id would make a guard decision depend on import order.
-`apps/healthcare-demo/backend/app/extension.py` is the reference: ~80 declarative
-lines, importing no framework internal. If something will not fit through that
-interface, that is a signal about the interface, not a reason to reach around it.
+A consumer contributes feature contracts, data classifications, condition packs,
+named pipeline steps and named model adapters through
+`agents/common/extensions`. It never patches the framework. Registration is
+explicit, and two extensions registering the same id is an error, because
+otherwise a guard decision would depend on import order.
+`apps/healthcare-demo/backend/app/extension.py` is the reference: about eighty
+declarative lines that import no framework internals. If a new consumer's needs
+do not fit through this interface, improve the interface instead of working
+around it.
 
-## 3. The TDD loop
+## 3. The test loop
 
-Test first. Not "write the code, then add a test that passes" — write the assertion
-that fails for the reason you are about to fix, watch it fail, then make it pass.
+Write the failing test first, watch it fail for the reason you expect, then make
+it pass.
 
 ### Adding to the OCaml layer, in this order
 
-1. The type goes in `common_ir` **first**.
-2. Then its JSON parsing.
-3. Then the compiler module.
-4. Then the tests in `bindings/ocaml/test/test_compilers.ml`.
+1. The type, in `common_ir`.
+2. Its JSON parsing.
+3. The compiler module.
+4. The tests, in `bindings/ocaml/test/test_compilers.ml`.
 
-Model choices as algebraic data types, never string conditionals — exhaustive matching
-is the entire reason this layer is in OCaml. Return reports and plans rather than
-raising; reserve exceptions for compile requests that cannot produce a meaningful plan.
-Test at the compiler boundary: invalid inputs, normalized output contracts,
-deterministic ordering.
+Model choices as algebraic data types, never as string comparisons; exhaustive
+matching is the reason this layer is in OCaml. Return reports and plans instead
+of raising exceptions, except for requests that cannot produce a meaningful
+plan. Test at the compiler boundary: invalid inputs, the shape of the output,
+and deterministic ordering.
 
 ```bash
 cd bindings/ocaml && opam exec -- dune build ./bin/dagentsc.exe && opam exec -- dune test
 ```
 
-`dune` is not on PATH — always go through `opam exec --`. The binary lands at
-`bindings/ocaml/_build/default/bin/dagentsc.exe`. Most OCaml tests need no Docker,
-database or GPU because the modules are pure planners, so this is the fastest feedback
-loop in the repo. Prefer it.
+`dune` is not on PATH, so always use `opam exec --`. The binary is written to
+`bindings/ocaml/_build/default/bin/dagentsc.exe`. Most OCaml tests need no
+Docker, database or GPU, so this is the fastest test loop in the repo.
 
 ### Python
 
-Tests import as `agents.common...`, so run from the repository root. FastAPI and friends
-live in the gitignored `.venv/`, not system Python:
+Tests import as `agents.common...`, so run them from the repository root, with
+the gitignored `.venv/` rather than system Python:
 
 ```bash
 .venv/bin/python -m unittest discover -s agents/tests -t .
 ```
 
-Per-service suites live under `services/<name>/tests/`. The healthcare demo has its own:
+Each service has its own suite under `services/<name>/tests/`. The healthcare
+demo has its own:
 
 ```bash
 cd apps/healthcare-demo && PYTHONPATH=../..:backend ../../.venv/bin/python -m unittest discover -s tests -t .
 ```
 
-### Rules that make the suite mean something
+### Rules for meaningful tests
 
-- **Governance and federation tests run against the real `dagentsc` binary**, never a
-  stub. Stubbing the planner would prove the code calls something, not that the
-  governance holds.
-- **Check the skip count.** Those tests find the dune build automatically and skip with
-  a message when it is missing. A suite that silently skips its governance tests is
-  green without having proved anything. Build the binary, then re-run.
-- **Run the service suites both with and without `DAGENTSC_BIN`.** `core-service`
-  compiles manifests through the OCaml compiler when the binary is reachable and
-  through a Python fallback when it is not; containers put `dagentsc` on PATH, so the
-  OCaml path is the deployed one:
+- **Governance and federation tests run against the real `dagentsc` binary**,
+  never a stub. A stub would only prove that the code calls something.
+- **Check the skip count.** These tests find the dune build themselves and skip,
+  with a message, when it is missing. A run that skipped them has not tested
+  governance. Build the binary and run again.
+- **Run the service suites with and without `DAGENTSC_BIN`.** `core-service`
+  renders manifests with the OCaml compiler when the binary is available and
+  with a Python fallback when it is not. Containers have `dagentsc` on PATH, so
+  the OCaml path is the one deployed:
 
   ```bash
   DAGENTSC_BIN=$PWD/bindings/ocaml/_build/default/bin/dagentsc.exe \
@@ -205,12 +211,11 @@ cd apps/healthcare-demo && PYTHONPATH=../..:backend ../../.venv/bin/python -m un
     -m unittest discover -s services/core-service/tests -t services/core-service/tests
   ```
 
-- **Any behaviour with two implementations needs the same assertions run against both.**
-  The two manifest renderers had silently diverged and nobody noticed, because the suite
-  only ever exercised the fallback. If two implementations cannot be kept in step,
-  delete one.
-- A test that needs the network is a test that will be skipped. Pin fixtures, never
-  fetch a model or dataset inside a test.
+- **Run the same assertions against every implementation of a behaviour.** The
+  two manifest renderers drifted apart because the suite only tested the
+  fallback. If two implementations cannot be kept in step, delete one.
+- No test may need the network. Pin fixtures; never download a model or a
+  dataset inside a test.
 
 ## 4. Before you call a backend change done
 
@@ -218,24 +223,22 @@ cd apps/healthcare-demo && PYTHONPATH=../..:backend ../../.venv/bin/python -m un
 # 1. planners
 cd bindings/ocaml && opam exec -- dune build ./bin/dagentsc.exe && opam exec -- dune test && cd -
 
-# 2. agents + control plane, with the planner reachable
+# 2. agents and control plane, with the planner available
 DAGENTSC_BIN=$PWD/bindings/ocaml/_build/default/bin/dagentsc.exe \
   .venv/bin/python -m unittest discover -s agents/tests -t .
 
-# 3. the service suite you touched, both ways (see §3)
+# 3. the service suite you changed, both ways (see §3)
 
-# 4. the inventory, if you touched any route
+# 4. the inventory, if you changed a route
 .venv/bin/python scripts/service_inventory.py --check
 ```
 
-Report what actually ran, including the skip count. "Tests pass" with the governance
-tests skipped is a false report.
+Report what ran, including the number of skipped tests. "Tests pass" with the
+governance tests skipped is not a pass.
 
-## 5. The failure modes this repo has already hit
+## 5. Mistakes this repo has already made
 
-Recognise these; do not repeat them.
-
-- Two implementations of one rule diverging silently, because only one was under test.
-- A test suite green because its most important tests skipped.
-- A convention documented in prose and enforced nowhere, so it decayed.
-- An enforcement layer that permitted when its planner was unreachable.
+- Two implementations of one rule drifted apart, because only one was tested.
+- A suite was green because its most important tests had skipped.
+- A convention was written down but not checked, so it stopped being followed.
+- An enforcement layer permitted requests when its planner was unreachable.
