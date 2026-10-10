@@ -77,28 +77,37 @@ class Consortium:
         self._sites_registered = False
 
     def _ensure_sites_registered(self) -> None:
-        """Enrol every hospital, the first time a round needs them.
+        """Enrol each hospital the first time a round is planned.
 
-        Not in ``__init__``, because a registration declares the site's real
-        cohort size and so has to read the site's records. Doing that while the
-        module is being imported is what made a deployment with an unreachable
-        database fail to become a process at all: nothing bound the port, so
-        every request hung instead of being answered with the reason.
+        This runs on first use instead of in ``__init__`` because a registration
+        includes the site's real cohort size, which means reading its records.
+        Reading the database while the app is imported stopped the deployed
+        service from starting when the database was unreachable.
+
+        It only enrols sites the controller does not know yet. A registration
+        made explicitly before the first round, such as a site on an older
+        feature contract, is kept.
         """
         if self._sites_registered:
             return
+        known = {registration.site_id for registration in self.controller.list_sites()}
         for hospital in sorted(self.hospitals.values(), key=lambda site: site.site_id):
-            self.controller.register_site(hospital.registration())
+            if hospital.site_id not in known:
+                self.controller.register_site(hospital.registration())
         self._sites_registered = True
 
     def manifest(self, round_id: str, phase: RoundPhase = "analytics") -> RoundManifest:
         """Build the round contract every site verifies before accepting.
 
         Secure aggregation is the default profile, so the coordinator cannot
-        resolve any single hospital's contribution. Its threshold raises the
-        participation floor, which is what makes that guarantee real rather
-        than declared.
+        see any single hospital's contribution. Its threshold raises the
+        minimum number of participating sites.
+
+        Building a manifest means a round is about to be planned, so the
+        hospitals are enrolled here. That keeps planning correct whether the
+        caller uses `run_round` or calls the controller directly.
         """
+        self._ensure_sites_registered()
         return RoundManifest(
             round_id=round_id,
             study_id=STUDY_ID,
@@ -126,7 +135,6 @@ class Consortium:
 
     def run_round(self, round_id: str, phase: RoundPhase = "analytics") -> dict[str, Any]:
         """Plan, dispatch, and collect one round, reporting what happened."""
-        self._ensure_sites_registered()
         manifest = self.manifest(round_id, phase)
         digest = self._attach_workers(manifest)
         record = self.controller.dispatch_round(manifest)
