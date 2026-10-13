@@ -274,8 +274,14 @@ export function PilotPanel({
       <p className="note ds-note">
         The pilot runs rounds at every hospital: analytics, evaluation of the model in use, several
         training rounds, and validation of the new model. Training produces a candidate model. The
-        release gates then decide whether it may replace the model in use. A run takes a few seconds.
+        release gates then decide whether it may replace the model in use. A run can take up to a
+        minute.
       </p>
+      {busy && (
+        <p className="note ds-note" role="status" data-pilot-running>
+          The pilot is running. Each hospital trains and checks its results before the gates decide.
+        </p>
+      )}
       <ErrorNote error={error} />
 
       {pilot && (
