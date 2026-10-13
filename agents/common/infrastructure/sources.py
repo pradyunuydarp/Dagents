@@ -29,6 +29,7 @@ from agents.common.domain.sources import (
     SourceSpec,
     SourceValidationResult,
 )
+from agents.common.infrastructure.postgres_roles import RoleScopeError, set_local_role, validate_role_name
 
 
 def infer_schema(records: list[dict[str, Any]]) -> list[RecordSchemaField]:
@@ -195,6 +196,10 @@ class PostgresSourceAdapter:
         warnings: list[str] = []
         if not postgres.connection_ref.connection_id:
             errors.append("connection_ref.connection_id is required")
+        try:
+            _postgres_role(resolved_connection)
+        except RoleScopeError as error:
+            errors.append(str(error))
         if not resolved_connection and "rows" not in postgres.options:
             warnings.append("No resolved connection found; scan requires a configured connection or mock rows")
         return SourceValidationResult(valid=not errors, errors=errors, warnings=warnings)
@@ -231,10 +236,15 @@ class PostgresSourceAdapter:
         What it does:
         - Prefers mocked rows in tests for determinism and speed.
         - Falls back to a live psycopg query when a real connection is provided.
+        - When the resolved connection names a `role`, runs the query as that
+          role: `SET LOCAL ROLE` in the same transaction, on the same
+          connection, with `current_user` checked first. The role ends when
+          the transaction ends.
 
         Returns:
         - A fully materialized list of row dicts.
         """
+        role = _postgres_role(resolved_connection)
         if "rows" in source.options:
             return list(source.options["rows"])
         if "rows" in resolved_connection:
@@ -245,8 +255,13 @@ class PostgresSourceAdapter:
         query = _postgres_query(source)
         # The adapter intentionally materializes the full query result before
         # chunking so every downstream service receives the same batch format.
+        # The connection is not in autocommit mode, so the first statement opens
+        # the transaction that SET LOCAL ROLE needs, and leaving the block ends
+        # it.
         with psycopg.connect(row_factory=dict_row, **connection_args) as connection:
             with connection.cursor() as cursor:
+                if role is not None:
+                    set_local_role(cursor, role)
                 cursor.execute(query)
                 rows = cursor.fetchall()
         return [dict(row) for row in rows]
@@ -529,6 +544,18 @@ def _postgres_connection_args(resolved_connection: dict[str, Any]) -> dict[str, 
         if integer_key in connection_args:
             connection_args[integer_key] = int(connection_args[integer_key])
     return connection_args
+
+
+def _postgres_role(resolved_connection: dict[str, Any]) -> str | None:
+    """Return the validated `role` option, or None when there is none.
+
+    `role` is not a libpq keyword, so it is not on the allowlist above. The
+    adapter applies it with `SET LOCAL ROLE` after connecting.
+    """
+    role = resolved_connection.get("role")
+    if role in (None, ""):
+        return None
+    return validate_role_name(role)
 
 
 def _postgres_query(source: PostgresSourceSpec) -> str:

@@ -6,12 +6,17 @@
  * otherwise replays a recording.
  *
  * `scripts/capture_demo_recordings.py` makes the recording. It starts the real
- * backend with `dagentsc` built, sends every request this UI can make,
- * including every combination of the guard controls, and saves the responses.
- * The page names the commit they were recorded from.
+ * backend with `dagentsc` built, sends every GET this UI makes (both themes for
+ * each chart), the guard probes for every hospital and a set of cohort sizes,
+ * and one pilot, and saves the responses. The page names the commit they were
+ * recorded from.
  *
  * A request the recording does not hold raises `NotRecordedError`, and the UI
- * says so. The replay never invents an answer.
+ * says so. The replay never invents an answer, and it never stores anything:
+ * data entry, outcomes and approvals are disabled in replay mode.
+ *
+ * Nothing in this module puts the API's address into an error message. The
+ * page never shows it.
  */
 
 /** One captured request/response pair. */
@@ -20,6 +25,9 @@ export interface RecordedEntry {
   path: string;
   request?: unknown;
   status: number;
+  /** `before_pilot` for what the page shows on arrival, `after_pilot` for what the pilot changed. */
+  phase?: string;
+  content_type?: string;
   response: unknown;
 }
 
@@ -43,12 +51,84 @@ export class NotRecordedError extends Error {
 }
 
 /**
+ * The backend answered with an error status.
+ *
+ * Every error body from the healthcare API is `{"detail": str}`, and a 422 adds
+ * `"errors": {field: reason}`, so a form can show each reason next to its field.
+ */
+export class ApiError extends Error {
+  readonly status: number;
+  readonly body: unknown;
+  readonly detail: string | null;
+  readonly fieldErrors: Record<string, string>;
+
+  constructor(status: number, body: unknown) {
+    const detail = readDetail(body);
+    super(detail ?? `The demo server returned an error (${status}).`);
+    this.name = "ApiError";
+    this.status = status;
+    this.body = body;
+    this.detail = detail;
+    this.fieldErrors = readFieldErrors(body);
+  }
+}
+
+/** The server did not answer at all within the cold-start budget. */
+export class UnreachableError extends Error {
+  constructor() {
+    super(
+      `The demo server did not answer within ${Math.round(COLD_START_BUDGET_MS / 1000)} seconds. ` +
+        "It may be down. Try again in a few minutes."
+    );
+    this.name = "UnreachableError";
+  }
+}
+
+function readDetail(body: unknown): string | null {
+  if (body && typeof body === "object" && "detail" in body) {
+    const detail = (body as { detail: unknown }).detail;
+    if (typeof detail === "string" && detail.trim()) return detail;
+  }
+  return null;
+}
+
+function readFieldErrors(body: unknown): Record<string, string> {
+  if (body && typeof body === "object" && "errors" in body) {
+    const errors = (body as { errors: unknown }).errors;
+    if (errors && typeof errors === "object") {
+      const out: Record<string, string> = {};
+      for (const [field, reason] of Object.entries(errors as Record<string, unknown>)) {
+        out[field] = String(reason);
+      }
+      return out;
+    }
+  }
+  return {};
+}
+
+/**
+ * A plain sentence for any error this module raises.
+ *
+ * The backend's own messages are already written for people, so they are shown
+ * as they are. Anything else gets a generic sentence without technical detail.
+ */
+export function userMessage(error: unknown): string {
+  if (error instanceof NotRecordedError) {
+    return "This page replays a recorded run, and this request was not recorded.";
+  }
+  if (error instanceof ApiError || error instanceof UnreachableError) return error.message;
+  if (error instanceof RecordingUnavailableError) return error.message;
+  return "Something went wrong while loading this part of the page. Reload the page to try again.";
+}
+
+/**
  * The deployed API, when one is configured at build time.
  *
  * When set, the published build calls this API instead of replaying. Empty
- * means the same origin, which is what the local dev proxy serves.
+ * means the same origin, which is what the local dev proxy serves. It is kept
+ * inside this module so no component can print it.
  */
-export const apiBase = (import.meta.env.VITE_HEALTHCARE_API_BASE ?? "").replace(/\/$/, "");
+const apiBase = (import.meta.env.VITE_HEALTHCARE_API_BASE ?? "").replace(/\/$/, "");
 
 /**
  * True when this build replays a recording instead of calling a backend.
@@ -63,20 +143,35 @@ export const isRecorded = import.meta.env.VITE_DAGENTS_STATIC === "1" && apiBase
 /**
  * How long a live build keeps trying while the hosted API starts.
  *
- * The API's hosting stops the container after 15 minutes without traffic, so
- * the first request usually has to start it. A measured start took about 22
- * seconds. The page shows a banner while it waits.
+ * The hosted API stops after 15 minutes without traffic, so the first request
+ * usually has to start it. A measured start took about 22 seconds, which is
+ * what the connecting banner tells the reader.
+ * `apps/healthcare-demo/tests/test_deployed_api.py` uses the same budget.
  */
-const COLD_START_BUDGET_MS = 90_000;
+export const COLD_START_BUDGET_MS = 90_000;
 
 /**
- * Statuses that mean the request never reached the application.
+ * Statuses the hosting platform returns while the container is starting.
  *
- * The hosting platform returns these while the container is starting. A
- * request that was not delivered had no effect, so retrying it is safe, even
- * for the one POST this UI makes.
+ * A request the platform answered never reached the application and had no
+ * effect, so retrying it is safe, even for a POST. Data entry also sends an
+ * Idempotency-Key, so a retried entry is stored once.
  */
 const WAKING_STATUSES = new Set([502, 503, 504]);
+
+/**
+ * The header the API puts on every response it sends itself.
+ *
+ * The API also answers 503 when a hospital's records cannot be reached. That
+ * response has this header and the platform's responses do not, so it is shown
+ * at once instead of being retried.
+ */
+const APP_HEADER = "X-Dagents-App";
+
+/** True when the platform, not the app, answered: a waking status without the app's header. */
+function answeredByPlatform(response: Response): boolean {
+  return WAKING_STATUSES.has(response.status) && !response.headers.has(APP_HEADER);
+}
 
 type WakeListener = (waking: boolean) => void;
 
@@ -101,11 +196,12 @@ function setWaking(next: boolean): void {
 const pause = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
- * Fetch from the deployed API, waiting while it starts.
+ * Fetch from the API, waiting while it starts.
  *
- * Only undelivered requests are retried: a network failure or a status in
- * `WAKING_STATUSES`. An application error is returned on the first attempt,
- * because retrying it would hide a real failure.
+ * Only undelivered requests are retried: a network failure, or a status in
+ * `WAKING_STATUSES` without the `APP_HEADER` the API puts on its own responses.
+ * Every response from the app is returned on the first attempt, including its
+ * own 503, because retrying it would hide a real failure.
  */
 async function liveFetch(path: string, init?: RequestInit): Promise<Response> {
   const deadline = Date.now() + COLD_START_BUDGET_MS;
@@ -116,22 +212,28 @@ async function liveFetch(path: string, init?: RequestInit): Promise<Response> {
     } catch {
       response = null;
     }
-    if (response !== null && !WAKING_STATUSES.has(response.status)) {
+    if (response !== null && !answeredByPlatform(response)) {
       setWaking(false);
       return response;
     }
     if (Date.now() >= deadline) {
       setWaking(false);
       if (response !== null) return response;
-      throw new Error(
-        `${apiBase || "The API"} did not answer within ` +
-          `${Math.round(COLD_START_BUDGET_MS / 1000)} seconds. The backend may be down. ` +
-          `Try again in a few minutes.`
-      );
+      throw new UnreachableError();
     }
     setWaking(true);
     await pause(Math.min(5_000, 1_000 * attempt));
   }
+}
+
+async function readError(response: Response): Promise<ApiError> {
+  let body: unknown = null;
+  try {
+    body = await response.json();
+  } catch {
+    body = null;
+  }
+  return new ApiError(response.status, body);
 }
 
 /**
@@ -153,6 +255,14 @@ function stable(value: unknown): string {
   return `{${entries.map(([k, item]) => `${JSON.stringify(k)}:${stable(item)}`).join(",")}}`;
 }
 
+/** The recording could not be fetched. */
+class RecordingUnavailableError extends Error {
+  constructor() {
+    super("This page replays a recorded run, but the recording could not be loaded. Reload the page to try again.");
+    this.name = "RecordingUnavailableError";
+  }
+}
+
 let loaded: Promise<Recording> | null = null;
 
 /**
@@ -165,13 +275,11 @@ function loadRecording(): Promise<Recording> {
   if (loaded === null) {
     const url = `${import.meta.env.BASE_URL}recording.json`;
     loaded = fetch(url).then((response) => {
-      if (!response.ok) {
-        throw new Error(
-          `This build replays a recorded run, but ${url} could not be loaded ` +
-            `(${response.status}). Record it again with scripts/capture_demo_recordings.py.`
-        );
-      }
+      if (!response.ok) throw new RecordingUnavailableError();
       return response.json() as Promise<Recording>;
+    });
+    loaded.catch(() => {
+      loaded = null;
     });
   }
   return loaded;
@@ -182,41 +290,93 @@ export async function recordingInfo(): Promise<Recording | null> {
   return isRecorded ? loadRecording() : null;
 }
 
-async function replay<T>(method: string, path: string, body?: unknown): Promise<T> {
+/**
+ * Whether the replay has played the pilot.
+ *
+ * Some GETs were recorded twice: before the pilot and after it (the consortium
+ * charts, the models, each hospital's dashboard and audit log). Once the pilot
+ * has been replayed, the page shows the answers recorded after it.
+ */
+let pilotReplayed = false;
+
+function findEntry(capture: Recording, wanted: string): RecordedEntry | undefined {
+  const matches = capture.entries.filter((entry) => keyFor(entry.method, entry.path, entry.request) === wanted);
+  if (pilotReplayed) {
+    const after = matches.find((entry) => entry.phase === "after_pilot");
+    if (after) return after;
+  }
+  return matches.find((entry) => entry.phase !== "after_pilot") ?? matches[0];
+}
+
+async function replay(method: string, path: string, body?: unknown): Promise<RecordedEntry> {
   const capture = await loadRecording();
-  const wanted = keyFor(method, path, body);
-  const match = capture.entries.find((entry) => keyFor(entry.method, entry.path, entry.request) === wanted);
+  const match = findEntry(capture, keyFor(method, path, body));
   if (match === undefined) {
     const alternatives = capture.entries
       .filter((entry) => entry.method === method && entry.path === path)
       .map((entry) => (entry.request === undefined ? entry.path : stable(entry.request)));
-    throw new NotRecordedError(
-      `This combination was not recorded.`,
-      alternatives
-    );
+    throw new NotRecordedError("This combination was not recorded.", alternatives);
   }
-  if (match.status >= 400) {
-    throw new Error(`${match.status} — ${JSON.stringify(match.response)}`);
-  }
-  return match.response as T;
+  if (match.status >= 400) throw new ApiError(match.status, match.response);
+  if (method === "POST" && path === "/api/v1/pilot:run") pilotReplayed = true;
+  return match;
 }
 
 /** GET a JSON document, live or recorded. */
 export async function getJson<T>(path: string): Promise<T> {
-  if (isRecorded) return replay<T>("GET", path);
+  if (isRecorded) return (await replay("GET", path)).response as T;
   const response = await liveFetch(path);
-  if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
+  if (!response.ok) throw await readError(response);
   return (await response.json()) as T;
 }
 
-/** POST a JSON body and read a JSON document back, live or recorded. */
-export async function postJson<T>(path: string, body: unknown): Promise<T> {
-  if (isRecorded) return replay<T>("POST", path, body);
+/**
+ * POST a JSON body and read a JSON document back, live or recorded.
+ *
+ * `headers` carries extra request headers, such as the Idempotency-Key of a
+ * data entry. A replay matches on the path and body only.
+ */
+export async function postJson<T>(path: string, body: unknown, headers: Record<string, string> = {}): Promise<T> {
+  if (isRecorded) return (await replay("POST", path, body)).response as T;
   const response = await liveFetch(path, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...headers },
     body: JSON.stringify(body)
   });
-  if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
+  if (!response.ok) throw await readError(response);
   return (await response.json()) as T;
+}
+
+/**
+ * GET a chart as SVG text, live or recorded.
+ *
+ * Charts go through the same transport as the JSON calls, so they get the
+ * cold-start wait and the replay. A plain `<img src>` pointed at a sleeping
+ * API would get a 502 and log an error instead.
+ */
+export async function getSvg(path: string): Promise<string> {
+  if (isRecorded) {
+    const entry = await replay("GET", path);
+    const response = entry.response as { text?: unknown } | null;
+    if (!response || typeof response.text !== "string") {
+      throw new NotRecordedError("This chart was not recorded as an image.");
+    }
+    return response.text;
+  }
+  const response = await liveFetch(path, { headers: { Accept: "image/svg+xml" } });
+  if (!response.ok) throw await readError(response);
+  return response.text();
+}
+
+/**
+ * A new idempotency key for one data-entry attempt.
+ *
+ * `crypto.randomUUID` needs a secure context. Local pages on 127.0.0.1 and the
+ * published https page have one; the fallback covers anything else.
+ */
+export function newIdempotencyKey(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") return crypto.randomUUID();
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
 }

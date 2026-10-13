@@ -61,3 +61,11 @@ checked against the cohort minimum." A slogan is a contrast used for effect.
 - **Keep the tests' hooks.** The healthcare smoke test finds controls by their
   labels ("Requester verified", "Cohort size") and buttons by name ("Ask the
   guard", "Run the pilot"). Rename one only together with `smoke.mjs`.
+- **Describe the stroke demo's data correctly.** The records are real,
+  de-identified records from the International Stroke Trial (1991-1996), not
+  synthetic. A page or chart built from them carries the ODC-By notice from
+  `apps/healthcare-demo/data/ist/NOTICE.md`, and a doc that describes the data
+  credits the IST Collaborative Group or links to that notice.
+- **Never write the deployed API's address in a doc or on a page.** It lives in
+  `env/.env.published` only, and a test fails if it appears elsewhere. Examples
+  call an API run locally (`http://127.0.0.1:8080`).

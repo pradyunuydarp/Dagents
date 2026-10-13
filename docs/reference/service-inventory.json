@@ -1,7 +1,7 @@
 {
   "framework": "dagents",
   "generated_by": "scripts/service_inventory.py",
-  "endpoint_count": 167,
+  "endpoint_count": 178,
   "services": [
     {
       "name": "core-service",
@@ -663,10 +663,26 @@
       "endpoints": [
         {
           "method": "GET",
+          "path": "/api/v1/charts",
+          "handler": "consortium_charts",
+          "status_code": null,
+          "summary": "The consortium charts, from site summaries and the last pilot. Never a 4xx.",
+          "alias_of": null
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/charts/{chart_id}.svg",
+          "handler": "consortium_chart_svg",
+          "status_code": null,
+          "summary": "One consortium chart as SVG. 404 for a chart that needs a pilot that has not run.",
+          "alias_of": null
+        },
+        {
+          "method": "GET",
           "path": "/api/v1/conditions",
           "handler": "conditions",
           "status_code": null,
-          "summary": "What this app implements, and what it deliberately does not.",
+          "summary": "The condition this app implements, the conditions it plans, its contract and classification.",
           "alias_of": null
         },
         {
@@ -674,7 +690,7 @@
           "path": "/api/v1/extension",
           "handler": "extension",
           "status_code": null,
-          "summary": "Exactly what this app contributes to the framework.",
+          "summary": "What this app contributes to the framework, and what each side owns.",
           "alias_of": null
         },
         {
@@ -682,7 +698,7 @@
           "path": "/api/v1/framework/status",
           "handler": "framework_status",
           "status_code": null,
-          "summary": "Which Dagents services are reachable, and where the cohorts came from.",
+          "summary": "Where the records are stored, which framework services answer, and the allowed origins.",
           "alias_of": null
         },
         {
@@ -690,7 +706,7 @@
           "path": "/api/v1/framework/trace",
           "handler": "framework_trace",
           "status_code": null,
-          "summary": "Run stroke records through the framework's planners, step by step.",
+          "summary": "Run one hospital's records through the framework's planners, at that hospital.",
           "alias_of": null
         },
         {
@@ -698,7 +714,7 @@
           "path": "/api/v1/governance:probe",
           "handler": "governance_probe",
           "status_code": null,
-          "summary": "Run one request through the Guard and show exactly what came back.",
+          "summary": "Run one request through a hospital's Guard and report what it would release.",
           "alias_of": null
         },
         {
@@ -717,7 +733,15 @@
           "path": "/api/v1/hospitals",
           "handler": "hospitals",
           "status_code": null,
-          "summary": "The simulated hospitals and how their populations differ.",
+          "summary": "What each hospital reports about its records: counts and an outcome rate.",
+          "alias_of": null
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/hospitals/{site_id}",
+          "handler": "hospital_dashboard",
+          "status_code": null,
+          "summary": "One hospital's own view: its store, statistics, local metrics and what it sent.",
           "alias_of": null
         },
         {
@@ -725,7 +749,55 @@
           "path": "/api/v1/hospitals/{site_id}/audit",
           "handler": "hospital_audit",
           "status_code": null,
-          "summary": "One hospital's guard decisions and whether its audit chain verifies.",
+          "summary": "One hospital's Guard decisions, newest first, and whether its audit chain verifies.",
+          "alias_of": null
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/hospitals/{site_id}/charts",
+          "handler": "hospital_charts",
+          "status_code": null,
+          "summary": "One hospital's charts, from its own records. Shown only in that hospital's view.",
+          "alias_of": null
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/hospitals/{site_id}/charts/{chart_id}.svg",
+          "handler": "hospital_chart_svg",
+          "status_code": null,
+          "summary": "One hospital chart as SVG.",
+          "alias_of": null
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/hospitals/{site_id}/encounters",
+          "handler": "hospital_encounters",
+          "status_code": null,
+          "summary": "Records entered at one hospital, newest first, each with its assessment.",
+          "alias_of": null
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/hospitals/{site_id}/encounters",
+          "handler": "hospital_enter",
+          "status_code": 201,
+          "summary": "Store a new record at one hospital, as that hospital, and update its running statistics.",
+          "alias_of": null
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/hospitals/{site_id}/encounters/{encounter_id}/outcome",
+          "handler": "hospital_outcome",
+          "status_code": null,
+          "summary": "Record the six-month outcome of a record entered at this hospital.",
+          "alias_of": null
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/hospitals/{site_id}/entry-form",
+          "handler": "hospital_entry_form",
+          "status_code": null,
+          "summary": "The data-entry form, built from the field domains. The browser only renders it.",
           "alias_of": null
         },
         {
@@ -733,7 +805,7 @@
           "path": "/api/v1/hospitals/{site_id}/thresholds",
           "handler": "hospital_thresholds",
           "status_code": null,
-          "summary": "How sensitivity and alert burden trade off at one hospital.",
+          "summary": "Sensitivity, specificity and alerts at a range of alert thresholds, at one hospital.",
           "alias_of": null
         },
         {
@@ -741,7 +813,7 @@
           "path": "/api/v1/hospitals/{site_id}/worklist",
           "handler": "hospital_worklist",
           "status_code": null,
-          "summary": "One hospital's ranked worklist, which never leaves the hospital.",
+          "summary": "One hospital's records ranked by the model in use. The list stays at the hospital.",
           "alias_of": null
         },
         {
@@ -749,7 +821,23 @@
           "path": "/api/v1/ingest:fhir",
           "handler": "ingest_fhir",
           "status_code": null,
-          "summary": "Map a FHIR-shaped bundle into the stroke feature contract.",
+          "summary": "Map a FHIR-shaped bundle into the stroke feature contract, reporting codes it does not know.",
+          "alias_of": null
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/models",
+          "handler": "models",
+          "status_code": null,
+          "summary": "The model the hospitals use, and the 20 newest registered versions, oldest first.",
+          "alias_of": null
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/models/{version}:approve",
+          "handler": "approve_model",
+          "status_code": null,
+          "summary": "Release a candidate whose last release decision was ``release``.",
           "alias_of": null
         },
         {
@@ -757,7 +845,7 @@
           "path": "/api/v1/overview",
           "handler": "overview",
           "status_code": null,
-          "summary": "The consortium, its hospitals, and the gates a candidate must clear.",
+          "summary": "The consortium, the numbers each hospital reports, and the release gates.",
           "alias_of": null
         },
         {
@@ -765,7 +853,7 @@
           "path": "/api/v1/pilot:run",
           "handler": "run_pilot",
           "status_code": null,
-          "summary": "Run the full governed pilot across every hospital.",
+          "summary": "Run the federated pilot across every hospital and return its evidence.",
           "alias_of": null
         },
         {
@@ -773,7 +861,7 @@
           "path": "/api/v1/triage:assess",
           "handler": "assess",
           "status_code": null,
-          "summary": "Score one canonical record, with the basis for the recommendation.",
+          "summary": "Score one record with the seed rule, with the basis for the score.",
           "alias_of": null
         },
         {
@@ -781,7 +869,7 @@
           "path": "/api/v1/triage:worklist",
           "handler": "worklist",
           "status_code": null,
-          "summary": "Rank a set of records by triage priority.",
+          "summary": "Rank records by the seed rule's score. Nothing is removed from the list.",
           "alias_of": null
         },
         {
@@ -789,7 +877,7 @@
           "path": "/health",
           "handler": "health",
           "status_code": null,
-          "summary": "Liveness plus a standing reminder that the data here is synthetic.",
+          "summary": "Liveness. Reads no store.",
           "alias_of": null
         }
       ]

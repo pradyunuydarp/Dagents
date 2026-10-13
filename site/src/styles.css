@@ -84,6 +84,13 @@
   font-weight: 600;
 }
 
+/* The group clips its children to its rounded border, so the focus ring is
+ * drawn inside the button, where the clip cannot hide it. */
+.theme-toggle button:focus-visible {
+  outline-offset: -2px;
+  border-radius: 0;
+}
+
 /* ===== Page =============================================================== */
 
 .page {

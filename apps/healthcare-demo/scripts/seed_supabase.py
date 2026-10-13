@@ -1,27 +1,28 @@
 #!/usr/bin/env python3
-"""Seed the demo's Supabase database from the existing synthetic generator.
+"""Load each demo hospital's IST records into that hospital's own schema.
 
-The generator stays the single source of truth for what a cohort looks like. If
-this script invented its own distributions the database would hold a different
-consortium from the one the demo was designed around — the per-site differences,
-the recording gaps, the site that reports glucose in mg/dL without saying so —
-and the drift checks, cohort floors and fairness gate would stop being
-exercised by the data they exist for.
+The records come from the committed extract, ``data/ist/ist_three_hospitals.csv``
+(International Stroke Trial database, version 2, ODC-By 1.0; see
+``data/ist/NOTICE.md``). They are real, de-identified trial records from
+1991-1996.
 
-**Every row written here is synthetic.** No real record is used and none is
-required. That is a design constraint of this demo, not a convenience: a
-demonstration of privacy controls carrying real patient data would be
-self-refuting. Moving the data into a real database does not change it.
+Each hospital is written while acting as its own role (``site_uk_134`` and so
+on), through the same store the API uses. The script then reads each count
+back, again as that hospital. It applies no migrations: run
+``apply_migrations.py`` first.
 
-The connection string is read from the environment and never from a file in the
+By default each hospital's rows are replaced. ``--keep-entries`` keeps the
+records people entered in the demo (``origin = 'entered'``) and replaces only
+the dataset rows. The audit chains are never touched.
+
+The connection string comes from the environment, never from a file in the
 repository:
 
     SUPABASE_DB_URL=postgresql://... apps/healthcare-demo/scripts/seed_supabase.py
 
-Use the pooled connection string from the Supabase dashboard
-(Project settings → Database → Connection string → URI). It carries the
-service-role credentials, which bypass RLS — which is the point, since the
-tables deny the anon role entirely.
+Use the connection string from Supabase (Project settings, Database,
+Connection string). It logs in as the project's ``postgres`` role, which the
+migration granted permission to switch to each hospital's role.
 """
 
 from __future__ import annotations
@@ -31,151 +32,62 @@ import os
 from pathlib import Path
 import sys
 
-
-REPO_ROOT = Path(__file__).resolve().parents[3]
-APP_ROOT = REPO_ROOT / "apps" / "healthcare-demo"
-# The generator lives in the backend package, which is not installed.
+APP_ROOT = Path(__file__).resolve().parents[1]
+# The Dagents checkout: two levels up inside the Dagents repository, or
+# DAGENTS_HOME after scripts/extract_repo.sh moved the app into its own.
+FRAMEWORK_ROOT = Path(os.environ.get("DAGENTS_HOME") or APP_ROOT.parents[1])
+# The backend package is not installed, so put it and the framework on the path.
 sys.path.insert(0, str(APP_ROOT / "backend"))
-sys.path.insert(0, str(REPO_ROOT))
-
-from app.domain.synthetic import DEFAULT_HOSPITALS, HospitalProfile, generate_cohort  # noqa: E402
-from app.services.encounters import connection_hint  # noqa: E402
-
-#: Columns written per encounter, in the order the insert binds them. Derived
-#: from `stroke-triage-features-v2`; a field added to the contract and not here
-#: fails the schema test rather than silently going unseeded.
-ENCOUNTER_COLUMNS = (
-    "encounter_id",
-    "site_id",
-    "nihss_total",
-    "face_droop",
-    "arm_weakness",
-    "speech_difficulty",
-    "last_known_well_minutes",
-    "age_band",
-    "systolic_bp",
-    "blood_glucose",
-    "blood_glucose_unit",
-    "arrival_mode",
-    "anticoagulated",
-    "confirmed_stroke",
-)
+sys.path.insert(0, str(FRAMEWORK_ROOT))
 
 
-def hospital_row(profile: HospitalProfile) -> tuple:
-    """One consortium row, keeping the generator parameters inspectable."""
-    return (
-        profile.site_id,
-        profile.display_name,
-        profile.seed,
-        profile.stroke_rate,
-        profile.severity_bias,
-        profile.missingness,
-        profile.older_population,
-        profile.glucose_unit_error_rate,
-    )
+def _connection_hint(dsn: str) -> str:
+    try:
+        from app.services.db_hints import connection_hint
+    except Exception:  # the hint is optional
+        return ""
+    return connection_hint(dsn)
 
 
-def encounter_rows(profile: HospitalProfile, cohort_size: int) -> list[tuple]:
-    """Generate one site's cohort and shape it for the insert.
-
-    A field the generator dropped stays absent here as NULL: the missingness is
-    the point, and filling it in would remove the case the data-quality path
-    exists to catch.
-    """
-    rows: list[tuple] = []
-    for record in generate_cohort(profile, cohort_size):
-        rows.append(
-            tuple(
-                record.get(column) if column != "site_id" else profile.site_id
-                for column in ENCOUNTER_COLUMNS
-            )
-        )
-    return rows
-
-
-def seed(dsn: str, cohort_size: int, *, replace: bool) -> dict[str, int]:
-    """Write the consortium and its cohorts.
+def seed(dsn: str, *, keep_entries: bool = False) -> dict[str, dict[str, int]]:
+    """Write every hospital's dataset rows and return the counts read back.
 
     Params:
-    - `dsn`: Postgres connection string with service-role credentials.
-    - `cohort_size`: encounters generated per site.
-    - `replace`: delete existing encounters first, so a reseed is not additive.
+    - `dsn`: the database connection string.
+    - `keep_entries`: keep records entered in the demo.
 
     Returns:
-    - Encounter counts per site, read back from the database rather than
-      assumed, so the report reflects what is actually stored.
+    - ``{site_id: {"total", "entered", "labelled"}}``, read from the database
+      while acting as each hospital.
     """
-    try:
-        import psycopg
-    except ImportError as exc:  # pragma: no cover - listed in requirements
-        raise SystemExit(f"psycopg is required to seed: {exc}")
+    # Imported here so `--help` works without the app's dependencies.
+    from app.domain.dataset import SITES, load_site_records
+    from app.services.site_store import PostgresSiteStore, StoreUnavailableError
 
-    written: dict[str, int] = {}
-    try:
-        connection = psycopg.connect(dsn)
-    except Exception as exc:
-        raise SystemExit(f"Could not connect: {exc}{connection_hint(dsn)}")
-    with connection:
-        with connection.cursor() as cursor:
-            if replace:
-                # Encounters cascade from hospitals, but be explicit: a reseed
-                # that silently doubled every cohort would move every site above
-                # its floor and quietly change what the demo demonstrates.
-                cursor.execute("delete from public.encounters")
-
-            for profile in DEFAULT_HOSPITALS:
-                cursor.execute(
-                    """
-                    insert into public.hospitals
-                        (site_id, display_name, seed, stroke_rate, severity_bias,
-                         missingness, older_population, glucose_unit_error_rate)
-                    values (%s, %s, %s, %s, %s, %s, %s, %s)
-                    on conflict (site_id) do update set
-                        display_name = excluded.display_name,
-                        seed = excluded.seed,
-                        stroke_rate = excluded.stroke_rate,
-                        severity_bias = excluded.severity_bias,
-                        missingness = excluded.missingness,
-                        older_population = excluded.older_population,
-                        glucose_unit_error_rate = excluded.glucose_unit_error_rate
-                    """,
-                    hospital_row(profile),
-                )
-
-                placeholders = ", ".join(["%s"] * len(ENCOUNTER_COLUMNS))
-                cursor.executemany(
-                    f"""
-                    insert into public.encounters ({", ".join(ENCOUNTER_COLUMNS)})
-                    values ({placeholders})
-                    on conflict (encounter_id) do nothing
-                    """,
-                    encounter_rows(profile, cohort_size),
-                )
-
-            for profile in DEFAULT_HOSPITALS:
-                cursor.execute(
-                    "select count(*) from public.encounters where site_id = %s",
-                    (profile.site_id,),
-                )
-                written[profile.site_id] = int(cursor.fetchone()[0])
-        connection.commit()
-    return written
+    counts: dict[str, dict[str, int]] = {}
+    for site in SITES:
+        records = load_site_records(site.site_id)
+        if len(records) != site.expected_rows:
+            raise SystemExit(
+                f"{site.site_id}: the extract has {len(records)} rows, expected {site.expected_rows}. "
+                "Regenerate it with scripts/extract_ist.py."
+            )
+        store = PostgresSiteStore(site, dsn, statement_timeout_ms=60_000)
+        try:
+            store.seed_dataset(records, keep_entries=keep_entries)
+            counts[site.site_id] = store.count()
+        except StoreUnavailableError as error:
+            raise SystemExit(f"{error}{_connection_hint(dsn)}")
+    return counts
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Seed the database named by `SUPABASE_DB_URL`."""
-    parser = argparse.ArgumentParser(description=__doc__)
+    """Seed the database named by ``SUPABASE_DB_URL``."""
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument(
-        "--cohort-size",
-        type=int,
-        default=400,
-        help="encounters generated per site (default: 400, the demo's own size)",
-    )
-    parser.add_argument(
-        "--append",
+        "--keep-entries",
         action="store_true",
-        help="keep existing encounters instead of replacing them",
+        help="keep records entered in the demo and replace only the dataset rows",
     )
     args = parser.parse_args(argv)
 
@@ -183,15 +95,18 @@ def main(argv: list[str] | None = None) -> int:
     if not dsn:
         raise SystemExit(
             "SUPABASE_DB_URL is not set.\n"
-            "Take the URI from Supabase → Project settings → Database → Connection string,\n"
+            "Take the connection string from Supabase (Project settings, Database, Connection string)\n"
             "and pass it through the environment. Never commit it."
         )
 
-    counts = seed(dsn, args.cohort_size, replace=not args.append)
-    total = sum(counts.values())
-    for site_id, count in sorted(counts.items()):
-        print(f"  {site_id:28} {count:5} encounters")
-    print(f"seeded {total} synthetic encounters across {len(counts)} sites")
+    counts = seed(dsn, keep_entries=args.keep_entries)
+    for site_id, count in counts.items():
+        print(
+            f"  {site_id:8} {count['total']:5} records "
+            f"({count['entered']} entered, {count['labelled']} with a six-month outcome)"
+        )
+    total = sum(count["total"] for count in counts.values())
+    print(f"{total} records stored across {len(counts)} hospitals, each read back as its own role")
     return 0
 
 

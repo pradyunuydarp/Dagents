@@ -920,6 +920,73 @@ let test_release_gates_block_and_defer () =
   assert_true "a missing baseline must not pass an improvement gate"
     (no_baseline.action = RejectCandidate)
 
+(** Verifies that each gate result carries the threshold it was checked
+    against, so a service can show it without recomputing baseline + margin. *)
+let test_release_gate_results_carry_their_threshold () =
+  let decision =
+    Dagents_federation_compiler.evaluate_release release_gates
+      [ ("auc", 0.91); ("alerts_per_1000", 28.0) ]
+      [ ("auc", 0.86) ] "candidate-v4" (Some "release-v3") "round-0042"
+  in
+  let threshold_of gate_id =
+    (List.find (fun result -> result.result_gate_id = gate_id) decision.gate_results).threshold
+  in
+  let close expected = function Some value -> Float.abs (value -. expected) < 1e-9 | None -> false in
+  assert_true "an at_least gate reports its value" (close 0.85 (threshold_of "discrimination"));
+  assert_true "an at_most gate reports its value" (close 40.0 (threshold_of "alert_burden"));
+  assert_true "an improvement gate reports baseline + margin" (close 0.88 (threshold_of "improves_on_current"));
+  let unreported =
+    Dagents_federation_compiler.evaluate_release release_gates [] [ ("auc", 0.86) ] "candidate-v4" None
+      "round-0042"
+  in
+  assert_true "a gate keeps its threshold when the candidate reported no metric"
+    (List.for_all (fun result -> result.threshold <> None) unreported.gate_results);
+  let no_baseline =
+    Dagents_federation_compiler.evaluate_release release_gates [ ("auc", 0.91); ("alerts_per_1000", 28.0) ] []
+      "candidate-v4" None "round-0042"
+  in
+  let improvement =
+    List.find (fun result -> result.result_gate_id = "improves_on_current") no_baseline.gate_results
+  in
+  assert_true "an improvement gate without a baseline has no threshold" (improvement.threshold = None);
+  let encoded = Json_codec.yojson_of_release_decision decision in
+  let gate_json gate_id =
+    match encoded with
+    | `Assoc fields -> (
+        match List.assoc "gateResults" fields with
+        | `List results ->
+            List.find
+              (fun result ->
+                match result with
+                | `Assoc result_fields -> List.assoc "gateId" result_fields = `String gate_id
+                | _ -> false)
+              results
+        | _ -> failwith "gateResults is not a list")
+    | _ -> failwith "a release decision is not an object"
+  in
+  let threshold_json gate_id =
+    match gate_json gate_id with `Assoc fields -> List.assoc "threshold" fields | _ -> `Null
+  in
+  assert_true "the threshold is written to JSON" (threshold_json "improves_on_current" <> `Null);
+  let encoded_no_baseline = Json_codec.yojson_of_release_decision no_baseline in
+  let missing =
+    match encoded_no_baseline with
+    | `Assoc fields -> (
+        match List.assoc "gateResults" fields with
+        | `List results ->
+            List.exists
+              (fun result ->
+                match result with
+                | `Assoc result_fields ->
+                    List.assoc "gateId" result_fields = `String "improves_on_current"
+                    && List.assoc "threshold" result_fields = `Null
+                | _ -> false)
+              results
+        | _ -> false)
+    | _ -> false
+  in
+  assert_true "an unknown threshold is written as null" missing
+
 (** Verifies that governance payloads survive the JSON boundary services use,
     since the planners are reached over a subprocess rather than in-process. *)
 let test_governance_and_federation_codec_roundtrip () =
@@ -1139,6 +1206,7 @@ let () =
       ("secure aggregation bounds contributions", test_secure_aggregation_bounds_contributions);
       ("release allows a passing candidate", test_release_allows_a_passing_candidate);
       ("release gates block and defer", test_release_gates_block_and_defer);
+      ("release gate results carry their threshold", test_release_gate_results_carry_their_threshold);
       ("governance and federation codec round trip", test_governance_and_federation_codec_roundtrip);
     ]
   in

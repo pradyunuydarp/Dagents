@@ -1,25 +1,32 @@
 """Exercise a *deployed* healthcare API, not a local one.
 
-The local suite proves the code works. It cannot prove the thing serving the
-published demo works, and those have differed in every way that matters: an
-image without the Postgres driver, a port nothing routed to, a CORS value with a
-stray parenthesis. Each was invisible to every test in this repository and
-obvious within one request to the running service.
+The local suite tests the code. It cannot test the service behind the published
+demo, and the two have differed: an image without the Postgres driver, a port
+nothing routed to, a CORS value with a stray parenthesis. Each passed every
+test in this repository and failed on the first request to the running service.
 
-So this talks to a real deployment and asserts what the demo claims:
+So this talks to a real deployment and checks what the demo shows:
 
-- the encounter store is the source, reported by the service rather than assumed;
-- the guard's three levers change the protection strategy, which means the OCaml
-  planner is in the image and answering;
-- a cohort below the classification's floor is denied;
-- a full pilot produces a candidate and is still refused release by a failing
-  gate — the demo's central argument;
-- every site's audit chain verifies;
-- the legacy and versioned health routes agree, as the convention requires.
+- the records come from Postgres, as the service itself reports;
+- every hospital serves a worklist of real rows;
+- the Guard's levers change the protection strategy, so the OCaml planner is in
+  the image and answering;
+- an aggregate below the classification's minimum cohort is denied;
+- a pilot produces a decision that matches its own gate results (the test does
+  not assume which decision);
+- every hospital's audit chain verifies;
+- the consortium charts are listed and one draws;
+- the legacy and versioned health routes agree;
+- the app marks its own responses with ``X-Dagents-App``;
+- the rate limits read the client from the ``X-Forwarded-For`` entry the
+  platform's edge wrote.
 
-Set `HEALTHCARE_DEPLOYED_API` to run it. Without that it skips loudly rather
-than silently, because a suite that quietly drops its only end-to-end coverage
-reports OK having checked nothing.
+It never enters records, records outcomes or approves models, so it changes no
+hospital's data. A probe and a pilot do add audit records and model versions,
+as they do when a visitor uses the page.
+
+Set ``HEALTHCARE_DEPLOYED_API`` to run it. Without it the tests skip with a
+warning, because they are the only check of the deployed service.
 """
 
 from __future__ import annotations
@@ -135,22 +142,62 @@ class DeployedApiTests(unittest.TestCase):
             self.client.get("/api/v1/health").json(),
         )
 
-    def test_it_reports_reading_the_encounter_store(self) -> None:
+    def test_it_reports_reading_postgres(self) -> None:
         status = self.get_json("/api/v1/framework/status", "/api/v1/framework/status")
         self.assertEqual(
-            "supabase",
+            "postgres",
             status["cohort_source"],
-            "the deployment is generating cohorts in process, so the published demo would "
-            "claim live data for invented data",
+            "the deployment keeps its records in memory, so the published demo would show "
+            "records that are not in the database",
         )
-        self.assertTrue(status["records_are_synthetic"])
+        self.assertEqual("schema-per-site", status["store_layout"])
+        self.assertNotIn("records_are_synthetic", status)
+        self.assertIn("notice", status["dataset"])
+        self.assertIs(
+            True,
+            status.get("ready"),
+            f"the hospital stores are not ready (hospitals: {status.get('hospitals')}); "
+            "run Actions → Healthcare data with seed on",
+        )
+        for row in status["hospitals"]:
+            with self.subTest(site=row["site_id"]):
+                self.assertGreater(row["record_count"], 0)
 
-    def test_every_site_serves_a_cohort_and_a_worklist(self) -> None:
+    def test_the_app_marks_its_own_responses(self) -> None:
+        """The page retries a 503 without X-Dagents-App, and shows one with it at once."""
+        for path in ("/api/v1/health", "/api/v1/hospitals/no-such-site"):
+            with self.subTest(path=path):
+                response = self.client.get(path)
+                self.assertEqual("healthcare-demo", response.headers.get("x-dagents-app"), response.status_code)
+
+    def test_the_rate_limits_count_each_visitor_separately(self) -> None:
+        """The client is the X-Forwarded-For entry the platform's edge wrote.
+
+        This request sends no X-Forwarded-For, so every entry it arrives with
+        was appended by a proxy in front of the app. Fewer entries than
+        HEALTHCARE_DEMO_FORWARDED_FOR_HOPS means every visitor is counted as
+        the proxy; more means the limits count a proxy's address.
+        """
+        status = self.get_json("/api/v1/framework/status", "/api/v1/framework/status")
+        client = status["rate_limit_client"]
+        self.assertEqual(
+            "x-forwarded-for",
+            client["source"],
+            "the rate limits use the TCP peer, which is the platform's proxy, so all visitors share one count",
+        )
+        self.assertEqual(
+            client["forwarded_for_hops"],
+            client["forwarded_for_entries"],
+            "set HEALTHCARE_DEMO_FORWARDED_FOR_HOPS to the number of entries a request arrives with",
+        )
+
+    def test_every_hospital_serves_records_and_a_worklist(self) -> None:
         overview = self.get_json("/api/v1/overview", "/api/v1/overview")
         self.assertGreaterEqual(len(overview["hospitals"]), 3)
         for hospital in overview["hospitals"]:
             with self.subTest(site=hospital["site_id"]):
-                self.assertGreater(hospital["cohort_size"], 0)
+                self.assertGreaterEqual(hospital["record_count"], overview["minimum_cohort"])
+                self.assertEqual("postgres", hospital["store"]["kind"])
                 worklist = self.get_json(
                     f"/api/v1/hospitals/{hospital['site_id']}/worklist?limit=5", "a site worklist"
                 )["worklist"]
@@ -265,43 +312,50 @@ class DeployedApiTests(unittest.TestCase):
             f"an out-of-range granularity returned {response.status_code}: {response.text[:200]!r}",
         )
 
-    def test_a_pilot_produces_a_candidate_and_is_refused_release(self) -> None:
-        """The argument the whole demo exists to make.
+    def test_a_pilot_reports_a_decision_that_matches_its_gates(self) -> None:
+        """Aggregation yields a candidate, and the gates decide what happens to it.
 
-        Aggregation yields a candidate, never a release; a gate that fails
-        blocks it even when the candidate beats its baseline. Both invariants
-        are the framework's, and this checks them where they are deployed.
+        The test does not assume the decision. It checks that the decision
+        follows from the gate results the same response reports: the candidate
+        is released only when no blocking gate failed.
         """
+        overview = self.get_json("/api/v1/overview", "/api/v1/overview")
+        blocking = {gate["gate_id"] for gate in overview["release_gates"] if gate["blocking"]}
         pilot = self.json_of(
-            self.client.post("/api/v1/pilot:run", json={"round_prefix": "deployed-test"}),
+            self.client.post("/api/v1/pilot:run", json={"round_prefix": "api"}),
             "/api/v1/pilot:run",
         )
+        if pilot.get("release") is None:
+            self.assertTrue(pilot.get("stop_reason"), "the pilot produced no release decision and no reason")
+            print(f"\n  the pilot stopped: {pilot['stop_reason']}")
+            return
         self.assertIsNotNone(pilot.get("candidate"), "the pilot produced no candidate")
-
         decision = pilot["release"]["gates"]
         results = decision["gate_results"]
-        self.assertTrue(results, "the pilot reached no release gates")
-        self.assertNotEqual(
-            "release",
-            decision["action"],
-            "the candidate was recommended for release; a fairness gate is meant to block it",
-        )
-        self.assertTrue(
-            decision["blocking_failures"],
-            f"nothing blocked, so the release was not actually gated: {results}",
-        )
-        print(
-            f"\n  release action: {decision['action']} "
-            f"(blocked by {', '.join(decision['blocking_failures'])})"
-        )
+        self.assertEqual(len(overview["release_gates"]), len(results))
+        failed = {r["gate_id"] for r in results if r["outcome"] != "passed" and r["gate_id"] in blocking}
+        self.assertEqual(failed, {failure.split(":")[0] for failure in decision["blocking_failures"]})
+        self.assertEqual("reject" if failed else "release", decision["action"])
+        print(f"\n  release action: {decision['action']} (blocking failures: {sorted(failed) or 'none'})")
 
     def test_every_audit_chain_verifies(self) -> None:
         for hospital in self.get_json("/api/v1/overview", "/api/v1/overview")["hospitals"]:
             with self.subTest(site=hospital["site_id"]):
                 audit = self.get_json(
-                    f"/api/v1/hospitals/{hospital['site_id']}/audit", "a site audit trail"
+                    f"/api/v1/hospitals/{hospital['site_id']}/audit?limit=50", "a site audit trail"
                 )
                 self.assertTrue(audit["chain_intact"], "a site's audit chain did not verify")
+
+    def test_the_charts_are_listed_and_one_draws(self) -> None:
+        charts = self.get_json("/api/v1/charts", "/api/v1/charts")["charts"]
+        self.assertTrue(charts, "no consortium charts are listed")
+        available = [chart for chart in charts if chart["available"]]
+        self.assertTrue(available, f"no chart is available: {[c['reason'] for c in charts]}")
+        response = self.client.get(available[0]["svg_path"] + "?theme=light")
+        self.assertEqual(200, response.status_code, response.text[:200])
+        self.assertTrue(response.headers["content-type"].startswith("image/svg+xml"))
+        self.assertIn("<svg", response.text)
+        self.assertIn("International Stroke Trial", response.text)
 
 
 if __name__ == "__main__":

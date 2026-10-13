@@ -10,7 +10,7 @@ their Spring controllers. Regenerate with:
 .venv/bin/python scripts/service_inventory.py --write
 ```
 
-**167 endpoints across 9 services.**
+**178 endpoints across 9 services.**
 
 Ports come from `env/`; never hardcode them — each service has distinct
 `*_PUBLIC_URL` (host) and `*_INTERNAL_URL` (compose network) values.
@@ -21,7 +21,7 @@ Ports come from `env/`; never hardcode them — each service has distinct
 |---|---|---|---|---|
 | [`core-service`](#core-service) | python | framework-service | 8040 | 6 |
 | [`gma`](#gma) | python | agent | 8020 | 63 |
-| [`healthcare-demo-backend`](#healthcare-demo-backend) | python | demo-app | 8080 | 16 |
+| [`healthcare-demo-backend`](#healthcare-demo-backend) | python | demo-app | 8080 | 27 |
 | [`lma`](#lma) | python | agent | 8010 | 29 |
 | [`model-service`](#model-service) | python | framework-service | 8000 | 14 |
 | [`nl2sql-demo-backend`](#nl2sql-demo-backend) | python | demo-app | 8070 | 5 |
@@ -114,26 +114,37 @@ Ports come from `env/`; never hardcode them — each service has distinct
 
 ## healthcare-demo-backend
 
-`python` · `fastapi` · port `8080` · 16 endpoints
+`python` · `fastapi` · port `8080` · 27 endpoints
 
 | Method | Path | Handler | Notes |
 |---|---|---|---|
-| GET | `/api/v1/conditions` | `conditions` | What this app implements, and what it deliberately does not |
-| GET | `/api/v1/extension` | `extension` | Exactly what this app contributes to the framework |
-| GET | `/api/v1/framework/status` | `framework_status` | Which Dagents services are reachable, and where the cohorts came from |
-| GET | `/api/v1/framework/trace` | `framework_trace` | Run stroke records through the framework's planners, step by step |
-| POST | `/api/v1/governance:probe` | `governance_probe` | Run one request through the Guard and show exactly what came back |
+| GET | `/api/v1/charts` | `consortium_charts` | The consortium charts, from site summaries and the last pilot. Never a 4xx |
+| GET | `/api/v1/charts/{chart_id}.svg` | `consortium_chart_svg` | One consortium chart as SVG. 404 for a chart that needs a pilot that has not run |
+| GET | `/api/v1/conditions` | `conditions` | The condition this app implements, the conditions it plans, its contract and classification |
+| GET | `/api/v1/extension` | `extension` | What this app contributes to the framework, and what each side owns |
+| GET | `/api/v1/framework/status` | `framework_status` | Where the records are stored, which framework services answer, and the allowed origins |
+| GET | `/api/v1/framework/trace` | `framework_trace` | Run one hospital's records through the framework's planners, at that hospital |
+| POST | `/api/v1/governance:probe` | `governance_probe` | Run one request through a hospital's Guard and report what it would release |
 | GET | `/api/v1/health` | `health_v1` | versioned alias of `GET /health`; Versioned alias for the health endpoint |
-| GET | `/api/v1/hospitals` | `hospitals` | The simulated hospitals and how their populations differ |
-| GET | `/api/v1/hospitals/{site_id}/audit` | `hospital_audit` | One hospital's guard decisions and whether its audit chain verifies |
-| GET | `/api/v1/hospitals/{site_id}/thresholds` | `hospital_thresholds` | How sensitivity and alert burden trade off at one hospital |
-| GET | `/api/v1/hospitals/{site_id}/worklist` | `hospital_worklist` | One hospital's ranked worklist, which never leaves the hospital |
-| POST | `/api/v1/ingest:fhir` | `ingest_fhir` | Map a FHIR-shaped bundle into the stroke feature contract |
-| GET | `/api/v1/overview` | `overview` | The consortium, its hospitals, and the gates a candidate must clear |
-| POST | `/api/v1/pilot:run` | `run_pilot` | Run the full governed pilot across every hospital |
-| POST | `/api/v1/triage:assess` | `assess` | Score one canonical record, with the basis for the recommendation |
-| POST | `/api/v1/triage:worklist` | `worklist` | Rank a set of records by triage priority |
-| GET | `/health` | `health` | Liveness plus a standing reminder that the data here is synthetic |
+| GET | `/api/v1/hospitals` | `hospitals` | What each hospital reports about its records: counts and an outcome rate |
+| GET | `/api/v1/hospitals/{site_id}` | `hospital_dashboard` | One hospital's own view: its store, statistics, local metrics and what it sent |
+| GET | `/api/v1/hospitals/{site_id}/audit` | `hospital_audit` | One hospital's Guard decisions, newest first, and whether its audit chain verifies |
+| GET | `/api/v1/hospitals/{site_id}/charts` | `hospital_charts` | One hospital's charts, from its own records. Shown only in that hospital's view |
+| GET | `/api/v1/hospitals/{site_id}/charts/{chart_id}.svg` | `hospital_chart_svg` | One hospital chart as SVG |
+| GET | `/api/v1/hospitals/{site_id}/encounters` | `hospital_encounters` | Records entered at one hospital, newest first, each with its assessment |
+| POST | `/api/v1/hospitals/{site_id}/encounters` | `hospital_enter` | returns `201`; Store a new record at one hospital, as that hospital, and update its running statistics |
+| POST | `/api/v1/hospitals/{site_id}/encounters/{encounter_id}/outcome` | `hospital_outcome` | Record the six-month outcome of a record entered at this hospital |
+| GET | `/api/v1/hospitals/{site_id}/entry-form` | `hospital_entry_form` | The data-entry form, built from the field domains. The browser only renders it |
+| GET | `/api/v1/hospitals/{site_id}/thresholds` | `hospital_thresholds` | Sensitivity, specificity and alerts at a range of alert thresholds, at one hospital |
+| GET | `/api/v1/hospitals/{site_id}/worklist` | `hospital_worklist` | One hospital's records ranked by the model in use. The list stays at the hospital |
+| POST | `/api/v1/ingest:fhir` | `ingest_fhir` | Map a FHIR-shaped bundle into the stroke feature contract, reporting codes it does not know |
+| GET | `/api/v1/models` | `models` | The model the hospitals use, and the 20 newest registered versions, oldest first |
+| POST | `/api/v1/models/{version}:approve` | `approve_model` | Release a candidate whose last release decision was ``release`` |
+| GET | `/api/v1/overview` | `overview` | The consortium, the numbers each hospital reports, and the release gates |
+| POST | `/api/v1/pilot:run` | `run_pilot` | Run the federated pilot across every hospital and return its evidence |
+| POST | `/api/v1/triage:assess` | `assess` | Score one record with the seed rule, with the basis for the score |
+| POST | `/api/v1/triage:worklist` | `worklist` | Rank records by the seed rule's score. Nothing is removed from the list |
+| GET | `/health` | `health` | Liveness. Reads no store |
 
 ## lma
 

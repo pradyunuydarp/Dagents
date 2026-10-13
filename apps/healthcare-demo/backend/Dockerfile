@@ -26,6 +26,9 @@ COPY apps/healthcare-demo/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY apps/healthcare-demo/backend/app ./app
+# The committed IST extract. A run without a database loads each hospital's
+# records from it; app.domain.dataset looks for /app/data/ist/.
+COPY apps/healthcare-demo/data ./data
 COPY agents ./agents
 COPY env ./env
 COPY apps/healthcare-demo/env ./apps/healthcare-demo/env

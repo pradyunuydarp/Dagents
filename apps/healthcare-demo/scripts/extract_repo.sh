@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # Split this app out into a standalone git repository, keeping its history.
 #
-# The app is already self-contained: its own README, requirements, pyproject,
-# tests, compose file, and .gitignore. What it is not is independent of the
-# framework — it imports Dagents, which is the point of a demo app. After
-# extraction, point DAGENTS_HOME at a Dagents checkout or install the framework
-# as a dependency.
+# The app has its own README, requirements, pyproject, tests, compose file and
+# .gitignore. It imports the Dagents framework, so after extraction set
+# DAGENTS_HOME to a Dagents checkout or install the framework as a dependency.
+# The tests, the startup check and the data scripts find the framework through
+# DAGENTS_HOME.
 #
 #   scripts/extract_repo.sh ~/src/dagents-healthcare-demo
 set -euo pipefail
@@ -57,6 +57,9 @@ Done. ${TARGET} is now its own repository with this app's history.
 Next:
   export DAGENTS_HOME=${REPO_ROOT}
   cd ${TARGET} && scripts/run_local_demo.sh
+
+Run the tests from ${TARGET}:
+  PYTHONPATH=\${DAGENTS_HOME}:backend python -m unittest discover -s tests -t .
 
 The app imports the Dagents framework, so DAGENTS_HOME (or an installed
 dagents package) has to point at a checkout with the OCaml planner built.

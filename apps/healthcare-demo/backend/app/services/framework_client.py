@@ -1,18 +1,23 @@
-"""Talking to a running Dagents deployment over HTTP.
+"""Talking to a running Dagents deployment, and tracing records through the planners.
 
 The pilot in :mod:`app.services.consortium` composes the framework in-process,
-which is what makes the demo runnable with one command. This module is the other
-integration shape: the same app against Dagents services running as real
-services, which is how a production consumer would use them.
+which is what makes the demo run with one command. This module covers two
+other things:
 
-Every call degrades to a reported "unavailable" rather than raising. A demo that
-falls over because an optional service is not running teaches nothing, and the
-status itself is the useful output.
+- :meth:`FrameworkClient.service_status` checks which Dagents services answer
+  over HTTP, as a production consumer would reach them. A service that does not
+  answer is reported as ``unavailable``; the check never raises.
+- :meth:`FrameworkClient.planner_trace` runs one hospital's records through the
+  framework's planners step by step. It runs at the hospital, over the
+  hospital's own records.
 """
 
 from __future__ import annotations
 
-from typing import Any
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
+from typing import Any, Callable
 
 import httpx
 
@@ -25,7 +30,17 @@ from agents.common.infrastructure.dagents_runner import (
 )
 
 from app.core.config import Settings
-from app.domain.conditions import STROKE_CLASSIFICATION, STROKE_FEATURE_CONTRACT
+from app.domain.conditions import (
+    STROKE_APPROVED_PURPOSES,
+    STROKE_CLASSIFICATION,
+    STROKE_FEATURE_CONTRACT,
+    STROKE_FIELD_DOMAINS,
+)
+from app.models import ENTRY_REQUIRED_FIELDS
+
+#: Seconds a service check is reused. The status endpoint is called on every
+#: page load, and each check can wait for a timeout.
+STATUS_CACHE_SECONDS = 15.0
 
 
 class FrameworkClient:
@@ -33,38 +48,59 @@ class FrameworkClient:
 
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
+        self._status_lock = threading.Lock()
+        self._status: tuple[float, list[dict[str, str]]] | None = None
 
-    def service_status(self) -> list[dict[str, str]]:
-        """Report which framework services are reachable right now."""
-        services = [
+    def _services(self) -> list[tuple[str, str]]:
+        return [
             ("core-service", f"{self._settings.core_service_url}/api/v1/health"),
             ("pipeline-service", f"{self._settings.pipeline_service_url}/api/v1/health"),
             ("model-service", f"{self._settings.model_service_url}/api/v1/health"),
             ("lma", f"{self._settings.lma_url}/api/v1/health"),
             ("gma", f"{self._settings.gma_url}/api/v1/health"),
         ]
-        statuses: list[dict[str, str]] = []
-        with httpx.Client(timeout=self._settings.request_timeout_seconds) as client:
-            for name, url in services:
-                try:
-                    response = client.get(url)
-                    response.raise_for_status()
-                    statuses.append({"name": name, "url": url, "status": "ok", "detail": "reachable"})
-                except Exception as exc:  # noqa: BLE001 - the status is the output
-                    statuses.append({"name": name, "url": url, "status": "unavailable", "detail": str(exc)})
-        return statuses
+
+    def service_status(self) -> list[dict[str, str]]:
+        """Which framework services answer: ``[{name, status, detail}]``.
+
+        ``status`` is ``ok`` or ``unavailable``. The checks run at the same
+        time, and the result is reused for :data:`STATUS_CACHE_SECONDS`. The
+        services' addresses are not returned.
+        """
+        with self._status_lock:
+            if self._status is not None and time.monotonic() - self._status[0] < STATUS_CACHE_SECONDS:
+                return [dict(entry) for entry in self._status[1]]
+        timeout = self._settings.request_timeout_seconds
+
+        def check(service: tuple[str, str]) -> dict[str, str]:
+            name, url = service
+            try:
+                with httpx.Client(timeout=timeout) as client:
+                    client.get(url).raise_for_status()
+                return {"name": name, "status": "ok", "detail": "answered its health check"}
+            except Exception as exc:  # noqa: BLE001 - the status is the output
+                return {"name": name, "status": "unavailable", "detail": f"did not answer ({type(exc).__name__})"}
+
+        services = self._services()
+        with ThreadPoolExecutor(max_workers=len(services)) as pool:
+            statuses = list(pool.map(check, services))
+        with self._status_lock:
+            self._status = (time.monotonic(), statuses)
+        return [dict(entry) for entry in statuses]
 
     def planner_trace(self, records: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        """Run stroke records through the framework's planners, step by step.
+        """Run records through the framework's planners, step by step.
 
-        This is the part worth watching: none of these steps know anything about
-        stroke. They validate a source, check records against a contract, apply
-        quality rules, and decide what protection an egress needs, all from the
-        declarations the extension supplied.
+        None of these steps knows what a stroke is. They validate a source,
+        check records against the contract, apply quality rules, and decide
+        what protection an egress needs, all from what the extension declared.
+
+        Returns ``[{name, status, detail, payload}]``; ``status`` is ``ok`` or
+        ``warning``, and a step that fails is reported, not raised.
         """
         trace: list[dict[str, Any]] = []
         source = {
-            "source_id": "stroke-triage-cohort",
+            "source_id": "stroke-triage-site-records",
             "kind": "inline",
             "selection": {"records": records},
             "format": "rows",
@@ -81,7 +117,7 @@ class FrameworkClient:
         self._step(
             trace,
             "Clinical data-quality rules",
-            lambda: evaluate_dataset_quality(records, self._quality_rules()),
+            lambda: evaluate_dataset_quality(records, quality_rules()),
         )
         self._step(
             trace,
@@ -124,52 +160,62 @@ class FrameworkClient:
                     "granularity": "model_update",
                     "cohort_size": len(records),
                     "declared_purpose": "suspected_stroke",
-                    "approved_purposes": ["suspected_stroke", "stroke_triage_research"],
+                    "approved_purposes": list(STROKE_APPROVED_PURPOSES),
                 }
             ),
         )
         return trace
 
     @staticmethod
-    def _quality_rules() -> list[dict[str, Any]]:
-        """Clinical quality rules, expressed in the framework's generic vocabulary.
-
-        The rules are stroke-specific; the evaluator is not. That split is the
-        whole point: the app says an NIHSS total must sit between 0 and 42, and
-        the framework decides whether the batch is blocking without knowing what
-        NIHSS is.
-        """
-        return [
-            {"rule_id": "nihss_present", "field": "nihss_total", "operator": "non_null", "severity": "error"},
-            {
-                "rule_id": "nihss_in_range_low",
-                "field": "nihss_total",
-                "operator": {"kind": "min_value", "value": 0},
-                "severity": "error",
-            },
-            {
-                "rule_id": "nihss_in_range_high",
-                "field": "nihss_total",
-                "operator": {"kind": "max_value", "value": 42},
-                "severity": "error",
-            },
-            {
-                "rule_id": "last_known_well_present",
-                "field": "last_known_well_minutes",
-                "operator": "non_null",
-                "severity": "error",
-            },
-            {
-                "rule_id": "age_band_present",
-                "field": "age_band",
-                "operator": "non_null",
-                "severity": "warning",
-            },
-        ]
-
-    @staticmethod
-    def _step(trace: list[dict[str, Any]], name: str, action) -> None:
+    def _step(trace: list[dict[str, Any]], name: str, action: Callable[[], Any]) -> None:
         try:
             trace.append({"name": name, "status": "ok", "detail": "completed", "payload": action()})
         except Exception as exc:  # noqa: BLE001 - a failed step is a reportable result
             trace.append({"name": name, "status": "warning", "detail": str(exc), "payload": None})
+
+
+def quality_rules() -> list[dict[str, Any]]:
+    """The stroke records' quality rules, in the framework's generic vocabulary.
+
+    The rules are stroke-specific; the evaluator is not. They are built from
+    the field domains, so they cannot disagree with the entry form:
+
+    - every required contract field must be present. A field every record has
+      (see ``ENTRY_REQUIRED_FIELDS``) is an error when missing; an examination
+      finding that may be left empty is a warning;
+    - every number must lie in its domain's range.
+    """
+    rules: list[dict[str, Any]] = []
+    for name in STROKE_FEATURE_CONTRACT.required_fields():
+        always_present = name in ENTRY_REQUIRED_FIELDS or name == "age_band"
+        rules.append(
+            {
+                "rule_id": f"{name}_present",
+                "field": name,
+                "operator": "non_null",
+                "severity": "error" if always_present else "warning",
+            }
+        )
+    for name in STROKE_FEATURE_CONTRACT.field_names():
+        domain = STROKE_FIELD_DOMAINS.get(name)
+        if domain is None:
+            continue
+        if domain.minimum is not None:
+            rules.append(
+                {
+                    "rule_id": f"{name}_at_least_{domain.minimum:g}",
+                    "field": name,
+                    "operator": {"kind": "min_value", "value": domain.minimum},
+                    "severity": "error",
+                }
+            )
+        if domain.maximum is not None:
+            rules.append(
+                {
+                    "rule_id": f"{name}_at_most_{domain.maximum:g}",
+                    "field": name,
+                    "operator": {"kind": "max_value", "value": domain.maximum},
+                    "severity": "error",
+                }
+            )
+    return rules

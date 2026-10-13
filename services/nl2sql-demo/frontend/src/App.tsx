@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Play } from "lucide-react";
 
 import { NotRecordedError, api, isRecorded, recordingInfo, type Recording } from "./api";
+import { ThemeToggle } from "./ThemeToggle";
 
 type Column = { name: string; dtype: string; description?: string };
 type Table = { name: string; columns: Column[] };
@@ -127,6 +128,9 @@ export default function App() {
   return (
     <div className="ds-shell app">
       <header className="masthead">
+        <div className="masthead-theme">
+          <ThemeToggle />
+        </div>
         <div className="masthead-id">
           <p className="ds-eyebrow">Dagents demo</p>
           <h1>Natural language to SQL</h1>

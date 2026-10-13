@@ -13,16 +13,21 @@ reused by systems such as Datalytics.
 | | |
 |---|---|
 | **Framework site** | <https://pradyunuydarp.github.io/Dagents/>: the learning guide, the API reference and links to the demos |
-| **Stroke triage demo** | <https://pradyunuydarp.github.io/Dagents/healthcare-demo/>: governance and federated rounds across three simulated hospitals |
+| **Stroke triage demo** | <https://pradyunuydarp.github.io/Dagents/healthcare-demo/>: governance, federated training and data entry across three hospitals |
 | **NL2SQL demo** | <https://pradyunuydarp.github.io/Dagents/nl2sql-demo/>: an ordinary app that uses the framework |
-| **Healthcare demo API** | <https://dagents-healthcare-api.onrender.com/api/v1/health>: the backend the stroke demo calls |
 
-The stroke triage demo calls the deployed API. That API reads its patient records
-from Postgres through the framework's source adapter, and makes every governance
-and federation decision with the OCaml planner in its image. The page shows the
-data source the API reports. All records are synthetic. The API sleeps when
-idle, so the first request takes about 20 seconds, and the page shows a banner
-while it waits.
+The stroke triage demo uses real, de-identified records from the
+[International Stroke Trial](https://doi.org/10.7488/ds/104) (IST-1, 1991-1996):
+1,014 patients from three hospitals in the United Kingdom, Italy and Switzerland.
+Each hospital keeps its records in its own store, and the page has a view for
+each hospital, with a form to enter a new record. The published page calls the
+demo's deployed API, which makes every governance and federation decision with
+the OCaml planner in its image, and it shows the data source the API reports.
+The API sleeps when idle, so the first request takes about 20 seconds, and the
+page shows a banner while it waits. If, when the site is built, the API does not
+answer, is not reading Postgres, has a hospital store without records, or
+refuses requests from the site, the page replays a recorded run instead and says
+so.
 
 The NL2SQL demo has no deployed backend. It replays responses recorded from the
 real services and names the commit they came from. A question that was not
@@ -115,5 +120,8 @@ Each service reads `env/.env.shared` plus its own file under `env/`.
 - [`docs/integrations/datalytics-backend-guide.md`](docs/integrations/datalytics-backend-guide.md): moving the Datalytics backend onto Dagents
 - `docs/diagrams/puml/` and `docs/presentation/puml/`: PlantUML sources and rendered diagrams
 
-The stroke triage demo uses synthetic data only. It is not clinically validated
-and not a medical device.
+The stroke triage demo's records come from the International Stroke Trial
+database (version 2), made available under the
+[ODC Attribution License](https://opendatacommons.org/licenses/by/1-0/); see
+[`apps/healthcare-demo/data/ist/NOTICE.md`](apps/healthcare-demo/data/ist/NOTICE.md).
+The demo's models are not clinically validated, and it is not a medical device.

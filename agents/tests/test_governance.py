@@ -8,6 +8,7 @@ governance works.
 
 from __future__ import annotations
 
+import json
 import os
 import pathlib
 import shutil
@@ -374,6 +375,23 @@ class FailClosedTests(unittest.TestCase):
         self.assertEqual(decision.payload, [])
         self.assertEqual(decision.withheld_fields, list(request_for().requested_fields))
         self.assertEqual(len(guard.audit.list_recent()), 1, "the failure must still be audited")
+
+    def test_the_denial_reason_names_no_server_detail(self) -> None:
+        """The reason is shown to callers and kept in the audit chain, so the
+        planner's error, which can name a server path, goes to the log only."""
+
+        class BrokenPlanner:
+            def plan(self, request):  # noqa: ANN001, ANN201 - test double
+                raise FileNotFoundError("[Errno 2] No such file or directory: '/srv/bin/dagentsc'")
+
+        guard = EthicalGuard(BrokenPlanner(), InMemoryAuditLog())
+        with self.assertLogs("agents.common.application.ethical_guard", level="ERROR") as logs:
+            decision = guard.enforce(request_for(), RECORDS)
+        self.assertEqual("The planner could not be reached, so the Guard denied the request.", decision.message)
+        stored = json.dumps(guard.audit.list_recent()[0], default=str)
+        self.assertNotIn("/srv/bin/dagentsc", decision.message)
+        self.assertNotIn("/srv/bin/dagentsc", stored)
+        self.assertIn("/srv/bin/dagentsc", "\n".join(logs.output))
 
 
 @unittest.skipUnless(dagentsc_available(), "dagentsc binary is not available")

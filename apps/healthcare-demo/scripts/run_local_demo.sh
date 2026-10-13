@@ -44,7 +44,9 @@ echo "  framework : ${DAGENTS_HOME}"
 echo "  planner   : ${DAGENTSC_BIN:-dagentsc (on PATH)}"
 echo "  api       : http://127.0.0.1:${PORT}/docs"
 echo
-echo "All patient data is synthetic. Nothing here is a validated clinical model."
+echo "The records are de-identified records from the International Stroke Trial (1991-1996),"
+echo "kept in memory per hospital unless HEALTHCARE_DEMO_DATABASE_URL is set."
+echo "Nothing here is a validated clinical model or medical advice."
 echo
 
 exec "${PYTHON}" -m uvicorn app.main:app --host "${HEALTHCARE_DEMO_API_HOST:-0.0.0.0}" --port "${PORT}"

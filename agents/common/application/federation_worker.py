@@ -5,16 +5,19 @@ the sequence and where the Ethical Guard stands in it; the consumer owns what
 "read the approved fields" and "train or evaluate" actually mean, supplied
 through :class:`LocalDataSource` and :class:`LocalRunner`.
 
-The sequence exists to make one thing true: the hospital decides. A job is
-verified before it is accepted, the data is guarded before it is read, and the
-result is guarded before it leaves. A site that cannot satisfy any of those
-refuses, and the refusal is recorded like any other outcome.
+The sequence makes sure the site decides. A job is verified before it is
+accepted, the data is guarded before it is read, and the result is guarded
+before it leaves. A site that cannot satisfy any of those refuses, and the
+refusal is recorded like any other outcome.
 """
 
 from __future__ import annotations
 
-from typing import Any, Protocol
+import hashlib
+import json
+from typing import Any, Callable, Mapping, Protocol
 
+from agents.common.application.ethical_guard import contribution_norm
 from agents.common.application.governance_service import GovernanceService
 from agents.common.domain.federation import FederatedJob, JobAcceptance, SiteResult
 from agents.common.domain.governance import KyuAttribute, Requester, RestrictionRequest
@@ -26,6 +29,11 @@ class LocalRunOutcome:
     ``update_norm`` is the magnitude of the contribution this site would send.
     It is reported so the coordinator's planner can reject an oversized update
     without ever seeing the update itself.
+
+    ``update`` is the parameter update a training run produced, keyed by
+    parameter name. When it is set, the worker ignores ``update_norm``: it
+    sends the update through the Guard, measures the vector the Guard
+    returned, and passes that vector to the site's :class:`UpdateChannel`.
     """
 
     def __init__(
@@ -34,11 +42,30 @@ class LocalRunOutcome:
         examples: int,
         update_norm: float | None = None,
         evidence_pointer: str | None = None,
+        update: dict[str, float] | None = None,
     ) -> None:
         self.metrics = metrics
         self.examples = examples
         self.update_norm = update_norm
         self.evidence_pointer = evidence_pointer
+        self.update = update
+
+
+class UpdateChannel(Protocol):
+    """Where a site sends a model update after the Guard has bounded it.
+
+    The channel stands for the federated runtime's transport. It receives the
+    vector the ``before_send`` Guard returned, never the runner's raw output,
+    and returns a digest of what it stored. The site computes its own digest of
+    the vector it sent and refuses the job when the two differ. The site's
+    digest goes into its :class:`SiteResult`, so the runtime can check that the
+    update it aggregates is the one the site sent, even if the transport
+    changed it. The channel and the site must use the same digest rule (see
+    ``LocalFederatedWorker``'s ``update_digest``).
+    """
+
+    def submit(self, job: FederatedJob, update: dict[str, float]) -> str:
+        """Store one site's bounded update for this job and return its digest."""
 
 
 class LocalDataSource(Protocol):
@@ -52,7 +79,7 @@ class LocalDataSource(Protocol):
 
         Optional. The worker falls back to counting records when a source does
         not implement it. Implement it when counting is cheaper than
-        materializing, which for a real hospital source it usually is: the
+        materializing, which for a real database source it usually is: the
         before-train check needs the size, not the rows.
         """
 
@@ -80,6 +107,12 @@ class LocalFederatedWorker:
     - ``expected_digest``: the manifest digest this site independently computed.
       Passing it is what makes digest verification meaningful; without it the
       site is only checking a job against itself.
+    - ``update_channel``: where bounded model updates go. Needed only when the
+      runner returns an update. A site whose runner returns an update and that
+      has no channel refuses the job, because the only other place to put the
+      vector is the result the coordinator reads.
+    - ``update_digest``: how this site digests the update it sends. It must be
+      the rule the channel uses. Defaults to :meth:`default_update_digest`.
     """
 
     def __init__(
@@ -93,6 +126,8 @@ class LocalFederatedWorker:
         approved_fields: list[str] | None = None,
         approved_purposes: list[str] | None = None,
         expected_digest: str | None = None,
+        update_channel: UpdateChannel | None = None,
+        update_digest: Callable[[Mapping[str, float]], str] | None = None,
     ) -> None:
         self.site_id = site_id
         self._governance = governance
@@ -103,6 +138,14 @@ class LocalFederatedWorker:
         self._approved_fields = approved_fields or []
         self._approved_purposes = approved_purposes or []
         self._expected_digest = expected_digest
+        self._update_channel = update_channel
+        self._update_digest = update_digest or self.default_update_digest
+
+    @staticmethod
+    def default_update_digest(update: Mapping[str, float]) -> str:
+        """``sha256:`` and the hex digest of the update as JSON with sorted keys and no spaces."""
+        material = json.dumps(dict(update), sort_keys=True, separators=(",", ":"), allow_nan=False)
+        return "sha256:" + hashlib.sha256(material.encode("utf-8")).hexdigest()
 
     def _fields_for(self, job: FederatedJob) -> list[str]:
         """Resolve which fields this job may touch at this site.
@@ -267,11 +310,10 @@ class LocalFederatedWorker:
         cheaper in accuracy but gives a round's code unrestricted sight of every
         approved field.
 
-        It is not free. Generalizing a high-sensitivity clinical score costs
-        real discrimination, and the healthcare demo measures that cost rather
-        than describing it. A deployment that judges the cost too high changes
-        the field's sensitivity in its classification; it does not change this
-        code path.
+        It is not free. Generalizing a high-sensitivity numeric field costs
+        accuracy, and the healthcare demo measures that cost. A deployment that
+        judges the cost too high changes the field's sensitivity in its
+        classification; it does not change this code path.
         """
         if self._narrowing_rejected_everything(job):
             return self._refused(job, "no requested field is within this site's approved field list")
@@ -292,6 +334,8 @@ class LocalFederatedWorker:
             return self._refused(job, read_decision.message or "local read was not permitted")
 
         outcome = self._runner.run(job, read_decision.payload)
+        if outcome.update is not None:
+            return self._send_update(job, outcome)
 
         send_decision = self._governance.enforce(
             self._request(job, "before_send", ["model_update"], "model_update", outcome.examples),
@@ -309,7 +353,62 @@ class LocalFederatedWorker:
         if not send_decision.payload or "model_update" not in send_decision.payload[0]:
             return self._refused(job, "the guard withheld the outbound contribution")
         bounded_norm = send_decision.payload[0]["model_update"]
+        return self._completed(job, outcome, bounded_norm)
 
+    def _send_update(self, job: FederatedJob, outcome: LocalRunOutcome) -> SiteResult:
+        """Bound a model update with the Guard and pass it to the update channel.
+
+        The update is sent through the ``before_send`` Guard as one
+        ``model_update`` value. The channel receives the vector the Guard
+        returned, and ``update_norm`` is that vector's L2 norm. The result
+        carries the norm and the site's own digest of the vector, never the
+        vector.
+
+        Every failure refuses the job: no channel, a Guard denial, a withheld or
+        malformed update, a channel that cannot store it, or a channel whose
+        digest differs from the site's. Sending nothing is the only safe
+        fallback.
+        """
+        if self._update_channel is None:
+            return self._refused(job, "the runner produced a model update but this site has no update channel")
+        if not isinstance(outcome.update, dict):
+            return self._refused(job, "a model update must map parameter names to numbers")
+
+        send_decision = self._governance.enforce(
+            self._request(job, "before_send", ["model_update"], "model_update", outcome.examples),
+            [{"model_update": dict(outcome.update)}],
+            correlation_id=job.round_id,
+        )
+        if not send_decision.permitted:
+            return self._refused(job, send_decision.message or "outbound contribution was not permitted")
+
+        bounded = send_decision.payload[0].get("model_update") if send_decision.payload else None
+        bounded_norm = contribution_norm(bounded) if isinstance(bounded, dict) else None
+        if bounded_norm is None:
+            return self._refused(job, "the guard withheld the outbound model update")
+
+        try:
+            own_digest = self._update_digest(dict(bounded))
+        except (TypeError, ValueError) as exc:
+            return self._refused(job, f"the site could not digest the bounded update: {exc}")
+        try:
+            digest = self._update_channel.submit(job, dict(bounded))
+        except Exception as exc:  # noqa: BLE001 - any failure to store the update refuses the job
+            return self._refused(job, f"the update channel did not accept the update: {exc}")
+        if not isinstance(digest, str) or not digest:
+            return self._refused(job, "the update channel returned no digest")
+        if digest != own_digest:
+            return self._refused(job, "the update channel stored a different update than the site sent")
+        return self._completed(job, outcome, bounded_norm, update_digest=own_digest)
+
+    def _completed(
+        self,
+        job: FederatedJob,
+        outcome: LocalRunOutcome,
+        update_norm: float,
+        update_digest: str | None = None,
+    ) -> SiteResult:
+        """Return the result of a job whose contribution the Guard permitted."""
         return SiteResult(
             round_id=job.round_id,
             site_id=self.site_id,
@@ -318,7 +417,8 @@ class LocalFederatedWorker:
             code_verified=True,
             privacy_checks_passed=True,
             contributed_examples=outcome.examples,
-            update_norm=bounded_norm,
+            update_norm=update_norm,
+            update_digest=update_digest,
             metrics=outcome.metrics,
             local_evidence_pointer=outcome.evidence_pointer or f"site-local://{self.site_id}/{job.round_id}",
         )

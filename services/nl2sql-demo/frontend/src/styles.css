@@ -39,6 +39,49 @@
   border-bottom: 1px solid var(--ds-line-strong);
 }
 
+/* The theme toggle sits on its own line at the top right. It is a copy of the
+ * framework site's, with the same storage key, so one choice applies to the
+ * site and both demos. */
+.masthead-theme {
+  flex-basis: 100%;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.theme-toggle {
+  display: inline-flex;
+  border: 1px solid var(--ds-line);
+  border-radius: var(--ds-r-1);
+  overflow: hidden;
+}
+
+.theme-toggle button {
+  font: inherit;
+  font-size: var(--ds-step--1);
+  padding: var(--ds-1) var(--ds-3);
+  background: transparent;
+  color: var(--ds-ink-2);
+  border: 0;
+  border-right: 1px solid var(--ds-line);
+  cursor: pointer;
+}
+
+.theme-toggle button:last-child { border-right: 0; }
+.theme-toggle button:hover { color: var(--ds-ink); background: var(--ds-inset); }
+
+.theme-toggle button.is-active {
+  color: var(--ds-ink);
+  background: var(--ds-inset);
+  font-weight: 600;
+}
+
+/* The group clips its children to its rounded border, so the focus ring is
+ * drawn inside the button, where the clip cannot hide it. */
+.theme-toggle button:focus-visible {
+  outline-offset: -2px;
+  border-radius: 0;
+}
+
 .masthead-id {
   display: flex;
   flex-direction: column;

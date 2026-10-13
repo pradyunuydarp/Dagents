@@ -127,9 +127,15 @@ class RoundPlan(DagentsModel):
 class SiteResult(DagentsModel):
     """What one site returns from a round.
 
-    Deliberately minimal. No patient identifier, row, image, note, or
-    patient-level prediction has a place in this contract; detailed local
+    Deliberately minimal. No subject identifier, row, image, note, or
+    per-subject prediction has a place in this contract; detailed local
     evidence stays at the site behind ``local_evidence_pointer``.
+
+    A model update is not carried here either. Results are stored with the
+    round and shown to the coordinator, so a site that trains sends its clipped
+    update through an update channel and reports only its norm
+    (``update_norm``) and the digest the channel returned (``update_digest``).
+    The runtime that aggregates checks each update against that digest.
     """
 
     round_id: str
@@ -140,6 +146,7 @@ class SiteResult(DagentsModel):
     privacy_checks_passed: bool = False
     contributed_examples: int = Field(default=0, ge=0)
     update_norm: float | None = None
+    update_digest: str | None = None
     metrics: dict[str, float] = Field(default_factory=dict)
     local_evidence_pointer: str | None = None
 
@@ -190,11 +197,18 @@ class ReleaseGate(DagentsModel):
 
 
 class GateResult(DagentsModel):
-    """Evaluation of one release gate against a candidate's metrics."""
+    """Evaluation of one release gate against a candidate's metrics.
+
+    ``threshold`` is the value the planner compared ``observed`` with: the
+    gate's value for ``at_least`` and ``at_most``, and baseline + margin for
+    ``improves_on_baseline``. It is ``None`` when an improvement gate has no
+    baseline metric. Read it from here; do not recompute it.
+    """
 
     gate_id: str
     outcome: GateOutcome
     observed: float | None = None
+    threshold: float | None = None
     detail: str = ""
 
 
@@ -267,6 +281,11 @@ class CandidateModel(DagentsModel):
     Named "candidate" throughout on purpose. Aggregation produces this; it does
     not produce a release. The path from here to a deployed model runs through
     cross-site evaluation and a human committee.
+
+    ``artifact_digest`` identifies the parameters at ``artifact_uri``. A
+    runtime that produces real parameters sets it, so the next round's manifest
+    can name them in ``model_artifact_digest``. The in-process simulator
+    produces no parameters and leaves it empty.
     """
 
     round_id: str
@@ -278,6 +297,7 @@ class CandidateModel(DagentsModel):
     contributed_examples: int = 0
     metrics: dict[str, float] = Field(default_factory=dict)
     artifact_uri: str = ""
+    artifact_digest: str = ""
     produced_at: int = 0
 
 

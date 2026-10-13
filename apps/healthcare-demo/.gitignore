@@ -3,6 +3,10 @@ __pycache__/
 .venv/
 venv/
 .env
+# Local env files can hold a database password.
+.env.local
+.env.*.local
+env/.env.healthcare-supabase
 artifacts/
 node_modules/
 dist/

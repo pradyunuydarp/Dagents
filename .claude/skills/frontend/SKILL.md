@@ -13,7 +13,7 @@ the page renders. Text on every page follows the `writing` skill.
 | App | Path | Port | Owns | Shows |
 |---|---|---|---|---|
 | Framework site | `site/` | 5175 | Home page, the learning guide, the API reference | How Dagents works and how to use it |
-| Healthcare demo | `apps/healthcare-demo/frontend/` | 5174 | Stroke triage UI, the guard controls, the pilot view | Governance and federation work, and their cost can be measured |
+| Healthcare demo | `apps/healthcare-demo/frontend/` | 5174 | The consortium view (guard controls, pilot, consortium charts), one view per hospital, data entry | Governance, federated training and per-site storage work, and their cost can be measured |
 | NL2SQL demo | `services/nl2sql-demo/frontend/` | 5173 | Prompt UI, schema editor, SQL display | An app can use the framework's validation, planning and checks |
 
 All three are React 19 + Vite 7 + TypeScript, built with `tsc -b && vite build`.
@@ -41,6 +41,9 @@ The healthcare demo and the site use `playwright-core` for browser checks.
   rules for hierarchy.
 - **Never show state by colour alone.** A chip includes its word, so the page
   still reads in greyscale.
+- Charts have three series tokens, `--ds-series-1` to `--ds-series-3`, used only
+  inside charts. They mark identity (which hospital), never a decision. A
+  hospital keeps its slot in every chart.
 - Mermaid diagrams on the site take their colours from the tokens
   (`site/src/Mermaid.tsx`), so they stay grey and follow light and dark mode.
 
@@ -69,7 +72,7 @@ The healthcare demo and the site use `playwright-core` for browser checks.
 |---|---|
 | local dev | live, same origin, through the Vite proxy |
 | `VITE_DAGENTS_STATIC=1` | replays `public/recording.json` |
-| `VITE_HEALTHCARE_API_BASE` set | live, against the deployed API, which reads the encounter store |
+| `VITE_HEALTHCARE_API_BASE` set | live, against the deployed API, which keeps each hospital's records in its own Postgres schema |
 
 The third mode is the healthcare demo in production. NL2SQL has no deployed
 backend and replays.
@@ -82,21 +85,37 @@ backend and replays.
   from another commit shown as live would misreport the data and the framework.
   The page reports the outage instead.
 - **The page prints the data source the backend reports**
-  (`/api/v1/framework/status`), never one inferred from the configured URL. An
-  API that generates its cohorts in process must show `synthetic`.
+  (`/api/v1/framework/status`, `cohort_source`: `postgres` or `in-memory`),
+  never one inferred from the configured URL.
+- **Never show the API's address**, a hosting vendor's name or cold-start
+  internals on the page. The address is in `env/.env.published` only, and
+  `tests/test_publishing_guards.py` fails if the API's host appears in any other
+  tracked file outside `.github/`. Error messages are plain and name no host.
 - **Show the wait for a cold start.** The hosted API stops after 15 minutes
   without traffic, so the first request usually starts it (about 20 seconds).
-  `liveFetch` retries only requests that never reached the app (502, 503, 504,
-  or a network failure), reports the wait through `onApiWaking` so the page can
-  show a banner, and returns an application error on the first attempt.
-  Retrying an application error would hide a real failure.
+  The API puts an `X-Dagents-App` header on every response it sends itself,
+  errors included (404, 413, 422, 429, its own 503), and exposes it through
+  CORS. The platform's answers during a cold start do not have it. `liveFetch`
+  retries only requests that never reached the app: a network failure, or a
+  502, 503 or 504 **without** `X-Dagents-App`. It reports the wait through
+  `onApiWaking`, so the page can show a plain "connecting to the demo server"
+  banner. A response with the header is returned on the first attempt, so the
+  app's own 503 ("the hospital records cannot be reached") shows at once.
+  Retrying an application error would hide a real failure. The smoke test
+  checks both cases.
+- **Data entry is disabled in a replay**, with a plain explanation. The
+  recording holds no answers to new entries or approvals, and a replay must not
+  invent one.
 - **Never record without the planner.** The Guard fails closed, so a recording
   made without `dagentsc` holds only denials. `capture_demo_recordings.py`
   refuses to run without it, and `check_demo_recordings.py` refuses a recording
   whose controls change nothing.
 - The page names the commit it was recorded from. Keep that visible.
 - If you change what the UI requests, record again. Otherwise the published
-  demo answers "not recorded" where it used to work.
+  demo answers "not recorded" where it used to work. A hospital-page GET path
+  is defined once, in `capture_demo_recordings.hospital_view_paths`, and
+  `tests/test_publishing_guards.py` fails if the UI sends a GET path the
+  recording checker does not require. Change a query string in both places.
 
 ## 5. Hard rules
 
@@ -110,6 +129,30 @@ backend and replays.
   again in TypeScript is a second copy of a planner rule, and it will drift.
 - A UI may hold presentation state (the open tab, an expanded row, a draft). It
   must not hold the only copy of anything the backend owns.
+
+### The healthcare demo's two kinds of view
+
+- **The consortium view is the coordinator's view.** It shows the numbers each
+  hospital reports (counts, and outcome rates only above the minimum cohort),
+  the Guard probe, the pilot and charts of released aggregates. **Never** show a
+  patient row on it.
+- **A hospital view is that hospital's staff view.** It shows where the
+  hospital's records are stored, its running statistics, its worklist, its
+  entered records with the action to record an outcome, its own charts, its
+  audit log and what it sent in each round. One hospital's view never shows
+  another hospital's rows.
+- Hospital ids come from `/api/v1/overview`. **Never** hardcode a site id.
+- **The data-entry form comes from the backend**
+  (`/api/v1/hospitals/{site_id}/entry-form`). The browser renders the fields,
+  their options and ranges, and shows the backend's validation errors next to
+  each field. It does not restate a range or an option list. Each submission
+  sends a new `Idempotency-Key`. The form tells people not to enter real patient
+  information.
+- **Charts are drawn by the backend** as SVG and fetched through the transport,
+  so a cold start and a replay work for them too. Fetch them again when the
+  theme changes. Every chart has its table view next to it, and the page never
+  draws a chart in the browser from raw records. The IST licence notice stays on
+  every page built from the records.
 
 ### Configuration
 
@@ -168,11 +211,16 @@ cd site && npm install && npm run build && npm run check
 ```
 
 The healthcare `smoke.mjs` drives the real UI against a live backend. It checks
-that **each of the guard's three controls changes the strategy**, runs a full
-pilot, and fails on any console error. It finds controls by their labels
-("Requester verified", "Cohort size") and buttons by name ("Ask the guard",
-"Run the pilot"); rename them only together with the test. When you add a
-control, add an assertion for it.
+that **each of the guard's three controls changes the `systolic_bp`
+strategy**, runs a full pilot and checks that a decision is shown, opens a
+hospital view and checks that its charts draw, checks that the backend's
+validation errors appear on an empty form, submits a data entry and checks that
+the record appears and the count rises, switches to the dark theme and checks
+that the charts are drawn again, checks that a 503 without `X-Dagents-App` shows the connecting
+banner while the app's own 503 shows at once, and fails on any console error. It finds controls by their labels ("Requester verified",
+"Cohort size") and buttons by name ("Ask the guard", "Run the pilot"); rename
+them only together with the test. When you add a control, add an assertion for
+it. The test must not assume which release decision the pilot reaches.
 
 The site's `check.mjs` serves `dist/`, visits every guide page, and fails if a
 Mermaid diagram does not draw, an image does not load, an internal link or

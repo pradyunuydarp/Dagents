@@ -3,7 +3,8 @@
 This demo package is designed for a 25-minute course presentation: 20 minutes of demo/talk and 5 minutes of Q&A. It covers the whole Dagents app while keeping the main grading focus on the OCaml functional planner layer.
 
 Both apps are also published. Use them if something will not start locally. The stroke demo
-is a good opener, because it runs against a deployed API and database:
+is a good opener: it runs against a deployed API that keeps each of three real hospitals'
+records (from the International Stroke Trial) in its own database schema:
 
 - framework site: <https://pradyunuydarp.github.io/Dagents/>
 - stroke triage, calling its deployed API: <https://pradyunuydarp.github.io/Dagents/healthcare-demo/>
@@ -43,9 +44,10 @@ takes about 20 seconds, and the page shows a banner while it waits.
    ```
 
    This step shows the typed OCaml layer at work. The governance planner gives the same request
-   different strategies as trust and granularity change. A federated pilot then rejects a
-   candidate model that scores higher than the current one, because two safety gates fail. Both
-   decisions come from `dagentsc`, not from the calling service.
+   different strategies as trust and granularity change. A federated pilot then trains a
+   candidate model over five rounds at three hospitals. Its AUC (0.786) is higher than the
+   current rule's (0.777), but not by the 0.02 margin the release gate asks for, so the
+   candidate is rejected. Both decisions come from `dagentsc`, not from the calling service.
 
 ## What To Say While Running The Demo
 

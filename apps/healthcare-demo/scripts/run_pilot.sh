@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
 # Run one governed federated pilot and print the result, without starting a server.
 #
-# This is the fastest way to see what the framework does: three hospitals, four
-# rounds, and a release decision, with every exclusion and rejection explained.
+# Three hospitals from the International Stroke Trial, eight rounds (analytics,
+# evaluation, five training rounds and candidate validation) and a release
+# decision, with every exclusion and rejection explained. Set
+# HEALTHCARE_DEMO_DATABASE_URL to read the hospitals' records from Postgres;
+# without it they are loaded from the committed extract.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

@@ -1,6 +1,12 @@
 .DS_Store
 .env
 **/.env
+# Local env files can hold a database password. The committed env files
+# (env/.env.shared, env/.env.published, ...) hold no secrets and stay tracked.
+.env.local
+**/.env.local
+**/.env.*.local
+apps/healthcare-demo/env/.env.healthcare-supabase
 **/__pycache__/
 **/.pytest_cache/
 **/.mypy_cache/

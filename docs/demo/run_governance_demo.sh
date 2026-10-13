@@ -1,12 +1,19 @@
 #!/usr/bin/env bash
 # Governance and federation demo. No Docker, no database, no model download.
 #
-# Two things are worth watching:
-#   1. The same request resolves to a different protection strategy as the
-#      requester's trust and the granularity change, and the decision comes
-#      from the typed planner rather than from any service's own code.
-#   2. A federated pilot produces a candidate that beats its baseline and is
-#      still rejected, because two safety gates failed.
+# What to watch:
+#   1. The same request for systolic_bp gets a different protection strategy
+#      as the requester's trust and the granularity change. The decision comes
+#      from the typed planner, not from any service's own code.
+#   2. The planner decides which hospitals may join a round. Here ch-245 is
+#      registered with an older feature contract, so two hospitals remain, and
+#      the secure-aggregation threshold of 3 means the quorum is not met.
+#   3. In a worked example, a candidate that beats its baseline is still
+#      refused, because it fails the subgroup fairness gate.
+#   4. The real pilot on the three hospitals' International Stroke Trial
+#      records. On the committed extract its candidate is rejected: its AUC is
+#      higher than the model in use, but not by the 0.02 margin that the
+#      improves_on_current_release gate requires.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -24,8 +31,8 @@ PYTHON="${PYTHON:-${REPO_ROOT}/.venv/bin/python}"
 
 rule() { printf '\n\033[1m%s\033[0m\n' "$*"; }
 
-rule "1. The Ethical-Restriction Rails: one classification, four requests"
-echo "Each call below changes exactly one thing. The strategy changes with it."
+rule "1. The Ethical-Restriction Rails: one classification, five requests"
+echo "Each call below changes one thing from an earlier call. The strategy changes with it."
 
 probe() {
   local label="$1" verified="$2" granularity="$3" cohort="$4"
@@ -46,12 +53,12 @@ probe() {
   },
   "classification": {
     "classificationId": "stroke-triage-phi",
-    "fieldSensitivity": {"nihss_total": "high"},
+    "fieldSensitivity": {"systolic_bp": "high"},
     "defaultSensitivity": "high",
-    "regulations": ["HIPAA"],
+    "regulations": ["HIPAA Privacy Rule"],
     "minimumCohort": 20
   },
-  "requestedFields": ["nihss_total"],
+  "requestedFields": ["systolic_bp"],
   "granularity": "${granularity}",
   "cohortSize": ${cohort},
   "declaredPurpose": "stroke_triage_research",
@@ -60,10 +67,11 @@ probe() {
 JSON
 }
 
-probe "verified coordinator, one row"            true  row          140
-probe "the same request, unverified"             false row          140
-probe "verified, asking for a whole column"      true  column       140
-probe "verified, sending a model update"         true  model_update 140
+# 198 is the number of records at ch-245, the smallest of the three hospitals.
+probe "verified coordinator, one row"            true  row          198
+probe "the same request, unverified"             false row          198
+probe "verified, asking for a whole table"       true  table        198
+probe "verified, sending a model update"         true  model_update 198
 probe "verified, but the cohort is too small"    true  model_update 4
 
 echo
@@ -76,39 +84,40 @@ cat <<'JSON' | "${DAGENTSC}" federation round plan --input - \
   | "${PYTHON}" "${REPO_ROOT}/docs/demo/_format_governance_demo.py" plan
 {
   "manifest": {
-    "roundId": "round-0042", "studyId": "stroke-triage", "conditionId": "suspected_stroke",
-    "phase": "training", "modelVersion": "seed-v3",
-    "featureContractVersion": "stroke-triage-features-v2",
+    "roundId": "round-0042", "studyId": "stroke-triage-pilot", "conditionId": "suspected_stroke",
+    "phase": "training", "modelVersion": "stroke-outcome-rule-v1",
+    "featureContractVersion": "stroke-triage-features-v3",
     "aggregation": {"kind": "secure_aggregation", "threshold": 3},
-    "minimumParticipants": 2, "minimumCohortPerSite": 50,
+    "minimumParticipants": 2, "minimumCohortPerSite": 20,
     "requiredCapabilities": ["local_training"],
-    "invitedSites": ["hospital-a", "hospital-b", "hospital-c", "hospital-d"]
+    "invitedSites": ["uk-134", "it-002", "ch-245"]
   },
   "registrations": [
-    {"siteId": "hospital-a", "capabilities": ["local_training"], "featureContractVersion": "stroke-triage-features-v2", "approvedConditions": ["suspected_stroke"], "cohortSize": 420, "enrolled": true},
-    {"siteId": "hospital-b", "capabilities": ["local_training"], "featureContractVersion": "stroke-triage-features-v2", "approvedConditions": ["suspected_stroke"], "cohortSize": 310, "enrolled": true},
-    {"siteId": "hospital-c", "capabilities": ["local_training"], "featureContractVersion": "stroke-triage-features-v1", "approvedConditions": ["suspected_stroke"], "cohortSize": 280, "enrolled": true},
-    {"siteId": "hospital-d", "capabilities": [], "featureContractVersion": "stroke-triage-features-v2", "approvedConditions": ["suspected_stroke"], "cohortSize": 90, "enrolled": true}
+    {"siteId": "uk-134", "capabilities": ["local_training"], "featureContractVersion": "stroke-triage-features-v3", "approvedConditions": ["suspected_stroke"], "cohortSize": 524, "enrolled": true},
+    {"siteId": "it-002", "capabilities": ["local_training"], "featureContractVersion": "stroke-triage-features-v3", "approvedConditions": ["suspected_stroke"], "cohortSize": 292, "enrolled": true},
+    {"siteId": "ch-245", "capabilities": ["local_training"], "featureContractVersion": "stroke-triage-features-v2", "approvedConditions": ["suspected_stroke"], "cohortSize": 198, "enrolled": true}
   ]
 }
 JSON
 echo
-echo "  The secure-aggregation threshold of 3 overrode the manifest's stated"
-echo "  minimum of 2. That threshold is the reason the coordinator cannot resolve"
-echo "  any one site's update, so it is a floor on participation, not a hint."
+echo "  Secure aggregation must not run with fewer than 3 sites, so its threshold"
+echo "  raised the manifest's minimum of 2 to 3, and the quorum is not met. In the"
+echo "  real pilot (step 4) all three hospitals use the v3 contract and take part."
 
 rule "3. Release gates: a candidate that beats its baseline and is still refused"
+echo "A worked example with the healthcare demo's five gates and invented metrics."
 cat <<'JSON' | "${DAGENTSC}" federation release evaluate --input - \
   | "${PYTHON}" "${REPO_ROOT}/docs/demo/_format_governance_demo.py" release
 {
-  "roundId": "round-0042", "candidateVersion": "candidate-v4", "rollbackVersion": "release-v3",
+  "roundId": "round-0042", "candidateVersion": "candidate-v4", "rollbackVersion": "stroke-outcome-rule-v1",
   "gates": [
-    {"gateId": "discrimination", "metric": "auc", "comparison": {"kind": "at_least", "value": 0.80}, "blocking": true},
-    {"gateId": "improves_on_current", "metric": "auc", "comparison": {"kind": "improves_on_baseline", "margin": 0.01}, "blocking": true},
-    {"gateId": "subgroup_fairness", "metric": "subgroup_auc_gap", "comparison": {"kind": "at_most", "value": 0.05}, "blocking": true},
-    {"gateId": "alert_burden", "metric": "alerts_per_1000", "comparison": {"kind": "at_most", "value": 400}, "blocking": false}
+    {"gateId": "discrimination", "metric": "auc", "comparison": {"kind": "at_least", "value": 0.70}, "blocking": true},
+    {"gateId": "improves_on_current_release", "metric": "auc", "comparison": {"kind": "improves_on_baseline", "margin": 0.02}, "blocking": true},
+    {"gateId": "subgroup_fairness", "metric": "subgroup_auc_gap", "comparison": {"kind": "at_most", "value": 0.10}, "blocking": true},
+    {"gateId": "sensitivity_at_alert_threshold", "metric": "sensitivity", "comparison": {"kind": "at_least", "value": 0.80}, "blocking": true},
+    {"gateId": "alert_burden", "metric": "alerts_per_1000", "comparison": {"kind": "at_most", "value": 750}, "blocking": false}
   ],
-  "candidateMetrics": {"auc": 0.82, "subgroup_auc_gap": 0.14, "alerts_per_1000": 258},
+  "candidateMetrics": {"auc": 0.82, "subgroup_auc_gap": 0.14, "sensitivity": 0.86, "alerts_per_1000": 700},
   "baselineMetrics": {"auc": 0.78}
 }
 JSON
@@ -117,7 +126,7 @@ echo "  Aggregation creates a candidate. It does not create a release."
 
 rule "4. The same layers, driven by a real app"
 if [[ -x "${REPO_ROOT}/apps/healthcare-demo/scripts/run_pilot.sh" ]]; then
-  DAGENTS_HOME="${REPO_ROOT}" bash "${REPO_ROOT}/apps/healthcare-demo/scripts/run_pilot.sh" --cohort-size 300
+  DAGENTS_HOME="${REPO_ROOT}" bash "${REPO_ROOT}/apps/healthcare-demo/scripts/run_pilot.sh"
 else
   echo "  (healthcare demo not present)"
 fi

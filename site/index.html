@@ -4,6 +4,14 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Dagents</title>
+    <!-- Apply the stored theme before the first paint, so a dark choice does not
+         flash light. `ThemeToggle.tsx` owns the choice; this only reads it. -->
+    <script>
+      try {
+        var theme = localStorage.getItem("dagents-theme");
+        if (theme === "light" || theme === "dark") document.documentElement.setAttribute("data-theme", theme);
+      } catch (error) {}
+    </script>
     <meta
       name="description"
       content="Dagents is a framework for running analytics and machine learning across many data sources without moving the data."

@@ -243,12 +243,24 @@ Implemented framework capabilities currently include:
   condition packs, pipeline steps, and model adapters without forking the framework
 - separate Docker images for `lma`, `gma`, `core-service`, `model-service`, and `pipeline-service`
 - top-level `docker-compose.yml` for multi-container local or cloud-like deployment
+- role-scoped Postgres access (`agents/common/infrastructure/postgres_roles.py`): every operation
+  runs in one transaction that starts with `SET LOCAL ROLE` and checks `current_user`, and a
+  Postgres audit sink keeps each site's digest chain in its own table
+- vector-aware contribution controls in the Ethical Guard: `clip_contribution` and `add_noise`
+  bound a model update given as a list or a map, and the audit record keeps the norm before and
+  after; a federated worker sends a site's update through the `before_send` Guard to an
+  `UpdateChannel` and puts only its digest and norm in the `SiteResult`
+- incremental per-field statistics (`RunningProfile`), so a site updates its summary with each new
+  record instead of recomputing it
+- a server-side SVG chart renderer (`agents/common/infrastructure/charts.py`, matplotlib) that
+  uses the design system's tokens and returns a table view with every chart
 - a published site at <https://pradyunuydarp.github.io/Dagents/> carrying the documentation, the
-  generated API reference, and both demos; and a deployed healthcare-demo API reading its encounters
-  from Postgres through the framework's own source adapter, with the planner in the image. The
-  stroke demo calls it; the NL2SQL demo replays a capture, because it has no deployed backend. A
-  workflow exercises the deployment itself — guard levers, cohort floor, a governed pilot, the audit
-  chains — because every fault that deployment has had was invisible to the local suites
+  generated API reference, and both demos. The stroke demo calls a deployed healthcare API that
+  keeps each of three hospitals' International Stroke Trial records in its own Postgres schema,
+  with the planner in the image; the NL2SQL demo replays a capture, because it has no deployed
+  backend. A workflow tests the deployment itself (guard levers, cohort floor, a governed pilot,
+  the audit chains, the charts), because every fault that deployment has had passed the local
+  suites. The API's address is kept only in `env/.env.published`
 
 Deliberately **not** implemented, and named so nobody assumes otherwise:
 
@@ -345,6 +357,14 @@ This keeps failure isolation, upgrade independence, explicit contracts, and simp
   the denial is recorded. Never add a fallback that permits a request when the planner fails.
 - Never let aggregation imply release. A candidate model is produced by aggregation; a release
   requires its gates to pass and a human to approve. A gate whose metric is missing blocks.
+- Keep each site's data in that site's store. Every read or write of a site's records goes through
+  that site's store, acting as the site's role. The coordinator never reads site rows; it sees only
+  what sites report (counts, rates the site's planner permits, each audit chain's state and length)
+  and round results. Training labels never leave the site, and a model update never goes into a
+  `SiteResult`, which the coordinator sees; only its digest and clipped norm do.
+- Accept only typed data entry: enums, numeric ranges and yes/no fields, with no free text and no
+  identifiers. A behaviour with two implementations (the in-memory and Postgres stores, the OCaml
+  and Python manifest renderers) runs one test suite against both.
 - Prefer typed contracts and deterministic planning over ad hoc branching in orchestration code.
 - Keep `domain/` pure and push infrastructure concerns behind adapters and interfaces.
 - Treat `services/model-service` as Python-first ML execution infrastructure.
@@ -369,10 +389,13 @@ exercises. The framework site renders the same pages:
 
 Two consumers in this repository show the boundary, and both are published:
 
-- [`apps/healthcare-demo/`](apps/healthcare-demo/README.md) — governance and federated rounds.
+- [`apps/healthcare-demo/`](apps/healthcare-demo/README.md) — governance, federated training and
+  data entry across three hospitals of the International Stroke Trial, each with its own store.
   Live: <https://pradyunuydarp.github.io/Dagents/healthcare-demo/>. The app owns its clinical
-  feature contract, scoring rule, FHIR mapping and intended-use statement; nothing in `agents/`
-  knows what a stroke is, and nothing in the app re-implements a quorum rule.
+  feature contract, the dataset extract, the per-hospital stores, the seed rule, the logistic
+  regression and its parameter-averaging runtime, the FHIR mapping and the intended-use
+  statement; nothing in `agents/` knows what a stroke is, and nothing in the app re-implements a
+  quorum rule.
 - [`services/nl2sql-demo/`](services/nl2sql-demo/README.md) — validation, planning, service checks
   and workload compilation. Live: <https://pradyunuydarp.github.io/Dagents/nl2sql-demo/>. The app
   owns its UI and its SQL generation.

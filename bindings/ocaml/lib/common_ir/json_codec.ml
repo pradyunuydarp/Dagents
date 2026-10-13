@@ -1085,6 +1085,8 @@ let yojson_of_release_decision decision =
                    ("outcome", `String (string_of_gate_outcome result.outcome));
                    ( "observed",
                      match result.observed with Some value -> `Float value | None -> `Null );
+                   ( "threshold",
+                     match result.threshold with Some value -> `Float value | None -> `Null );
                    ("detail", `String result.gate_detail);
                  ])
              decision.gate_results) );

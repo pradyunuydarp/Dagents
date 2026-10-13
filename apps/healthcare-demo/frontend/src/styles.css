@@ -2,55 +2,192 @@
  *
  * Everything structural (tokens, panels, tables, chips, verdicts, controls)
  * comes from `design-system.css`, which is imported first. This file only adds
- * what is specific to this app: the masthead, the guard panel's lever rail, the
- * round/phase sequence, the gate list, and the worklist's severity stripe.
+ * what is specific to this app: the header and its navigation, the guard
+ * panel's controls, the round sequence, the gate list, the charts, the
+ * data-entry form and the worklist's priority stripe.
  *
  * Two rules hold throughout, and they are the design system's rules:
  *   - Colour carries meaning only. Every chromatic element here is a decision
- *     state (permit / narrow / deny) or the one functional blue for focus.
- *   - No state is carried by colour alone. A stripe encodes it in form and the
+ *     state (permit / narrow / deny) or the one blue for links and focus.
+ *   - No state is carried by colour alone. A stripe repeats it in form and the
  *     chip beside it spells the word out, so the page reads in greyscale.
  *
  * Both themes come from the tokens. There is no literal colour below.
  */
 
-/* ===== Shell ============================================================== */
-
-.shell {
-  padding-block: var(--ds-6) var(--ds-7);
-}
+/* ===== Header ============================================================= */
 
 .masthead {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--ds-ground);
+  border-bottom: 1px solid var(--ds-line);
+}
+
+.masthead-inner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--ds-2) var(--ds-5);
+  padding-block: var(--ds-3);
+}
+
+.wordmark {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--ds-2);
+  font-family: var(--ds-font-display);
+  font-size: var(--ds-step-1);
+  font-weight: 700;
+  color: var(--ds-ink);
+  text-decoration: none;
+}
+
+.wordmark-sub {
+  font-family: var(--ds-font-mono);
+  font-size: 0.72rem;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ds-ink-3);
+}
+
+/* Narrow screens: name and theme on the first line, pages on the second. */
+.masthead nav {
+  order: 3;
+  flex-basis: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ds-1) var(--ds-4);
+}
+
+.masthead .theme-toggle { margin-left: auto; }
+
+@media (min-width: 860px) {
+  .masthead nav { order: 0; flex: 1; flex-basis: auto; }
+  .masthead .theme-toggle { margin-left: 0; }
+}
+
+.masthead nav a {
+  color: var(--ds-ink-2);
+  text-decoration: none;
+  padding-block: var(--ds-1);
+  border-bottom: 2px solid transparent;
+  font-size: var(--ds-step--1);
+}
+
+.masthead nav a:hover { color: var(--ds-ink); }
+
+.masthead nav a[aria-current="page"] {
+  color: var(--ds-ink);
+  border-bottom-color: var(--ds-ink);
+}
+
+.theme-toggle {
+  display: inline-flex;
+  border: 1px solid var(--ds-line);
+  border-radius: var(--ds-r-1);
+  overflow: hidden;
+}
+
+.theme-toggle button {
+  font: inherit;
+  font-size: var(--ds-step--1);
+  padding: var(--ds-1) var(--ds-3);
+  background: transparent;
+  color: var(--ds-ink-2);
+  border: 0;
+  border-right: 1px solid var(--ds-line);
+  cursor: pointer;
+}
+
+.theme-toggle button:last-child { border-right: 0; }
+.theme-toggle button:hover { color: var(--ds-ink); background: var(--ds-inset); }
+
+.theme-toggle button.is-active {
+  color: var(--ds-ink);
+  background: var(--ds-inset);
+  font-weight: 600;
+}
+
+/* The group clips its children to its rounded border, so the focus ring is
+ * drawn inside the button, where the clip cannot hide it. */
+.theme-toggle button:focus-visible {
+  outline-offset: -2px;
+  border-radius: 0;
+}
+
+/* ===== Page =============================================================== */
+
+.banners {
+  padding-block: 0;
+}
+
+.banners:empty { display: none; }
+
+.main {
+  padding-top: var(--ds-5);
+}
+
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-5);
+  min-width: 0;
+}
+
+.page-head {
   display: flex;
   flex-direction: column;
   gap: var(--ds-2);
-  padding-bottom: var(--ds-5);
+  padding-bottom: var(--ds-4);
   border-bottom: 1px solid var(--ds-line-strong);
 }
 
-.masthead h1 {
+.page-head h1 {
   font-size: clamp(var(--ds-step-3), 4.2vw, var(--ds-step-4));
   max-width: 34ch;
+}
+
+.page-title-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--ds-3);
 }
 
 .lede {
   color: var(--ds-ink-2);
 }
 
-.panels {
-  display: flex;
-  flex-direction: column;
-  gap: var(--ds-5);
-  margin-top: var(--ds-5);
+.intended-use { max-width: var(--ds-measure); }
+
+.loading {
+  padding-block: var(--ds-3);
 }
 
 .foot {
-  margin-top: var(--ds-6);
-  padding-top: var(--ds-4);
+  margin-top: var(--ds-7);
   border-top: 1px solid var(--ds-line);
   color: var(--ds-ink-3);
   font-size: var(--ds-step--1);
 }
+
+.foot-inner {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-2);
+  max-width: var(--ds-shell);
+}
+
+.foot p {
+  max-width: 96ch;
+  overflow-wrap: anywhere;
+}
+
+.foot strong { color: var(--ds-ink-2); }
 
 /* ===== Panel heads ======================================================== */
 
@@ -59,15 +196,6 @@
   flex-direction: column;
   gap: var(--ds-1);
   min-width: 0;
-}
-
-.head-meta {
-  font-size: var(--ds-step--1);
-  color: var(--ds-ink-3);
-}
-
-.head-select {
-  flex: 0 1 14rem;
 }
 
 /* The guard panel is the argument this demo makes, so it is the one panel that
@@ -112,15 +240,47 @@ ul.lever-notes {
   overflow-wrap: anywhere;
 }
 
+.ds-facts dd.plain {
+  font-family: var(--ds-font-body);
+  font-size: var(--ds-step--1);
+}
+
 .ds-chip--inert {
   background: var(--ds-inert-bg);
   color: var(--ds-inert);
 }
 
+.cell-sub {
+  display: block;
+  color: var(--ds-ink-3);
+  font-size: 0.92em;
+}
+
+.empty-store {
+  color: var(--ds-ink-2);
+}
+
+.suppressed {
+  color: var(--ds-ink-3);
+  font-style: italic;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* Columns and notes that only one screen width shows. */
+.narrow-only { display: none; }
+
 /* ===== Banners ============================================================ */
 
-/* A recorded run and an unrecorded combination are normal states of the page,
- * so they appear in place, not as a message that disappears. */
+/* A recorded run, a cold start and an unrecorded combination are normal states
+ * of the page, so they appear in place, not as a message that disappears. */
 .banner {
   margin-block: var(--ds-4);
   padding: var(--ds-3) var(--ds-4);
@@ -132,6 +292,12 @@ ul.lever-notes {
   font-size: var(--ds-step--1);
   line-height: 1.6;
   max-width: 86ch;
+}
+
+.ds-panel-body > .banner,
+.entry-form > .banner,
+.outcome > .banner {
+  margin-block: 0;
 }
 
 .banner strong {
@@ -156,6 +322,12 @@ ul.lever-notes {
   color: var(--ds-narrow);
 }
 
+.banner.notice {
+  border-left-color: var(--ds-ink-2);
+  background: var(--ds-inset);
+  color: var(--ds-ink);
+}
+
 .banner.error {
   border-left-color: var(--ds-deny);
   background: var(--ds-deny-bg);
@@ -163,8 +335,20 @@ ul.lever-notes {
   overflow-wrap: anywhere;
 }
 
-.outcome > .banner:first-child {
-  margin-top: 0;
+.banner.error ul {
+  margin: var(--ds-2) 0 0;
+  padding-left: var(--ds-5);
+}
+
+/* A reload failed and the last numbers stay on screen. */
+.stale {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-2);
+}
+
+.stale > p {
+  margin: 0;
 }
 
 /* ===== Guard panel ======================================================== */
@@ -178,7 +362,7 @@ ul.lever-notes {
 
 @media (min-width: 920px) {
   .guard-grid {
-    grid-template-columns: minmax(12rem, 16rem) minmax(0, 1fr);
+    grid-template-columns: minmax(12rem, 17rem) minmax(0, 1fr);
     gap: var(--ds-5);
   }
 }
@@ -241,7 +425,7 @@ ul.lever-notes {
   max-width: var(--ds-measure);
 }
 
-/* The strategy is the lever's consequence, so it owns the last column and is
+/* The strategy is the control's consequence, so it owns the last column and is
  * the only emphasised cell in the table. */
 .restrictions .strategy-col,
 .restrictions .strategy {
@@ -256,14 +440,20 @@ ul.lever-notes {
 }
 
 .restrictions .why {
-  color: var(--ds-ink-3);
-  max-width: 34ch;
+  color: var(--ds-ink-2);
+  max-width: 40ch;
+}
+
+/* What the Guard would release, summarised: a count and field names only. */
+.guard-release {
+  padding-top: var(--ds-3);
+  border-top: 1px solid var(--ds-line);
 }
 
 /* ===== Rounds and phases ================================================== */
 
 .pilot-summary {
-  padding-bottom: var(--ds-1);
+  padding-bottom: var(--ds-4);
   border-bottom: 1px solid var(--ds-line);
 }
 
@@ -280,6 +470,7 @@ ul.lever-notes {
   gap: var(--ds-3);
   border-top: 1px solid var(--ds-line);
   padding-top: var(--ds-4);
+  min-width: 0;
 }
 
 .round-head {
@@ -297,7 +488,7 @@ ul.lever-notes {
   text-transform: uppercase;
 }
 
-/* The phases really are a sequence, so they are numbered. Nothing else is. */
+/* The phases are a sequence, so they are numbered. Nothing else is. */
 .phase .round-head h3::before {
   counter-increment: phase;
   content: counter(phase, decimal-leading-zero) " ";
@@ -309,6 +500,12 @@ ul.lever-notes {
   color: var(--ds-ink-3);
   font-size: 0.78rem;
   overflow-wrap: anywhere;
+}
+
+/* The values a hospital sent, as "records 198, completeness 92.4%". */
+.values-sent {
+  min-width: 14rem;
+  color: var(--ds-ink-2);
 }
 
 .round-count {
@@ -325,10 +522,6 @@ ul.lever-notes {
   color: var(--ds-ink-3);
 }
 
-.candidate .verdict strong {
-  text-transform: uppercase;
-}
-
 .verdict-key {
   font-size: 0.72rem;
   font-weight: 500;
@@ -337,11 +530,24 @@ ul.lever-notes {
 }
 
 .verdict-note {
+  font-family: var(--ds-font-body);
   font-size: var(--ds-step--1);
+}
+
+.decision .ds-chip {
+  font-size: var(--ds-step--1);
+  border-color: currentColor;
 }
 
 .reasons {
   max-width: var(--ds-measure);
+}
+
+.approve {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--ds-3);
 }
 
 /* ===== Release gates ====================================================== */
@@ -375,16 +581,76 @@ ul.lever-notes {
 .gates li.not_evaluated { border-left-color: var(--ds-narrow); }
 
 .gates li strong {
-  font-family: var(--ds-font-mono);
   font-weight: 600;
 }
 
+.gate-kind {
+  font-family: var(--ds-font-mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--ds-ink-3);
+}
+
 .gates li .detail {
-  flex: 1 1 22ch;
+  flex: 1 1 100%;
   color: var(--ds-ink-2);
 }
 
-/* ===== Worklist =========================================================== */
+/* ===== Charts ============================================================= */
+
+.chart-grid {
+  display: grid;
+  gap: var(--ds-6) var(--ds-5);
+  grid-template-columns: repeat(auto-fit, minmax(min(26rem, 100%), 1fr));
+}
+
+.chart-single {
+  max-width: 40rem;
+}
+
+.chart {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-2);
+  margin: 0;
+  min-width: 0;
+}
+
+.chart h3 {
+  font-size: var(--ds-step-0);
+}
+
+.chart-scroll {
+  overflow-x: auto;
+  min-width: 0;
+}
+
+.chart-image {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--ds-line);
+  border-radius: var(--ds-r-1);
+}
+
+.chart-placeholder {
+  aspect-ratio: 480 / 316;
+  width: 100%;
+  background: var(--ds-inset);
+  border: 1px solid var(--ds-line);
+  border-radius: var(--ds-r-1);
+}
+
+.chart-unavailable {
+  padding: var(--ds-4);
+  border: 1px dashed var(--ds-line-strong);
+  border-radius: var(--ds-r-1);
+  color: var(--ds-ink-2);
+  font-size: var(--ds-step--1);
+}
+
+/* ===== Hospital page ====================================================== */
 
 /* Priority is a left stripe on the row plus the chip's own word. */
 .worklist tbody td:first-child {
@@ -398,27 +664,260 @@ ul.lever-notes {
 
 .basis {
   color: var(--ds-ink-3);
-  max-width: 32ch;
+  max-width: 36ch;
+}
+
+.profile .summary {
+  color: var(--ds-ink-2);
+  font-family: var(--ds-font-mono);
+  font-size: 0.92em;
+}
+
+.outcome-control {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--ds-2);
+}
+
+.outcome-control .ds-btn {
+  padding: 2px var(--ds-3);
+}
+
+.outcome-label {
+  color: var(--ds-ink-3);
+  font-size: 0.92em;
+}
+
+.ds-table th.wrap-head {
+  white-space: normal;
+}
+
+.assessment-warning {
+  margin-top: var(--ds-2);
+  color: var(--ds-ink-2);
+  font-size: var(--ds-step--1);
+}
+
+.outcome-value {
+  font-family: var(--ds-font-mono);
+  font-weight: 600;
+}
+
+.audit-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  max-height: 32rem;
+  overflow-y: auto;
+  border-top: 1px solid var(--ds-line);
+}
+
+.audit-list li {
+  display: flex;
+  gap: var(--ds-3);
+  align-items: baseline;
+  padding: var(--ds-2) 0;
+  border-bottom: 1px solid var(--ds-line);
+  font-size: var(--ds-step--1);
+}
+
+.audit-list .ds-chip { flex: 0 0 auto; min-width: 5.5rem; justify-content: center; }
+
+.audit-text {
+  color: var(--ds-ink-2);
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+
+/* ===== Data entry ========================================================= */
+
+.entry-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-5);
+}
+
+.form-grid {
+  display: grid;
+  gap: var(--ds-4) var(--ds-5);
+  grid-template-columns: repeat(auto-fill, minmax(min(17rem, 100%), 1fr));
+}
+
+.form-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-1);
+  min-width: 0;
+  padding-left: var(--ds-3);
+  border-left: 2px solid transparent;
+}
+
+.form-field.has-error {
+  border-left-color: var(--ds-deny);
+}
+
+.field-label {
+  font-family: var(--ds-font-body);
+  font-size: var(--ds-step--1);
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--ds-ink);
+}
+
+.ds-field > span.field-label {
+  font-family: var(--ds-font-body);
+  font-size: var(--ds-step--1);
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--ds-ink);
+}
+
+.field-label .required,
+.field-label .optional {
+  font-family: var(--ds-font-mono);
+  font-size: 0.72rem;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ds-ink-3);
+}
+
+.choice-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ds-1) var(--ds-4);
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+
+.choice-row legend {
+  width: 100%;
+  padding: 0;
+  margin-bottom: var(--ds-1);
+}
+
+.choice-row .ds-check { color: var(--ds-ink); }
+
+.field-hint {
+  color: var(--ds-ink-3);
+  font-size: 0.78rem;
+}
+
+.field-error {
+  color: var(--ds-deny);
+  font-size: var(--ds-step--1);
+  font-weight: 600;
+}
+
+.ds-input[aria-invalid="true"] {
+  border-color: var(--ds-deny);
+}
+
+.ds-input:disabled {
+  background: var(--ds-inset);
+  color: var(--ds-ink-3);
+  cursor: not-allowed;
+}
+
+.choice-row:disabled .ds-check {
+  color: var(--ds-ink-3);
+  cursor: not-allowed;
+}
+
+.form-actions {
+  border-top: 1px solid var(--ds-line);
+  padding-top: var(--ds-4);
+}
+
+.entry-columns {
+  display: grid;
+  gap: var(--ds-5);
+  grid-template-columns: repeat(auto-fit, minmax(min(20rem, 100%), 1fr));
+}
+
+.entry-columns h3,
+[data-panel="entry-result"] h3 {
+  font-size: var(--ds-step-0);
+  margin-bottom: var(--ds-2);
+}
+
+.record th {
+  font-family: var(--ds-font-body);
+  font-size: var(--ds-step--1);
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--ds-ink-2);
+  font-weight: 500;
+  white-space: normal;
+}
+
+.next-steps {
+  margin: 0;
+  padding-left: var(--ds-5);
+  display: grid;
+  gap: var(--ds-2);
+  max-width: var(--ds-measure);
+  color: var(--ds-ink-2);
 }
 
 /* ===== Narrow screens ===================================================== */
 
-/* At 400px the panels keep their hairlines and lose their generous gutter;
- * wide tables scroll inside their own container, never the page. */
-@media (max-width: 560px) {
-  .shell {
-    padding-block: var(--ds-5) var(--ds-6);
-  }
-
+/* At 375px the panels keep their hairlines and lose their wide gutter. Less
+ * important columns move into the cell beside them or out of the table, so the
+ * page never scrolls sideways. */
+@media (max-width: 640px) {
   .ds-panel > * {
     padding-inline: var(--ds-4);
   }
 
-  .head-select {
-    flex: 1 1 100%;
-  }
-
+  .wide-only,
   .basis {
     display: none;
+  }
+
+  .narrow-only {
+    display: block;
+  }
+
+  .hospitals th {
+    white-space: normal;
+  }
+
+  /* The buttons carry the group's label for screen readers; the visible
+   * label takes too much room here. */
+  .outcome-label {
+    display: none;
+  }
+
+  ul.narrow-only {
+    display: flex;
+  }
+
+  .masthead-inner {
+    gap: var(--ds-2) var(--ds-3);
+  }
+
+  .theme-toggle button {
+    padding: var(--ds-1) var(--ds-2);
+  }
+
+  .audit-list li {
+    flex-direction: column;
+    gap: var(--ds-1);
+  }
+
+  /* A chart is drawn for 480px. Scaled to a 375px screen its text would be
+   * about 6px, so it keeps its size and scrolls inside .chart-scroll. */
+  .chart-image,
+  .chart-placeholder {
+    width: 480px;
+    max-width: none;
   }
 }

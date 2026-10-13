@@ -1,11 +1,16 @@
 #!/usr/bin/env python3
 """Apply the demo's SQL migrations, in order, exactly once each.
 
-Migrations are applied by a workflow rather than by hand, so what is in the
-database is whatever is committed — and re-running is safe. Each file runs in
-its own transaction and is recorded in `public.schema_migrations`; a file that
-has already been applied is skipped rather than re-run, because a migration
-written idempotently today is not guaranteed to be written that way tomorrow.
+A workflow applies the migrations, not a person, so the database holds what is
+committed. Running the script again is safe. Each file runs in its own
+transaction and is recorded in `public.schema_migrations`. A file that has
+already been applied is skipped, because a later migration may not be written
+to run twice.
+
+Run it as the project's login role (`postgres` on Supabase). Migration 0002
+creates roles, so that role needs CREATEROLE, and PostgreSQL 15 or later. On 15
+the login role inherits the site roles' privileges; 0002 explains what that
+changes.
 
 The connection string comes from the environment and never from a file in the
 repository:
@@ -25,22 +30,41 @@ import sys
 
 APP_ROOT = Path(__file__).resolve().parents[1]
 MIGRATIONS = APP_ROOT / "supabase" / "migrations"
+# The Dagents checkout: two levels up inside the Dagents repository, or
+# DAGENTS_HOME after scripts/extract_repo.sh moved the app into its own.
+FRAMEWORK_ROOT = Path(os.environ.get("DAGENTS_HOME") or APP_ROOT.parents[1])
 
 # The hint for Supabase's IPv6-only direct host lives with the app's data code,
 # so there is one copy of it rather than three that drift.
 sys.path.insert(0, str(APP_ROOT / "backend"))
-sys.path.insert(0, str(APP_ROOT.parents[1]))
+sys.path.insert(0, str(FRAMEWORK_ROOT))
 try:
-    from app.services.encounters import connection_hint
-except ImportError:  # pragma: no cover - the app is importable in every real run
+    from app.services.db_hints import connection_hint
+except Exception:  # pragma: no cover - the hint is optional; the migrations are not
     def connection_hint(_: str) -> str:
         return ""
 
+#: The ledger lives in `public`, where Supabase's Data API roles may read new
+#: tables by default. Row level security with no policy, and the revokes, keep
+#: them out. The revokes run only where those roles exist.
 LEDGER = """
 create table if not exists public.schema_migrations (
     filename   text primary key,
     applied_at timestamptz not null default now()
-)
+);
+alter table public.schema_migrations enable row level security;
+revoke all on public.schema_migrations from public;
+do $$
+declare
+    r text;
+begin
+    foreach r in array array['anon', 'authenticated', 'service_role'] loop
+        if exists (select 1 from pg_roles where rolname = r) then
+            execute format('revoke all on public.schema_migrations from %I', r);
+        end if;
+    end loop;
+end
+$$;
 """
 
 

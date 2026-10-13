@@ -3,10 +3,10 @@
   "study_id": "stroke-triage-pilot",
   "condition_id": "suspected_stroke",
   "phase": "analytics",
-  "model_version": "stroke-rule-seed-v1",
-  "model_artifact_digest": "sha256:demo-seed-rule",
-  "training_code_digest": "sha256:demo-stroke-rule-v1",
-  "feature_contract_version": "stroke-triage-features-v2",
+  "model_version": "stroke-outcome-rule-v1",
+  "model_artifact_digest": "sha256:04177e54a0c7c829a484a962f37eb0945a39f1ff7e5dc3319b266842fc3bd416",
+  "training_code_digest": "sha256:04177e54a0c7c829a484a962f37eb0945a39f1ff7e5dc3319b266842fc3bd416",
+  "feature_contract_version": "stroke-triage-features-v3",
   "privacy_profile": "stroke-consortium-profile-v1",
   "aggregation": {
     "kind": "secure_aggregation",
@@ -25,8 +25,8 @@
     "unsafe_metric"
   ],
   "invited_sites": [
-    "lakeside-community",
-    "northgate-university",
-    "riverside-general"
+    "ch-245",
+    "it-002",
+    "uk-134"
   ]
 }

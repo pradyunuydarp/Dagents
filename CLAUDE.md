@@ -71,8 +71,10 @@ services/
   spring-services/    Spring Boot control + core services
   nl2sql-demo/        demo app that uses the framework's services
 apps/
-  healthcare-demo/    self-contained stroke-triage demo with its own README, tests and
-                      compose file; scripts/extract_repo.sh turns it into its own repository
+  healthcare-demo/    self-contained stroke-triage demo on real International Stroke Trial
+                      records from three hospitals, one store per hospital, with its own
+                      README, tests and compose file; scripts/extract_repo.sh turns it into
+                      its own repository
 site/            the framework site: home page, the learning guide, the API reference
 design/          the design system source, copied into each frontend by a script
 tests/           checks that span more than one service
@@ -155,6 +157,22 @@ The healthcare demo has its own suite:
 cd apps/healthcare-demo && PYTHONPATH=../..:backend ../../.venv/bin/python -m unittest discover -s tests -t .
 ```
 
+**The Postgres tests need a database URL.** The per-hospital stores, the role
+isolation and the Postgres pilot run against a real PostgreSQL 16 server. Each
+test creates a scratch database, adds Supabase's roles
+(`apps/healthcare-demo/supabase/emulate_supabase_roles.sql`), applies the
+migrations as a non-superuser and drops everything afterwards. Point them at an
+admin login:
+
+```bash
+export HEALTHCARE_DEMO_TEST_DATABASE_URL=postgresql://admin:pw@127.0.0.1:5432/postgres  # healthcare suite
+export DAGENTS_TEST_DATABASE_URL=postgresql://admin:pw@127.0.0.1:5432/postgres          # agents/tests/test_postgres_roles.py
+```
+
+Without them these tests skip with a message that starts `database test
+skipped`. The in-memory store runs the same assertions without a database, so
+both store implementations are tested.
+
 ### CI
 
 `.github/workflows/ci.yml` runs the same commands, one job per layer: `planners`
@@ -167,9 +185,20 @@ Two guard scripts catch runs that look green but are not:
 
 ```bash
 python -m unittest discover -s agents/tests -t . -v 2>&1 | tee suite.log
-python scripts/ci_no_skipped_planner_tests.py suite.log   # fails on a planner-related skip
-.venv/bin/python scripts/service_inventory.py --check      # fails when a route is undocumented
+python scripts/ci_no_skipped_tests.py --forbid planner --forbid charts suite.log  # fails on a forbidden skip
+.venv/bin/python scripts/service_inventory.py --check                             # fails when a route is undocumented
 ```
+
+`ci_no_skipped_tests.py` reads a verbose unittest log. `--forbid` takes a
+category of skip that fails the run: `planner` (no `dagentsc`), `database` (no
+test database URL) or `charts` (no matplotlib). `--require-ran MODULE.CLASS`
+fails unless that test class ran at least one test, which also catches a class
+that skipped in `setUpClass`. The `demo-apps` job runs a Postgres 16 service
+container, so it forbids database skips and requires each Postgres test class
+to have run. `tests/test_ci_guards.py` finds every test class that needs a
+database and fails if one is missing from that list; a new class goes in both
+`ci.yml` and `healthcare-data.yml`. `scripts/ci_no_skipped_planner_tests.py
+LOG` still works; it runs the guard with `--forbid planner`.
 
 Docker and Minikube are not in CI; see **Current state**.
 
@@ -182,11 +211,18 @@ framework site at the root and the two demos below it. The addresses are in
 | | |
 |---|---|
 | framework site | <https://pradyunuydarp.github.io/Dagents/> |
-| stroke-triage demo | <https://pradyunuydarp.github.io/Dagents/healthcare-demo/> (calls the live API) |
+| stroke-triage demo | <https://pradyunuydarp.github.io/Dagents/healthcare-demo/> (calls the deployed healthcare API) |
 | NL2SQL demo | <https://pradyunuydarp.github.io/Dagents/nl2sql-demo/> (replays a recording) |
-| healthcare API | <https://dagents-healthcare-api.onrender.com> (Postgres-backed, planner in the image) |
 
-NL2SQL has no deployed backend, so the workflow records a real one first:
+The deployed healthcare API keeps each hospital's records in its own Postgres
+schema and has the planner in its image. Its address is written only in
+`env/.env.published`, which the Pages build reads. Never copy it into a README,
+the guide or the UI: `tests/test_publishing_guards.py` fails if the API's host
+appears in any tracked file outside `env/` and `.github/`. Docs that call the
+API use one run locally (`apps/healthcare-demo/scripts/run_local_demo.sh`).
+
+NL2SQL has no deployed backend, and the healthcare demo needs a replay for when
+its API is down, so the workflow records real runs first:
 
 ```bash
 cd bindings/ocaml && opam exec -- dune build ./bin/dagentsc.exe && cd -
@@ -197,8 +233,9 @@ cd site && npm install && npm run build && npm run check         # the site, che
 
 The capture script refuses to run without `dagentsc`. The Guard fails closed, so
 a recording made without the planner would hold only denials. The checker
-refuses a recording whose guard controls change nothing. Recordings are
-gitignored; the workflow makes them.
+refuses a recording whose guard controls change nothing, or that lacks a
+request the UI sends at the exact path and query string it sends it. Recordings
+are gitignored; the workflow makes them.
 
 The site's learning guide is `docs/learn/*.md`. `npm run check` visits every
 guide page in Chromium and fails if a Mermaid diagram does not draw, an image
@@ -233,13 +270,19 @@ apps/healthcare-demo/scripts/run_local_demo.sh             # the API alone on :8
 
 All of them need `dagentsc`. Without it the Ethical Guard denies every request,
 which is correct but makes every panel a denial, so the scripts check first.
+Without `HEALTHCARE_DEMO_DATABASE_URL`, each hospital keeps its records in
+memory, loaded from the committed extract in `apps/healthcare-demo/data/ist/`.
 
 The frontend smoke test (`apps/healthcare-demo/frontend/smoke.mjs`) drives the
 real UI against a live backend. It checks that each of the guard's three
-controls changes the strategy, runs a full pilot, and fails on any console
-error. A typecheck and a bundle only prove that the app compiles. The smoke test
-exits 2 and prints `SKIP` when no browser is available; report that as skipped,
-not passed.
+controls changes the `systolic_bp` strategy, runs a full pilot, opens a hospital
+view and checks that its charts draw, submits a data entry and checks that the
+record appears, switches to the dark theme and checks that the charts are drawn
+again, checks that a 503 without the app's `X-Dagents-App` header shows the
+connecting banner while the app's own 503 shows at once, and fails on any
+console error. A typecheck
+and a bundle only prove that the app compiles. The smoke test exits 2 and prints
+`SKIP` when no browser is available; report that as skipped, not passed.
 
 ### Service ports
 
@@ -359,17 +402,19 @@ the tree. Edit the source, never a copy.
 The style is an instrument panel. The most important rule: **colour carries
 meaning only.** Colours mark the decision states (permit, narrow, deny) and
 links. A decorative colour could be mistaken for a decision, so there is no
-accent colour; hierarchy comes from type, weight and thin rules.
+accent colour; hierarchy comes from type, weight and thin rules. Charts add
+three series tokens (`--ds-series-1` to `--ds-series-3`), used only inside
+charts, that mark identity (which hospital), never a decision.
 
 ### Published demos replay a real run or call a real API
 
 Both demo frontends have a transport in `src/api.ts`. It calls the backend
 locally, and when built with `VITE_DAGENTS_STATIC=1` it replays
 `public/recording.json`. The healthcare demo has a third mode: built with
-`VITE_HEALTHCARE_API_BASE`, it calls the deployed API, which reads its cohorts
-from the Supabase encounter store. The Pages workflow takes that address from
-`env/.env.published` (committed, because it is a public URL, not a secret) or
-from a `HEALTHCARE_API_BASE` repository variable. Rules:
+`VITE_HEALTHCARE_API_BASE`, it calls the deployed API, which keeps each
+hospital's records in its own Postgres schema. The Pages workflow takes that
+address from `env/.env.published` (committed, because it is a public URL, not a
+secret) or from a `HEALTHCARE_API_BASE` repository variable. Rules:
 
 - **Never fake a response.** A request the recording does not hold raises
   `NotRecordedError`, and the UI says so.
@@ -377,10 +422,17 @@ from a `HEALTHCARE_API_BASE` repository variable. Rules:
   would hold only denials. The capture script and the checker both refuse.
 - **A live build never falls back to the recording**, even when the API is
   down; it reports the outage. The workflow chooses once, at build time: it
-  probes the API, publishes the replay if the API does not answer, and logs why.
+  probes the API, publishes the replay if the API does not answer, is not
+  reading Postgres, reports a store not ready, returns no rows or refuses the
+  Pages origin, and logs why.
 - **The page shows the data source the backend reports**
-  (`/api/v1/framework/status`), so a reader can tell stored records from
-  generated ones.
+  (`/api/v1/framework/status` returns `cohort_source`: `postgres` or
+  `in-memory`), never one inferred from the configured address.
+- **The page never shows the API's address**, a hosting vendor's name or
+  cold-start internals. During a cold start it says it is connecting to the demo
+  server.
+- **Data entry is disabled in a replay**, with a plain explanation. The
+  recording holds no entry responses, and a replay must not invent one.
 - The page names the commit it was recorded from.
 
 ### Governance: where each part lives
@@ -410,6 +462,41 @@ accuracy, which the healthcare demo measures. A deployment that finds the cost
 too high should change the field's sensitivity in its classification, not this
 code.
 
+### Site data stays in the site's store
+
+The healthcare demo keeps each hospital's records in a store of its own: one
+Postgres schema and one `NOLOGIN` role per hospital, or an in-memory store per
+hospital when no database is configured. These rules hold for both:
+
+- **Every read or write of a site's data goes through that site's store, acting
+  as that site's role.** Each database operation runs in one transaction that
+  starts with `SET LOCAL ROLE` and checks `current_user`
+  (`agents/common/infrastructure/postgres_roles.py`, `acting_as`). Never use a
+  session-level `SET ROLE`; a pooled connection would keep it.
+- **The coordinator never reads site rows.** It sees what sites report: counts,
+  rates the site's planner permits (at least the minimum cohort), round
+  results, and each audit chain's state and length, never its records. The
+  coordinator role has no grant on any site schema.
+- **Training labels never leave the site.** A site trains on the Guard's
+  `before_read` payload, in its own process, and returns a parameter update.
+- **The update vector never enters `SiteResult`.** The worker sends it through
+  the `before_send` Guard, which clips it, and hands the clipped vector to an
+  `UpdateChannel`. `SiteResult` carries only `update_digest` and `update_norm`,
+  because results are shown to the coordinator.
+- **Entries are typed.** The data-entry body has enums, numeric ranges and
+  yes/no fields only. It accepts no free text and no identifiers, because the
+  public demo has no accounts.
+- **Two store implementations share one test suite.** `MemorySiteStore` and
+  `PostgresSiteStore` run the same assertions; the Postgres run needs
+  `HEALTHCARE_DEMO_TEST_DATABASE_URL`.
+
+On Supabase the API connects with one credential, and that role also holds
+`pg_read_all_data`. So the isolation binds the code paths (every query runs as a
+site role), not the credential. A real deployment gives each site's LMA its own
+login and database; the store reads an optional per-site connection string,
+`HEALTHCARE_DEMO_SITE_<SITE>_DATABASE_URL` (for example
+`HEALTHCARE_DEMO_SITE_UK_134_DATABASE_URL`).
+
 ### Federated rounds
 
 `bindings/ocaml/lib/federation_compiler` makes every deterministic decision:
@@ -432,8 +519,8 @@ condition packs, named pipeline steps and named model adapters. Registration is
 explicit, and two extensions registering the same id is an error, because
 otherwise a guard decision would depend on import order.
 
-`apps/healthcare-demo/backend/app/extension.py` is the reference: about eighty
-declarative lines that import no framework internals. If a new application needs
+`apps/healthcare-demo/backend/app/extension.py` is the reference: about a
+hundred declarative lines that import no framework internals. If a new application needs
 something that does not fit this interface, improve the interface instead of
 working around it.
 
@@ -446,10 +533,13 @@ The two demos show the boundary:
   planning, service checks and workload compilation. See
   `services/nl2sql-demo/backend/app/services/dagents_orchestrator.py` for how an
   app calls the services.
-- Healthcare: the app owns its clinical feature contract, scoring rule, FHIR
-  mapping and intended-use statement; Dagents owns governance, federation and
-  everything generic. See `apps/healthcare-demo/backend/app/extension.py` for
-  the extension.
+- Healthcare: the app owns its clinical feature contract, the dataset extract,
+  the per-hospital stores, the scoring rule, the logistic regression model and
+  its parameter-averaging runtime, the FHIR mapping and the intended-use
+  statement. Dagents owns governance, federation, role scoping
+  (`postgres_roles.py`), the running profile, the chart renderer and everything
+  else generic. See `apps/healthcare-demo/backend/app/extension.py` for the
+  extension.
 
 Nothing in `agents/` knows what a stroke is, and nothing in the healthcare app
 implements a quorum rule. Apply that test to a new capability: if it would need a

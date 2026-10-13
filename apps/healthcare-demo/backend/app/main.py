@@ -1,26 +1,38 @@
 """FastAPI entrypoint for the Dagents healthcare stroke-triage demo.
 
-This app is a consumer of the Dagents framework, not part of it. It contributes
-a feature contract, a data classification, a condition pack, and a scoring rule;
-the framework supplies validation, restriction planning, guard enforcement,
-round planning, quorum, release gates, and workload compilation.
+This app uses the Dagents framework; it is not part of it. It contributes a
+feature contract, a data classification, a condition pack, a seed rule and a
+model encoding. The framework supplies validation, restriction planning, Guard
+enforcement, round planning, quorum, release gates and workload compilation.
 
-**Every patient record here is synthetic, and nothing this app returns is
-clinical advice.** The scoring rule is a transparent demonstration of where a
-condition-specific model plugs in, not a validated triage model.
+The records are real, de-identified records from the International Stroke
+Trial (1991-1996), grouped by hospital. Each hospital's records are in its own
+store: its own schema and role in Postgres, or its own in-memory store when no
+database is configured. Nothing this app returns is clinical advice.
+
+Building the app reads no records and opens no database connection. The
+stores are opened on first use and closed when the app shuts down.
 """
 
 from __future__ import annotations
 
-from typing import Any
+import logging
+from contextlib import asynccontextmanager
+from typing import Any, AsyncIterator, Literal
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Response
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from agents.common.domain.governance import KyuAttribute, Requester, RestrictionRequest
 from agents.common.extensions import default_registry
+from agents.common.infrastructure.charts import ChartsUnavailableError
+from agents.common.infrastructure.dagents_runner import PlannerUnavailableError
 
+from app.api.app_header import APP_HEADER, AppHeader
+from app.api.errors import UNEXPECTED_ERROR_MESSAGE, UnhandledErrors
+from app.api.limits import BodySizeLimit, HourlyCap, RateLimiter, SingleFlight, forwarded_for_entries, retry_after
 from app.core.config import settings
 from app.domain import stroke_rule
 from app.domain.conditions import (
@@ -29,82 +41,342 @@ from app.domain.conditions import (
     STROKE_CLASSIFICATION,
     STROKE_CONDITION,
     STROKE_FEATURE_CONTRACT,
+    STROKE_FIELD_DOMAINS,
 )
-from app.domain.fhir import map_bundle, map_encounter
+from app.domain.dataset import UnknownSiteError
+from app.domain.fhir import map_bundle
 from app.extension import install
 from app.models import (
+    IDEMPOTENCY_KEY_MAX_LENGTH,
+    IDEMPOTENCY_KEY_PATTERN,
+    EncounterEntry,
     FhirIngestRequest,
     GuardProbeRequest,
+    GuardProbeResponse,
+    OutcomeRequest,
     PilotRequest,
     TriageRequest,
     WorklistRequest,
+    entry_form_fields,
 )
-from app.services.consortium import Consortium
-from app.services.encounters import CohortUnavailableError
+from app.services.charts_service import ChartNotAvailable, ChartService, UnknownChartError
+from app.services.consortium import ApprovalRefused, Consortium
 from app.services.framework_client import FrameworkClient
+from app.services.hospital import EntryLimitReached, Hospital
+from app.services.site_store import (
+    IdempotencyKeyReused,
+    OutcomeAlreadyRecorded,
+    RecordRejected,
+    StoreNotSetUpError,
+    StoreUnavailableError,
+    UnknownEncounterError,
+    UnknownModelError,
+    not_set_up_errors,
+)
+
+try:
+    import psycopg
+except ModuleNotFoundError:  # pragma: no cover - psycopg is in requirements.txt
+    psycopg = None  # type: ignore[assignment]
+
+logger = logging.getLogger("healthcare_demo")
+
+#: The message a visitor sees when a store cannot be reached or a database
+#: operation fails. The database error itself names the host and user, so it
+#: is logged, never returned.
+STORE_UNAVAILABLE_MESSAGE = "The hospital records cannot be reached right now. Try again in a minute."
+
+#: The message a visitor sees when the database lacks a schema, table, role or
+#: grant this version of the app needs: the migrations have not run yet.
+DATABASE_NOT_SET_UP_MESSAGE = (
+    "The demo database is not set up for this version of the app yet, so the hospital records cannot be "
+    "shown. Try again later."
+)
+
+#: The message a visitor sees when the planner cannot be run.
+PLANNER_UNAVAILABLE_MESSAGE = "The planner is not available right now, so the pilot cannot run. Try again in a minute."
+
+OUTCOME_ALREADY_RECORDED_MESSAGE = "This record already has an outcome. It cannot be changed."
+
+#: The requester and purpose of every Guard probe. A probe body takes no free
+#: text, because the hospital's audit chain records both and every visitor can
+#: read it.
+PROBE_REQUESTER_ID = "demo-operator"
+PROBE_PURPOSE = STROKE_APPROVED_PURPOSES[0]
+
+#: The model versions ``GET /api/v1/models`` lists: the newest, besides the
+#: model in use. Every pilot registers several.
+MODELS_LISTED = 20
+
+#: What the data-entry form asks of everyone who uses it.
+ENTRY_NOTICE = (
+    "Do not enter real patient information. This is a public demo: anything entered here is stored "
+    "in the hospital's demo store and is visible to every visitor."
+)
+
+PILOT_BUSY_MESSAGE = "A pilot is already running. Try again when it finishes."
 
 if settings.register_extension:
     install()
 
 consortium = Consortium(
-    cohort_size=settings.cohort_size,
-    secure_aggregation_threshold=settings.secure_aggregation_threshold,
     database_url=settings.database_url,
+    secure_aggregation_threshold=settings.secure_aggregation_threshold,
+    max_entered_per_site=settings.max_entered_per_site,
 )
 framework = FrameworkClient(settings)
+chart_service = ChartService()
+
+#: Per-client limits on the POST endpoints. Tests replace them with
+#: ``rate_limits.configure``.
+rate_limits = RateLimiter(
+    {
+        "entries": settings.rate_limit_entries_per_minute,
+        "probes": settings.rate_limit_probes_per_minute,
+        "pilots": settings.rate_limit_pilots_per_minute,
+        "approvals": settings.rate_limit_approvals_per_minute,
+    },
+    forwarded_for_hops=settings.client_proxy_hops(),
+)
+pilot_flight = SingleFlight()
+
+#: Caps on Guard probes per hospital and on pilots in any 60 minutes, for
+#: every visitor together. Tests replace them with ``hourly_caps.configure``.
+hourly_caps = HourlyCap({"probes": settings.probes_per_site_per_hour, "pilots": settings.pilots_per_hour})
+
+
+def _over_hourly_cap(wait: float, action: str) -> HTTPException:
+    """The 429 for an action beyond its hourly cap."""
+    header, minutes = retry_after(wait)
+    return HTTPException(
+        status_code=429,
+        detail=f"The demo's hourly limit for {action} is reached. Try again in {minutes}.",
+        headers={"Retry-After": header},
+    )
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+    """Close every store's database connection when the app shuts down."""
+    try:
+        yield
+    finally:
+        consortium.close()
+
 
 app = FastAPI(
     title=settings.app_name,
-    version="0.1.0",
+    version="0.3.0",
     description=(
-        "A Dagents demo app for federated stroke-triage support. All data is synthetic; "
-        "nothing here is a validated clinical model or clinical advice."
+        "A Dagents demo app for federated stroke triage, on de-identified records from the International "
+        "Stroke Trial. Nothing here is a validated clinical model or clinical advice."
     ),
+    lifespan=lifespan,
 )
+app.add_middleware(BodySizeLimit, max_bytes=settings.max_body_bytes)
+# Inside the CORS middleware and the marker, so the 500 it sends for an
+# unhandled error carries both. Starlette's own 500 comes from outside them.
+app.add_middleware(UnhandledErrors)
+# Outside the body limit, so every response carries the CORS headers, including
+# a 413, a 429 or a 500. The published frontend is on a different origin, and a
+# response without them looks to the browser like a network error.
 app.add_middleware(
     CORSMiddleware,
-    # The published frontend is on a different origin from the API, so this is
-    # what stands between a working demo and a page whose every request the
-    # browser blocks — which looks like the API being down, not like a policy.
     allow_origins=settings.allowed_origins(),
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["Retry-After", "ETag", APP_HEADER],
 )
+# Added last, so it is the outermost layer and every response the app sends
+# carries X-Dagents-App: a 413 from the body limit, a CORS preflight and the
+# app's own 503. The frontend retries a 502, 503 or 504 without it, which comes
+# from the platform while the container starts, and shows one with it at once.
+app.add_middleware(AppHeader)
 
 
-@app.exception_handler(CohortUnavailableError)
-def cohort_unavailable(request: Request, exc: CohortUnavailableError) -> JSONResponse:
-    """A configured encounter store that cannot be read is a 503.
+# --- Errors -----------------------------------------------------------------------------
 
-    Not a 500, which would say the app is broken, and emphatically not a
-    generated cohort in its place, which would say the data is live when it is
-    invented. 503 is the honest answer: this service is configured to serve
-    something it currently cannot reach, and the reason travels with it.
 
-    `/api/v1/health` deliberately does not touch the store, so the platform's
-    health check keeps the service up and this message stays reachable.
+def _short(value: object, limit: int = 100) -> str:
+    text = str(value)
+    return text if len(text) <= limit else text[:limit] + "…"
+
+
+def _not_set_up(request: Request, exc: Exception) -> JSONResponse:
+    logger.error(
+        "the database is not set up for this version of the app on %s %s (apply the migrations, then seed): %s",
+        request.method,
+        request.url.path,
+        exc,
+    )
+    return JSONResponse(status_code=503, content={"detail": DATABASE_NOT_SET_UP_MESSAGE})
+
+
+@app.exception_handler(StoreUnavailableError)
+def store_unavailable(request: Request, exc: StoreUnavailableError) -> JSONResponse:
+    """A store that cannot be reached is a 503 with a plain message.
+
+    The app never falls back to other data. ``/api/v1/health`` reads no store,
+    so the platform's health check keeps the service up and this message
+    reachable. A database without this version's tables gets its own message.
     """
+    if isinstance(exc, StoreNotSetUpError):
+        return _not_set_up(request, exc)
+    logger.warning("store unavailable on %s %s: %s", request.method, request.url.path, exc)
+    return JSONResponse(status_code=503, content={"detail": STORE_UNAVAILABLE_MESSAGE})
+
+
+if psycopg is not None:
+
+    @app.exception_handler(psycopg.Error)
+    def database_error(request: Request, exc: Exception) -> JSONResponse:
+        """Any other database error is a 503 with a plain message, never a 500 without CORS headers."""
+        if isinstance(exc, not_set_up_errors()):
+            return _not_set_up(request, exc)
+        logger.error("database error on %s %s: %s: %s", request.method, request.url.path, type(exc).__name__, exc)
+        return JSONResponse(status_code=503, content={"detail": STORE_UNAVAILABLE_MESSAGE})
+
+
+@app.exception_handler(PlannerUnavailableError)
+def planner_unavailable(request: Request, exc: PlannerUnavailableError) -> JSONResponse:
+    logger.error("planner unavailable on %s %s: %s", request.method, request.url.path, exc)
+    return JSONResponse(status_code=503, content={"detail": PLANNER_UNAVAILABLE_MESSAGE})
+
+
+@app.exception_handler(OutcomeAlreadyRecorded)
+def outcome_recorded(_: Request, exc: OutcomeAlreadyRecorded) -> JSONResponse:
+    return JSONResponse(status_code=409, content={"detail": OUTCOME_ALREADY_RECORDED_MESSAGE})
+
+
+@app.exception_handler(RecordRejected)
+def record_rejected(_: Request, exc: RecordRejected) -> JSONResponse:
     return JSONResponse(
-        status_code=503,
-        content={
-            "detail": str(exc),
-            "cohort_source": "configured but unreadable",
-            "records_are_synthetic": True,
-        },
+        status_code=422,
+        content={"detail": "The record was not saved. Correct the fields listed.", "errors": exc.errors},
     )
 
 
-def _hospital(site_id: str):
-    hospital = consortium.hospitals.get(site_id)
-    if hospital is None:
-        raise HTTPException(status_code=404, detail=f"unknown hospital: {site_id}")
-    return hospital
+@app.exception_handler(IdempotencyKeyReused)
+def key_reused(_: Request, exc: IdempotencyKeyReused) -> JSONResponse:
+    return JSONResponse(
+        status_code=409,
+        content={"detail": "This Idempotency-Key was already used for a different record. Send a new key."},
+    )
+
+
+@app.exception_handler(EntryLimitReached)
+def entry_limit(_: Request, exc: EntryLimitReached) -> JSONResponse:
+    return JSONResponse(status_code=409, content={"detail": f"{exc}. No more records can be entered here."})
+
+
+@app.exception_handler(ApprovalRefused)
+def approval_refused(_: Request, exc: ApprovalRefused) -> JSONResponse:
+    return JSONResponse(status_code=409, content={"detail": f"The model cannot be approved: {exc}."})
+
+
+@app.exception_handler(UnknownSiteError)
+def unknown_site(_: Request, exc: UnknownSiteError) -> JSONResponse:
+    site = exc.args[0] if exc.args else ""
+    return JSONResponse(status_code=404, content={"detail": f"There is no hospital with the id {_short(site)!r}."})
+
+
+@app.exception_handler(UnknownEncounterError)
+def unknown_encounter(_: Request, exc: UnknownEncounterError) -> JSONResponse:
+    encounter = exc.args[0] if exc.args else ""
+    return JSONResponse(
+        status_code=404, content={"detail": f"This hospital has no record with the id {_short(encounter)!r}."}
+    )
+
+
+@app.exception_handler(UnknownModelError)
+def unknown_model(_: Request, exc: UnknownModelError) -> JSONResponse:
+    version = exc.args[0] if exc.args else ""
+    return JSONResponse(status_code=404, content={"detail": f"There is no model version {_short(version)!r}."})
+
+
+#: What a value that does not match its pattern must look like.
+PATTERN_MESSAGES = {
+    "idempotency-key": "must be 1-100 letters, digits or the characters . _ : -",
+}
+
+
+#: Plain messages for pydantic's error types, so a form can show them next to
+#: the field. Ranges and choices come from the field's own constraints.
+def _validation_message(error: dict[str, Any], *, entry: bool = False) -> str:
+    kind = error.get("type", "")
+    context = error.get("ctx") or {}
+    field = str(error["loc"][-1]) if error.get("loc") else ""
+    domain = STROKE_FIELD_DOMAINS.get(field)
+    if kind == "missing":
+        return "is required"
+    if kind == "extra_forbidden":
+        # A data entry names the record's fields; any other body is a request.
+        return "not a field of the record" if entry else "not a field of this request"
+    if kind == "literal_error":
+        return f"must be one of {context.get('expected', '').replace(' or ', ', ')}".replace("'", "")
+    if kind in ("bool_type", "bool_parsing"):
+        return "must be true or false"
+    if kind in ("int_type", "int_parsing", "int_from_float"):
+        return "must be a whole number"
+    if kind in ("float_type", "float_parsing", "finite_number"):
+        return "must be a number"
+    if kind in ("greater_than_equal", "less_than_equal", "greater_than", "less_than"):
+        if domain is not None and domain.minimum is not None and domain.maximum is not None:
+            return f"must be between {domain.minimum:g} and {domain.maximum:g}"
+    if kind == "string_pattern_mismatch":
+        return PATTERN_MESSAGES.get(field.lower(), "has characters that are not allowed")
+    if kind == "string_too_long":
+        return f"must be at most {context.get('max_length')} characters"
+    if kind == "json_invalid":
+        return "is not valid JSON"
+    return str(error.get("msg", "is not valid"))
+
+
+def _field_name(location: tuple[Any, ...]) -> str:
+    if not location:
+        return "body"
+    if location[0] == "header" and len(location) > 1:
+        return "-".join(part.capitalize() for part in str(location[1]).split("-"))
+    if location[0] in ("body", "query", "path") and len(location) > 1:
+        return ".".join(str(part) for part in location[1:])
+    return str(location[0])
+
+
+@app.exception_handler(RequestValidationError)
+def invalid_request(request: Request, exc: RequestValidationError) -> JSONResponse:
+    """A 422 that names each field: ``{"detail": ..., "errors": {field: reason}}``."""
+    errors: dict[str, str] = {}
+    entry = request.method == "POST" and request.url.path.endswith("/encounters")
+    for error in exc.errors():
+        location = tuple(error.get("loc") or ())
+        name = "body" if error.get("type") == "json_invalid" else _field_name(location)
+        errors.setdefault(name, _validation_message(error, entry=entry))
+    return JSONResponse(status_code=422, content={"detail": "Some fields are not valid.", "errors": errors})
+
+
+def _hospital(site_id: str) -> Hospital:
+    return consortium.hospital(site_id)
+
+
+def _idempotency_key(
+    key: str | None = Header(
+        default=None,
+        alias="Idempotency-Key",
+        max_length=IDEMPOTENCY_KEY_MAX_LENGTH,
+        pattern=IDEMPOTENCY_KEY_PATTERN,
+        description="Optional. Repeating a key with the same record returns the first entry and adds nothing.",
+    ),
+) -> str | None:
+    return key
+
+
+# --- Health and descriptions ----------------------------------------------------------------
 
 
 @app.get("/health")
 def health() -> dict[str, str]:
-    """Liveness plus a standing reminder that the data here is synthetic."""
+    """Liveness. Reads no store."""
     return settings.as_health_payload()
 
 
@@ -116,18 +388,13 @@ def health_v1() -> dict[str, str]:
 
 @app.get("/api/v1/overview")
 def overview() -> dict[str, Any]:
-    """The consortium, its hospitals, and the gates a candidate must clear."""
+    """The consortium, the numbers each hospital reports, and the release gates."""
     return consortium.overview()
 
 
 @app.get("/api/v1/conditions")
 def conditions() -> dict[str, Any]:
-    """What this app implements, and what it deliberately does not.
-
-    One condition is built. The rest are declared as planned so the boundary
-    stays visible: the coordination platform is reusable across conditions, and
-    each clinical application is not.
-    """
+    """The condition this app implements, the conditions it plans, its contract and classification."""
     return {
         "implemented": [STROKE_CONDITION.model_dump(mode="json")],
         "planned": PLANNED_CONDITIONS,
@@ -138,11 +405,7 @@ def conditions() -> dict[str, Any]:
 
 @app.get("/api/v1/extension")
 def extension() -> dict[str, Any]:
-    """Exactly what this app contributes to the framework.
-
-    Worth reading next to the endpoint list: everything below is declarative,
-    and none of it required changing the framework.
-    """
+    """What this app contributes to the framework, and what each side owns."""
     return {
         "registry": default_registry.describe(),
         "boundary": {
@@ -150,47 +413,41 @@ def extension() -> dict[str, Any]:
                 "source and schema validation",
                 "data-quality rule evaluation",
                 "restriction planning (Ethical-Restriction Rails)",
-                "guard enforcement and audit",
-                "federated round planning, quorum, and aggregation readiness",
+                "Guard enforcement and audit",
+                "federated round planning, quorum and aggregation readiness",
                 "release gate evaluation",
                 "pipeline DAG planning and Kubernetes workload compilation",
             ],
             "app_owns": [
                 "the stroke feature contract and its units",
                 "which fields are sensitive and under which regulations",
-                "the triage scoring rule and its thresholds",
-                "FHIR and HL7 mapping into the contract",
-                "the clinical intended-use statement and its limitations",
+                "the seed outcome rule and the federated model's encoding",
+                "FHIR mapping into the contract",
+                "the intended-use statement and its limitations",
                 "the release gates this condition requires",
             ],
         },
     }
 
 
+# --- Scoring without a store ---------------------------------------------------------------
+
+
 @app.post("/api/v1/triage:assess")
 def assess(request: TriageRequest) -> dict[str, Any]:
-    """Score one canonical record, with the basis for the recommendation."""
+    """Score one record with the seed rule, with the basis for the score."""
     return stroke_rule.assess(request.record).as_dict()
 
 
 @app.post("/api/v1/triage:worklist")
 def worklist(request: WorklistRequest) -> dict[str, Any]:
-    """Rank a set of records by triage priority.
-
-    Ranking only. Nothing is removed from the queue, and suppressed cases stay
-    in the list rather than disappearing from view.
-    """
+    """Rank records by the seed rule's score. Nothing is removed from the list."""
     return {"worklist": stroke_rule.rank_worklist(request.records)}
 
 
 @app.post("/api/v1/ingest:fhir")
 def ingest_fhir(request: FhirIngestRequest) -> dict[str, Any]:
-    """Map a FHIR-shaped bundle into the stroke feature contract.
-
-    Codes the mapper does not recognize are reported, not dropped: a source
-    that changed shape should show up as a gap, not as records that quietly
-    score lower.
-    """
+    """Map a FHIR-shaped bundle into the stroke feature contract, reporting codes it does not know."""
     results = map_bundle(request.bundle)
     return {
         "mapped": [result.as_dict() for result in results],
@@ -199,62 +456,203 @@ def ingest_fhir(request: FhirIngestRequest) -> dict[str, Any]:
     }
 
 
+# --- Hospitals ----------------------------------------------------------------------------
+
+
 @app.get("/api/v1/hospitals")
 def hospitals() -> list[dict[str, Any]]:
-    """The simulated hospitals and how their populations differ."""
-    return [
-        {
-            "site_id": hospital.site_id,
-            "display_name": hospital.display_name,
-            "cohort_size": len(hospital.data_source.records_held),
-            "local_metrics": hospital.local_metrics(),
-        }
-        for hospital in sorted(consortium.hospitals.values(), key=lambda h: h.site_id)
-    ]
+    """What each hospital reports about its records: counts and an outcome rate."""
+    return [consortium.hospitals[site.site_id].summary() for site in consortium.sites]
+
+
+@app.get("/api/v1/hospitals/{site_id}")
+def hospital_dashboard(site_id: str) -> dict[str, Any]:
+    """One hospital's own view: its store, statistics, local metrics and what it sent."""
+    return _hospital(site_id).dashboard()
 
 
 @app.get("/api/v1/hospitals/{site_id}/worklist")
-def hospital_worklist(site_id: str, limit: int = 25) -> dict[str, Any]:
-    """One hospital's ranked worklist, which never leaves the hospital."""
-    hospital = _hospital(site_id)
-    return {"site_id": site_id, "worklist": hospital.local_worklist(limit)}
+def hospital_worklist(site_id: str, limit: int = Query(default=12, ge=1, le=200)) -> dict[str, Any]:
+    """One hospital's records ranked by the model in use. The list stays at the hospital."""
+    return {"site_id": site_id, "worklist": _hospital(site_id).worklist(limit)}
 
 
 @app.get("/api/v1/hospitals/{site_id}/thresholds")
 def hospital_thresholds(site_id: str) -> dict[str, Any]:
-    """How sensitivity and alert burden trade off at one hospital.
-
-    This is what turns a failed sensitivity gate into a decision a clinical
-    owner can actually make, rather than a verdict they can only accept.
-    """
-    hospital = _hospital(site_id)
-    return {"site_id": site_id, "sweep": hospital.threshold_sweep()}
+    """Sensitivity, specificity and alerts at a range of alert thresholds, at one hospital."""
+    return {"site_id": site_id, "sweep": _hospital(site_id).threshold_sweep()}
 
 
 @app.get("/api/v1/hospitals/{site_id}/audit")
-def hospital_audit(site_id: str, limit: int = 50) -> dict[str, Any]:
-    """One hospital's guard decisions and whether its audit chain verifies."""
+def hospital_audit(site_id: str, limit: int = Query(default=50, ge=1, le=500)) -> dict[str, Any]:
+    """One hospital's Guard decisions, newest first, and whether its audit chain verifies."""
     return _hospital(site_id).audit_trail(limit)
 
 
-@app.post("/api/v1/governance:probe")
-def governance_probe(request: GuardProbeRequest) -> dict[str, Any]:
-    """Run one request through the Guard and show exactly what came back.
+@app.get("/api/v1/hospitals/{site_id}/encounters")
+def hospital_encounters(
+    site_id: str,
+    origin: Literal["entered"] = "entered",
+    limit: int = Query(default=20, ge=1, le=300),
+) -> dict[str, Any]:
+    """Records entered at one hospital, newest first, each with its assessment."""
+    hospital = _hospital(site_id)
+    return {
+        "site_id": site_id,
+        "origin": origin,
+        "encounters": hospital.entered(limit),
+        "counts": hospital.counts(),
+        "max_entered": hospital.max_entered,
+    }
 
-    Change the requester's verification, the boundary, or the granularity and
-    the decision changes with it, because the decision is a lookup in the typed
-    planner rather than a branch in this app's code.
+
+@app.get("/api/v1/hospitals/{site_id}/entry-form")
+def hospital_entry_form(site_id: str) -> dict[str, Any]:
+    """The data-entry form, built from the field domains. The browser only renders it."""
+    hospital = _hospital(site_id)
+    counts = hospital.counts()
+    return {
+        "site_id": site_id,
+        "display_name": hospital.display_name,
+        "fields": entry_form_fields(),
+        "max_entered": hospital.max_entered,
+        "entered_count": counts["entered"],
+        "remaining": max(hospital.max_entered - counts["entered"], 0),
+        "idempotency": {
+            "header": "Idempotency-Key",
+            "max_length": IDEMPOTENCY_KEY_MAX_LENGTH,
+            "pattern": IDEMPOTENCY_KEY_PATTERN,
+        },
+        "notice": ENTRY_NOTICE,
+    }
+
+
+@app.post(
+    "/api/v1/hospitals/{site_id}/encounters",
+    status_code=201,
+    dependencies=[Depends(rate_limits.dependency("entries"))],
+)
+def hospital_enter(
+    site_id: str,
+    entry: EncounterEntry,  # type: ignore[valid-type]
+    idempotency_key: str | None = Depends(_idempotency_key),
+) -> dict[str, Any]:
+    """Store a new record at one hospital, as that hospital, and update its running statistics.
+
+    Returns ``{record, assessment, counts, profile}``. The next round, worklist,
+    chart and probe at this hospital include the record.
     """
-    hospital = next(iter(sorted(consortium.hospitals.values(), key=lambda h: h.site_id)))
-    records = hospital.data_source.records_held[: max(request.record_limit, 0)]
+    return _hospital(site_id).enter(entry.model_dump(), client_request_id=idempotency_key)
+
+
+@app.post(
+    "/api/v1/hospitals/{site_id}/encounters/{encounter_id}/outcome",
+    dependencies=[Depends(rate_limits.dependency("entries"))],
+)
+def hospital_outcome(site_id: str, encounter_id: str, request: OutcomeRequest) -> dict[str, Any]:
+    """Record the six-month outcome of a record entered at this hospital.
+
+    Returns ``{record, counts, profile}``. The next pilot trains and evaluates
+    on the labelled record.
+    """
+    return _hospital(site_id).set_outcome(encounter_id, request.poor_outcome_6m)
+
+
+# --- Charts ---------------------------------------------------------------------------------
+
+
+def _svg_response(request: Request, svg: str, etag: str) -> Response:
+    headers = {
+        "ETag": etag,
+        # Revalidate every time: the data behind a chart changes when records
+        # are entered or a pilot runs, and the ETag makes an unchanged chart a
+        # 304.
+        "Cache-Control": "no-cache",
+        "X-Content-Type-Options": "nosniff",
+        "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'",
+    }
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=304, headers=headers)
+    return Response(content=svg, media_type="image/svg+xml", headers=headers)
+
+
+def _draw(request: Request, draw: Any, theme: str) -> Response:
+    try:
+        rendered = draw()
+    except UnknownChartError as error:
+        raise HTTPException(status_code=404, detail=f"There is no chart called {_short(error.args[0])!r}.") from None
+    except ChartNotAvailable as error:
+        raise HTTPException(status_code=404, detail=error.reason) from None
+    except ChartsUnavailableError:
+        logger.error("charts cannot be drawn: matplotlib is not installed")
+        raise HTTPException(status_code=503, detail="Charts cannot be drawn on this server right now.") from None
+    return _svg_response(request, rendered.svg, rendered.etag(theme))
+
+
+@app.get("/api/v1/charts")
+def consortium_charts() -> dict[str, Any]:
+    """The consortium charts, from site summaries and the last pilot. Never a 4xx."""
+    return {"charts": chart_service.consortium_list(consortium)}
+
+
+@app.get("/api/v1/charts/{chart_id}.svg")
+def consortium_chart_svg(
+    request: Request, chart_id: str, theme: Literal["light", "dark"] = "light"
+) -> Response:
+    """One consortium chart as SVG. 404 for a chart that needs a pilot that has not run."""
+    return _draw(request, lambda: chart_service.consortium_svg(consortium, chart_id, theme), theme)
+
+
+@app.get("/api/v1/hospitals/{site_id}/charts")
+def hospital_charts(site_id: str) -> dict[str, Any]:
+    """One hospital's charts, from its own records. Shown only in that hospital's view."""
+    return {"site_id": site_id, "charts": chart_service.site_list(_hospital(site_id))}
+
+
+@app.get("/api/v1/hospitals/{site_id}/charts/{chart_id}.svg")
+def hospital_chart_svg(
+    request: Request, site_id: str, chart_id: str, theme: Literal["light", "dark"] = "light"
+) -> Response:
+    """One hospital chart as SVG."""
+    hospital = _hospital(site_id)
+    return _draw(request, lambda: chart_service.site_svg(hospital, chart_id, theme), theme)
+
+
+# --- Governance, the pilot and models --------------------------------------------------------
+
+
+@app.post(
+    "/api/v1/governance:probe",
+    response_model=GuardProbeResponse,
+    dependencies=[Depends(rate_limits.dependency("probes"))],
+)
+def governance_probe(request: GuardProbeRequest) -> dict[str, Any]:
+    """Run one request through a hospital's Guard and report what it would release.
+
+    The decision is a lookup in the typed planner, so changing the requester's
+    verification, the boundary or the granularity changes it. The Guard runs at
+    the chosen hospital (the first by default), over that hospital's first
+    records, and writes the decision to that hospital's audit chain. The
+    requester and the purpose are fixed here, so no visitor's text reaches the
+    chain.
+
+    The coordinator's page calls this, so the answer holds no record: it
+    counts the released records and names their fields
+    (:class:`GuardProbeResponse`).
+    """
+    hospital = _hospital(request.site_id) if request.site_id else consortium.hospitals[consortium.sites[0].site_id]
+    # Counted after the hospital is known, so an unknown id is a 404 and adds no key.
+    wait = hourly_caps.take("probes", hospital.site_id)
+    if wait > 0:
+        raise _over_hourly_cap(wait, f"Guard probes at {hospital.display_name}")
     restriction = RestrictionRequest(
-        request_id=f"probe:{request.boundary}:{request.granularity}",
+        request_id=f"probe:{hospital.site_id}:{request.boundary}:{request.granularity}",
         boundary=request.boundary,  # type: ignore[arg-type]
         requester=Requester(
-            requester_id=request.requester_id,
+            requester_id=PROBE_REQUESTER_ID,
             requester_kind=request.requester_kind,  # type: ignore[arg-type]
             affiliation="stroke-triage-consortium",
-            stated_purpose=request.declared_purpose,
+            stated_purpose=PROBE_PURPOSE,
             compliance_history=request.compliance_history,
             attributes=[
                 KyuAttribute(attribute_id="verified_identity", verified=request.verified),
@@ -264,55 +662,92 @@ def governance_probe(request: GuardProbeRequest) -> dict[str, Any]:
         classification=STROKE_CLASSIFICATION,
         requested_fields=request.requested_fields,
         granularity=request.granularity,  # type: ignore[arg-type]
-        cohort_size=request.cohort_size if request.cohort_size is not None else len(records),
-        declared_purpose=request.declared_purpose,
+        cohort_size=request.cohort_size,
+        declared_purpose=PROBE_PURPOSE,
         approved_purposes=STROKE_APPROVED_PURPOSES,
     )
-    decision = consortium.governance.enforce(restriction, [dict(record) for record in records])
-    return decision.model_dump(mode="json")
+    decision = hospital.guard_probe(restriction, record_limit=request.record_limit)
+    return {"site_id": hospital.site_id, **decision}
 
 
-@app.post("/api/v1/pilot:run")
-def run_pilot(request: PilotRequest) -> dict[str, Any]:
-    """Run the full governed pilot across every hospital.
+@app.post("/api/v1/pilot:run", dependencies=[Depends(rate_limits.dependency("pilots"))])
+def run_pilot(request: PilotRequest) -> Any:
+    """Run the federated pilot across every hospital and return its evidence.
 
-    Analytics, then baseline evaluation, then training, then cross-site
-    validation of the candidate, then the release gates. The response carries
-    the evidence for each step, including the exclusions and rejections, so the
-    outcome can be checked rather than taken on trust.
+    Analytics, then evaluation of the model in use, then training rounds, then
+    validation of the candidate, then the release Guard and gates. One pilot
+    runs at a time; a request while one runs gets 409. Beyond the hourly cap
+    on pilots, a request gets 429.
     """
-    return consortium.run_pilot(request.round_prefix)
+    if not pilot_flight.try_enter():
+        raise HTTPException(status_code=409, detail=PILOT_BUSY_MESSAGE)
+    try:
+        # Counted only for a pilot that starts, not for one refused as busy.
+        wait = hourly_caps.take("pilots")
+        if wait > 0:
+            raise _over_hourly_cap(wait, "pilots")
+        return consortium.run_pilot(request.round_prefix)
+    finally:
+        pilot_flight.leave()
+
+
+@app.get("/api/v1/models")
+def models() -> dict[str, Any]:
+    """The model the hospitals use, and the 20 newest registered versions, oldest first."""
+    return {"model_in_use": consortium.model_in_use(), "models": consortium.models(limit=MODELS_LISTED)}
+
+
+@app.post("/api/v1/models/{version}:approve", dependencies=[Depends(rate_limits.dependency("approvals"))])
+def approve_model(version: str) -> dict[str, Any]:
+    """Release a candidate whose last release decision was ``release``.
+
+    Returns ``{released, previous}``. 409 when the gates or the release Guard
+    did not allow it, or the version is no longer a candidate.
+    """
+    return consortium.approve(version)
+
+
+# --- The framework ----------------------------------------------------------------------------
 
 
 @app.get("/api/v1/framework/status")
-def framework_status() -> dict[str, Any]:
-    """Which Dagents services are reachable, and where the cohorts came from.
+def framework_status(request: Request) -> dict[str, Any]:
+    """Where the records are stored, which framework services answer, and the allowed origins.
 
-    The provenance is reported rather than implied. A reader looking at a
-    deployed demo should be able to tell a cohort read from the encounter store
-    from one generated in process, without inferring it from the URL.
+    The page shows the storage the backend reports, so a reader can tell
+    records in Postgres from records in memory.
+
+    ``rate_limit_client`` says how the rate limits identify a client. A
+    request sent without ``X-Forwarded-For`` arrives with one entry per proxy
+    that appended to it, so ``forwarded_for_entries`` should equal
+    ``forwarded_for_hops`` for such a request. Fewer means every visitor is
+    counted as the proxy; more means the limits count a proxy's address.
     """
-    provenance = sorted({hospital.data_source.provenance for hospital in consortium.hospitals.values()})
+    hops = rate_limits.forwarded_for_hops
     return {
+        **consortium.data_source_status(),
         "services": framework.service_status(),
-        "cohort_source": provenance[0] if len(provenance) == 1 else provenance,
-        "records_are_synthetic": True,
-        # Which browser origins this deployment will answer. Not a secret — a
-        # browser discovers it by asking — and the one piece of configuration
-        # whose being wrong is invisible from outside: every request is blocked
-        # before it arrives, so the page looks down rather than refused. Stating
-        # it turns that into something a reader can check in one request.
+        # A browser can discover this list by asking, so it is not a secret,
+        # and a wrong value blocks every request from the published page.
         "allowed_origins": settings.allowed_origins(),
+        "rate_limit_client": {
+            "source": "x-forwarded-for" if hops else "peer",
+            "forwarded_for_hops": hops,
+            "forwarded_for_entries": len(forwarded_for_entries(request)),
+        },
     }
 
 
 @app.get("/api/v1/framework/trace")
-def framework_trace(limit: int = 50) -> dict[str, Any]:
-    """Run stroke records through the framework's planners, step by step.
+def framework_trace(
+    site_id: str | None = Query(default=None, max_length=64),
+    limit: int = Query(default=50, ge=1, le=1000),
+) -> dict[str, Any]:
+    """Run one hospital's records through the framework's planners, at that hospital.
 
-    None of these steps know what a stroke is. They work from the contract and
+    None of the steps knows what a stroke is. They work from the contract and
     classification the extension declared.
     """
-    hospital = next(iter(sorted(consortium.hospitals.values(), key=lambda h: h.site_id)))
-    records = [dict(record) for record in hospital.data_source.records_held[:limit]]
+    hospital = _hospital(site_id) if site_id else consortium.hospitals[consortium.sites[0].site_id]
+    records = hospital.local_records(limit)
     return {"site_id": hospital.site_id, "record_count": len(records), "trace": framework.planner_trace(records)}

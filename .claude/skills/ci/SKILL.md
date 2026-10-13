@@ -19,7 +19,7 @@ Each layer of Dagents has its own job and its own test loop:
 | **Python agents**: LMA, GMA, control plane, governance, federation | `agents/` | Python 3.11 + `dagentsc` | `agents/tests` |
 | **Framework services**: core, pipeline, model | `services/` | Python 3.11 (+ torch for model) | `services/<name>/tests` |
 | **Spring services**: JVM control and core APIs | `services/spring-services/` | JDK 21 + Maven | `mvn verify` |
-| **Demo apps**: healthcare, NL2SQL | `apps/`, `services/nl2sql-demo/` | Python 3.11 + `dagentsc` | their own suites |
+| **Demo apps**: healthcare, NL2SQL | `apps/`, `services/nl2sql-demo/` | Python 3.11 + `dagentsc` + a PostgreSQL 16 service | their own suites |
 | **Frontends**: the site and the two demo UIs | `site/`, `*/frontend/` | Node 22 + a browser | `npm run build`, `npm run check`, `npm run smoke` |
 | **Cross-service contracts**: the endpoint inventory and API conventions | `tests/` | every Python service's dependencies | `tests/` |
 
@@ -38,17 +38,39 @@ because a stub would only prove that the code calls something. They skip, with
 a message, when the binary is missing. That is right on a developer's machine
 and **wrong in CI**.
 
-Defence: `scripts/ci_no_skipped_planner_tests.py` reads the verbose test log and
-fails on any planner-related skip. The suites must run with `-v`; the guard
+The same holds for two other kinds of test: the Postgres tests skip without a
+test database URL, and the chart tests skip without matplotlib.
+
+Defence: `scripts/ci_no_skipped_tests.py` reads the verbose test log and fails
+on any skip in a forbidden category. The suites must run with `-v`; the guard
 treats a log without verbose output as a failure.
+
+| `--forbid` | Fails on | Where CI forbids it |
+|---|---|---|
+| `planner` | a skip because `dagentsc` is missing | `agents`, `demo-apps` |
+| `database` | a skip whose reason starts `database test skipped` | `demo-apps` (it has a Postgres 16 service) |
+| `charts` | a skip because matplotlib is not installed | `agents` |
+
+`--require-ran MODULE.CLASS` fails unless that test class finished at least one
+test. It catches a class that skipped in `setUpClass` or stopped running for a
+reason no pattern matches. On success the guard prints each allowed skip reason
+with a count (the pagila suites and the deployed-API tests).
 
 ```bash
 python -m unittest discover -s agents/tests -t . -v 2>&1 | tee agents-suite.log
-python scripts/ci_no_skipped_planner_tests.py agents-suite.log
+python scripts/ci_no_skipped_tests.py --forbid planner --forbid charts \
+  --require-ran agents.tests.test_governance.EthicalGuardTests agents-suite.log
 ```
 
-`tests/test_ci_guards.py` tests the guard against the real skip message, so the
-guard cannot stop matching without a test failing.
+`scripts/ci_no_skipped_planner_tests.py LOG` still works; it runs the guard with
+`--forbid planner`. `tests/test_ci_guards.py` reads the real skip reasons from
+the test files and checks the guard against the four shapes unittest prints
+them in, so the guard cannot stop matching without a test failing. It also
+checks that every `--require-ran` class in a workflow exists, that every test
+class needing a database (found by reading the test files) is in the
+`demo-apps` `--require-ran` lists, and that each required module runs in the
+step that writes the log. **A new database test class goes in both
+`ci.yml` and `healthcare-data.yml`**, which must list the same classes.
 
 ### b. Two implementations of one behaviour, only one tested
 
@@ -109,11 +131,22 @@ every probe is denied, and the page shows guard controls that change nothing.
 
 Defence: `scripts/capture_demo_recordings.py` refuses to run without
 `dagentsc`, and `scripts/check_demo_recordings.py` checks the recording's
-content before the deploy: both permits and denials, at least three different
-field strategies, a pilot that reached its release gates, real SQL, a non-empty
-trace, and at least one reachable framework service.
-`tests/test_publishing_guards.py` builds an all-denied recording on purpose and
-checks that the checker refuses it.
+content before the deploy: a guard matrix that covers every hospital with both
+permits and denials, at least three different field strategies, a pilot that
+reached its release gates, a framework status that reports every store ready,
+every hospital's dashboard, worklist, entered records, audit log, entry form,
+chart list and charts (as SVG, in both themes), each hospital's dashboard and
+audit log recorded again after the pilot, consortium charts recorded after the
+pilot, real SQL, a non-empty trace, and at least one reachable framework
+service. `tests/test_publishing_guards.py` builds an all-denied recording on
+purpose and checks that the checker refuses it.
+
+The replay finds a response by its exact method, path and query string. So the
+hospital-page paths are defined once, in
+`capture_demo_recordings.hospital_view_paths`; the checker requires each one,
+and a test reads every `useResource` and `getJson` call in the healthcare
+frontend and fails if the UI sends a GET path the checker does not require.
+Change a query string in the UI and in that function together.
 
 The Pages build also fails if a demo's `dist/` lacks its `recording.json`,
 because a demo without its recording never finishes loading.
@@ -127,10 +160,13 @@ allow browser requests from the Pages origin. A plain `curl` cannot see the last
 one, because it sends no `Origin` header.
 
 Defence: the Pages build probes the API before building the frontend. It must
-answer, report `cohort_source: supabase`, return rows, and send
-`Access-Control-Allow-Origin` for the Pages origin. **If any check fails, the
-build clears the address and publishes the demo as a replay**, with a warning
-and a note in the run summary. None of these checks fails the deploy.
+answer, report `cohort_source: postgres` and `ready: true` (every hospital store
+can be read and holds records), return worklist rows for the first hospital,
+and send `Access-Control-Allow-Origin` for the Pages origin. **If any check
+fails, the build clears the address and publishes the demo as a replay**, with
+a warning and a note in the run summary. None of these checks fails the deploy.
+`tests/test_publishing_guards.py` runs the probe step against a local stand-in
+for the API.
 
 They did fail the deploy at first. That let a setting on an external service
 stop the framework site and the other demo from publishing. The replay is a
@@ -138,7 +174,19 @@ correct result, because the page says it is a replay and names the commit.
 `healthcare-api-check.yml` is the workflow to run when you want a failing check
 for the API.
 
-### h. Three frontends drifting apart visually
+### h. A deployed address copied into the docs
+
+The healthcare API's address used to be written in the READMEs, the guide and
+`CLAUDE.md`. Each copy was one more place to update when the service moved, and
+the page showed it to every visitor.
+
+Defence: the address lives only in `env/.env.published`, which the Pages build
+reads. `tests/test_publishing_guards.py` reads the host from that file and fails
+if it appears in any tracked text file outside `env/` and `.github/`. The docs
+call an API run locally, and the page never shows the address. The same test
+file checks that the README links every `*_SITE_URL` in `env/.env.published`.
+
+### i. Three frontends drifting apart visually
 
 The design system is shared by generated copies, not imports, because the
 healthcare demo must stay extractable. A copy edited directly would drift.
@@ -168,6 +216,11 @@ PYTHONPATH=.:services/core-service .venv/bin/python \
 DAGENTSC_BIN=$PWD/bindings/ocaml/_build/default/bin/dagentsc.exe \
   PYTHONPATH=.:services/core-service .venv/bin/python \
   -m unittest discover -s services/core-service/tests -t services/core-service/tests
+
+# 3b. the healthcare demo, with the planner and a test database, so nothing skips
+cd apps/healthcare-demo && DAGENTSC_BIN=$PWD/../../bindings/ocaml/_build/default/bin/dagentsc.exe \
+  HEALTHCARE_DEMO_TEST_DATABASE_URL=postgresql://admin:pw@127.0.0.1:5432/postgres \
+  PYTHONPATH=../..:backend ../../.venv/bin/python -m unittest discover -s tests -t . -v && cd -
 
 # 4. cross-service contracts, if you changed a route
 .venv/bin/python scripts/service_inventory.py --check
@@ -212,9 +265,10 @@ tests skipped is not a pass.
 - **Never put a secret, a repository variable or a dispatch input directly into
   a `run:` script.** `${{ vars.X }}` pastes text into the shell before bash runs,
   so a value like `; curl …` would run with the workflow's token. Pass the value
-  through `env:`, use `"$X"`, and validate it. `healthcare-data.yml` checks that
-  its cohort size is an integer, and `pages.yml` refuses an API address that
-  contains a query string or credentials.
+  through `env:`, use `"$X"`, and validate it. `healthcare-data.yml` passes its
+  `keep_entries` input through `env:` and compares it as a string, and
+  `pages.yml` refuses an API address that contains a query string or
+  credentials.
 - **A repository variable is not a secret store.** Variables are not masked, so
   every run that reads one prints it, and on a public repository the log is
   public. A credential pasted into a variable must be rotated, not just removed.
@@ -235,16 +289,21 @@ tests skipped is not a pass.
   env/.env.compose up --build` and Minikube validation are manual. Minikube is
   the main item in `TODO.md`, blocked on local disk space (see `CHANGES.md`). CI
   tests the code and the contracts, not the deployment.
-- **The Postgres-backed suites skip in CI**, because CI has no Postgres with the
-  pagila dataset. These skips are expected, and the planner guard ignores them.
-  A change to source adapters is not fully tested by CI.
+- **The pagila suites skip in CI**, because CI has no Postgres with the pagila
+  dataset. These skips are expected, and the guard allows them. A change to
+  source adapters is not fully tested by CI. The healthcare stores, the site
+  isolation and the role scoping do run in CI: the `demo-apps` job has a
+  PostgreSQL 16 service container, emulates Supabase's roles with a
+  non-superuser, and fails if any database test skipped.
 - **The NL2SQL frontend has no browser test.** Its job builds the bundle, which
   only proves that it compiles.
 - **CI does not test the deployed healthcare API.** `tests/test_deployed_api.py`
   runs only when `HEALTHCARE_DEPLOYED_API` is set, so it skips in the
   `demo-apps` job and runs in `healthcare-api-check.yml`. This keeps CI from
   failing because a free-tier container is asleep. It also means a green CI run
-  says nothing about the deployed API. Every fault that deployment has had (an
+  says nothing about the deployed API. The deployed tests never write hospital
+  data: they enter no records, record no outcomes and approve no model. Their
+  probes and pilot add audit records and model versions, as a visitor's do. Every fault that deployment has had (an
   image without the Postgres driver, a port nothing routed to, a CORS value with
   a stray parenthesis) passed every test here and showed up on the first request
   to the running service. Run the probe after changing what the image installs,

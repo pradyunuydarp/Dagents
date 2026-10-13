@@ -27,7 +27,7 @@ You do not need to know OCaml. Step 3 explains why part of Dagents is written in
 
 | Term | Meaning |
 |---|---|
-| Site | One place that holds data, such as a hospital. In Dagents a site runs a local agent (LMA). |
+| Site | One place that holds data, such as a hospital. In Dagents a site runs a local agent (LMA) and keeps its data in its own store. |
 | Coordinator | The service that organizes a federated round. In Dagents this is the global agent (GMA). |
 | Round | One cycle of work: the coordinator sends a task, sites compute locally, and sites send back results. |
 | Aggregation | Combining the results from several sites into one, for example by averaging model weights. |
@@ -40,7 +40,9 @@ You do not need to know OCaml. Step 3 explains why part of Dagents is written in
 
 ## Try the live demos
 
-- [Stroke triage demo](https://pradyunuydarp.github.io/Dagents/healthcare-demo/): governance and federated rounds across three simulated hospitals.
+- [Stroke triage demo](https://pradyunuydarp.github.io/Dagents/healthcare-demo/): governance, federated training and data entry across three hospitals, each with its own store.
 - [NL2SQL demo](https://pradyunuydarp.github.io/Dagents/nl2sql-demo/): an app that uses the framework's validation and planning.
 
-All patient data in the demos is synthetic.
+The stroke demo uses real, de-identified patient records from the International
+Stroke Trial (1991-1996), made available under the ODC Attribution License. Its
+models are demonstrations, not validated clinical models.

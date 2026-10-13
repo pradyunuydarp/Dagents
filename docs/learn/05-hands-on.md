@@ -61,8 +61,10 @@ apps/healthcare-demo/scripts/run_frontend_demo.sh
 ```
 
 This starts the API on port 8080 and the web interface on port 5174, then prints
-what to try. Open <http://localhost:5174>. Locally the demo generates its patient
-data in memory, so it needs no database. Press Ctrl-C to stop it.
+what to try. Open <http://localhost:5174>. Locally each hospital keeps its
+International Stroke Trial records in memory, loaded from
+`apps/healthcare-demo/data/ist/`, so the demo needs no database. Records you
+enter are lost when you stop it. Press Ctrl-C to stop it.
 
 ## 6. Run the tests
 
@@ -81,33 +83,58 @@ The governance and federation tests use the real planner. They look for it in
 `DAGENTSC_BIN`, then in the dune build folder, and are skipped if it is missing.
 The test summary shows how many were skipped.
 
+The stroke demo's Postgres tests (the per-hospital stores and their isolation)
+also skip unless you point them at a PostgreSQL 16 server with an admin login.
+Each test creates and drops its own scratch database:
+
+```bash
+export HEALTHCARE_DEMO_TEST_DATABASE_URL=postgresql://admin:pw@127.0.0.1:5432/postgres
+export DAGENTS_TEST_DATABASE_URL=$HEALTHCARE_DEMO_TEST_DATABASE_URL
+```
+
 ## Exercises
 
 ### 1. Change a field's sensitivity
 
 In [`apps/healthcare-demo/backend/app/domain/conditions.py`](../../apps/healthcare-demo/backend/app/domain/conditions.py),
-find `STROKE_CLASSIFICATION` and change `"nihss_total": "high"` to `"medium"`.
+find `STROKE_CLASSIFICATION` and change `"systolic_bp": "high"` to `"medium"`.
 Restart the demo and run the Ethical Guard probe with a verified requester at row
 granularity.
 
-Expected: `nihss_total` changes from `generalize:1` to `allow_full`, because the
-rule for medium sensitivity, high trust and row granularity is `allow_full`. No
-code changed, only the classification.
+Expected: `systolic_bp` changes from `generalize:1` to `allow_full`, because the
+rule for medium sensitivity, high trust and row granularity is `allow_full`. For
+an unverified requester it changes from `redact` to `generalize:1`. No code
+changed, only the classification.
 
 ### 2. Loosen a release gate
 
-In the same file, find `STROKE_RELEASE_GATES` and change the `subgroup_fairness`
-limit from `0.05` to `0.15`. Run the pilot again.
+In the same file, find `STROKE_RELEASE_GATES` and change the margin of
+`improves_on_current_release` from `0.02` to `0.005`. Run the pilot again with
+`apps/healthcare-demo/scripts/run_pilot.sh`.
 
-Expected: the fairness gate now passes (the gap is about 0.124), but
-`sensitivity_at_alert_budget` still fails (about 0.595, below 0.70), so the
-candidate is still rejected. Every blocking gate has to pass.
+Expected: the gate passes (the candidate's AUC of 0.786 is above 0.777 + 0.005),
+and so does every other blocking gate. The decision is still not `release`: it
+is `another_round`. The advisory `alert_burden` gate still fails (853 alerts per
+1,000 against a limit of 750). An advisory gate cannot block a release, but the
+planner releases a candidate only when every gate passes, so it asks for another
+round. The hospitals keep using `stroke-outcome-rule-v1`, and an attempt to
+approve the candidate returns `409`.
+
+Now also raise the `alert_burden` limit from `750.0` to `900.0` and run the pilot
+again. Every gate passes and the decision is `release`. The candidate is still
+not in use: approve it with `POST /api/v1/models/{version}:approve` (or the
+approve button in the UI). After that, the worklists rank patients with the
+logistic regression, and each assessment lists its three largest terms as the
+basis.
+
+Undo both changes afterwards.
 
 ### 3. Make a site ineligible
 
 Follow the last part of [Step 4, walkthrough 2](04-apis.md#plan-a-federated-round):
-give one site an old feature contract and plan a round. The site is excluded and
-the round does not have enough sites to start.
+give `ch-245` the old feature contract `stroke-triage-features-v2` and plan a
+round. The site is excluded, and the round does not have enough sites to start
+(`quorum_not_met`).
 
 ### 4. See exhaustive matching
 

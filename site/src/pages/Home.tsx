@@ -24,16 +24,16 @@ const PARTS = [
   { part: "Agents", folder: "agents/", purpose: "The LMA and GMA services" },
   { part: "Planners", folder: "bindings/ocaml/", purpose: "The OCaml decision modules and the dagentsc tool" },
   { part: "Framework services", folder: "services/", purpose: "Core, pipeline and model services, and their Spring Boot versions" },
-  { part: "Stroke triage demo", folder: "apps/healthcare-demo/", purpose: "Example application: governance and federated learning" },
+  { part: "Stroke triage demo", folder: "apps/healthcare-demo/", purpose: "Example application: governance, federated training and per-hospital stores" },
   { part: "NL2SQL demo", folder: "services/nl2sql-demo/", purpose: "Example application: validation and planning" },
   { part: "Documentation", folder: "docs/", purpose: "The learning guide, architecture notes and the endpoint list" }
 ];
 
 const STATUS = [
-  "The agents keep their state in memory. Storage and messaging sit behind interfaces so they can be replaced later.",
+  "The framework agents keep their state in memory. Storage and messaging sit behind interfaces so they can be replaced later. With a database, the stroke demo keeps each hospital's records in its own Postgres schema; without one, in memory.",
   "The federation engine is a simulator for tests and demos. Production training would use a dedicated federated learning runtime.",
   "Kubernetes manifests are generated and tested, but are not yet deployed to a cluster in CI.",
-  "Tests that need a sample Postgres database are skipped in CI."
+  "The stroke demo's store and isolation tests run in CI against PostgreSQL 16. The tests that need the pagila sample database are skipped in CI."
 ];
 
 export function Home({ anchor }: { anchor: string | null }) {

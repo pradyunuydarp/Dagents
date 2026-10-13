@@ -41,6 +41,17 @@ DATA_MAP_KEYS = {
     "pointers",
 }
 
+class PlannerUnavailableError(RuntimeError):
+    """The planner could not be run, or it returned output that cannot be used.
+
+    Raised when the binary is missing or cannot be started, when it exits with
+    an error, and when its output is not the JSON the caller expects. It is a
+    RuntimeError, so callers that already catch RuntimeError keep working. A
+    service maps it to a 503, because the request may succeed once the planner
+    is back.
+    """
+
+
 def to_camel_case(snake_str: str) -> str:
     components = snake_str.split('_')
     return components[0] + ''.join(x.title() for x in components[1:])
@@ -78,33 +89,50 @@ def dagentsc_binary() -> str:
     """Resolve the dagentsc executable used by Python service adapters."""
     return os.getenv("DAGENTSC_BIN", "dagentsc")
 
+def _execute(full_cmd: list[str], input_str: str | None = None) -> Any:
+    """Run the planner once and return its output with snake_case keys.
+
+    Raises :class:`PlannerUnavailableError` when the binary cannot be started,
+    exits with an error or prints output that is not JSON.
+    """
+    try:
+        if input_str is None:
+            result = subprocess.run(full_cmd, text=True, capture_output=True)
+        else:
+            result = subprocess.run(full_cmd, input=input_str, text=True, capture_output=True)
+    except OSError as error:
+        # FileNotFoundError, PermissionError and the like: the binary is missing
+        # or cannot be run.
+        raise PlannerUnavailableError(f"dagentsc could not be started: {error}") from error
+    if result.returncode != 0:
+        raise PlannerUnavailableError(
+            f"dagentsc execution failed: {result.stderr.strip() or result.stdout.strip()}"
+        )
+    try:
+        output_json = json.loads(result.stdout)
+    except json.JSONDecodeError as error:
+        raise PlannerUnavailableError(f"dagentsc returned invalid json: {error}") from error
+    return convert_keys(output_json, to_snake_case)
+
+
 def run_dagentsc(command: list[str], payload: dict[str, Any]) -> Any:
-    """Execute the dagentsc binary with the given command and JSON payload."""
+    """Execute the dagentsc binary with the given command and JSON payload.
+
+    Raises :class:`PlannerUnavailableError` when the planner cannot be run or
+    its output is not JSON.
+    """
     camel_payload = convert_keys(payload, to_camel_case)
     input_str = json.dumps(camel_payload)
-    
     # Base command is something like ['manifest', 'compile', '--input', '-', '--output', 'json'].
     # Containers place dagentsc on PATH; local demos can set DAGENTSC_BIN to the dune-built binary.
     full_cmd = [dagentsc_binary()] + command
-    
-    result = subprocess.run(
-        full_cmd,
-        input=input_str,
-        text=True,
-        capture_output=True,
-    )
-    
-    if result.returncode != 0:
-        raise RuntimeError(f"dagentsc execution failed: {result.stderr.strip() or result.stdout.strip()}")
-        
-    try:
-        output_json = json.loads(result.stdout)
-        return convert_keys(output_json, to_snake_case)
-    except json.JSONDecodeError as e:
-        raise RuntimeError(f"dagentsc returned invalid json: {e}")
+    return _execute(full_cmd, input_str)
 
 def run_dagentsc_with_files(command: list[str], payloads: dict[str, Any]) -> Any:
-    """Execute dagentsc commands that require multiple JSON file inputs."""
+    """Execute dagentsc commands that require multiple JSON file inputs.
+
+    Raises :class:`PlannerUnavailableError` like :func:`run_dagentsc`.
+    """
     temp_paths: list[str] = []
     try:
         resolved_command = list(command)
@@ -118,12 +146,7 @@ def run_dagentsc_with_files(command: list[str], payloads: dict[str, Any]) -> Any
                 flag_index = resolved_command.index(flag)
                 resolved_command[flag_index + 1] = handle.name
         full_cmd = [dagentsc_binary()] + resolved_command
-        result = subprocess.run(full_cmd, text=True, capture_output=True)
-        if result.returncode != 0:
-            raise RuntimeError(f"dagentsc execution failed: {result.stderr.strip() or result.stdout.strip()}")
-        return convert_keys(json.loads(result.stdout), to_snake_case)
-    except json.JSONDecodeError as e:
-        raise RuntimeError(f"dagentsc returned invalid json: {e}")
+        return _execute(full_cmd)
     finally:
         for path in temp_paths:
             try:

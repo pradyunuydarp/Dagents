@@ -10,7 +10,7 @@
 | pipeline-service | 8030 | Pipeline registry, validation and runs |
 | core-service | 8040 | Catalog, topology, workload compilation, Kubernetes manifests |
 | Spring control and core | 8050, 8060 | The same control and core APIs for JVM consumers |
-| Stroke demo backend | 8080 | The demo's own API, deployed at `https://dagents-healthcare-api.onrender.com` |
+| Stroke demo backend | 8080 | The demo's own API: hospitals, data entry, the Guard probe, the pilot, charts |
 
 The full list of endpoints is generated from the code:
 [`docs/reference/service-inventory.md`](../reference/service-inventory.md). The
@@ -23,87 +23,255 @@ The full list of endpoints is generated from the code:
   handler as its `/api/v1/...` version.
 - An action on a resource uses a colon: `rounds:plan`, `rounds/{id}:aggregate`.
 - Every Python service serves interactive documentation at `/docs` and its
-  OpenAPI schema at `/openapi.json`. Try the deployed one:
-  <https://dagents-healthcare-api.onrender.com/docs>.
+  OpenAPI schema at `/openapi.json`. Once the stroke demo API is running (below),
+  open <http://127.0.0.1:8080/docs>.
 
-## Walkthrough 1: the deployed stroke demo API
+## Walkthrough 1: the stroke demo API on your machine
 
-The deployed API sleeps when nobody has used it for about 15 minutes. The first
-request wakes it and takes about 20 seconds.
+Build the planner first (see [Step 5](05-hands-on.md)). Then start the API from
+the repository root. It needs no database: each hospital keeps its records in
+memory, loaded from the committed International Stroke Trial extract.
 
 ```bash
-API=https://dagents-healthcare-api.onrender.com
+export DAGENTSC_BIN=$PWD/bindings/ocaml/_build/default/bin/dagentsc.exe
+apps/healthcare-demo/scripts/run_local_demo.sh
+```
+
+The API listens on port 8080. Set `HEALTHCARE_DEMO_API_PORT` to use another
+port. In a second terminal:
+
+```bash
+API=http://127.0.0.1:8080
 
 # Is it running?
 curl -s $API/api/v1/health
 
-# Where does its data come from? Expect "cohort_source": "supabase".
+# Where are the records stored? Locally: "cohort_source": "in-memory",
+# "ready": true, and each hospital's record_count and labelled_count.
 curl -s $API/api/v1/framework/status
 
-# The three hospitals and the release gates
+# The three hospitals, what each reports, and the release gates
 curl -s $API/api/v1/overview
 
 # One hospital's ranked worklist
-curl -s "$API/api/v1/hospitals/riverside-general/worklist?limit=3"
+curl -s "$API/api/v1/hospitals/uk-134/worklist?limit=3"
 ```
 
-Each worklist row includes the encounter's fields and an `assessment` with a
-score, a priority and the reasons behind them:
+The overview lists what each hospital reports about its records, never the
+records themselves:
+
+| `site_id` | Hospital | Country | `record_count` | `labelled_count` | `outcome_rate` |
+|---|---|---|---|---|---|
+| `uk-134` | Hospital 134 | United Kingdom | 524 | 524 | 0.798 |
+| `it-002` | Hospital 2 | Italy | 292 | 292 | 0.599 |
+| `ch-245` | Hospital 245 | Switzerland | 198 | 198 | 0.687 |
+
+A worklist stays at its hospital. Each row has the record's fields and an
+`assessment` from the model in use, with a score, a priority and the reasons.
+The top row at `uk-134`, shortened:
 
 ```json
 {
-  "encounter_id": "riverside-general-0135",
-  "nihss_total": 32.5,
+  "encounter_id": "uk-134-16099",
+  "origin": "dataset",
+  "age_band": "90+",
+  "conscious_level": "drowsy",
+  "systolic_bp": 123.0,
+  "stroke_subtype": "TACS",
   "assessment": {
-    "score": 0.8818,
+    "model_version": "stroke-outcome-rule-v1",
+    "score": 0.989,
     "priority": "urgent",
-    "basis": ["NIHSS total recorded as 32.5", "facial droop observed", "..."],
-    "warnings": ["blood glucose 2.26 mmol/L is low; hypoglycaemia is a common stroke mimic ..."]
+    "points": 14,
+    "max_points": 17,
+    "basis": [
+      "age band 90+: 5 points",
+      "conscious level drowsy: 2 points",
+      "face weakness, arm weakness, leg weakness, speech difficulty: 4 points",
+      "atrial fibrillation: 1 point",
+      "stroke subtype TACS: 2 points"
+    ]
   }
 }
 ```
 
 ### Ask the governance planner
 
-`governance:probe` runs one request through the Guard and returns the plan:
+`governance:probe` runs one request through a hospital's Guard and returns the
+plan. `site_id` picks the hospital; the default is the first one.
 
 ```bash
 curl -s -X POST $API/api/v1/governance:probe \
   -H "Content-Type: application/json" \
-  -d '{"verified": true, "granularity": "row", "cohort_size": 25}'
+  -d '{"site_id": "uk-134", "verified": true, "granularity": "row", "cohort_size": 25}'
 ```
 
 The response includes `permitted`, the `plan` (trust assessment, one strategy per
-field, the decision) and the governed `payload`. Change the inputs and compare:
+field, the decision), and the id of the audit record the Guard wrote to that
+hospital's chain. It also says what the Guard would release, without the
+records: `released_count` (how many records or summary rows) and
+`released_fields` (their field names), with `withheld_fields` and
+`transformed_fields`. The consortium page calls the probe, and no patient record
+reaches the coordinator, so the values stay at the hospital. The default fields
+are `systolic_bp` (high sensitivity), `age_band` (medium) and `onset_on_waking`
+(low). Change the inputs and compare:
 
-| Body | Result |
+| Body (with `"site_id": "uk-134"`) | `systolic_bp` | Decision |
+|---|---|---|
+| `{"verified": true, "granularity": "row", "cohort_size": 25}` | `generalize:1` | narrow |
+| `{"verified": false, "granularity": "row", "cohort_size": 25}` | `redact` | narrow |
+| `{"verified": true, "granularity": "table", "cohort_size": 25}` | `aggregate_only:20` | narrow |
+| `{"verified": true, "granularity": "table", "cohort_size": 5}` | `refuse` | deny: `cohort_size 5 is below minimum_cohort 20` |
+| `{"verified": true, "granularity": "model_update", "cohort_size": 25}` | `clip_contribution:1` | narrow |
+| `{"verified": true, "granularity": "aggregate", "cohort_size": 25}` | — | HTTP 422: `granularity` must be one of cell, row, column, table, model_update |
+| `{"requested_fields": ["poor_outcome_6m"]}` | — | HTTP 422: `requested_fields`: poor_outcome_6m cannot be requested, followed by the fields that can |
+| `{"requester_id": "me"}` | — | HTTP 422: `requester_id` is not a field of this request; the server sets the requester and the purpose |
+
+Every visitor can read a hospital's audit chain, and nobody can edit a chain
+without breaking it, so a probe body takes no free text. `requested_fields` may
+name only the contract's fields other than the outcome label.
+
+The verified row request releases 5 records with the fields `systolic_bp`,
+`age_band` and `onset_on_waking`, and lists `systolic_bp` as transformed. The
+table request with a cohort of 25 is permitted, but it releases nothing
+(`"released_count": 0`). The probe passes the Guard 5 records by default, which
+is fewer than the 20 an aggregate needs. Add `"record_limit": 20` and the Guard
+releases one summary row (`"released_count": 1`) with the fields
+`record_count`, `systolic_bp_mean`, `age_band_distinct` and
+`onset_on_waking_distinct`.
+
+### Enter a record at a hospital
+
+A hospital's staff add records through its data-entry form. The form comes from
+the backend, so a client repeats no rule:
+
+```bash
+curl -s $API/api/v1/hospitals/it-002/entry-form
+```
+
+It lists 13 fields: `age`, `sex`, `conscious_level`, `hours_since_onset` and
+`systolic_bp` are required, and the yes/no findings may be left empty when they
+could not be assessed. There is no free-text field. The age stays at the
+hospital; only its band is shared.
+
+Send a record with an `Idempotency-Key`, so that sending it twice stores it once:
+
+```bash
+curl -s -X POST $API/api/v1/hospitals/it-002/encounters \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: walkthrough-0001" \
+  -d '{"age": 78, "sex": "female", "conscious_level": "drowsy",
+       "face_weakness": true, "arm_weakness": true, "leg_weakness": false,
+       "speech_difficulty": true, "hours_since_onset": 3.5, "systolic_bp": 170,
+       "atrial_fibrillation": true, "stroke_subtype": "TACS"}'
+```
+
+The answer is `201` with four parts:
+
+- `record`: the stored row, with the id `it-002-e1`, `origin: "entered"` and the
+  age band `70-79` filled in from the age;
+- `assessment`: score 0.9526, priority `urgent`, 11 points;
+- `counts`: `{"total": 293, "entered": 1, "labelled": 292}`;
+- `profile`: the hospital's running statistics, updated with this one record.
+  For example, `systolic_bp` now has 293 values with a mean of 160.27.
+
+What else to try:
+
+| Request | Result |
 |---|---|
-| `{"verified": true, "granularity": "row", "cohort_size": 25}` | narrow: `nihss_total` generalized |
-| `{"verified": false, "granularity": "row", "cohort_size": 25}` | narrow: `nihss_total` redacted |
-| `{"verified": true, "granularity": "table", "cohort_size": 5}` | deny: cohort 5 is below the minimum of 20 |
-| `{"verified": true, "granularity": "aggregate", "cohort_size": 25}` | HTTP 422: `aggregate` is not a valid granularity |
+| The same body with the same key | `201` and the same record, `it-002-e1`; nothing new is stored |
+| A different body with the same key | `409`: the key was already used for a different record |
+| `"age": 12`, or an extra field such as `"notes"` | `422` with `errors`: `age` must be between 16 and 110; `notes` is not a field of the record |
+
+The record has no outcome yet, so no round trains on it. Record the six-month
+outcome:
+
+```bash
+curl -s -X POST $API/api/v1/hospitals/it-002/encounters/it-002-e1/outcome \
+  -H "Content-Type: application/json" \
+  -d '{"poor_outcome_6m": true}'
+```
+
+`counts` becomes `{"total": 293, "entered": 1, "labelled": 293}`. Only entered
+records take an outcome; a dataset record returns `422`. An outcome is recorded
+once: the same value again returns `200` and changes nothing, and a different
+value returns `409` with "This record already has an outcome. It cannot be
+changed." The next pilot uses the record: in its rounds `it-002` contributes
+293 examples instead of 292. Each hospital's form may add 300 records; after
+that the API returns `409`.
 
 ### Run a full pilot
 
 ```bash
 curl -s -X POST $API/api/v1/pilot:run \
   -H "Content-Type: application/json" \
-  -d '{"round_prefix": "my-test"}'
+  -d '{"round_prefix": "api"}'
 ```
 
-This runs four federated rounds and then the release gates. In a typical run the
-candidate model reaches an AUC of about 0.80, above the 0.78 baseline, and is still
-rejected:
+`round_prefix` starts each round's id and must be `ui` or `api`. This runs
+eight federated rounds (analytics, evaluation of the model in use, five training
+rounds and validation of the candidate) and then the release gates. It takes
+about a second. On the committed records, before any entry:
 
-| Gate | Result |
-|---|---|
-| discrimination (AUC ≥ 0.80) | passed |
-| improves on current release (AUC ≥ baseline + 0.01) | passed |
-| subgroup fairness (AUC gap ≤ 0.05) | **failed**: gap 0.124 |
-| sensitivity at alert budget (≥ 0.70) | **failed**: 0.595 |
-| alert burden (≤ 400 per 1000, advisory only) | passed |
+- the model in use, `stroke-outcome-rule-v1`, scores a size-weighted AUC of
+  0.7769 at the three hospitals;
+- the five training rounds lower the log loss from 0.6931 to 0.4962. In round 1
+  every hospital's update is clipped to the norm bound of 1.0;
+- the candidate, a logistic regression, scores an AUC of 0.7859.
 
-The decision is `reject`, and the service keeps the current model.
+| Gate | Rule | Observed | Result |
+|---|---|---|---|
+| `discrimination` | AUC ≥ 0.70 | 0.786 | passed |
+| `improves_on_current_release` | AUC ≥ baseline 0.777 + 0.02 | 0.786 | **failed** |
+| `subgroup_fairness` | AUC gap between female and male patients ≤ 0.10 | 0.022 | passed |
+| `sensitivity_at_alert_threshold` | sensitivity ≥ 0.80 | 0.922 | passed |
+| `alert_burden` | alerts per 1,000 ≤ 750 (advisory, not blocking) | 853 | failed |
+
+Each gate result in the response carries the `threshold` the planner compared
+the observed value with; for `improves_on_current_release` that is the baseline
+plus the margin. The decision is `reject`, the candidate's status becomes
+`rejected`, and the hospitals keep using `stroke-outcome-rule-v1`. The run has no randomness, so it
+gives these numbers every time on the same records. A record you entered with an
+outcome changes them slightly.
+
+After a pilot, each hospital's view shows what it sent in each round:
+
+```bash
+curl -s $API/api/v1/hospitals/it-002
+```
+
+`contributions` lists each round with its phase, the number of examples, the
+clipped update norm and the metrics. The update itself never appears there.
+The pilot response itself tells the coordinator only whether each hospital's
+audit chain verifies and how many decisions it holds (`site_audits`); the
+decisions stay at the hospital, in `GET /api/v1/hospitals/{id}/audit`.
+
+`GET /api/v1/models` lists the model in use and the 20 newest registered
+versions. Every pilot registers several.
+
+### Charts
+
+The backend draws the charts as SVG and gives each one a table of the same
+numbers:
+
+```bash
+curl -s $API/api/v1/hospitals/uk-134/charts     # this hospital's charts, from its own records
+curl -s $API/api/v1/charts                      # consortium charts, from reported numbers and the last pilot
+curl -s "$API/api/v1/hospitals/uk-134/charts/outcome-by-age-band.svg?theme=dark" -o chart.svg
+```
+
+Each list entry has `chart_id`, `title`, `available`, `svg_path` and `table`.
+Before the first pilot, the training curve, AUC and gate charts are listed with
+`available: false`. With a database, the coordinator keeps the pilot reports, so
+after a restart these charts show the last pilot.
+
+### When something fails
+
+A store or database failure returns a JSON `503` with a plain message, and any
+other error a JSON `500`. Both carry the CORS headers and the `X-Dagents-App`
+header, which tells a client the answer came from the app and not from a proxy.
+[The deployment notes](../../apps/healthcare-demo/docs/deployment.md#what-the-api-returns-when-something-fails)
+list each message.
 
 ## Walkthrough 2: the framework APIs on your machine
 
@@ -128,9 +296,10 @@ curl -s -X POST http://localhost:8020/api/v1/governance/restrictions:plan \
   -d @docs/learn/examples/restriction-request.json
 ```
 
-Result: trust is high, `diagnosis` (high sensitivity) is generalized, and
-`age_band` and `region` are returned in full. Edit the file to change the
-granularity, remove a verified attribute or lower the cohort size, and run it again.
+Result: trust is high (score 0.97), `diagnosis` (high sensitivity) is
+generalized, and `age_band` and `region` are returned in full. Edit the file to
+change the granularity, remove a verified attribute or lower the cohort size,
+and run it again.
 
 ### Enforce it on data
 
@@ -164,10 +333,12 @@ It lists the decision and reports `"chain_intact": true`.
 
 ### Plan a federated round
 
-Enrol three sites, then ask which of them may join a round:
+Enrol the three hospitals, then ask which of them may join a round. The site
+files use the stroke demo's hospital ids and record counts, and the manifest
+names the demo's seed rule and its digest:
 
 ```bash
-for site in lakeside-community northgate-university riverside-general; do
+for site in uk-134 it-002 ch-245; do
   curl -s -X PUT http://localhost:8020/api/v1/federation/sites/$site \
     -H "Content-Type: application/json" \
     -d @docs/learn/examples/site-$site.json
@@ -181,10 +352,12 @@ curl -s -X POST http://localhost:8020/api/v1/federation/rounds:plan \
 Result: all three sites are selected and `quorum_met` is true. The manifest asks
 for secure aggregation with a threshold of 3, so three sites are required.
 
-Now make one site ineligible. In `site-lakeside-community.json`, change
-`feature_contract_version` to `stroke-triage-features-v1`, enrol it again and plan
-again. Lakeside is excluded because its feature contract does not match, only two
-sites remain, and the plan stops with `quorum_not_met`.
+Now make one site ineligible. In `site-ch-245.json`, change
+`feature_contract_version` to `stroke-triage-features-v2`, enrol it again and plan
+again. `ch-245` is excluded with the reason "site feature contract
+stroke-triage-features-v2 does not match round contract
+stroke-triage-features-v3", only two sites remain, and the plan stops with
+`quorum_not_met`.
 
 ### The rest of a round
 

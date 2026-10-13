@@ -8,8 +8,11 @@ name: Healthcare API check
 # the Pages gate only reports pass or fail. When the published demo falls back
 # to its recording, this says which of the handful of reasons it was — the
 # service was never deployed, it is asleep, it is crash-looping, it is up but
-# generating its own cohorts, or it will not accept browser requests from the
-# published page.
+# keeps its records in memory instead of Postgres, its database cannot be
+# reached, or it will not accept browser requests from the published page.
+#
+# It writes nothing: the deployed-service tests enter no records, record no
+# outcomes and approve no model.
 #
 # It reads nothing secret and prints nothing secret. The address comes from
 # `env/.env.published`, which is committed because it is a published URL.
@@ -163,48 +166,77 @@ jobs:
           status_code = os.environ["STATUS_CODE"]
           overview_code = os.environ["OVERVIEW_CODE"]
           source = status.get("cohort_source")
+          layout = status.get("store_layout", "not reported")
+          ready = status.get("ready", "not reported")
           origins = status.get("allowed_origins", "not reported")
           failed = [code for code in (status_code, overview_code) if not code.startswith("2")]
 
           print(f"--- /api/v1/framework/status ({status_code}) ---")
           print("cohort_source     :", source)
-          print("records synthetic :", status.get("records_are_synthetic"))
+          print("store_layout      :", layout)
+          print("ready             :", ready)
+          if "hospitals" in status:
+              if status["hospitals"] is None:
+                  print("  the API could not read the hospital stores")
+              for row in status["hospitals"] or []:
+                  print(f"  {row['site_id']:10} records {row.get('record_count')}, labelled {row.get('labelled_count')}")
+          print("dataset           :", (status.get("dataset") or {}).get("name"))
           print("allowed origins   :", origins)
           for service in status.get("services", []):
               print(f"  {service['name']:22} {service['status']}")
           if status.get("detail"):
-              # The 503 carries the driver's own words, which is the whole
-              # reason that endpoint answers at all when the store is down.
               print("detail            :", status["detail"])
 
           print(f"--- /api/v1/overview ({overview_code}) ---")
           print("study             :", overview.get("study_id"))
+          print("model in use      :", (overview.get("current_model") or {}).get("version"))
           for hospital in overview.get("hospitals", []):
-              print(f"  {hospital['site_id']:22} cohort {hospital['cohort_size']}")
+              store = hospital.get("store") or {}
+              print(
+                  f"  {hospital['site_id']:10} records {hospital.get('record_count')}"
+                  f" (entered {hospital.get('entered_count')}, labelled {hospital.get('labelled_count')})"
+                  f"  store {store.get('kind')} {store.get('schema', '')}"
+              )
           if overview.get("detail"):
               print("detail            :", overview["detail"])
 
           # A notice as well as the log. Annotations are the one part of a
-          # finished run that can be read back in a single cheap request, which
-          # is what matters when the thing being diagnosed is a service that
-          # whoever is debugging cannot reach directly.
-          print(f"::notice::cohort_source={source} allowed_origins={origins}")
+          # finished run that can be read back in a single cheap request.
+          print(f"::notice::cohort_source={source} store_layout={layout} ready={ready} allowed_origins={origins}")
 
-          if status.get("detail"):
-              print(f"::error::The encounter store could not be read: {status['detail']}")
-          elif source == "synthetic":
+          if overview_code == "503" or status_code == "503":
+              # The API's 503 message is plain on purpose; the database error
+              # (host, user, driver text) is in the service's own log.
               print(
-                  "::error::This API is generating its cohorts in process rather than reading "
-                  "the encounter store, so the published demo falls back to its recording. Set "
-                  "HEALTHCARE_DEMO_DATABASE_URL on the service to the Supabase pooler URL."
+                  "::error::The API cannot reach its Postgres stores. Read the service's log on "
+                  "Render for the database error, and check HEALTHCARE_DEMO_DATABASE_URL."
               )
-          # Only a *healthy* status response that omits the field says anything
-          # about the image's age. An error body omits it too, and reading that
-          # as "an old build" sends the next person to redeploy a service whose
-          # code was never the problem.
-          if origins == "not reported" and status_code.startswith("2"):
+          elif source == "in-memory":
               print(
-                  "::notice::This build predates the allowed_origins field, so the service is "
+                  "::error::This API keeps its records in memory instead of Postgres, so the "
+                  "published demo falls back to its recording. Set HEALTHCARE_DEMO_DATABASE_URL "
+                  "on the service to the Supabase pooler URL."
+              )
+          elif source != "postgres" and status_code.startswith("2"):
+              print(f"::error::The API reports cohort_source={source}; the published demo needs postgres.")
+          elif ready is False and status.get("hospitals") is None:
+              print(
+                  "::error::The API cannot read the hospital stores, so the published demo falls back "
+                  "to its recording. The database may not be migrated for this version: run Actions → "
+                  "Healthcare data. The database error is in the service's log on Render."
+              )
+          elif ready is False:
+              empty = [row["site_id"] for row in status.get("hospitals") or [] if not row.get("record_count")]
+              print(
+                  f"::error::These hospital stores hold no records: {', '.join(empty) or 'none listed'}. "
+                  "The published demo falls back to its recording until every store has records. "
+                  "Run Actions → Healthcare data with seed on."
+              )
+          # Only a healthy status response that omits the field says anything
+          # about the image's age. An error body omits it too.
+          if layout == "not reported" and status_code.startswith("2"):
+              print(
+                  "::notice::This build predates the store_layout field, so the service is "
                   "running an older image than the repository. Render → Manual Deploy → Deploy "
                   "latest commit."
               )
@@ -213,6 +245,11 @@ jobs:
               raise SystemExit(
                   f"The API answered {', '.join(failed)} rather than 2xx. It is running, but it "
                   "cannot serve the demo in this state."
+              )
+          if ready is False:
+              raise SystemExit(
+                  "The API reports that its hospital stores are not ready, so it cannot serve the "
+                  "demo yet. The error annotation above names the cause."
               )
           PY
 
@@ -230,12 +267,12 @@ jobs:
         run: python -m pip install "httpx<1"
 
       - name: Exercise the deployed services
-        # The checks above establish that the service is reachable and reading
-        # the right store. These exercise what the demo actually does — the
-        # guard's levers, the cohort floor, a full governed pilot, the audit
-        # chains — against the deployment rather than a local process. Every
-        # fault this deployment has had was invisible to the local suite and
-        # obvious within one request to the running service.
+        # The checks above show that the service is reachable and reading
+        # Postgres. These test what the demo does against the deployment: the
+        # Guard's controls, the cohort floor, a pilot whose decision matches its
+        # gates, the audit chains and the charts. They enter no records and
+        # approve nothing. Every fault this deployment has had passed the local
+        # suite and showed up on the first request to the running service.
         if: ${{ !cancelled() && env.HEALTH_CODE == '200' }}
         env:
           HEALTHCARE_DEPLOYED_API: ${{ env.API }}

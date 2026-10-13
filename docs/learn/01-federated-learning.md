@@ -56,7 +56,9 @@ the totals leave ([Google Research, 2020](https://research.google/blog/federated
 
 Dagents has three kinds of round: analytics, evaluation and training. The stroke
 triage demo runs an analytics round first, to check that every site can produce
-the same measures before anything is trained.
+the same measures before anything is trained. Then it trains a logistic
+regression with federated averaging over five rounds, at three hospitals of the
+International Stroke Trial.
 
 ## Two settings
 
@@ -110,7 +112,7 @@ interface.
 
 ## Try
 
-1. Open the [stroke triage demo](https://pradyunuydarp.github.io/Dagents/healthcare-demo/) and run the pilot. Look at the analytics round: three hospitals are selected, and each returns summaries instead of records.
+1. Open the [stroke triage demo](https://pradyunuydarp.github.io/Dagents/healthcare-demo/) and run the pilot. Look at the analytics round: three hospitals are selected, and each returns summaries instead of records. Then look at the five training rounds: the loss falls from 0.693 to 0.496, and each hospital's update is clipped to a norm of 1.0 before it leaves.
 2. Follow the [Flower PyTorch tutorial](https://flower.ai/docs/framework/tutorial-get-started-with-flower-pytorch.html) to train a small federated model on your own machine.
 
 Next: [Step 2 — Privacy and data governance](02-privacy-and-governance.md)

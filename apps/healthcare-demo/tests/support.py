@@ -44,3 +44,41 @@ def dagentsc_available() -> bool:
         stacklevel=2,
     )
     return False
+
+
+def tiny_site(count: int = 5, site_id: str = "tiny-001"):
+    """A fourth hospital holding ``count`` records copied from uk-134's extract.
+
+    Returns ``(site, store)``: a ``Site`` and a ``MemorySiteStore``. The records
+    keep their fields and get the tiny site's own ids and source rows.
+    """
+    from app.domain.dataset import Site, load_site_records
+    from app.services.site_store import MemorySiteStore
+
+    site = Site(site_id, "Tiny clinic", "Nowhere", 0, "site_" + site_id.replace("-", "_"), count)
+    records = []
+    for number, record in enumerate(load_site_records("uk-134")[:count], start=1):
+        copy = dict(record)
+        copy["encounter_id"] = f"{site_id}-{number:05d}"
+        copy["source_row"] = number
+        records.append(copy)
+    return site, MemorySiteStore(site, records)
+
+
+#: A record the seed rule scores near 1: over 90, unconscious, every deficit,
+#: atrial fibrillation and a total anterior circulation stroke.
+HIGH_RISK_ENTRY = {
+    "age": 93,
+    "sex": "female",
+    "conscious_level": "unconscious",
+    "face_weakness": True,
+    "arm_weakness": True,
+    "leg_weakness": True,
+    "speech_difficulty": True,
+    "hours_since_onset": 5.0,
+    "systolic_bp": 170.0,
+    "visual_field_loss": True,
+    "atrial_fibrillation": True,
+    "onset_on_waking": False,
+    "stroke_subtype": "TACS",
+}

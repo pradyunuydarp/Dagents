@@ -33,6 +33,12 @@ Every source used in the learning guide, grouped by topic.
 - Rieke et al. [The future of digital health with federated learning](https://doi.org/10.1038/s41746-020-00323-1). npj Digital Medicine, 2020.
 - Sheller et al. [Federated learning in medicine: facilitating multi-institutional collaborations without sharing patient data](https://doi.org/10.1038/s41598-020-69250-1). Scientific Reports, 2020.
 
+**The stroke demo's data**
+
+- Sandercock PAG, Niewada M, Członkowska A; International Stroke Trial Collaborative Group. [The International Stroke Trial database](https://doi.org/10.1186/1745-6215-12-101). *Trials* 2011;12:101 ([erratum](https://doi.org/10.1186/1745-6215-13-24), *Trials* 2012;13:24). Describes the data the demo uses.
+- Sandercock P, Niewada M, Członkowska A. [International Stroke Trial database (version 2)](https://doi.org/10.7488/ds/104) [dataset]. University of Edinburgh, Edinburgh DataShare, 2011. DOI 10.7488/ds/104.
+- International Stroke Trial Collaborative Group. [The International Stroke Trial (IST): a randomised trial of aspirin, subcutaneous heparin, both, or neither among 19435 patients with acute ischaemic stroke](https://doi.org/10.1016/S0140-6736%2897%2904011-7). *Lancet* 1997;349:1569-1581. The trial report.
+
 **Privacy and governance**
 
 - Kulkarni and Ramanathan. [GRAILS: A Framework for Embedding Ethical Safeguards in Software Applications for Responsible AI](https://ojs.aaai.org/index.php/AIES/article/view/36650). AIES 2025. The model behind Dagents' governance planner.
@@ -42,8 +48,8 @@ Every source used in the learning guide, grouped by topic.
 ## Standards and guidance
 
 - [Minimum Necessary Requirement](https://www.hhs.gov/hipaa/for-professionals/privacy/guidance/minimum-necessary-requirement) — US Department of Health and Human Services (HIPAA).
-- [HL7 FHIR](https://hl7.org/fhir/) — the healthcare data exchange standard the stroke demo maps from.
-- [NIH Stroke Scale](https://www.ninds.nih.gov/node/9970) — National Institute of Neurological Disorders and Stroke. The `nihss_total` field in the demo. Its LOINC code is [70182-1](https://loinc.org/70182-1).
+- [HL7 FHIR](https://hl7.org/fhir/) — the healthcare data exchange standard the stroke demo maps from. The demo maps systolic blood pressure from LOINC code [8480-6](https://loinc.org/8480-6).
+- [Open Data Commons Attribution License (ODC-By) 1.0](https://opendatacommons.org/licenses/by/1-0/) — the licence of the International Stroke Trial database. It allows reuse and redistribution with attribution.
 
 ## Frameworks and tools
 

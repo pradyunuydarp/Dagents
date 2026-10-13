@@ -1,26 +1,30 @@
 #!/usr/bin/env python3
-"""Record real demo-backend responses so the published demos are not mocked.
+"""Record real demo-backend responses for the published demos to replay.
 
-The two demo frontends are published as static sites, where there is no backend
-to call. The choice there is a dead page, a faked one, or a replay of a real
-run. This script produces the replay: it starts the actual backends with the
-actual OCaml planner, walks every request each UI can make, and writes what came
-back to `<frontend>/public/recording.json`.
+The two demo frontends can be published as static sites, with no backend to
+call. This script records what they replay: it starts the backends with the
+OCaml planner, sends every request each UI can make, and writes the responses
+to `<frontend>/public/recording.json`.
 
-That distinction matters most for the healthcare demo. Its whole argument is
-that a permit, a narrowing or a denial is computed by a typed planner rather
-than improvised, so a published page showing invented verdicts would be
-demonstrating the opposite of the framework's point. Every verdict in the
-capture is one `dagentsc` really returned.
-
-Two rules follow from that:
+In the healthcare demo, every permit, narrowing and denial comes from the
+planner. Every decision in the capture is one `dagentsc` returned. Two rules
+follow:
 
 - **No planner, no capture.** Without `dagentsc` the Ethical Guard denies
-  everything — correct behaviour, and a capture of nothing but denials would
-  misrepresent the demo. The script refuses rather than recording that.
-- **Capture the matrix, not one path.** The guard's three levers are the
-  demo's argument, so every combination of them is recorded, including the pair
-  either side of the cohort floor where the answer flips.
+  every request. That is correct, but a capture of nothing but denials would
+  show guard controls that change nothing, so the script stops instead.
+- **Record every combination of the guard's controls.** Each combination is
+  recorded at every hospital, including the cohort sizes either side of the
+  minimum, where the decision changes.
+
+The healthcare backend runs with no database, so each hospital reads the
+committed IST extract into memory, and with its rate limits off. Charts are
+recorded as SVG text in both themes: a non-JSON response is stored as
+``{"content_type": ..., "text": ...}`` in the entry's ``response``, and every
+entry names its ``content_type``. Each healthcare entry also has a ``phase``:
+``before_pilot`` for what the page shows when it opens, and ``after_pilot``
+for the pilot itself and the views it changes (the consortium charts, the
+models, each hospital's dashboard and audit trail).
 
 Usage::
 
@@ -46,7 +50,7 @@ import subprocess
 import sys
 import tempfile
 import time
-from typing import Any, Callable, Iterator
+from typing import Any
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -55,12 +59,35 @@ DUNE_BUILT_PLANNER = REPO_ROOT / "bindings" / "ocaml" / "_build" / "default" / "
 HEALTHCARE_RECORDING = REPO_ROOT / "apps/healthcare-demo/frontend/public/recording.json"
 NL2SQL_RECORDING = REPO_ROOT / "services/nl2sql-demo/frontend/public/recording.json"
 
-#: The guard levers, and why each value is in the list.
+#: The guard's controls, and why each value is in the list.
 GRANULARITIES = ("cell", "row", "column", "table", "model_update")
 #: 5 is far below the classification's floor of 20; 19 and 20 are the pair either
 #: side of it, where the same request flips from denied to permitted; 25 is the
 #: UI's default; 60 is comfortably clear of the floor.
 COHORT_SIZES = (5, 19, 20, 25, 60)
+
+#: The query strings the healthcare UI uses. The replay matches a path
+#: character for character, so the UI must send exactly these.
+WORKLIST_LIMIT = 12
+AUDIT_LIMIT = 50
+ENTERED_LIMIT = 20
+CHART_THEMES = ("light", "dark")
+
+#: Settings for the healthcare backend during a capture: no database, so the
+#: hospitals read the committed extract, and no rate limits or hourly caps,
+#: because the capture sends 150 probes in a few seconds.
+HEALTHCARE_CAPTURE_ENV = {
+    "HEALTHCARE_DEMO_DATABASE_URL": "",
+    "HEALTHCARE_DEMO_SITE_UK_134_DATABASE_URL": "",
+    "HEALTHCARE_DEMO_SITE_IT_002_DATABASE_URL": "",
+    "HEALTHCARE_DEMO_SITE_CH_245_DATABASE_URL": "",
+    "HEALTHCARE_DEMO_RATE_LIMIT_ENTRIES": "0",
+    "HEALTHCARE_DEMO_RATE_LIMIT_PROBES": "0",
+    "HEALTHCARE_DEMO_RATE_LIMIT_PILOTS": "0",
+    "HEALTHCARE_DEMO_RATE_LIMIT_APPROVALS": "0",
+    "HEALTHCARE_DEMO_PROBES_PER_SITE_PER_HOUR": "0",
+    "HEALTHCARE_DEMO_PILOTS_PER_HOUR": "0",
+}
 
 
 # --------------------------------------------------------------------------- #
@@ -99,6 +126,7 @@ HEALTHCARE_SERVICES = (
         port=8080,
         python_path=(".", "apps/healthcare-demo/backend"),
         cwd="apps/healthcare-demo/backend",
+        env=dict(HEALTHCARE_CAPTURE_ENV),
     ),
 )
 
@@ -147,9 +175,9 @@ def planner_path() -> str:
     if found:
         return found
     raise SystemExit(
-        "dagentsc was not found, so there is nothing honest to record.\n"
-        "Without the planner the Ethical Guard denies every request, and a capture of\n"
-        "nothing but denials would misrepresent the demo. Build it first:\n"
+        "dagentsc was not found, so a capture would hold only denials.\n"
+        "Without the planner the Ethical Guard denies every request, and the published\n"
+        "demo would show guard controls that change nothing. Build it first:\n"
         "  cd bindings/ocaml && opam exec -- dune build ./bin/dagentsc.exe"
     )
 
@@ -246,7 +274,7 @@ def running_stack(
     try:
         import httpx
     except ImportError as exc:  # pragma: no cover - listed in every demo's requirements
-        raise SystemExit(f"httpx is required to capture recordings: {exc}")
+        raise SystemExit(f"httpx is required to capture recordings: {exc}") from exc
 
     log_dir = Path(stack.enter_context(tempfile.TemporaryDirectory(prefix="dagents-capture-")))
     client = stack.enter_context(httpx.Client(timeout=180.0))
@@ -278,15 +306,19 @@ def running_stack(
 
 
 class Recorder:
-    """Collects request/response pairs in the shape the frontends replay."""
+    """Collects request/response pairs in the shape the frontends replay.
+
+    ``phase``, when set, is written into every entry recorded until it changes.
+    """
 
     def __init__(self, client: Any, base_url: str) -> None:
         self._client = client
         self._base = base_url
         self.entries: list[dict[str, Any]] = []
+        self.phase: str | None = None
 
     def get(self, path: str, *, required: bool = True) -> Any:
-        """Record a GET, returning the decoded body."""
+        """Record a GET, returning the decoded body (the text for a non-JSON body)."""
         response = self._client.get(f"{self._base}{path}")
         return self._record("GET", path, None, response, required)
 
@@ -301,47 +333,125 @@ class Recorder:
                 f"{method} {path} returned {response.status_code}, so the capture would "
                 f"publish a broken demo:\n{response.text[:800]}"
             )
-        entry: dict[str, Any] = {
-            "method": method,
-            "path": path,
-            "status": response.status_code,
-            "response": response.json(),
-        }
+        content_type = response.headers.get("content-type", "application/json").split(";")[0].strip()
+        entry: dict[str, Any] = {"method": method, "path": path, "status": response.status_code}
+        if self.phase is not None:
+            entry["phase"] = self.phase
+        entry["content_type"] = content_type
+        if content_type == "application/json":
+            entry["response"] = response.json()
+            returned = entry["response"]
+        else:
+            # A chart, for example. Kept as text, so the replay can serve it
+            # with its own content type.
+            entry["response"] = {"content_type": content_type, "text": response.text}
+            returned = response.text
         if body is not None:
             entry["request"] = body
         self.entries.append(entry)
-        return entry["response"]
+        return returned
+
+
+def capture_charts(recorder: Recorder, list_path: str) -> dict[str, Any]:
+    """Record a chart list and every available chart in both themes."""
+    listing = recorder.get(list_path)
+    for chart in listing["charts"]:
+        if not chart["available"]:
+            continue
+        for theme in CHART_THEMES:
+            recorder.get(f"{chart['svg_path']}?theme={theme}")
+    return listing
+
+
+def hospital_view_paths(site_id: str) -> tuple[str, ...]:
+    """Every JSON GET the hospital view and the data-entry page send for one hospital.
+
+    The chart images are not listed: their paths come from the chart list.
+    ``check_demo_recordings.py`` requires each of these paths, and a test
+    compares them with the calls in the frontend source.
+    """
+    base = f"/api/v1/hospitals/{site_id}"
+    return (
+        base,
+        f"{base}/worklist?limit={WORKLIST_LIMIT}",
+        f"{base}/audit?limit={AUDIT_LIMIT}",
+        f"{base}/encounters?origin=entered&limit={ENTERED_LIMIT}",
+        f"{base}/entry-form",
+        f"{base}/charts",
+    )
+
+
+def after_pilot_hospital_paths(site_id: str) -> tuple[str, ...]:
+    """The hospital views a pilot changes, recorded again after it.
+
+    The dashboard lists what the hospital sent in each round, and the audit log
+    holds the pilot's Guard decisions.
+    """
+    base = f"/api/v1/hospitals/{site_id}"
+    return (base, f"{base}/audit?limit={AUDIT_LIMIT}")
+
+
+def capture_hospital(recorder: Recorder, site_id: str) -> None:
+    """Every GET the hospital view and the data-entry page make for one hospital."""
+    charts = f"/api/v1/hospitals/{site_id}/charts"
+    for path in hospital_view_paths(site_id):
+        if path == charts:
+            capture_charts(recorder, path)
+        else:
+            recorder.get(path)
 
 
 def capture_healthcare(recorder: Recorder) -> None:
     """Walk every request the healthcare UI can make.
 
-    The guard matrix is the substance here: three levers, every combination, so
-    the published demo can answer any of them with a real planner decision
-    instead of the one path a happy-path capture would cover.
+    Data entry is not recorded: a recorded POST could not change the GETs
+    after it, so the replay disables the form instead.
     """
+    recorder.phase = "before_pilot"
+    recorder.get("/api/v1/framework/status")
     overview = recorder.get("/api/v1/overview")
-    for hospital in overview["hospitals"]:
-        recorder.get(f"/api/v1/hospitals/{hospital['site_id']}/worklist?limit=12")
-
-    # A fixed prefix keeps the capture reproducible enough to review in a diff.
-    recorder.post("/api/v1/pilot:run", {"round_prefix": "ui"})
+    recorder.get("/api/v1/hospitals")
+    recorder.get("/api/v1/models")
+    site_ids = [hospital["site_id"] for hospital in overview["hospitals"]]
+    for site_id in site_ids:
+        capture_hospital(recorder, site_id)
+    capture_charts(recorder, "/api/v1/charts")
 
     probes = 0
-    for verified in (True, False):
-        for granularity in GRANULARITIES:
-            for cohort in COHORT_SIZES:
-                recorder.post(
-                    "/api/v1/governance:probe",
-                    {
-                        "verified": verified,
-                        "granularity": granularity,
-                        "cohort_size": cohort,
-                        "boundary": "before_read",
-                    },
-                )
-                probes += 1
-    print(f"  recorded {probes} guard-lever combinations")
+    for site_id in site_ids:
+        for verified in (True, False):
+            for granularity in GRANULARITIES:
+                for cohort in COHORT_SIZES:
+                    answer = recorder.post(
+                        "/api/v1/governance:probe",
+                        {
+                            "site_id": site_id,
+                            "verified": verified,
+                            "granularity": granularity,
+                            "cohort_size": cohort,
+                            "boundary": "before_read",
+                        },
+                    )
+                    # The published file must not carry patient rows: the
+                    # consortium page is the coordinator's view.
+                    if isinstance(answer, dict) and "payload" in answer:
+                        raise SystemExit(
+                            "The guard probe returned patient records in 'payload'. A probe answer gives "
+                            "only released_count and released_fields; fix the backend before recording."
+                        )
+                    probes += 1
+    print(f"  recorded {probes} combinations of the guard's controls across {len(site_ids)} hospitals")
+
+    recorder.phase = "after_pilot"
+    pilot = recorder.post("/api/v1/pilot:run", {"round_prefix": "ui"})
+    print(f"  recorded the pilot: {((pilot.get('release') or {}).get('gates') or {}).get('action', 'no decision')}")
+    charts = capture_charts(recorder, "/api/v1/charts")
+    recorder.get("/api/v1/models")
+    for site_id in site_ids:
+        for path in after_pilot_hospital_paths(site_id):
+            recorder.get(path)
+    svgs = sum(1 for entry in recorder.entries if entry["content_type"] == "image/svg+xml")
+    print(f"  recorded {len(charts['charts'])} consortium charts after the pilot; {svgs} SVGs in all")
 
 
 def capture_nl2sql(recorder: Recorder) -> None:

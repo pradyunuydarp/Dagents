@@ -187,7 +187,24 @@ try {
   await page.waitForTimeout(1000);
   check("diagrams draw in dark mode", (await diagrams()).length === 0);
 
-  // 6. Nothing failed quietly along the way.
+  // 6. A stored theme applies before the app's script runs, so a dark choice
+  //    does not paint light first. Blocking every script file leaves only the
+  //    inline script in index.html.
+  const firstPaint = await browser.newPage();
+  await firstPaint.addInitScript(() => {
+    try {
+      localStorage.setItem("dagents-theme", "dark");
+    } catch {}
+  });
+  await firstPaint.route("**/*", (route) =>
+    route.request().resourceType() === "script" ? route.abort() : route.continue()
+  );
+  await firstPaint.goto(base, { waitUntil: "domcontentloaded" });
+  const stored = await firstPaint.evaluate(() => document.documentElement.getAttribute("data-theme"));
+  check("a stored dark theme applies before the app's script runs", stored === "dark", `data-theme ${stored}`);
+  await firstPaint.close();
+
+  // 7. Nothing failed quietly along the way.
   const unique = [...new Set(consoleErrors)];
   check("no console errors or failed requests", unique.length === 0, unique.join(" | "));
 } catch (error) {

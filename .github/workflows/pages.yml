@@ -7,22 +7,25 @@ name: Pages
 #   /healthcare-demo/  the stroke-triage demo
 #   /nl2sql-demo/      the natural-language-to-SQL demo
 #
-# Neither demo publishes a dead page or a faked one, by two different routes.
+# Each demo either calls a real backend or replays a recorded run. Neither one
+# invents a response.
 #
-# The healthcare demo has a deployed API, so it is published pointing at it:
-# the address is resolved from `env/.env.published`, the API is probed here, and
-# the page reads live rows out of the encounter store. If that API cannot be
-# woken this workflow falls back to the capture and says so, because the
-# alternative is a page whose every panel is an error.
+# The healthcare demo has a deployed API. The address comes from
+# `env/.env.published`, and this workflow probes the API before the build. When
+# the API passes, the page reads each hospital's records from its own Postgres
+# schema through that API. If the API does not answer, is not reading Postgres,
+# reports that its stores are not ready, returns no records or refuses this
+# site's origin, this workflow publishes the recorded run instead and says why
+# in the run summary.
 #
-# NL2SQL has no deployed backend, so it replays. This workflow builds the OCaml
-# planner, starts the real backends against it, records what every request the
-# UI can make actually returns, and ships that capture with the bundle. The page
-# names the commit it was captured from, and refuses anything the capture does
-# not hold rather than inventing an answer.
+# NL2SQL has no deployed backend, so it always replays. This workflow builds the
+# OCaml planner, starts the backends with it, records the response to every
+# request the UI can make, and ships that recording with the bundle. The page
+# names the commit it was recorded from, and a request the recording does not
+# hold shows an error instead of an invented answer.
 #
-# That ordering is load-bearing: capture writes into each frontend's `public/`,
-# which Vite copies into `dist/`, so the capture has to finish before the build.
+# The capture writes into each frontend's `public/`, which Vite copies into
+# `dist/`, so the capture has to finish before the build.
 
 on:
   push:
@@ -155,9 +158,11 @@ jobs:
         run: python scripts/capture_demo_recordings.py --demo all
 
       - name: Check the captures are usable
-        # A capture that produced no guard denials, or no permits, would mean the
-        # levers do nothing in the published demo — worth failing the deploy over,
-        # because the page would look fine and prove nothing.
+        # Fails the deploy when a capture would publish a page that shows
+        # nothing useful: no guard denials or no permits, a pilot without
+        # release gates, or a hospital page whose requests were not recorded at
+        # the exact path the UI sends. scripts/check_demo_recordings.py lists
+        # every check.
         run: python scripts/check_demo_recordings.py
 
       # --- the three frontends --------------------------------------------
@@ -230,26 +235,19 @@ jobs:
           echo "healthcare API: ${resolved:-<none — the demo will publish as a replay>}"
           echo "HEALTHCARE_API_BASE=${resolved}" >> "$GITHUB_ENV"
 
-      - name: The live API is up and serving the encounter store
-        # Four things have to hold before the demo may be published live: the
-        # API answers, it reports reading the encounter store, that store has
-        # rows, and a browser on this site's origin is allowed to call it. Any
-        # one of them failing clears the address, and the demo publishes as a
-        # replay instead.
+      - name: The live API is up and reading Postgres
+        # Five things must hold before the demo is published live: the API
+        # answers, it reports that its records are in Postgres, it reports
+        # every hospital store ready, a hospital returns rows, and a browser on
+        # this site's origin may call it. If any check fails, the address is
+        # cleared and the demo publishes as a replay.
         #
-        # None of them fails the deploy, and that is a deliberate reversal of
-        # how this started. Failing meant an external service's configuration
-        # could stop the framework site and the other demo from publishing at
-        # all — a docs change blocked by somebody else's environment variable.
-        # And it bought nothing, because the replay is *correct*: the page says
-        # it is replaying a capture and names the commit, so nothing is
-        # misrepresented either way. What the honesty argument actually demands
-        # is that the demo never claims live data it does not have, which
-        # clearing the address guarantees.
-        #
-        # So the loudness lives in the warning and the run summary, and the
-        # `Healthcare API check` workflow is the one that fails on demand when
-        # someone wants a red mark to chase.
+        # None of these checks fails the deploy. When they did, a setting on an
+        # external service could stop the framework site and the other demo
+        # from publishing. A replay is a correct result: the page says it is a
+        # replay and names the commit, and the demo never claims live data it
+        # does not have. The warning and the run summary report the reason, and
+        # the Healthcare API check workflow is the one that fails on demand.
         if: ${{ env.HEALTHCARE_API_BASE != '' }}
         env:
           API: ${{ env.HEALTHCARE_API_BASE }}
@@ -275,12 +273,24 @@ jobs:
           fi
 
           if [ -z "${reason}" ]; then
-            source=$(curl -sS --max-time 30 "${API}/api/v1/framework/status" \
-                     | python3 -c "import json,sys; print(json.load(sys.stdin).get('cohort_source'))" \
-                     || echo "unreadable")
-            echo "cohort_source: ${source}"
-            if [ "${source}" != "supabase" ]; then
-              reason="it reports cohort_source=${source}, so it is generating cohorts in process rather than reading the encounter store"
+            # One request, read twice. `ready` is true when every hospital store
+            # can be read and holds records; `hospitals` is null when the stores
+            # cannot be read at all.
+            status_file=$(mktemp)
+            curl -sS --max-time 30 -o "${status_file}" "${API}/api/v1/framework/status" || true
+            read_status() {
+              python3 -c "import json,sys; print($1)" < "${status_file}" 2>/dev/null || echo "unreadable"
+            }
+            source=$(read_status "json.load(sys.stdin).get('cohort_source')")
+            ready=$(read_status "str(json.load(sys.stdin).get('ready')).lower()")
+            stores=$(read_status "'unreadable' if json.load(sys.stdin).get('hospitals') is None else 'read'")
+            echo "cohort_source: ${source}   ready: ${ready}   stores: ${stores}"
+            if [ "${source}" != "postgres" ]; then
+              reason="it reports cohort_source=${source}, so its records are not in the Postgres stores"
+            elif [ "${ready}" != "true" ] && [ "${stores}" = "unreadable" ]; then
+              reason="it cannot read the hospital stores (ready=${ready}); the database may not be migrated for this version"
+            elif [ "${ready}" != "true" ]; then
+              reason="it reports the hospital stores are not ready (ready=${ready}), so at least one hospital has no records yet"
             fi
           fi
 
@@ -291,7 +301,7 @@ jobs:
                    | python3 -c "import json,sys; print(len(json.load(sys.stdin)['worklist']))" || echo 0)
             echo "${site}: ${rows} worklist rows"
             if [ "${rows:-0}" -lt 1 ]; then
-              reason="its encounter store returned no rows for ${site}"
+              reason="the first hospital (${site:-none}) returned no worklist rows"
             fi
           fi
 
@@ -314,8 +324,8 @@ jobs:
 
           if [ -n "${reason}" ]; then
             echo "::warning::The healthcare demo is publishing as a replay, not against" \
-                 "${API}, because ${reason}. The page says it is a replay, so nothing is" \
-                 "misrepresented — but the live data is not live."
+                 "${API}, because ${reason}. The page says it is a replay and names its" \
+                 "commit."
             {
               echo "### Healthcare demo: published as a replay, not live"
               echo
@@ -327,11 +337,11 @@ jobs:
             } >> "$GITHUB_STEP_SUMMARY"
             echo "HEALTHCARE_API_BASE=" >> "$GITHUB_ENV"
           else
-            echo "the deployed API is live, reading the encounter store, and callable from ${ORIGIN}"
+            echo "the deployed API is live, reading Postgres, and callable from ${ORIGIN}"
             {
               echo "### Healthcare demo: published live"
               echo
-              echo "Calling \`${API}\`, which reports \`cohort_source: supabase\`."
+              echo "Calling \`${API}\`, which reports \`cohort_source: postgres\`."
             } >> "$GITHUB_STEP_SUMMARY"
           fi
 
@@ -339,9 +349,9 @@ jobs:
         env:
           DEMO_BASE_PATH: ${{ env.BASE_PATH }}/healthcare-demo/
           VITE_DAGENTS_STATIC: "1"
-          # Resolved above, and cleared again if the API could not be woken, in
-          # which case the demo publishes as a replay — the honest default
-          # rather than a page pointing at a backend that is not answering.
+          # Resolved above, and cleared again if the API failed a check. Then
+          # the demo publishes as a replay, the default, instead of a page that
+          # calls a backend that cannot serve it.
           VITE_HEALTHCARE_API_BASE: ${{ env.HEALTHCARE_API_BASE }}
         working-directory: apps/healthcare-demo/frontend
         run: |
@@ -383,9 +393,9 @@ jobs:
           find _site -maxdepth 2 -type f | sort | head -40
 
       - name: Every demo shipped its capture
-        # Vite copies `public/` into `dist/`. If that ever stops being true the
-        # demos would publish as permanently-loading pages, which is exactly the
-        # sort of break a deploy should not sail past.
+        # Vite copies `public/` into `dist/`. If that stops being true, a demo
+        # would publish as a page that never finishes loading, so the deploy
+        # stops here instead.
         run: |
           for demo in healthcare-demo nl2sql-demo; do
             test -s "_site/${demo}/recording.json" || {

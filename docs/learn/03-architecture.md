@@ -83,7 +83,8 @@ Both agents use the same code layout:
 | `infrastructure/` | Messaging and storage, behind interfaces |
 
 Storage and messaging are in memory today. They sit behind interfaces so they can
-be replaced with a database or a message broker later.
+be replaced with a database or a message broker later. The stroke demo already
+keeps each site's records and audit chain in Postgres, as described below.
 
 ## Four guard boundaries
 
@@ -102,7 +103,7 @@ flowchart LR
 |---|---|---|
 | `before_train` | LMA | Whether the site may train on the requested fields for this round. Checked when the job is offered. |
 | `before_read` | LMA | Which records and fields the job may read. The job runs on this governed data, not the raw records. |
-| `before_send` | LMA | What may leave the site: counts, bounded model updates and approved metrics |
+| `before_send` | LMA | What may leave the site: a round's result, with its counts, metrics and bounded model update, leaves only when this boundary permits the contribution for the number of records the round used. It bounds the update; it does not inspect each metric. |
 | `before_release` | GMA | Whether a candidate model may be released |
 
 ## A federated round in Dagents
@@ -131,9 +132,79 @@ Two rules always hold, and both have tests:
 1. Aggregation produces a **candidate**, never a release. Release needs the gates to pass.
 2. A release gate whose metric is missing **blocks** the release. It never passes by default.
 
-The stroke demo runs four rounds in order: analytics, baseline evaluation,
-training, and cross-site validation of the candidate. Then it evaluates the
-release gates.
+The stroke demo runs eight rounds in order: analytics, evaluation of the model in
+use, five training rounds, and validation of the candidate at each hospital.
+Then it evaluates the release gates.
+
+## Where each site's data is kept
+
+In the stroke demo, each hospital keeps its records in a store of its own. With
+a database, that is one Postgres schema and one role per hospital; the role owns
+the schema and cannot log in. Without a database, each hospital has its own
+in-memory store. The coordinator has a separate schema for the model registry,
+what each hospital sent in each round, the pilot reports and its own release
+audit chain. It has no access to any hospital's schema.
+
+```mermaid
+flowchart TB
+    subgraph UK["Hospital 134, United Kingdom"]
+        S1[("schema site_uk_134<br/>records, audit chain")] --- L1["LMA and Guard<br/>acting as site_uk_134"]
+    end
+    subgraph IT["Hospital 2, Italy"]
+        S2[("schema site_it_002<br/>records, audit chain")] --- L2["LMA and Guard<br/>acting as site_it_002"]
+    end
+    subgraph CH["Hospital 245, Switzerland"]
+        S3[("schema site_ch_245<br/>records, audit chain")] --- L3["LMA and Guard<br/>acting as site_ch_245"]
+    end
+    R["<b>Parameter averaging</b><br/>the app's runtime"]
+    G["<b>GMA</b>, the coordinator<br/>schema coordinator: model registry and contributions"]
+    L1 -->|"results"| G
+    L2 -->|"results"| G
+    L3 -->|"results"| G
+    L1 -->|"clipped update"| R
+    L2 -->|"clipped update"| R
+    L3 -->|"clipped update"| R
+    R -->|"new model version"| G
+```
+
+The coordinator sends each hospital the round manifest. The arrows show what a
+hospital sends back. Its **results** (counts, aggregate metrics, and the
+update's size and digest) go to the coordinator, and only when the hospital's
+`before_send` Guard permits the round's contribution. Its **clipped update**
+goes only to the runtime that averages the updates.
+
+Every database operation runs in one transaction that first switches to the
+hospital's role (`SET LOCAL ROLE`) and checks that the switch happened. So a
+query for one hospital cannot read another hospital's rows, and a coordinator
+query cannot read any hospital's rows.
+
+What crosses from a hospital, and what stays:
+
+| Crosses to the coordinator | Stays at the hospital |
+|---|---|
+| Record counts, and an outcome rate when the hospital's planner permits a table request for the outcome at that many labelled records (at least 20) | The records, including every outcome label |
+| Each round's aggregate metrics, such as AUC and sensitivity, when the `before_send` Guard permits the round's contribution | The guarded records the round's code trains on |
+| The size of its model update after the Guard clipped it, and the update's digest | The audit chain of its Guard decisions |
+| Whether its audit chain verifies, and how many decisions it holds | The decisions in that chain |
+
+The model update itself goes from the hospital's `before_send` Guard, which
+clips it to a norm of 1.0, to the app's parameter-averaging runtime. That
+runtime stands in for a federated learning runtime such as Flower. It averages
+the clipped updates with the weights the planner chose (each hospital's share of
+the records) and registers the new model version. The update never appears in a
+round result, because results are shown to the coordinator.
+
+When a hospital's staff enter a new record, it is written to that hospital's
+store as that hospital's role. The hospital then updates its running statistics
+(counts, means and category counts) with the one new record instead of
+recomputing them from every record. Once the record has an outcome, the next
+round trains and evaluates on it.
+
+One limit applies to the published demo. Supabase gives the API one database
+login, and that login can read every schema. The isolation therefore holds
+because every query the code runs switches to a hospital's role, not because the
+login is restricted. A real deployment gives each hospital's LMA its own login
+and database.
 
 ## How applications extend Dagents
 

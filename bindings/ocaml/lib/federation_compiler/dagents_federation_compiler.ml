@@ -197,30 +197,44 @@ let evaluate_aggregation_readiness manifest results =
     site_weights = weights;
   }
 
+(** The value a gate compares the observed metric with, if one exists.
+
+    An improvement gate has a threshold only when the baseline reported its
+    metric. *)
+let gate_threshold gate baseline_metrics =
+  match gate.comparison with
+  | AtLeast threshold | AtMost threshold -> Some threshold
+  | ImprovesOnBaseline margin ->
+      Option.map (fun baseline -> baseline +. margin) (List.assoc_opt gate.gate_metric baseline_metrics)
+
 (** Evaluate one release gate against candidate and baseline metrics. *)
 let evaluate_gate gate candidate_metrics baseline_metrics =
   let observed = List.assoc_opt gate.gate_metric candidate_metrics in
+  let threshold = gate_threshold gate baseline_metrics in
   match (gate.comparison, observed) with
   | _, None ->
       {
         result_gate_id = gate.gate_id;
         outcome = GateNotEvaluated;
         observed = None;
+        threshold;
         gate_detail = Printf.sprintf "candidate reported no metric named %s" gate.gate_metric;
       }
-  | AtLeast threshold, Some value ->
+  | AtLeast limit, Some value ->
       {
         result_gate_id = gate.gate_id;
-        outcome = (if value >= threshold then GatePassed else GateFailed);
+        outcome = (if value >= limit then GatePassed else GateFailed);
         observed = Some value;
-        gate_detail = Printf.sprintf "%s=%g required >= %g" gate.gate_metric value threshold;
+        threshold;
+        gate_detail = Printf.sprintf "%s=%g required >= %g" gate.gate_metric value limit;
       }
-  | AtMost threshold, Some value ->
+  | AtMost limit, Some value ->
       {
         result_gate_id = gate.gate_id;
-        outcome = (if value <= threshold then GatePassed else GateFailed);
+        outcome = (if value <= limit then GatePassed else GateFailed);
         observed = Some value;
-        gate_detail = Printf.sprintf "%s=%g required <= %g" gate.gate_metric value threshold;
+        threshold;
+        gate_detail = Printf.sprintf "%s=%g required <= %g" gate.gate_metric value limit;
       }
   | ImprovesOnBaseline margin, Some value -> (
       match List.assoc_opt gate.gate_metric baseline_metrics with
@@ -229,6 +243,7 @@ let evaluate_gate gate candidate_metrics baseline_metrics =
             result_gate_id = gate.gate_id;
             outcome = GateNotEvaluated;
             observed = Some value;
+            threshold;
             gate_detail = Printf.sprintf "baseline reported no metric named %s" gate.gate_metric;
           }
       | Some baseline ->
@@ -236,6 +251,7 @@ let evaluate_gate gate candidate_metrics baseline_metrics =
             result_gate_id = gate.gate_id;
             outcome = (if value >= baseline +. margin then GatePassed else GateFailed);
             observed = Some value;
+            threshold;
             gate_detail =
               Printf.sprintf "%s=%g required >= baseline %g + margin %g" gate.gate_metric value baseline margin;
           })

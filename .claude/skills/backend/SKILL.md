@@ -98,6 +98,40 @@ copies of one rule drift apart; this repo has had that bug (see §5).
   `FederationEngine`. The in-process engine is a simulator for tests and demos.
   **Never** turn it into a federated optimizer.
 
+### Site data
+
+The healthcare demo shows how a site's data is kept. Each hospital has a store of
+its own: a Postgres schema owned by a `NOLOGIN` role with the same name, or an
+in-memory store when no database is configured. These rules apply to any
+consumer that stores site data:
+
+- **Every read or write of a site's data goes through that site's store, acting
+  as that site's role.** Use `acting_as` from
+  `agents/common/infrastructure/postgres_roles.py`: one transaction that starts
+  with `SET LOCAL ROLE` and checks `current_user`. **Never** use a session-level
+  `SET ROLE`, and never bind a role name as a query parameter; it is validated
+  and quoted as an identifier.
+- **The coordinator never reads site rows.** It sees what sites report (counts,
+  rates only when the site's planner permits a table request at that cohort,
+  and each audit chain's state and length) and round results. Its role has no
+  grant on any site schema, and a test checks that its reads fail.
+- **Training labels never leave the site.** A site trains on the Guard's
+  `before_read` payload, in its own process, and returns a parameter update.
+- **The update vector never enters `SiteResult`.** `LocalFederatedWorker` sends
+  it through the `before_send` Guard, which clips it, and hands the clipped
+  vector to an `UpdateChannel`. `SiteResult` carries only `update_digest` and
+  `update_norm`, because results are shown to the coordinator. An update with no
+  channel is refused.
+- **Entries are typed.** A data-entry endpoint accepts enums, numeric ranges and
+  yes/no fields, built from the field domains the app declares. It accepts no
+  free text and no identifiers, and it refuses unknown keys.
+- **Two store implementations share one test suite.** The in-memory and Postgres
+  stores run the same assertions (see §3).
+- On Supabase the API connects with one credential that holds
+  `pg_read_all_data`, so the isolation binds the code paths, not the credential.
+  A real deployment gives each site's LMA its own login and database; the store
+  reads `HEALTHCARE_DEMO_SITE_<SITE>_DATABASE_URL` for that.
+
 ### Agent layout
 
 `agents/lma/` and `agents/gma/` use the same layout, and a new agent must too:
@@ -146,8 +180,8 @@ named pipeline steps and named model adapters through
 `agents/common/extensions`. It never patches the framework. Registration is
 explicit, and two extensions registering the same id is an error, because
 otherwise a guard decision would depend on import order.
-`apps/healthcare-demo/backend/app/extension.py` is the reference: about eighty
-declarative lines that import no framework internals. If a new consumer's needs
+`apps/healthcare-demo/backend/app/extension.py` is the reference: about a
+hundred declarative lines that import no framework internals. If a new consumer's needs
 do not fit through this interface, improve the interface instead of working
 around it.
 
@@ -214,6 +248,15 @@ cd apps/healthcare-demo && PYTHONPATH=../..:backend ../../.venv/bin/python -m un
 - **Run the same assertions against every implementation of a behaviour.** The
   two manifest renderers drifted apart because the suite only tested the
   fallback. If two implementations cannot be kept in step, delete one.
+- **The Postgres tests need a real server.** The store, isolation and role tests
+  create a scratch database on a PostgreSQL 16 server, add Supabase's roles,
+  apply the migrations as a non-superuser and drop everything afterwards. Point
+  them at an admin login, or they skip with `database test skipped`:
+
+  ```bash
+  export HEALTHCARE_DEMO_TEST_DATABASE_URL=postgresql://admin:pw@127.0.0.1:5432/postgres  # healthcare suite
+  export DAGENTS_TEST_DATABASE_URL=postgresql://admin:pw@127.0.0.1:5432/postgres          # agents/tests/test_postgres_roles.py
+  ```
 - No test may need the network. Pin fixtures; never download a model or a
   dataset inside a test.
 

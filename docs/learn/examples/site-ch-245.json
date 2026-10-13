@@ -1,16 +1,16 @@
 {
-  "site_id": "riverside-general",
+  "site_id": "ch-245",
   "capabilities": [
     "local_profiling",
     "local_evaluation",
     "local_training",
     "telemetry"
   ],
-  "feature_contract_version": "stroke-triage-features-v2",
+  "feature_contract_version": "stroke-triage-features-v3",
   "approved_conditions": [
     "suspected_stroke"
   ],
   "policy_version": "demo-hospital-policy-v1",
-  "cohort_size": 60,
+  "cohort_size": 198,
   "enrolled": true
 }

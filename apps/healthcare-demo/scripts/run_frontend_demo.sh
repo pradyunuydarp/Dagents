@@ -1,15 +1,20 @@
 #!/usr/bin/env bash
-# Run the healthcare demo end to end: backend, frontend, and a guided tour.
+# Run the healthcare demo end to end: the API, the UI, and a short tour.
 #
-# One command, no Docker and no database. Starts the API, starts the Vite dev
-# server in front of it, waits until both actually answer, and prints what to
-# click and what each panel is showing.
+# One command, no Docker. Starts the API, starts the Vite dev server in front of
+# it, waits until both answer, and prints what to try on each page. Without
+# HEALTHCARE_DEMO_DATABASE_URL the API keeps each hospital's records in memory,
+# loaded from the committed International Stroke Trial extract, so no database
+# is needed.
 #
-#   scripts/run_frontend_demo.sh            # start it and print the tour
-#   scripts/run_frontend_demo.sh --verify   # run the smoke test first, then start
-#   scripts/run_frontend_demo.sh --check    # run the smoke test and exit
+#   scripts/run_frontend_demo.sh                        # start it and print the tour
+#   scripts/run_frontend_demo.sh --verify               # run the smoke test first, then start
+#   scripts/run_frontend_demo.sh --check                # run the smoke test and exit
+#   scripts/run_frontend_demo.sh --screenshots <dir>    # run the smoke test, save the README
+#                                                       # screenshots to <dir>, and exit
 #
-# Ctrl-C stops both servers.
+# HEALTHCARE_DEMO_API_PORT and HEALTHCARE_DEMO_UI_PORT change the ports (8080
+# and 5174 by default). Ctrl-C stops both servers.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -17,9 +22,20 @@ APP_ROOT="$(cd "${HERE}/.." && pwd)"
 DAGENTS_HOME="${DAGENTS_HOME:-$(cd "${APP_ROOT}/../.." && pwd)}"
 
 MODE="run"
+SHOT_DIR=""
 case "${1:-}" in
   --verify) MODE="verify" ;;
   --check) MODE="check" ;;
+  --screenshots)
+    MODE="check"
+    SHOT_DIR="${2:-}"
+    if [[ -z "${SHOT_DIR}" ]]; then
+      echo "--screenshots needs a directory" >&2
+      exit 2
+    fi
+    mkdir -p "${SHOT_DIR}"
+    SHOT_DIR="$(cd "${SHOT_DIR}" && pwd)"
+    ;;
   "") ;;
   *) echo "unknown option: $1" >&2; exit 2 ;;
 esac
@@ -41,8 +57,8 @@ if [[ ! -x "${PLANNER}" ]] && ! command -v dagentsc >/dev/null 2>&1; then
   echo "The dagentsc planner is not built." >&2
   echo "  cd ${DAGENTS_HOME}/bindings/ocaml && opam exec -- dune build ./bin/dagentsc.exe" >&2
   echo >&2
-  echo "Without it the Ethical Guard denies every request. That is correct behaviour," >&2
-  echo "but every panel in the UI would show a denial, which is not a demo." >&2
+  echo "Without it the Ethical Guard denies every request. That is the correct" >&2
+  echo "behaviour, but then every panel in the UI shows a denial." >&2
   exit 1
 fi
 [[ -x "${PLANNER}" ]] && export DAGENTSC_BIN="${PLANNER}"
@@ -70,12 +86,11 @@ BACKEND_PID=""
 FRONTEND_PID=""
 LOG_DIR="$(mktemp -d)"
 
-# Kill a process and everything it spawned.
+# Kill a process and everything it started.
 #
-# Killing the PID alone is not enough: `npm run dev` becomes `sh -c vite` which
-# becomes a node process, and signalling the outermost shell leaves the dev
-# server holding the port. Ctrl-C would look like it worked, and the next run
-# would fail to bind.
+# Killing the PID alone is not enough: `npm run dev` starts `sh -c vite`, which
+# starts a node process, and signalling the outer shell leaves the dev server
+# holding the port. The next run would then fail to bind.
 kill_tree() {
   local pid="$1" signal="${2:-TERM}" child
   [[ -z "${pid}" ]] && return 0
@@ -116,29 +131,39 @@ wait_for() {
   return 1
 }
 
-bold "Starting the backend on :${API_PORT}"
+bold "Starting the API on :${API_PORT}"
 (
   cd "${APP_ROOT}/backend"
   PYTHONPATH="${DAGENTS_HOME}:${APP_ROOT}/backend" \
     "${PYTHON}" -m uvicorn app.main:app --host 127.0.0.1 --port "${API_PORT}"
 ) >"${LOG_DIR}/backend.log" 2>&1 &
 BACKEND_PID=$!
-wait_for "http://127.0.0.1:${API_PORT}/api/v1/health" "backend" "${LOG_DIR}/backend.log"
+wait_for "http://127.0.0.1:${API_PORT}/api/v1/health" "The API" "${LOG_DIR}/backend.log"
 
-bold "Starting the frontend on :${UI_PORT}"
+bold "Starting the UI on :${UI_PORT}"
 (
   cd "${APP_ROOT}/frontend"
-  HEALTHCARE_DEMO_API_URL="http://127.0.0.1:${API_PORT}" npm run dev -- --port "${UI_PORT}"
+  HEALTHCARE_DEMO_API_URL="http://127.0.0.1:${API_PORT}" npm run dev -- --port "${UI_PORT}" --strictPort
 ) >"${LOG_DIR}/frontend.log" 2>&1 &
 FRONTEND_PID=$!
-wait_for "http://127.0.0.1:${UI_PORT}/" "frontend" "${LOG_DIR}/frontend.log"
+wait_for "http://127.0.0.1:${UI_PORT}/" "The UI" "${LOG_DIR}/frontend.log"
+
+# Where the records are, as the API reports it: in memory without a database
+# URL, or one Postgres schema per hospital with one.
+STORAGE="$(curl -sf "http://127.0.0.1:${API_PORT}/api/v1/framework/status" \
+  | "${PYTHON}" -c 'import json, sys
+source = json.load(sys.stdin).get("cohort_source")
+print({"in-memory": "in memory, one store per hospital", "postgres": "in Postgres, one schema per hospital"}.get(source, source))' \
+  2>/dev/null || echo "not reported")"
 
 # --- optional verification -------------------------------------------------
 
 if [[ "${MODE}" != "run" ]]; then
   bold "Running the frontend smoke test"
+  SMOKE_ARGS=("http://127.0.0.1:${UI_PORT}/")
+  [[ -n "${SHOT_DIR}" ]] && SMOKE_ARGS+=(--screenshots "${SHOT_DIR}")
   set +e
-  (cd "${APP_ROOT}/frontend" && node smoke.mjs "http://127.0.0.1:${UI_PORT}/")
+  (cd "${APP_ROOT}/frontend" && node smoke.mjs "${SMOKE_ARGS[@]}")
   SMOKE_STATUS=$?
   set -e
   case "${SMOKE_STATUS}" in
@@ -146,6 +171,7 @@ if [[ "${MODE}" != "run" ]]; then
     2) dim "(smoke test skipped: no browser available)" ;;
     *) echo "The frontend smoke test failed." >&2; exit "${SMOKE_STATUS}" ;;
   esac
+  [[ -n "${SHOT_DIR}" && "${SMOKE_STATUS}" == 0 ]] && echo "Screenshots written to ${SHOT_DIR}"
   [[ "${MODE}" == "check" ]] && exit 0
   echo
 fi
@@ -154,62 +180,54 @@ fi
 
 cat <<TOUR
 
-$(bold "Dagents healthcare demo is running")
+$(bold "The Dagents stroke triage demo is running")
 
-  UI       http://127.0.0.1:${UI_PORT}
-  API      http://127.0.0.1:${API_PORT}/docs
-  planner  ${DAGENTSC_BIN:-dagentsc (on PATH)}
+  UI        http://127.0.0.1:${UI_PORT}
+  API docs  http://127.0.0.1:${API_PORT}/docs
+  planner   ${DAGENTSC_BIN:-dagentsc (on PATH)}
+  records   ${STORAGE}
 
-$(dim "All patient data is synthetic. The scoring rule is a demonstration, not a")
-$(dim "validated triage model, and nothing here is clinical advice.")
+$(dim "The records are real, de-identified patient records from the International")
+$(dim "Stroke Trial (1991-1996), from three of its hospitals. The models are")
+$(dim "demonstrations, not validated clinical tools, and nothing here is medical advice.")
 
-$(bold "What to look at, in order")
+$(bold "What to try, page by page")
 
-  1. Consortium
-     Three hospitals with deliberately different populations. Riverside sees an
-     older, sicker cohort; Northgate records less completely; Lakeside is small.
-     Identical sites would never exercise the drift checks or the fairness gate.
+  1. Consortium (the coordinator's view)
+     The hospitals table shows only what each hospital reports: record counts,
+     how many have an outcome, and the poor outcome rate. No patient row reaches
+     this page.
 
-  2. Ethical Guard  —  the fastest way to see the governance layer
-     Press "Ask the guard", then change one input and press it again. Watch the
-     strategy column, not just the verdict.
+     Ethical Guard: choose a hospital, press "Ask the guard", then change one
+     control and press it again. Watch the Strategy column for systolic_bp.
 
-       untick "verified"        generalize:1  ->  redact
-                                lower trust hardens the strategy
+       untick "Requester verified"     generalize:1  ->  redact
+       Granularity "table"             generalize:1  ->  aggregate_only:20
+       Granularity "model update"                    ->  clip_contribution:1
+       Granularity "table", Cohort size 5            ->  DENY
 
-       granularity "table"      generalize:1  ->  aggregate_only:20
-                                a table can only come back as a group
+     The cohort minimum applies to column, table and model-update requests.
+     A cell or row request is about one patient, so a small cohort does not
+     deny it. The panel shows how many records the Guard would release and
+     which fields, never the values. Each decision comes from the OCaml
+     planner. Changing the policy means changing the classification, not this
+     app's code.
 
-       granularity "model update"             ->  clip_contribution:1
-                                an update is bounded, never released raw.
-                                This is the fifth granularity, the extension
-                                this project adds to the published framework.
+     Federated pilot: press "Run the pilot". It runs analytics, an evaluation of
+     the model in use, five training rounds and a validation of the candidate.
+     Read the release gates: the decision is whatever they decide. If it is
+     "release", the "Approve release" button makes the candidate the model the
+     hospitals use.
 
-       cohort 5                               ->  DENY
-                                below the classification's floor of 20 the
-                                request is refused however trusted the caller
+  2. A hospital page (what that hospital's staff see)
+     Where its records are stored, its running statistics, the model in use and
+     its local metrics, the worklist, its charts, its audit log, and what it sent
+     in each round of the pilot.
 
-     Every one of those decisions comes from the typed OCaml planner. None of
-     them is a branch in this app's code, and changing the policy means editing
-     a classification, not a code path.
-
-  3. Federated pilot  —  press "Run governed pilot"
-     Four rounds: analytics, baseline evaluation, training, then cross-site
-     validation of the candidate. Each shows its manifest digest, its quorum,
-     and any site excluded with the reason why.
-
-     Then read the release gates. The candidate beats its baseline on AUC and
-     is still rejected, because the subgroup-fairness and sensitivity gates
-     fail. That is the framework working: aggregation produces a candidate,
-     never a release.
-
-     Open "What each site returned". Counts, a bounded norm, approved metrics,
-     and a pointer that resolves only at the site. No patient-level column.
-
-  4. Local worklist
-     The clinician-facing view, which never leaves the hospital. Cases are
-     re-ordered so an urgent one reaches a specialist sooner; nothing is
-     removed from the queue, and every row carries the basis for its score.
+  3. Add a record (the data-entry page, from a hospital page)
+     Do not enter real patient information. Save a record, go back to the
+     hospital page, and see it listed and counted. Record its outcome with
+     "Yes" or "No"; the next pilot then trains and evaluates on it.
 
 $(dim "Ctrl-C stops both servers.")
 

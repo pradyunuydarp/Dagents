@@ -28,7 +28,8 @@
  * could not tell a styled panel from a refused request. So the palette is
  * neutral ink and the only chromatic elements are decision states, plus one
  * functional blue for links and focus rings. A page here has no accent colour
- * to spend, which is the point.
+ * to spend, which is the point. Charts add three series colours that mark
+ * identity inside a chart and nothing else.
  *
  * Type: Archivo for headings and running text — industrial, slightly narrow,
  * real weights. IBM Plex Mono for everything the framework itself emits:
@@ -60,7 +61,7 @@
   /* Ink, with a slight cool bias so the neutrals read as chosen. */
   --ds-ink: #14181f;
   --ds-ink-2: #464f60;
-  --ds-ink-3: #6d7688;
+  --ds-ink-3: #636c7e;
 
   /* The one functional hue: links, focus, selection. Not an accent to spend. */
   --ds-focus: #1d4ed8;
@@ -75,6 +76,18 @@
   --ds-deny-bg: #fbe7e6;
   --ds-inert: #5b6474;
   --ds-inert-bg: #e9ebf0;
+
+  /* Chart series, used only inside charts. They mark identity (which site,
+   * which model), never a decision, so their hues stay away from permit,
+   * narrow, deny and the focus blue. A chart with two or more series also has
+   * a legend, so identity never depends on colour alone. The three values were
+   * checked as a set (lightness band, chroma, colour-vision-deficiency
+   * separation for every pair, 3:1 contrast against --ds-panel) in each theme.
+   * agents/common/infrastructure/charts.py mirrors these values, and a test
+   * fails when the two differ. */
+  --ds-series-1: #289ebf;
+  --ds-series-2: #8665f0;
+  --ds-series-3: #7b1b94;
 
   /* Type. */
   --ds-font-display: "Archivo", "Helvetica Neue", Arial, sans-serif;
@@ -117,7 +130,7 @@
     --ds-line-strong: #3a4353;
     --ds-ink: #e8ebf1;
     --ds-ink-2: #a6aebe;
-    --ds-ink-3: #7b8493;
+    --ds-ink-3: #838c9b;
     --ds-focus: #7fa6ff;
     --ds-focus-soft: #1b2740;
     --ds-permit: #6cd2a8;
@@ -128,6 +141,9 @@
     --ds-deny-bg: #2e1616;
     --ds-inert: #9aa3b2;
     --ds-inert-bg: #1f242e;
+    --ds-series-1: #1b8abd;
+    --ds-series-2: #8567f3;
+    --ds-series-3: #8f4e8c;
   }
 }
 
@@ -141,7 +157,7 @@
   --ds-line-strong: #3a4353;
   --ds-ink: #e8ebf1;
   --ds-ink-2: #a6aebe;
-  --ds-ink-3: #7b8493;
+  --ds-ink-3: #838c9b;
   --ds-focus: #7fa6ff;
   --ds-focus-soft: #1b2740;
   --ds-permit: #6cd2a8;
@@ -152,6 +168,9 @@
   --ds-deny-bg: #2e1616;
   --ds-inert: #9aa3b2;
   --ds-inert-bg: #1f242e;
+  --ds-series-1: #1b8abd;
+  --ds-series-2: #8567f3;
+  --ds-series-3: #8f4e8c;
 }
 
 /* ===== Base =============================================================== */

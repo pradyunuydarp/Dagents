@@ -1,16 +1,31 @@
 #!/usr/bin/env python3
-"""Fail when a captured demo recording would publish a page that proves nothing.
+"""Fail when a captured demo recording would publish a page that shows nothing useful.
 
 `capture_demo_recordings.py` can succeed and still produce a useless capture.
-If every guard probe came back denied — which is what happens when the planner
-is unreachable, because the Guard fails closed — the published demo would show
-three levers that change nothing, and look fine doing it. If every probe came
-back permitted, the cohort floor would appear not to exist.
+If the planner was unreachable, the Guard fails closed and every probe comes
+back denied, so the published demo would show guard controls that change
+nothing. If every probe came back permitted, the cohort minimum would never
+show.
 
-So the deploy checks the capture's *content*, not just that a file was written:
-the guard matrix has to contain both permits and denials, the strategies have to
-actually differ across the levers, the pilot has to have reached its release
-gates, and the NL2SQL capture has to contain real SQL and a trace.
+So the deploy checks the capture's content, not only that a file was written:
+
+- the guard probes cover every hospital, with both permits and denials, and at
+  least three different field strategies;
+- no guard probe answer holds patient records. The consortium page is the
+  coordinator's view, so a probe answer counts the records the Guard would
+  release and names their fields, and the published file must not carry rows;
+- the pilot reached its release gates;
+- the recorded framework status says every hospital store is ready;
+- every hospital has each request its pages send, at exactly the path and
+  query string the UI uses, because the replay matches a request character
+  for character: the dashboard, the worklist, the entered records, the audit
+  log, the entry form and the chart list (the paths come from
+  `capture_demo_recordings.hospital_view_paths`);
+- every hospital has charts as SVG in both themes;
+- the dashboard and the audit log were recorded again after the pilot;
+- the consortium charts were recorded after the pilot, in both themes.
+
+The NL2SQL capture has to contain real SQL and a trace.
 
 Usage::
 
@@ -24,6 +39,11 @@ import json
 from pathlib import Path
 import sys
 from typing import Any
+
+# The capture script defines the paths the UI sends; both scripts must use the
+# same ones. It imports only the standard library at module level.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from capture_demo_recordings import after_pilot_hospital_paths, hospital_view_paths  # noqa: E402
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -62,7 +82,7 @@ def check_healthcare(document: dict[str, Any]) -> list[str]:
 
     probes = entries_for(document, "POST", "/api/v1/governance:probe")
     if len(probes) < 20:
-        problems.append(f"only {len(probes)} guard probes captured; the lever matrix is incomplete")
+        problems.append(f"only {len(probes)} guard probes captured; not every combination of the guard's controls was recorded")
 
     permitted = [probe for probe in probes if probe["response"].get("permitted")]
     denied = [probe for probe in probes if not probe["response"].get("permitted")]
@@ -70,7 +90,7 @@ def check_healthcare(document: dict[str, Any]) -> list[str]:
         problems.append(
             "every captured guard probe was denied. That is what a capture looks like when the "
             "planner was unreachable and the Guard failed closed, and publishing it would show "
-            "three levers that change nothing"
+            "guard controls that change nothing"
         )
     if not denied:
         problems.append(
@@ -79,7 +99,7 @@ def check_healthcare(document: dict[str, Any]) -> list[str]:
         )
 
     # The strategies are the substance: if lowering trust or widening granularity
-    # does not change them, the levers are decorative.
+    # does not change them, the controls show nothing.
     strategies = {
         restriction["strategy"]
         for probe in probes
@@ -88,7 +108,14 @@ def check_healthcare(document: dict[str, Any]) -> list[str]:
     if len(strategies) < 3:
         problems.append(
             f"the capture contains only {len(strategies)} distinct field strategies "
-            f"({sorted(strategies)}); the levers are supposed to change the strategy"
+            f"({sorted(strategies)}); changing a control should change the strategy"
+        )
+
+    with_records = [probe for probe in probes if probe_records(probe.get("response"))]
+    if with_records:
+        problems.append(
+            f"{len(with_records)} guard probe answers hold patient records. The consortium page is the "
+            "coordinator's view, and a probe answer must give only released_count and released_fields"
         )
 
     pilots = entries_for(document, "POST", "/api/v1/pilot:run")
@@ -102,14 +129,126 @@ def check_healthcare(document: dict[str, Any]) -> list[str]:
     overview = entries_for(document, "GET", "/api/v1/overview")
     if not overview or not overview[0]["response"].get("hospitals"):
         problems.append("the captured overview has no hospitals, so the consortium table is empty")
+        return problems
+    site_ids = [hospital["site_id"] for hospital in overview[0]["response"]["hospitals"]]
 
-    worklists = [
-        entry for entry in document["entries"] if "/worklist" in entry["path"]
-    ]
-    if not worklists:
-        problems.append("no hospital worklist was captured")
+    status = entries_for(document, "GET", "/api/v1/framework/status")
+    if not status or "cohort_source" not in status[0]["response"]:
+        problems.append("no framework status was captured, so the page cannot say where the records are stored")
+    elif status[0]["response"].get("ready") is not True:
+        problems.append(
+            "the captured framework status says the hospital stores are not ready, so the page "
+            "would open with a banner saying the records are not loaded"
+        )
+
+    probed = {probe.get("request", {}).get("site_id") for probe in probes}
+    unprobed = [site_id for site_id in site_ids if site_id not in probed]
+    if unprobed:
+        problems.append(f"no guard probe was captured at {', '.join(unprobed)}")
+
+    for site_id in site_ids:
+        base = f"/api/v1/hospitals/{site_id}"
+        dashboard, worklist, audit, entered, entry_form, chart_list = hospital_view_paths(site_id)
+        if not _answered(document, dashboard):
+            problems.append(f"no dashboard was captured for {site_id}")
+        for path, what in (
+            (worklist, "no worklist was captured"),
+            (entered, "no entered records were captured"),
+            (audit, "no audit log was captured"),
+            (chart_list, "no chart list was captured"),
+        ):
+            if not _answered(document, path):
+                problems.append(f"{what} for {site_id} (GET {path})")
+        form = _answered(document, entry_form)
+        if not form or not form[0]["response"].get("fields"):
+            problems.append(f"no entry form was captured for {site_id}")
+        for theme in ("light", "dark"):
+            if not _svgs(document, f"{base}/charts/", theme):
+                problems.append(f"no {theme} chart was captured for {site_id}")
+        # After the pilot the replay serves these views from the entries
+        # recorded after it, which hold what the pilot changed.
+        after_dashboard, after_audit = after_pilot_hospital_paths(site_id)
+        if not _answered(document, after_dashboard, phase="after_pilot"):
+            problems.append(f"the dashboard for {site_id} was not captured after the pilot (GET {after_dashboard})")
+        if not _answered(document, after_audit, phase="after_pilot"):
+            problems.append(f"the audit log for {site_id} was not captured after the pilot (GET {after_audit})")
+
+    after = [entry for entry in entries_for(document, "GET", "/api/v1/charts") if entry.get("phase") == "after_pilot"]
+    if not after:
+        problems.append("the consortium charts were not captured after the pilot")
+    else:
+        charts = after[0]["response"].get("charts", [])
+        missing = [chart["chart_id"] for chart in charts if not chart.get("available")]
+        if not charts or missing:
+            problems.append(f"after the pilot, these consortium charts were not available: {missing or 'none listed'}")
+        for chart in charts:
+            for theme in ("light", "dark"):
+                wanted = f"{chart['svg_path']}?theme={theme}"
+                if not any(entry["path"] == wanted and entry.get("phase") == "after_pilot"
+                           for entry in _svgs(document, chart["svg_path"], theme)):
+                    problems.append(f"the consortium chart {chart['chart_id']} was not captured in the {theme} theme")
 
     return problems
+
+
+def probe_records(response: Any) -> list[str]:
+    """Where a probe answer holds records: a ``payload`` key, or a list of objects keyed by record fields.
+
+    The record fields are the ones the answer names itself: each field the plan
+    restricts, and the released, withheld and transformed fields.
+    """
+    if not isinstance(response, dict):
+        return []
+    names = {
+        str(restriction.get("field"))
+        for restriction in (response.get("plan") or {}).get("field_restrictions", [])
+        if isinstance(restriction, dict)
+    }
+    for key in ("released_fields", "withheld_fields", "transformed_fields"):
+        names.update(str(name) for name in response.get(key) or [])
+    found = ["payload"] if "payload" in response else []
+
+    def walk(value: Any, path: str) -> None:
+        if isinstance(value, dict):
+            for key, item in value.items():
+                walk(item, f"{path}.{key}")
+        elif isinstance(value, list):
+            if any(isinstance(item, dict) and names & set(item) for item in value):
+                found.append(path)
+            for index, item in enumerate(value):
+                walk(item, f"{path}[{index}]")
+
+    walk(response, "")
+    return found
+
+
+def _answered(document: dict[str, Any], path: str, phase: str | None = None) -> list[dict[str, Any]]:
+    """Successful GETs recorded at exactly ``path``, optionally in one phase.
+
+    The replay turns a recorded error status into an error on the page, so an
+    entry with a status of 400 or more does not count.
+    """
+    return [
+        entry
+        for entry in entries_for(document, "GET", path)
+        if entry.get("status", 200) < 400 and (phase is None or entry.get("phase") == phase)
+    ]
+
+
+def _svgs(document: dict[str, Any], prefix: str, theme: str) -> list[dict[str, Any]]:
+    """Captured SVG responses whose path starts with ``prefix`` and asks for ``theme``."""
+    found = []
+    for entry in document["entries"]:
+        if entry["method"] != "GET" or not entry["path"].startswith(prefix):
+            continue
+        if not entry["path"].endswith(f"?theme={theme}") or entry.get("status") != 200:
+            continue
+        response = entry.get("response")
+        if entry.get("content_type") != "image/svg+xml" or not isinstance(response, dict):
+            continue
+        if "<svg" in str(response.get("text", "")):
+            found.append(entry)
+    return found
 
 
 def check_nl2sql(document: dict[str, Any]) -> list[str]:

@@ -31,8 +31,9 @@ TrustLevel = Literal["low", "moderate", "high"]
 #: ``cell``, ``row``, ``column``, and ``table`` are the granularities GRAILS
 #: publishes, and every one of them is data that can be pointed at and read.
 #: ``model_update`` is this project's extension: a federated round ships none of
-#: those, it ships a model update, which is not a row but still carries patient
-#: signal out of the boundary. Governing it needs a granularity of its own.
+#: those, it ships a model update, which is not a row but still carries signal
+#: about the site's records out of the boundary. Governing it needs a
+#: granularity of its own.
 Granularity = Literal["cell", "row", "column", "table", "model_update"]
 
 #: Where in the request path the guard is standing.
@@ -177,6 +178,14 @@ class AuditRecord(DagentsModel):
     editing an entry breaks every digest after it. This is a deterministic
     content chain for local integrity checking, not a cryptographic signature;
     signing and immutable storage are separate production controls.
+
+    The ``contribution_*`` fields are the privacy accounting the planner asks
+    for when it bounds a contribution with ``clip_contribution`` or
+    ``add_noise``. ``contribution_norm_before`` and ``contribution_norm_after``
+    are L2 norms (the absolute value for a single number). When a payload holds
+    several contributions, they record the largest norm before and the largest
+    norm after. ``contribution_strategies`` lists the strategies applied, with
+    their parameters. All three stay empty for a decision that bounded nothing.
     """
 
     audit_id: str
@@ -192,5 +201,8 @@ class AuditRecord(DagentsModel):
     obligations: list[str] = Field(default_factory=list)
     violations: list[str] = Field(default_factory=list)
     correlation_id: str | None = None
+    contribution_norm_before: float | None = None
+    contribution_norm_after: float | None = None
+    contribution_strategies: list[str] = Field(default_factory=list)
     previous_digest: str = ""
     digest: str = ""

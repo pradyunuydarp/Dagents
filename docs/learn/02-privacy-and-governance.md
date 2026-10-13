@@ -116,11 +116,12 @@ denial.
 
 ## Example
 
-These are real responses from the stroke demo's governance endpoint. The
-classification marks `nihss_total` as high sensitivity, `age_band` as medium and
-`arrival_mode` as low, with a minimum cohort of 20.
+These are real responses from the stroke demo's governance endpoint, at Hospital
+134. The classification marks `systolic_bp` as high sensitivity, `age_band` as
+medium and `onset_on_waking` (symptoms noticed on waking) as low, with a minimum
+cohort of 20.
 
-| Request | `nihss_total` | `age_band` | `arrival_mode` | Decision |
+| Request | `systolic_bp` | `age_band` | `onset_on_waking` | Decision |
 |---|---|---|---|---|
 | Verified requester, row | generalize:1 | allow_full | allow_full | narrow |
 | Unverified requester, row | redact | generalize:1 | allow_full | narrow |
@@ -130,6 +131,12 @@ classification marks `nihss_total` as high sensitivity, `age_band` as medium and
 
 The verified requester scored 0.97 (high trust). The unverified one scored 0.445
 (moderate trust).
+
+The Guard then applies the plan to the records. For the unverified request,
+`systolic_bp` is removed from every record, and an age band such as `60-69`
+becomes `60-*`. For the model update, the Guard clips the numeric value and
+withholds the two fields that are not numbers, because a category or a yes/no
+value cannot be clipped.
 
 ## Watch
 
@@ -147,7 +154,9 @@ The verified requester scored 0.97 (high trust). The unverified one scored 0.445
 ## Try
 
 Open the Ethical Guard panel in the [stroke triage demo](https://pradyunuydarp.github.io/Dagents/healthcare-demo/).
-Change "verified", the granularity and the cohort size, and compare the strategies.
-Each answer comes from the planner. Step 4 shows how to make the same call with `curl`.
+Choose a hospital, change **Requester verified**, the granularity and the
+**Cohort size**, select **Ask the guard**, and compare the strategies. Each answer
+comes from the planner, and each one is written to that hospital's audit log.
+Step 4 shows how to make the same call with `curl`.
 
 Next: [Step 3 — How Dagents is built](03-architecture.md)

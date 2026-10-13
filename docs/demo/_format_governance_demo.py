@@ -36,7 +36,7 @@ def plan(data: dict) -> None:
 
 def release(data: dict) -> None:
     for gate in data["gateResults"]:
-        print(f"  [{gate['outcome'].upper():<13}] {gate['gateId']:<22} {gate['detail']}")
+        print(f"  [{gate['outcome'].upper():<13}] {gate['gateId']:<31} {gate['detail']}")
     print()
     rollback = data.get("rollbackVersion")
     suffix = f"  (keeping {rollback})" if rollback and data["action"] != "release" else ""

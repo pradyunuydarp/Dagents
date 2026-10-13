@@ -10,6 +10,10 @@
 # it in the service's own environment. A value committed here would be a value
 # in every clone of the repository and in its history.
 #
+# Every setting in backend/app/core/config.py is listed below, with the value
+# this service uses or, as a comment, why it is left unset. The table in
+# docs/deployment.md explains the limits.
+#
 # To deploy: Render dashboard → New → Blueprint → connect the repository and
 # point it at this file.
 
@@ -28,34 +32,109 @@ services:
 
     envVars:
       # --- set once, in the Render dashboard -----------------------------
-      # The Supabase pooled connection string. Use the pooler (port 6543) on a
-      # free instance: a container that restarts often will exhaust direct
-      # connections, and the failure looks like an unrelated timeout.
+
+      # The Supabase connection string, on a pooler host
+      # (aws-0-<region>.pooler.supabase.com), not the direct host, which has
+      # an IPv6 address only. Port 6543 (transaction mode) and port 5432
+      # (session mode) both work: every store operation is one transaction
+      # that switches role with SET LOCAL, and prepared statements are off
+      # (prepare_threshold=None), as transaction mode requires. One string
+      # serves all three hospitals and the coordinator, because each operation
+      # acts as one of their roles. See docs/deployment.md.
       - key: HEALTHCARE_DEMO_DATABASE_URL
         sync: false
 
-      # Comma-separated browser origins allowed to call this API. The published
-      # frontend lives on a different origin from the API, so without this the
-      # browser blocks every request and the page looks broken rather than
-      # blocked.
+      # Optional: a separate login for one hospital. When set, that hospital's
+      # records, audit chain and round contributions use it instead of
+      # HEALTHCARE_DEMO_DATABASE_URL. Leave them empty for the demo; a
+      # deployment that gives each hospital its own login sets them.
+      - key: HEALTHCARE_DEMO_SITE_UK_134_DATABASE_URL
+        sync: false
+      - key: HEALTHCARE_DEMO_SITE_IT_002_DATABASE_URL
+        sync: false
+      - key: HEALTHCARE_DEMO_SITE_CH_245_DATABASE_URL
+        sync: false
+
+      # Comma-separated browser origins allowed to call this API (scheme and
+      # host, no path). The published frontend lives on a different origin, so
+      # without this the browser blocks every request.
       - key: HEALTHCARE_DEMO_CORS_ORIGINS
         sync: false
 
       # --- safe to keep in the blueprint ---------------------------------
+
+      # The service name the health check reports.
+      - key: HEALTHCARE_DEMO_APP_NAME
+        value: dagents-healthcare-stroke-demo
+      # The environment name the health check reports.
       - key: HEALTHCARE_DEMO_APP_ENV
         value: production
+      # The address the API binds inside the container.
       - key: HEALTHCARE_DEMO_API_HOST
         value: 0.0.0.0
-      - key: HEALTHCARE_DEMO_COHORT_SIZE
-        value: "400"
 
-      # No HEALTHCARE_DEMO_API_PORT here, deliberately.
+      # Most records each hospital's data-entry form may add; then 409.
+      - key: HEALTHCARE_DEMO_MAX_ENTERED_PER_SITE
+        value: "300"
+      # Sites below which secure aggregation must not reveal a contribution.
+      - key: HEALTHCARE_DEMO_SECURE_THRESHOLD
+        value: "3"
+
+      # Requests per client per minute for each group of POST endpoints; then
+      # 429. 0 turns a limit off.
+      - key: HEALTHCARE_DEMO_RATE_LIMIT_ENTRIES
+        value: "30"
+      - key: HEALTHCARE_DEMO_RATE_LIMIT_PROBES
+        value: "60"
+      - key: HEALTHCARE_DEMO_RATE_LIMIT_PILOTS
+        value: "3"
+      - key: HEALTHCARE_DEMO_RATE_LIMIT_APPROVALS
+        value: "10"
+
+      # Caps for all visitors together, in any 60 minutes; then 429. Each probe
+      # and pilot adds rows that stay in the database. 0 turns a cap off.
+      - key: HEALTHCARE_DEMO_PROBES_PER_SITE_PER_HOUR
+        value: "600"
+      - key: HEALTHCARE_DEMO_PILOTS_PER_HOUR
+        value: "20"
+
+      # Read each visitor's address from X-Forwarded-For. Behind Render's proxy
+      # the TCP peer is the proxy, so without this every visitor shares one
+      # count.
+      - key: HEALTHCARE_DEMO_TRUST_FORWARDED_FOR
+        value: "true"
+      # Proxies that append to X-Forwarded-For. Render's edge appends three
+      # entries (the client, a Cloudflare address, an internal address), so the
+      # client is the third from the right; the entries to its left are what
+      # the client sent and are ignored. /api/v1/framework/status reports how
+      # many entries a request arrives with, and the deployed-API tests check
+      # that it matches.
+      - key: HEALTHCARE_DEMO_FORWARDED_FOR_HOPS
+        value: "3"
+
+      # Largest request body, in bytes; then 413.
+      - key: HEALTHCARE_DEMO_MAX_BODY_BYTES
+        value: "65536"
+
+      # Seconds to wait for a framework service's health check.
+      - key: HEALTHCARE_DEMO_REQUEST_TIMEOUT_SECONDS
+        value: "2.0"
+      # Register the app's Dagents extension (its feature contract,
+      # classification and condition pack) on startup.
+      - key: HEALTHCARE_DEMO_REGISTER_EXTENSION
+        value: "true"
+
+      # Not set here:
       #
-      # Render injects `PORT` and routes to it, and the image's command falls
-      # back to `PORT` when this repository's own variable is unset — so leaving
-      # it unset is what makes the service reachable. An earlier version of this
-      # file set it from `fromService … property: port` pointing at this same
-      # service, which is circular: it resolved to nothing, the app bound 8080,
-      # Render kept routing to its own port, and every request timed out having
-      # received no bytes at all. That looks exactly like a service that is
-      # down, which is the worst kind of configuration error.
+      # HEALTHCARE_DEMO_API_PORT. Render injects `PORT` and routes to it. The
+      # image's command uses `PORT` when this repository's own variable is
+      # unset, so leaving it unset keeps the service reachable. An earlier
+      # version set it from this same service's port, which resolved to
+      # nothing: the app bound 8080, Render routed to its own port, and every
+      # request timed out with no response.
+      #
+      # CORE_SERVICE_PUBLIC_URL, PIPELINE_SERVICE_PUBLIC_URL,
+      # MODEL_SERVICE_PUBLIC_URL, LMA_PUBLIC_URL, GMA_PUBLIC_URL. The framework
+      # services do not run on Render. The image reads local defaults from
+      # env/.env.shared, and /api/v1/framework/status reports those services
+      # as unavailable. The pilot runs in process and needs none of them.

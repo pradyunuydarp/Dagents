@@ -63,6 +63,49 @@ class DagentsRunnerTests(unittest.TestCase):
         self.assertFalse("input" in run.call_args.kwargs)
 
 
+class PlannerUnavailableTests(unittest.TestCase):
+    """Every way the planner can fail raises one error a service can map to a 503."""
+
+    def failed(self, stderr: str = "boom") -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(args=["dagentsc"], returncode=2, stdout="", stderr=stderr)
+
+    def test_the_error_is_a_runtime_error(self) -> None:
+        # Callers that already catch RuntimeError, such as the Guard, keep working.
+        self.assertTrue(issubclass(dagents_runner.PlannerUnavailableError, RuntimeError))
+
+    def test_a_missing_binary_raises_planner_unavailable(self) -> None:
+        with patch.dict("os.environ", {"DAGENTSC_BIN": "/nonexistent/dagentsc"}):
+            with self.assertRaises(dagents_runner.PlannerUnavailableError):
+                dagents_runner.round_digest({"round_id": "r"})
+            with self.assertRaises(dagents_runner.PlannerUnavailableError):
+                dagents_runner.evaluate_dataset_quality([{"id": "a"}], [])
+
+    def test_a_binary_that_cannot_be_run_raises_planner_unavailable(self) -> None:
+        with patch(
+            "agents.common.infrastructure.dagents_runner.subprocess.run", side_effect=PermissionError("denied")
+        ):
+            with self.assertRaises(dagents_runner.PlannerUnavailableError):
+                dagents_runner.round_digest({"round_id": "r"})
+            with self.assertRaises(dagents_runner.PlannerUnavailableError):
+                dagents_runner.evaluate_dataset_quality([{"id": "a"}], [])
+
+    @patch("agents.common.infrastructure.dagents_runner.subprocess.run")
+    def test_a_non_zero_exit_raises_planner_unavailable(self, run) -> None:
+        run.return_value = self.failed()
+        with self.assertRaises(dagents_runner.PlannerUnavailableError):
+            dagents_runner.round_digest({"round_id": "r"})
+        with self.assertRaises(dagents_runner.PlannerUnavailableError):
+            dagents_runner.evaluate_dataset_quality([{"id": "a"}], [])
+
+    @patch("agents.common.infrastructure.dagents_runner.subprocess.run")
+    def test_output_that_is_not_json_raises_planner_unavailable(self, run) -> None:
+        run.return_value = subprocess.CompletedProcess(args=["dagentsc"], returncode=0, stdout="{not json", stderr="")
+        with self.assertRaises(dagents_runner.PlannerUnavailableError):
+            dagents_runner.round_digest({"round_id": "r"})
+        with self.assertRaises(dagents_runner.PlannerUnavailableError):
+            dagents_runner.evaluate_dataset_quality([{"id": "a"}], [])
+
+
 class KeyConversionTests(unittest.TestCase):
     """Maps whose keys are caller data must survive both directions.
 

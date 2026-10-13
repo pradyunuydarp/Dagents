@@ -781,11 +781,17 @@ module Federation_types = struct
     gate_blocking : bool;
   }
 
-  (** Evaluation of one release gate against the candidate's metrics. *)
+  (** Evaluation of one release gate against the candidate's metrics.
+
+      [threshold] is the value the observed metric was compared with: the
+      gate's own value for [AtLeast] and [AtMost], and baseline + margin for
+      [ImprovesOnBaseline]. It is [None] only when an improvement gate has no
+      baseline metric, because then no threshold exists. *)
   type gate_result = {
     result_gate_id : string;
     outcome : gate_outcome;
     observed : float option;
+    threshold : float option;
     gate_detail : string;
   }
 

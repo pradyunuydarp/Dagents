@@ -39,12 +39,13 @@ export const DEMOS: DemoLink[] = [
     slug: "healthcare-demo",
     name: "Stroke triage across three hospitals",
     summary:
-      "Governance and federated learning in one app. Three simulated hospitals train and evaluate a triage model without sharing patient records.",
+      "Governance and federated learning on real patient records. Three hospitals from the International Stroke Trial each keep their records in a separate store, and train and evaluate a triage model without sharing them.",
     tryThis: [
       "Change who is asking and how much they ask for, and watch the protection change.",
-      "Run the pilot. The new model scores higher than the current one, but it fails the fairness and sensitivity gates, so it is not released."
+      "Run the pilot: five rounds of federated training, then the release gates decide whether the new model may replace the current one.",
+      "Open a hospital's view to see what its staff see. Enter a record there: once its outcome is recorded, the next pilot trains on it."
     ],
-    data: "Calls a deployed API backed by a Postgres database. All patients are synthetic.",
+    data: "Calls the demo's API when it is up and reading Postgres, where each hospital keeps its de-identified records from 1991-1996 in its own schema. Otherwise the page replays a recorded run and says so. Contains information from the International Stroke Trial database (version 2), made available under the ODC Attribution License.",
     source: `${REPO_URL}/tree/main/apps/healthcare-demo`
   },
   {

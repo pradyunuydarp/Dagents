@@ -20,7 +20,9 @@ from __future__ import annotations
 
 import time
 import uuid
-from typing import Any, Protocol
+from typing import Any, Callable, Protocol, TypeVar
+
+from pydantic import ValidationError
 
 from agents.common.domain.federation import (
     AggregationReadiness,
@@ -37,11 +39,27 @@ from agents.common.domain.federation import (
     SiteResult,
 )
 from agents.common.infrastructure.dagents_runner import (
+    PlannerUnavailableError,
     compile_round_plan,
     evaluate_aggregation_readiness,
     evaluate_release,
     round_digest,
 )
+
+_Parsed = TypeVar("_Parsed")
+
+
+def _planner_output(what: str, parse: Callable[[], _Parsed]) -> _Parsed:
+    """Parse the planner's answer, or raise :class:`PlannerUnavailableError`.
+
+    A planner that answers with the wrong shape is treated like a planner that
+    cannot be reached: the caller cannot use the answer, and a later request
+    may succeed once a working planner is installed.
+    """
+    try:
+        return parse()
+    except (KeyError, TypeError, ValidationError) as error:
+        raise PlannerUnavailableError(f"the planner's {what} answer has the wrong shape: {error}") from error
 
 
 class SiteWorker(Protocol):
@@ -304,7 +322,8 @@ class FederatedRoundController:
 
     def digest(self, manifest: RoundManifest) -> str:
         """Return the manifest's deterministic content digest."""
-        return str(round_digest(manifest.model_dump(mode="json"))["round_digest"])
+        payload = round_digest(manifest.model_dump(mode="json"))
+        return _planner_output("round digest", lambda: str(payload["round_digest"]))
 
     def plan_round(self, manifest: RoundManifest) -> RoundPlan:
         """Select the sites eligible for this round."""
@@ -312,7 +331,7 @@ class FederatedRoundController:
             manifest.model_dump(mode="json"),
             [registration.model_dump(mode="json") for registration in self._sites.list()],
         )
-        return RoundPlan.model_validate(payload)
+        return _planner_output("round plan", lambda: RoundPlan.model_validate(payload))
 
     def dispatch_round(self, manifest: RoundManifest) -> RoundRecord:
         """Plan the round and, if quorum allows, offer it to the selected sites.
@@ -356,7 +375,7 @@ class FederatedRoundController:
             record.manifest.model_dump(mode="json"),
             [result.model_dump(mode="json") for result in record.results],
         )
-        readiness = AggregationReadiness.model_validate(payload)
+        readiness = _planner_output("aggregation readiness", lambda: AggregationReadiness.model_validate(payload))
         self._rounds.save(record.model_copy(update={"readiness": readiness, "updated_at": int(time.time())}))
         return readiness
 
@@ -396,7 +415,7 @@ class FederatedRoundController:
             rollback_version or candidate.parent_version,
             round_id,
         )
-        decision = ReleaseDecision.model_validate(payload)
+        decision = _planner_output("release decision", lambda: ReleaseDecision.model_validate(payload))
         self._rounds.save(
             record.model_copy(update={"decision": decision, "status": "closed", "updated_at": int(time.time())})
         )

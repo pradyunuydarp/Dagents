@@ -7,7 +7,11 @@ The deterministic decisions come from the real OCaml planner.
 
 from __future__ import annotations
 
+import os
+import stat
+import tempfile
 import unittest
+from unittest.mock import patch
 
 from agents.common.application.federation import (
     FederatedRoundController,
@@ -26,6 +30,7 @@ from agents.common.domain.federation import (
     SiteRegistration,
 )
 from agents.common.domain.governance import DataClassification
+from agents.common.infrastructure.dagents_runner import PlannerUnavailableError
 from agents.tests.test_governance import dagentsc_available
 
 CLASSIFICATION = DataClassification(
@@ -207,6 +212,31 @@ class RoundLifecycleTests(unittest.TestCase):
         self.assertEqual(decision.action, "reject")
         self.assertEqual(decision.gate_results[0].outcome, "not_evaluated")
 
+    def test_each_gate_result_carries_the_threshold_the_planner_used(self) -> None:
+        """The planner states each threshold, so no caller recomputes baseline + margin."""
+        self.controller.dispatch_round(self.manifest)
+        candidate = self.controller.aggregate(self.manifest.round_id)
+        gates = [
+            ReleaseGate(gate_id="discrimination", metric="auc", comparison=GateComparison(kind="at_least", value=0.85)),
+            ReleaseGate(
+                gate_id="improves", metric="auc", comparison=GateComparison(kind="improves_on_baseline", margin=0.02)
+            ),
+            ReleaseGate(
+                gate_id="alert_burden", metric="alerts_per_1000", comparison=GateComparison(kind="at_most", value=40)
+            ),
+        ]
+        decision = self.controller.evaluate_release(
+            self.manifest.round_id, gates, candidate, baseline_metrics={"auc": 0.8}
+        )
+        thresholds = {result.gate_id: result.threshold for result in decision.gate_results}
+        self.assertAlmostEqual(thresholds["discrimination"], 0.85)
+        self.assertAlmostEqual(thresholds["improves"], 0.82)
+        self.assertAlmostEqual(thresholds["alert_burden"], 40.0)
+        without_baseline = self.controller.evaluate_release(self.manifest.round_id, gates, candidate)
+        improves = next(result for result in without_baseline.gate_results if result.gate_id == "improves")
+        self.assertIsNone(improves.threshold)
+        self.assertEqual("not_evaluated", improves.outcome)
+
     def test_aggregation_is_refused_without_enough_contributions(self) -> None:
         """Losing contributions blocks aggregation instead of proceeding."""
         record = self.controller.dispatch_round(self.manifest)
@@ -370,6 +400,79 @@ class SiteRefusalTests(unittest.TestCase):
         self.assertTrue(
             any(rejection.site_id == "hospital-a" for rejection in readiness.rejected_contributions)
         )
+
+
+class PlannerOutputTests(unittest.TestCase):
+    """A planner that is missing or answers with the wrong shape is reported as unavailable.
+
+    These tests need no real planner: they check what the controller does when
+    the planner's output cannot be used, which a real planner never produces.
+    """
+
+    def setUp(self) -> None:
+        self.controller = FederatedRoundController(engine=InProcessFederationEngine())
+        for site_id in ("hospital-a", "hospital-b", "hospital-c"):
+            self.controller.register_site(build_registration(site_id))
+        self.manifest = build_manifest()
+        self._dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self._dir.cleanup)
+
+    def _stub(self, output: str) -> str:
+        path = os.path.join(self._dir.name, "dagentsc")
+        with open(path, "w", encoding="utf-8") as handle:
+            handle.write(f"#!/bin/sh\ncat >/dev/null\nprintf '%s' '{output}'\n")
+        os.chmod(path, os.stat(path).st_mode | stat.S_IXUSR)
+        return path
+
+    def test_a_missing_planner_raises_planner_unavailable(self) -> None:
+        with patch.dict(os.environ, {"DAGENTSC_BIN": os.path.join(self._dir.name, "missing")}):
+            with self.assertRaises(PlannerUnavailableError):
+                self.controller.digest(self.manifest)
+            with self.assertRaises(PlannerUnavailableError):
+                self.controller.plan_round(self.manifest)
+
+    def test_output_with_the_wrong_shape_raises_planner_unavailable(self) -> None:
+        with patch.dict(os.environ, {"DAGENTSC_BIN": self._stub('{"decision":"permit"}')}):
+            with self.assertRaises(PlannerUnavailableError):
+                self.controller.digest(self.manifest)
+            with self.assertRaises(PlannerUnavailableError):
+                self.controller.plan_round(self.manifest)
+            with self.assertRaises(PlannerUnavailableError):
+                self.controller.dispatch_round(self.manifest)
+
+    def test_readiness_and_release_with_the_wrong_shape_raise_planner_unavailable(self) -> None:
+        from agents.common.domain.federation import CandidateModel, RoundPlan, RoundRecord
+
+        record = RoundRecord(
+            manifest=self.manifest,
+            plan=RoundPlan(
+                round_id=self.manifest.round_id,
+                study_id=self.manifest.study_id,
+                phase=self.manifest.phase,
+                quorum_met=False,
+                required_participants=2,
+                aggregation=self.manifest.aggregation,
+                round_digest="d",
+            ),
+            created_at=0,
+            updated_at=0,
+        )
+        self.controller._rounds.save(record)  # noqa: SLF001 - a round as dispatch would leave it
+        with patch.dict(os.environ, {"DAGENTSC_BIN": self._stub('{"decision":"permit"}')}):
+            with self.assertRaises(PlannerUnavailableError):
+                self.controller.evaluate_readiness(self.manifest.round_id)
+            with self.assertRaises(PlannerUnavailableError):
+                self.controller.evaluate_release(
+                    self.manifest.round_id,
+                    [],
+                    CandidateModel(
+                        round_id=self.manifest.round_id,
+                        candidate_version="v+1",
+                        parent_version="v",
+                        aggregation_method="fedavg",
+                        produced_at=0,
+                    ),
+                )
 
 
 if __name__ == "__main__":

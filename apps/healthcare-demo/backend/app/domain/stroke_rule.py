@@ -1,60 +1,152 @@
-"""A transparent scoring rule for suspected-stroke triage support.
+"""The seed release, ``stroke-outcome-rule-v1``, and the evaluation every model shares.
 
-**This is not a validated clinical model and must not be used for care.** It
-exists to occupy, visibly, the place where a real condition-specific model or
-ruleset plugs into Dagents, and to make the framework's behaviour observable
-end to end. Every weight below is an illustration chosen for legibility.
+**This rule is not a validated clinical model and must not be used for care.**
+It is the model a consortium starts from before any federated training: a
+transparent points score whose output a reader can work out by hand.
 
-Why a rule rather than a trained model. The demo needs something whose output a
-reader can predict from the inputs, so that when a release gate blocks a
-candidate it is obvious why. A trained model would make the governance layer
-harder to see, not easier, and this repository does not contain a clinically
-appropriate stroke model to train.
+The points were chosen before looking at the demo's data, from well-known
+predictors of death or dependency after a stroke: older age, reduced
+consciousness, more neurological deficits, visual field loss, atrial
+fibrillation, and a total anterior circulation stroke (TACS). Nothing in this
+module was fitted to the IST records. Each weight is an illustration. The
+federated candidate in ``stroke_model`` is trained to do better.
 
-The signals are the publicly documented stroke warning signs (the FAST
-examination findings), the assessed NIHSS total, and the time since the patient
-was last known well, because a stroke pathway is time-critical. Hypoglycaemia is
-flagged as a common stroke mimic rather than used to exclude a case: ruling a
-patient out is a clinical decision, not a triage-support one.
+The rule does not use systolic blood pressure, hours since onset or whether the
+stroke was noticed on waking, because their link to the six-month outcome is not
+clear enough to give them points without fitting. It reports unusual values of
+them as warnings instead.
+
+Evaluation is shared. :func:`evaluate_against_labels` and
+:func:`sweep_alert_thresholds` take a score function, so the seed rule and any
+candidate model are measured with the same alert rule and the same metrics.
 """
 
 from __future__ import annotations
 
+import hashlib
+import json
+import math
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Callable, Iterable, Mapping
+
+from app.domain.conditions import STROKE_FAIRNESS_SUBGROUP, STROKE_FIELD_DOMAINS, STROKE_LABEL_FIELD
+from app.domain.stroke_model import resolve_category
+
+#: The version the model registry records for this rule.
+RULE_VERSION = "stroke-outcome-rule-v1"
+
+#: The model kind the registry records for this rule.
+RULE_KIND = "points_rule"
+
+#: The outcome both models estimate: death or dependency at six months.
+LABEL_FIELD = STROKE_LABEL_FIELD
+
+# --- Points -------------------------------------------------------------------
+# Every value below is an illustration chosen a priori, not an estimate.
+
+#: Older patients do worse. One point per decade from 50.
+AGE_BAND_POINTS: dict[str, int] = {"<50": 0, "50-59": 1, "60-69": 2, "70-79": 3, "80-89": 4, "90+": 5}
+
+#: Reduced consciousness is one of the strongest signs of a severe stroke.
+CONSCIOUS_POINTS: dict[str, int] = {"alert": 0, "drowsy": 2, "unconscious": 4}
+
+#: One point for each deficit found on examination: more deficits, larger stroke.
+DEFICIT_POINTS: dict[str, int] = {
+    "face_weakness": 1,
+    "arm_weakness": 1,
+    "leg_weakness": 1,
+    "speech_difficulty": 1,
+    "visual_field_loss": 1,
+}
+
+#: Atrial fibrillation goes with larger, cardioembolic strokes.
+ATRIAL_FIBRILLATION_POINTS = 1
+
+#: A total anterior circulation stroke has the worst outlook of the four
+#: Oxfordshire (OCSP) subtypes. The other subtypes add nothing.
+SUBTYPE_POINTS: dict[str, int] = {"TACS": 2, "PACS": 0, "LACS": 0, "POCS": 0, "other": 0}
+
+MAX_POINTS = (
+    max(AGE_BAND_POINTS.values())
+    + max(CONSCIOUS_POINTS.values())
+    + sum(DEFICIT_POINTS.values())
+    + ATRIAL_FIBRILLATION_POINTS
+    + max(SUBTYPE_POINTS.values())
+)
+
+#: Points become a 0-1 risk through a fixed logistic curve: 5 points is a risk
+#: of 0.5, and each 2 points add 1 to the log-odds. The anchors, also chosen
+#: before looking at the data:
+#:
+#: - 3 points (in their 50s, alert, two deficits): 0.27.
+#: - 6 points (in their 70s, alert, three deficits): 0.62, close to the rate of
+#:   death or dependency at six months that the trial reported, about 62%.
+#: - 15 points (in their 80s, unconscious, five deficits, TACS): 0.99.
+#:
+#: The curve puts the rule's score on the same scale as the model's predicted
+#: probability, so one alert threshold means the same for both. It is not
+#: calibrated to any hospital.
+RISK_MIDPOINT_POINTS = 5.0
+RISK_POINTS_PER_LOG_ODDS = 2.0
+
+# --- Priority and the alert rule ---------------------------------------------
 
 #: Priority bands a case can be sorted into. Bands, not diagnoses.
 PRIORITY_BANDS = ("routine", "elevated", "urgent")
 
-#: Score at or above which a case is banded urgent.
-URGENT_THRESHOLD = 0.62
+#: A case is an alert when its score is at least this. The same threshold
+#: applies to every model, because every model's score is an estimated risk of
+#: death or dependency at six months. 0.5 means "more likely than not". An alert
+#: moves a case up the specialist's queue and removes nobody from it, so a
+#: missed high-risk patient costs more than an extra alert.
+ALERT_THRESHOLD = 0.5
 
-#: Score at or above which a case is banded elevated.
-ELEVATED_THRESHOLD = 0.38
+#: A score at or above the alert threshold is banded elevated.
+ELEVATED_THRESHOLD = ALERT_THRESHOLD
 
-#: Minutes within which a stroke pathway is most time-critical.
-#:
-#: Chosen to reflect that stroke care is measured in minutes, not to encode any
-#: particular treatment window. A real deployment takes this from its own
-#: pathway definition.
-TIME_CRITICAL_MINUTES = 270.0
+#: A score at or above this is banded urgent: an estimated risk of 4 in 5.
+URGENT_THRESHOLD = 0.8
 
-#: Capillary glucose below this is flagged as a possible stroke mimic.
-HYPOGLYCAEMIA_MMOL_L = 3.5
+# --- Warnings and checks -------------------------------------------------------
+
+SYSTOLIC_RANGE = (60.0, 300.0)
+HOURS_RANGE = (0.0, 48.0)
+
+#: Systolic pressure at or above this is reported to the reviewing clinician.
+SYSTOLIC_WARNING_MMHG = 220.0
+
+#: Inputs the rule needs. A missing one is reported as a data-quality issue.
+REQUIRED_INPUTS = ("age_band", "conscious_level", "face_weakness", "arm_weakness", "leg_weakness", "speech_difficulty")
+
+#: Examination findings. A record with none of them is not scored.
+EXAMINATION_FIELDS = ("conscious_level", *DEFICIT_POINTS)
+
+# --- Fairness subgroups --------------------------------------------------------
+
+#: The field the subgroup AUC gap is measured over, and its groups.
+SUBGROUP_FIELD = STROKE_FAIRNESS_SUBGROUP
+SUBGROUPS = STROKE_FIELD_DOMAINS[STROKE_FAIRNESS_SUBGROUP].options
+
+#: A group's AUC is computed only with at least this many positive and this many
+#: negative labelled records. Below that, the AUC of a group moves too much with
+#: a few patients to say anything about fairness.
+SUBGROUP_MIN_POSITIVES = 10
+SUBGROUP_MIN_NEGATIVES = 10
 
 
 @dataclass(frozen=True)
 class StrokeAssessment:
-    """One case's triage-support output.
+    """One case's output from the seed rule.
 
-    ``contributions`` is not decoration. A recommendation a clinician cannot
-    interrogate is a recommendation they cannot safely act on, so the rule
-    reports what each signal added rather than only the total.
+    ``contributions`` holds the points each finding added, so a clinician can
+    see why the case scored as it did. ``points`` is their sum, and ``score``
+    is the risk the points map to.
     """
 
     score: float
     priority: str
-    contributions: dict[str, float] = field(default_factory=dict)
+    points: int = 0
+    contributions: dict[str, int] = field(default_factory=dict)
     basis: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     data_quality_issues: list[str] = field(default_factory=list)
@@ -62,9 +154,12 @@ class StrokeAssessment:
 
     def as_dict(self) -> dict[str, Any]:
         return {
+            "model_version": RULE_VERSION,
             "score": round(self.score, 4),
             "priority": self.priority,
-            "contributions": {key: round(value, 4) for key, value in self.contributions.items()},
+            "points": self.points,
+            "max_points": MAX_POINTS,
+            "contributions": dict(self.contributions),
             "basis": list(self.basis),
             "warnings": list(self.warnings),
             "data_quality_issues": list(self.data_quality_issues),
@@ -72,129 +167,136 @@ class StrokeAssessment:
         }
 
 
-def _as_float(value: Any) -> float | None:
-    if isinstance(value, bool) or value is None:
+def points_to_score(points: float) -> float:
+    """Map rule points to a 0-1 risk with the fixed curve described above."""
+    return 1.0 / (1.0 + math.exp(-(points - RISK_MIDPOINT_POINTS) / RISK_POINTS_PER_LOG_ODDS))
+
+
+def priority_for(score: float) -> str:
+    """The priority band for a score."""
+    if score >= URGENT_THRESHOLD:
+        return "urgent"
+    if score >= ELEVATED_THRESHOLD:
+        return "elevated"
+    return "routine"
+
+
+def is_alert(score: float | None) -> bool:
+    """The alert rule: a score at or above :data:`ALERT_THRESHOLD`. No score, no alert."""
+    return score is not None and score >= ALERT_THRESHOLD
+
+
+def _number(value: Any) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return None
+    return float(value)
 
 
-def _as_bool(value: Any) -> bool | None:
-    if isinstance(value, bool):
-        return value
-    if value in (0, 1):
-        return bool(value)
-    if isinstance(value, str) and value.lower() in {"true", "false", "yes", "no"}:
-        return value.lower() in {"true", "yes"}
-    return None
+def _points(count: int) -> str:
+    return f"{count} point" if count == 1 else f"{count} points"
 
 
-def assess(record: dict[str, Any]) -> StrokeAssessment:
-    """Score one canonical stroke-triage record.
+_DEFICIT_TEXT = {
+    "face_weakness": "face weakness",
+    "arm_weakness": "arm weakness",
+    "leg_weakness": "leg weakness",
+    "speech_difficulty": "speech difficulty",
+    "visual_field_loss": "visual field loss",
+}
 
-    Inputs: a record already mapped into the stroke feature contract. The rule
-    does not parse FHIR; ingestion is a separate concern.
 
-    Output: a :class:`StrokeAssessment`. Missing required signals do not produce
-    a confident zero — they degrade the score's completeness and are reported as
-    data-quality issues, and a record missing every clinical signal is
-    suppressed rather than scored, because a recommendation built from nothing
-    is worse than no recommendation.
+def assess(record: Mapping[str, Any]) -> StrokeAssessment:
+    """Score one record with the seed rule.
+
+    Input: a record in the v3 feature contract. A missing input adds no points
+    and is reported, so a gap in the record is visible rather than read as a
+    normal finding. A record with no examination finding at all (conscious level
+    and the five deficits all missing) is suppressed: it gets no score and stays
+    in the worklist, marked as not assessed.
     """
-    contributions: dict[str, float] = {}
+    contributions: dict[str, int] = {}
     basis: list[str] = []
     warnings: list[str] = []
     issues: list[str] = []
 
-    nihss = _as_float(record.get("nihss_total"))
-    if nihss is None:
-        issues.append("nihss_total is missing")
-    else:
-        if nihss < 0 or nihss > 42:
-            issues.append(f"nihss_total {nihss} is outside the scale's 0-42 range")
-            nihss = max(0.0, min(42.0, nihss))
-        # The single strongest signal available, so it carries the most weight.
-        contributions["nihss_total"] = 0.45 * (nihss / 42.0)
-        basis.append(f"NIHSS total recorded as {nihss:g}")
-
-    fast_signals = {
-        "face_droop": "facial droop observed",
-        "arm_weakness": "unilateral arm weakness observed",
-        "speech_difficulty": "new speech disturbance observed",
-    }
-    present = 0
-    for name, description in fast_signals.items():
-        flag = _as_bool(record.get(name))
-        if flag is None:
+    for name in REQUIRED_INPUTS:
+        if record.get(name) is None:
             issues.append(f"{name} is missing")
-            continue
-        if flag:
-            present += 1
-            basis.append(description)
-    if present:
-        # Each additional FAST finding raises concern, with all three weighted
-        # highest because concurrent findings are the documented warning pattern.
-        contributions["fast_findings"] = 0.30 * (present / len(fast_signals))
 
-    minutes = _as_float(record.get("last_known_well_minutes"))
-    if minutes is None:
-        issues.append("last_known_well_minutes is missing")
-    elif minutes < 0:
-        issues.append(f"last_known_well_minutes {minutes:g} is negative")
+    band_value = record.get("age_band")
+    band = resolve_category(band_value, tuple(AGE_BAND_POINTS))
+    if band is not None:
+        contributions["age_band"] = AGE_BAND_POINTS[band]
+        basis.append(f"age band {band}: {_points(AGE_BAND_POINTS[band])}")
+    elif band_value is not None:
+        issues.append(f"age_band {band_value!r} is not a contract age band")
+
+    conscious_value = record.get("conscious_level")
+    conscious = resolve_category(conscious_value, tuple(CONSCIOUS_POINTS))
+    if conscious is not None:
+        contributions["conscious_level"] = CONSCIOUS_POINTS[conscious]
+        basis.append(f"conscious level {conscious}: {_points(CONSCIOUS_POINTS[conscious])}")
+    elif conscious_value is not None:
+        issues.append(f"conscious_level {conscious_value!r} is not alert, drowsy or unconscious")
+
+    deficits = [name for name in DEFICIT_POINTS if record.get(name) is True]
+    for name in deficits:
+        contributions[name] = DEFICIT_POINTS[name]
+    if deficits:
+        listed = ", ".join(_DEFICIT_TEXT[name] for name in deficits)
+        basis.append(f"{listed}: {_points(sum(DEFICIT_POINTS[name] for name in deficits))}")
     else:
-        # Recency raises priority: the sooner since last known well, the more a
-        # fast specialist review matters.
-        recency = max(0.0, 1.0 - (minutes / TIME_CRITICAL_MINUTES))
-        contributions["recency"] = 0.25 * recency
-        basis.append(f"{minutes:g} minutes since last known well")
+        recorded = [name for name in DEFICIT_POINTS if record.get(name) is False]
+        if recorded:
+            basis.append("no deficit found on examination: 0 points")
 
-    glucose = _as_float(record.get("blood_glucose"))
-    if glucose is not None and glucose < HYPOGLYCAEMIA_MMOL_L:
-        # Flagged, never used to exclude. Ruling a patient out is a clinical
-        # decision that triage support has no business making.
-        warnings.append(
-            f"blood glucose {glucose:g} mmol/L is low; hypoglycaemia is a common stroke mimic "
-            "and should be considered by the reviewing clinician"
-        )
+    if record.get("atrial_fibrillation") is True:
+        contributions["atrial_fibrillation"] = ATRIAL_FIBRILLATION_POINTS
+        basis.append(f"atrial fibrillation: {_points(ATRIAL_FIBRILLATION_POINTS)}")
 
-    if _as_bool(record.get("anticoagulated")):
-        warnings.append("patient is recorded as anticoagulated, which is relevant to specialist review")
+    subtype_value = record.get("stroke_subtype")
+    subtype = resolve_category(subtype_value, tuple(SUBTYPE_POINTS))
+    if subtype is not None and SUBTYPE_POINTS[subtype]:
+        contributions["stroke_subtype"] = SUBTYPE_POINTS[subtype]
+        basis.append(f"stroke subtype {subtype}: {_points(SUBTYPE_POINTS[subtype])}")
+    elif subtype is None and subtype_value is not None:
+        issues.append(f"stroke_subtype {subtype_value!r} is not an OCSP subtype")
 
-    systolic = _as_float(record.get("systolic_bp"))
-    if systolic is not None and systolic > 220:
-        warnings.append(f"systolic blood pressure {systolic:g} mmHg is markedly raised")
+    systolic = _number(record.get("systolic_bp"))
+    if systolic is not None:
+        if not SYSTOLIC_RANGE[0] <= systolic <= SYSTOLIC_RANGE[1]:
+            issues.append(f"systolic_bp {systolic:g} is outside {SYSTOLIC_RANGE[0]:g}-{SYSTOLIC_RANGE[1]:g} mmHg")
+        elif systolic >= SYSTOLIC_WARNING_MMHG:
+            warnings.append(f"systolic blood pressure {systolic:g} mmHg is markedly raised")
 
-    if not contributions:
-        # Nothing clinical was available. Suppressing is the honest outcome:
-        # a score of zero would read as "low priority" rather than "unknown".
+    hours = _number(record.get("hours_since_onset"))
+    if hours is not None and not HOURS_RANGE[0] <= hours <= HOURS_RANGE[1]:
+        issues.append(f"hours_since_onset {hours:g} is outside {HOURS_RANGE[0]:g}-{HOURS_RANGE[1]:g} hours")
+
+    if record.get("onset_on_waking") is True:
+        warnings.append("symptoms were noticed on waking, so the onset time is uncertain")
+
+    if all(record.get(name) is None for name in EXAMINATION_FIELDS):
         return StrokeAssessment(
             score=0.0,
             priority="routine",
+            points=0,
             contributions={},
             basis=[],
             warnings=warnings,
-            data_quality_issues=issues + ["no clinical signal was available; no recommendation was produced"],
+            data_quality_issues=issues + ["no examination finding was recorded; no score was produced"],
             suppressed=True,
         )
 
-    score = min(1.0, sum(contributions.values()))
-    if score >= URGENT_THRESHOLD:
-        priority = "urgent"
-    elif score >= ELEVATED_THRESHOLD:
-        priority = "elevated"
-    else:
-        priority = "routine"
-
+    points = sum(contributions.values())
+    score = points_to_score(points)
     if issues:
-        warnings.append(
-            f"{len(issues)} input(s) were missing or invalid; this recommendation is less complete than usual"
-        )
+        warnings.append(f"{len(issues)} input(s) were missing or invalid; the score is less complete than usual")
 
     return StrokeAssessment(
         score=score,
-        priority=priority,
+        priority=priority_for(score),
+        points=points,
         contributions=contributions,
         basis=basis,
         warnings=warnings,
@@ -202,17 +304,39 @@ def assess(record: dict[str, Any]) -> StrokeAssessment:
     )
 
 
-def rank_worklist(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Order a worklist by triage priority, highest first.
+def rule_score(record: Mapping[str, Any]) -> float | None:
+    """The seed rule as a score function: the risk, or ``None`` when suppressed."""
+    assessment = assess(record)
+    return None if assessment.suppressed else assessment.score
 
-    Ordering is what this demo actually supports: the queue is re-sorted so an
-    urgent case reaches a specialist sooner. Nothing is removed from it, and the
-    suppressed cases stay in the list rather than disappearing from view.
+
+def rule_parameters() -> dict[str, Any]:
+    """Every number that defines the rule, for the model registry."""
+    return {
+        "version": RULE_VERSION,
+        "age_band_points": AGE_BAND_POINTS,
+        "conscious_points": CONSCIOUS_POINTS,
+        "deficit_points": DEFICIT_POINTS,
+        "atrial_fibrillation_points": ATRIAL_FIBRILLATION_POINTS,
+        "subtype_points": SUBTYPE_POINTS,
+        "risk_midpoint_points": RISK_MIDPOINT_POINTS,
+        "risk_points_per_log_odds": RISK_POINTS_PER_LOG_ODDS,
+    }
+
+
+def rule_digest() -> str:
+    """``sha256:`` and the hex digest of :func:`rule_parameters` as canonical JSON."""
+    canonical = json.dumps(rule_parameters(), sort_keys=True, separators=(",", ":"))
+    return "sha256:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def rank_worklist(records: Iterable[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    """Order a worklist by the rule's score, highest first.
+
+    Nothing is removed. Suppressed cases go to the end, marked as not assessed.
+    Cases with the same score keep their input order.
     """
-    scored = []
-    for record in records:
-        assessment = assess(record)
-        scored.append({**record, "assessment": assessment.as_dict()})
+    scored = [{**record, "assessment": assess(record).as_dict()} for record in records]
     return sorted(
         scored,
         key=lambda item: (not item["assessment"]["suppressed"], item["assessment"]["score"]),
@@ -220,103 +344,144 @@ def rank_worklist(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
     )
 
 
+# --- Evaluation ------------------------------------------------------------------
+
+ScoreFunction = Callable[[Mapping[str, Any]], "float | None"]
+
+
+def auc(pairs: Iterable[tuple[float, bool]]) -> float | None:
+    """Area under the ROC curve, from ranks (ties count half).
+
+    ``None`` unless there is at least one positive and one negative.
+    """
+    ordered = sorted(pairs, key=lambda pair: pair[0])
+    positives = sum(1 for _, label in ordered if label)
+    negatives = len(ordered) - positives
+    if not positives or not negatives:
+        return None
+    rank_sum = 0.0
+    index = 0
+    while index < len(ordered):
+        end = index
+        while end + 1 < len(ordered) and ordered[end + 1][0] == ordered[index][0]:
+            end += 1
+        average_rank = (index + end) / 2.0 + 1.0
+        rank_sum += average_rank * sum(1 for _, label in ordered[index : end + 1] if label)
+        index = end + 1
+    return (rank_sum - positives * (positives + 1) / 2.0) / (positives * negatives)
+
+
+def _labelled(
+    records: Iterable[Mapping[str, Any]], score_fn: ScoreFunction, label_field: str
+) -> list[tuple[float | None, bool, str | None]]:
+    return [
+        (score_fn(record), record[label_field], resolve_category(record.get(SUBGROUP_FIELD), SUBGROUPS))
+        for record in records
+        if isinstance(record.get(label_field), bool)
+    ]
+
+
+def subgroup_aucs(
+    records: Iterable[Mapping[str, Any]], score_fn: ScoreFunction = rule_score, label_field: str = LABEL_FIELD
+) -> dict[str, float]:
+    """AUC for each subgroup that has enough positive and negative records."""
+    labelled = _labelled(records, score_fn, label_field)
+    result: dict[str, float] = {}
+    for group in SUBGROUPS:
+        pairs = [(score, label) for score, label, member in labelled if member == group and score is not None]
+        positives = sum(1 for _, label in pairs if label)
+        negatives = len(pairs) - positives
+        if positives >= SUBGROUP_MIN_POSITIVES and negatives >= SUBGROUP_MIN_NEGATIVES:
+            value = auc(pairs)
+            if value is not None:
+                result[group] = value
+    return result
+
+
 def evaluate_against_labels(
-    records: list[dict[str, Any]],
-    label_field: str = "confirmed_stroke",
+    records: Iterable[Mapping[str, Any]],
+    score_fn: ScoreFunction = rule_score,
+    label_field: str = LABEL_FIELD,
     alert_threshold: float | None = None,
 ) -> dict[str, float]:
-    """Measure the rule against recorded outcomes on a local cohort.
+    """Measure a score function against recorded outcomes at one site.
 
-    These are the metrics a site returns from a federated round, so they are
-    computed the same way at every site. ``subgroup_auc_gap`` is the widest
-    AUC difference across age bands, which is what the fairness release gate
-    reads; a candidate that improves overall while harming one band fails it.
+    Every model is measured with this function, so the metrics mean the same
+    for the seed rule and for a candidate. Only records with a yes/no label
+    count.
 
-    AUC is computed by direct rank comparison rather than by trapezoid
-    integration, so a tiny cohort cannot produce a misleadingly smooth curve.
+    - ``auc``: over the records the model scored.
+    - ``sensitivity``: alerts among patients with a poor outcome.
+    - ``specificity``: no alert among patients without one.
+    - ``alerts_per_1000``: alerts per 1,000 labelled records.
+    - ``subgroup_auc_gap``: the absolute AUC difference between female and male
+      patients. It is reported only when both groups have at least
+      :data:`SUBGROUP_MIN_POSITIVES` positive and
+      :data:`SUBGROUP_MIN_NEGATIVES` negative records. A missing gap blocks the
+      fairness gate.
 
-    ``alert_threshold`` sets the score at or above which a case counts as an
-    alert. It is a parameter rather than a constant because sensitivity and
-    alert burden trade directly against each other, and which point on that
-    curve is acceptable is a clinical decision, not a library default.
+    A record the model could not score (score ``None``) is not an alert and is
+    left out of the AUC. ``alert_threshold`` defaults to :data:`ALERT_THRESHOLD`;
+    pass another value only to explore the tradeoff, as
+    :func:`sweep_alert_thresholds` does. No labelled record gives no metrics.
     """
-    threshold = ELEVATED_THRESHOLD if alert_threshold is None else alert_threshold
-    labelled = [
-        (assess(record).score, bool(record.get(label_field)), str(record.get("age_band", "unknown")))
-        for record in records
-        if record.get(label_field) is not None
-    ]
+    threshold = ALERT_THRESHOLD if alert_threshold is None else alert_threshold
+    records = list(records)
+    labelled = _labelled(records, score_fn, label_field)
     if not labelled:
         return {}
 
-    def auc(pairs: list[tuple[float, bool]]) -> float | None:
-        positives = [score for score, label in pairs if label]
-        negatives = [score for score, label in pairs if not label]
-        if not positives or not negatives:
-            return None
-        wins = sum(
-            1.0 if p > n else 0.5 if p == n else 0.0 for p in positives for n in negatives
-        )
-        return wins / (len(positives) * len(negatives))
-
-    overall = auc([(score, label) for score, label, _ in labelled])
     metrics: dict[str, float] = {}
+    overall = auc((score, label) for score, label, _ in labelled if score is not None)
     if overall is not None:
         metrics["auc"] = overall
 
-    alerts = [score for score, _, _ in labelled if score >= threshold]
-    metrics["alerts_per_1000"] = 1000.0 * len(alerts) / len(labelled)
-
-    positives = [(score, label) for score, label, _ in labelled if label]
+    alerted = [score is not None and score >= threshold for score, _, _ in labelled]
+    metrics["alerts_per_1000"] = 1000.0 * sum(alerted) / len(labelled)
+    positives = [flag for flag, (_, label, _) in zip(alerted, labelled) if label]
+    negatives = [flag for flag, (_, label, _) in zip(alerted, labelled) if not label]
     if positives:
-        metrics["sensitivity"] = sum(1 for score, _ in positives if score >= threshold) / len(positives)
+        metrics["sensitivity"] = sum(positives) / len(positives)
+    if negatives:
+        metrics["specificity"] = sum(1 for flag in negatives if not flag) / len(negatives)
 
-    bands: dict[str, list[tuple[float, bool]]] = {}
-    for score, label, band in labelled:
-        bands.setdefault(band, []).append((score, label))
-    band_aucs = [value for value in (auc(pairs) for pairs in bands.values()) if value is not None]
-    if len(band_aucs) >= 2:
-        metrics["subgroup_auc_gap"] = max(band_aucs) - min(band_aucs)
-
+    groups = subgroup_aucs(records, score_fn, label_field)
+    if len(groups) == len(SUBGROUPS):
+        metrics["subgroup_auc_gap"] = max(groups.values()) - min(groups.values())
     return metrics
 
 
 def sweep_alert_thresholds(
-    records: list[dict[str, Any]],
-    label_field: str = "confirmed_stroke",
+    records: Iterable[Mapping[str, Any]],
+    score_fn: ScoreFunction = rule_score,
+    label_field: str = LABEL_FIELD,
     thresholds: list[float] | None = None,
 ) -> list[dict[str, float]]:
-    """Report sensitivity and alert burden across candidate alert thresholds.
+    """Sensitivity, specificity and alert burden at a range of alert thresholds.
 
-    A failed sensitivity gate on its own tells a committee the candidate is not
-    releasable. It does not tell them what would change that. This sweep does:
-    it shows how far the threshold has to move to clear the gate and what that
-    costs in alerts, which is the tradeoff a clinical owner actually decides.
-
-    Specificity is reported alongside, because lowering a threshold until
-    sensitivity passes is trivially achievable by alerting on everything.
+    The sweep shows what moving the threshold would cost in alerts. Specificity
+    is included because a low enough threshold reaches any sensitivity by
+    alerting on everyone.
     """
-    points = thresholds or [round(0.10 + step * 0.05, 2) for step in range(15)]
-    labelled = [
-        (assess(record).score, bool(record.get(label_field)))
-        for record in records
-        if record.get(label_field) is not None
-    ]
+    points = thresholds or [round(0.05 * step, 2) for step in range(1, 20)]
+    labelled = _labelled(records, score_fn, label_field)
     if not labelled:
         return []
-    positives = [score for score, label in labelled if label]
-    negatives = [score for score, label in labelled if not label]
+    positives = [score for score, label, _ in labelled if label]
+    negatives = [score for score, label, _ in labelled if not label]
+
+    def alerted(score: float | None, threshold: float) -> bool:
+        return score is not None and score >= threshold
 
     sweep: list[dict[str, float]] = []
     for threshold in points:
-        alerts = sum(1 for score, _ in labelled if score >= threshold)
         row = {
             "threshold": threshold,
-            "alerts_per_1000": 1000.0 * alerts / len(labelled),
+            "alerts_per_1000": 1000.0 * sum(alerted(score, threshold) for score, _, _ in labelled) / len(labelled),
         }
         if positives:
-            row["sensitivity"] = sum(1 for score in positives if score >= threshold) / len(positives)
+            row["sensitivity"] = sum(alerted(score, threshold) for score in positives) / len(positives)
         if negatives:
-            row["specificity"] = sum(1 for score in negatives if score < threshold) / len(negatives)
+            row["specificity"] = sum(not alerted(score, threshold) for score in negatives) / len(negatives)
         sweep.append(row)
     return sweep

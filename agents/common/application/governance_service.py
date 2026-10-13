@@ -102,6 +102,10 @@ class GovernanceService:
         """Whether the audit log's digest chain verifies."""
         return self._audit.verify_chain()
 
+    def audit_record_count(self) -> int:
+        """How many decisions the audit log holds."""
+        return self._audit.count()
+
     @property
     def guard(self) -> EthicalGuard:
         """The underlying guard, for services that enforce inline."""

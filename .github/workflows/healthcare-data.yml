@@ -1,35 +1,35 @@
 name: Healthcare data
 
-# Applies the stroke demo's migrations to Supabase and seeds it.
+# Applies the stroke demo's migrations to Supabase, loads each hospital's IST
+# records into that hospital's own schema, and then proves on the real project
+# that each hospital's rows are reachable only as that hospital's role.
 #
 # Manual only. A migration that ran on every push would apply a half-finished
-# schema the moment it was committed, and a seed that ran on every push would
-# rewrite the consortium under a running deployment. Both are things you should
-# have to ask for.
+# schema as soon as it was committed, and a seed that ran on every push would
+# replace the data under a running deployment.
 #
-# This is also the only place the database credential is used. It lives in the
-# repository's Actions secrets, never in the repository — and never in this
-# container: the environment running the assistant cannot reach Supabase at all,
-# which is why applying the schema is a CI job rather than something done by
-# hand from a laptop.
+# This is the only place the database credential is used. It lives in the
+# repository's Actions secrets, never in the repository.
+#
+# Before touching the project, the job prints the project's PostgreSQL version,
+# applies the same migrations to a scratch PostgreSQL 16 service container, as a
+# non-superuser that stands in for Supabase's `postgres` role, and runs the
+# healthcare demo's database tests there: the same test classes the CI
+# `demo-apps` job requires, with the planner built, so none of them may skip.
 #
 # Required secret:
-#   SUPABASE_DB_URL  Supabase → Project settings → Database → Connection string
+#   SUPABASE_DB_URL  Supabase -> Project settings -> Database -> Connection string
 #                    (URI). Use the pooler host on a free instance.
 
 on:
   workflow_dispatch:
     inputs:
       seed:
-        description: "Seed synthetic encounters after migrating"
+        description: "Load each hospital's IST records after migrating"
         type: boolean
         default: true
-      cohort_size:
-        description: "Encounters per site"
-        type: string
-        default: "400"
-      append:
-        description: "Keep existing encounters instead of replacing them"
+      keep_entries:
+        description: "Keep records entered in the demo and replace only the dataset rows"
         type: boolean
         default: false
 
@@ -42,10 +42,38 @@ concurrency:
 
 jobs:
   migrate:
-    name: Migrate and seed
+    name: Migrate, seed and prove isolation
     runs-on: ubuntu-latest
+    services:
+      # A throwaway database for the tests. It never holds project data.
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v4
+
+      # The pilot and data-entry tests run the Ethical Guard, which denies
+      # every request without the planner, so they skip when it is missing.
+      - uses: ocaml/setup-ocaml@v3
+        with:
+          ocaml-compiler: "5.1"
+          dune-cache: true
+          opam-pin: false
+
+      - name: Install OCaml dependencies
+        run: opam install --yes dune yojson
+
+      - name: Build dagentsc
+        working-directory: bindings/ocaml
+        run: opam exec -- dune build ./bin/dagentsc.exe
 
       - uses: actions/setup-python@v5
         with:
@@ -54,96 +82,202 @@ jobs:
           cache-dependency-path: apps/healthcare-demo/requirements.txt
 
       - name: Install dependencies
-        # psycopg comes from the app's own requirements now, so this job and the
-        # deployed image install the same driver from the same line. It used to
-        # be appended here only, which is how the image ended up without it.
+        # psycopg comes from the app's own requirements, so this job and the
+        # deployed image install the same driver.
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r apps/healthcare-demo/requirements.txt
 
       - name: Refuse to run without a credential
-        # A missing secret would otherwise surface as a confusing connection
-        # error several steps later.
-        #
-        # The secret reaches this check through `env:`, never through `${{ }}`.
-        # Interpolating it would paste a connection string into the script
-        # itself, where a password containing a quote or `$(…)` stops being data
-        # and starts being shell.
+        # The secret reaches every step through `env:`, never through `${{ }}`
+        # inside a script. Pasted into the script, a password containing a quote
+        # or `$(...)` would run as shell.
         env:
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
         run: |
           if [ -z "${SUPABASE_DB_URL}" ]; then
-            echo "::error::SUPABASE_DB_URL is not set. Add it under Settings → Secrets and variables → Actions."
+            echo "::error::SUPABASE_DB_URL is not set. Add it under Settings -> Secrets and variables -> Actions."
             exit 1
           fi
 
-      - name: The schema still matches the feature contract
-        # Checked before anything is applied: a migration that has drifted from
-        # `stroke-triage-features-v2` would store a narrower record than the
-        # consortium agreed to, and the round would measure less than it claims.
+      - name: Show the project's PostgreSQL version
+        # 0002 grants the site roles WITH INHERIT FALSE, SET TRUE on
+        # PostgreSQL 16 or later, and with a plain GRANT on 15, where the login
+        # role inherits their rights. The version decides which one runs.
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          PYTHONPATH: ${{ github.workspace }}
+        run: |
+          python - <<'PY'
+          import os
+
+          import psycopg
+
+          from agents.common.infrastructure.postgres_roles import connect
+
+          def fail(message):
+              print(f"::error::{message}")
+              raise SystemExit(1)
+
+          try:
+              with connect(os.environ["SUPABASE_DB_URL"]) as conn:
+                  version = conn.execute("SHOW server_version").fetchone()[0]
+                  number = int(conn.execute("SHOW server_version_num").fetchone()[0])
+          except psycopg.Error as error:
+              # The driver's message names the host, so only its type is printed.
+              fail(f"Could not read the server version with SUPABASE_DB_URL ({type(error).__name__}).")
+          print(f"server_version: {version}")
+          if number < 150000:
+              fail(f"The migrations need PostgreSQL 15 or later; the project runs {version}.")
+          if number < 160000:
+              print(
+                  "::warning::PostgreSQL 15: the login role will inherit every site role's rights. "
+                  "Isolation binds the app's code paths only, as it already does on Supabase."
+              )
+          PY
+
+      - name: Test the migrations on a scratch PostgreSQL 16
+        # The schema tests read the migration as text. The other modules apply
+        # it to the service container, try every cross-site path, and run the
+        # stores, the pilot, data entry, the API and the status report against
+        # it.
         working-directory: apps/healthcare-demo
         env:
           PYTHONPATH: ${{ github.workspace }}:${{ github.workspace }}/apps/healthcare-demo/backend
-        run: python -m unittest discover -s tests -t . -p "test_supabase_schema.py" -v
+          DAGENTSC_BIN: ${{ github.workspace }}/bindings/ocaml/_build/default/bin/dagentsc.exe
+          HEALTHCARE_DEMO_TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
+        run: |
+          set -o pipefail
+          python -m unittest -v \
+            tests.test_supabase_schema \
+            tests.test_site_isolation \
+            tests.test_site_store \
+            tests.test_pilot_postgres \
+            tests.test_data_entry_flow \
+            tests.test_runtime \
+            tests.test_store_connections \
+            tests.test_api_postgres \
+            tests.test_data_source_status \
+            2>&1 | tee database-suite.log
+
+      - name: Fail if the database tests skipped
+        # The same classes the CI demo-apps job requires.
+        # tests/test_ci_guards.py checks that the two lists match.
+        run: |
+          python scripts/ci_no_skipped_tests.py \
+            --forbid planner \
+            --forbid database \
+            --require-ran tests.test_site_isolation.SiteIsolationTests \
+            --require-ran tests.test_site_isolation.PostgresFifteenGrantTests \
+            --require-ran tests.test_site_isolation.RolloutFromV2Tests \
+            --require-ran tests.test_site_store.PostgresSiteStoreTests \
+            --require-ran tests.test_site_store.PostgresCoordinatorStoreTests \
+            --require-ran tests.test_pilot_postgres.PostgresPilotTests \
+            --require-ran tests.test_pilot_postgres.SeparateLoginTests \
+            --require-ran tests.test_pilot_postgres.PostgresApprovalAfterRestartTests \
+            --require-ran tests.test_pilot_postgres.PostgresRestartTests \
+            --require-ran tests.test_data_entry_flow.PostgresDataEntryTests \
+            --require-ran tests.test_runtime.PostgresRegistryTests \
+            --require-ran tests.test_store_connections.PostgresConnectionReuseTests \
+            --require-ran tests.test_store_connections.PostgresPilotConnectionTests \
+            --require-ran tests.test_api_postgres.PostgresApiTests \
+            --require-ran tests.test_api_postgres.UnmigratedDatabaseApiTests \
+            --require-ran tests.test_data_source_status.PostgresStatusTests \
+            apps/healthcare-demo/database-suite.log
 
       - name: Apply migrations
         env:
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
         run: python apps/healthcare-demo/scripts/apply_migrations.py
 
-      - name: Seed synthetic encounters
+      - name: Load each hospital's records as that hospital
         if: ${{ inputs.seed }}
         env:
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
-          # Through `env:` and then checked: a dispatch input interpolated
-          # straight into the command line is shell supplied by whoever pressed
-          # the button.
-          COHORT_SIZE: ${{ inputs.cohort_size }}
-          APPEND: ${{ inputs.append }}
+          # Through `env:` and compared as a string: a dispatch input pasted into
+          # the command line would be shell supplied by whoever started the run.
+          KEEP_ENTRIES: ${{ inputs.keep_entries }}
         run: |
           set -euo pipefail
-          case "${COHORT_SIZE}" in
-            ''|*[!0-9]*)
-              echo "::error::cohort_size must be a positive integer, got '${COHORT_SIZE}'."
-              exit 1
-              ;;
-          esac
-          args=(--cohort-size "${COHORT_SIZE}")
+          args=()
           # An `if`, not `&&`: under `set -e` a false test as the whole
-          # statement would exit the step with no output at all.
-          if [ "${APPEND}" = "true" ]; then
-            args+=(--append)
+          # statement would end the step with no output.
+          if [ "${KEEP_ENTRIES}" = "true" ]; then
+            args+=(--keep-entries)
           fi
           python apps/healthcare-demo/scripts/seed_supabase.py "${args[@]}"
 
-      - name: Confirm what is stored
-        # Reads the database back rather than trusting the seed's own report, and
-        # checks the properties the demo depends on: three sites, and recording
-        # gaps still present. A seeded database with no missingness would make
-        # the data-quality path unreachable and nothing else would notice.
+      - name: Prove the isolation on the project
+        # Reads the project back rather than trusting the seed's report. Each
+        # hospital's count is read as that hospital's role. Reading another
+        # hospital's table, or any hospital table as the coordinator, must fail
+        # with InsufficientPrivilege.
+        #
+        # The connecting role on Supabase holds pg_read_all_data, so it could
+        # read every schema without switching role. The step prints that, because
+        # the isolation applies to the app's code, which always switches role,
+        # and does not restrict this credential.
         env:
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          PYTHONPATH: ${{ github.workspace }}:${{ github.workspace }}/apps/healthcare-demo/backend
         run: |
           python - <<'PY'
-          import os, psycopg
-          with psycopg.connect(os.environ["SUPABASE_DB_URL"]) as conn, conn.cursor() as cur:
-              cur.execute("""
-                  select site_id, count(*),
-                         count(*) filter (where nihss_total is null)
-                  from public.encounters group by site_id order by site_id
-              """)
-              rows = cur.fetchall()
-          if not rows:
-              raise SystemExit("No encounters are stored.")
-          gaps = 0
-          for site, total, missing in rows:
-              print(f"  {site:24} {total:5} encounters, {missing:4} missing NIHSS")
-              gaps += missing
-          if len(rows) < 3:
-              raise SystemExit(f"Expected three sites, found {len(rows)}.")
-          if gaps == 0:
-              raise SystemExit(
-                  "No recording gaps are stored, so the data-quality path has nothing to find."
-              )
-          print(f"{len(rows)} sites stored, {gaps} recorded gaps preserved")
+          import os
+
+          from psycopg import errors, sql
+
+          from agents.common.infrastructure.postgres_roles import acting_as, connect
+          from app.domain.dataset import SITES
+
+          COORDINATOR = "dagents_coordinator"
+          failures = []
+
+          def denied(conn, role, schema, table):
+              try:
+                  with acting_as(conn, role):
+                      conn.execute(sql.SQL("SELECT 1 FROM {} LIMIT 1").format(sql.Identifier(schema, table)))
+              except errors.InsufficientPrivilege:
+                  return True
+              return False
+
+          with connect(os.environ["SUPABASE_DB_URL"]) as conn:
+              version = conn.execute("SHOW server_version").fetchone()[0]
+              user, read_all = conn.execute(
+                  "SELECT current_user, pg_has_role(current_user, 'pg_read_all_data', 'USAGE')"
+              ).fetchone()
+              print(f"server_version: {version}")
+              print(f"connecting role: {user}; member of pg_read_all_data: {read_all}")
+
+              print("Records per hospital, each read as its own role:")
+              for site in SITES:
+                  with acting_as(conn, site.role):
+                      total, entered, labelled = conn.execute(
+                          sql.SQL(
+                              "SELECT count(*), count(*) FILTER (WHERE origin = 'entered'), "
+                              "count(poor_outcome_6m) FROM {}"
+                          ).format(sql.Identifier(site.schema, "encounters"))
+                      ).fetchone()
+                  print(f"  {site.site_id:8} as {site.role}: {total} records, {entered} entered, {labelled} labelled")
+                  if total < site.expected_rows:
+                      failures.append(f"{site.site_id} holds {total} records; the extract has {site.expected_rows}")
+
+              print("Reads that must be refused:")
+              for reader in SITES:
+                  for owner in SITES:
+                      if reader.role == owner.role:
+                          continue
+                      ok = denied(conn, reader.role, owner.schema, "encounters")
+                      print(f"  {reader.role} reads {owner.schema}.encounters: {'refused' if ok else 'ALLOWED'}")
+                      if not ok:
+                          failures.append(f"{reader.role} can read {owner.schema}.encounters")
+              for owner in SITES:
+                  for table in ("encounters", "guard_audit"):
+                      ok = denied(conn, COORDINATOR, owner.schema, table)
+                      print(f"  {COORDINATOR} reads {owner.schema}.{table}: {'refused' if ok else 'ALLOWED'}")
+                      if not ok:
+                          failures.append(f"{COORDINATOR} can read {owner.schema}.{table}")
+
+          if failures:
+              raise SystemExit("Isolation check failed:\n  " + "\n  ".join(failures))
+          print(f"Isolation holds for {len(SITES)} hospitals and the coordinator.")
           PY
