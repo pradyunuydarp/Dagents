@@ -37,21 +37,25 @@ def get_orchestrator() -> DagentsOrchestrator:
 
 @router.get("/health", response_model=HealthResponse)
 def health(runtime_settings: Settings = Depends(get_settings)) -> HealthResponse:
+    """Liveness. Reads nothing and calls no other service."""
     return HealthResponse(**runtime_settings.as_health_payload())
 
 
 @router.get("/samples", response_model=list[SamplePrompt])
 def samples() -> list[SamplePrompt]:
+    """The sample questions the demo page offers, each with its tables."""
     return SAMPLES
 
 
 @router.get("/models", response_model=list[ModelDescriptor])
 def models(registry: NL2SQLModelRegistry = Depends(get_registry)) -> list[ModelDescriptor]:
+    """The SQL models this backend can use: one per model zip in `NL2SQL_MODELS_DIR`, then the heuristic."""
     return registry.descriptors()
 
 
 @router.get("/dagents/status", response_model=DagentsBackendStatus)
 def dagents_status(orchestrator: DagentsOrchestrator = Depends(get_orchestrator)) -> DagentsBackendStatus:
+    """Call each framework service's health check and report which ones answer."""
     return orchestrator.backend_status()
 
 
@@ -61,6 +65,10 @@ def generate_sql(
     registry: NL2SQLModelRegistry = Depends(get_registry),
     orchestrator: DagentsOrchestrator = Depends(get_orchestrator),
 ) -> NL2SQLResponse:
+    """Turn a question into SQL, after running the framework steps on its schema.
+
+    The SQL is generated, not run: no database is queried.
+    """
     descriptor = registry.descriptor(request.model_id)
     schema_ddl = ddl_from_tables(request.tables)
     trace = orchestrator.functional_trace(request.tables, request.question) if request.use_dagents_services else []

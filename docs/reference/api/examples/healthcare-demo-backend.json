@@ -1,0 +1,5038 @@
+{
+ "service": "healthcare-demo-backend",
+ "generated_by": "scripts/capture_api_examples.py",
+ "note": "Captured in process with the planner available and no database, so each hospital's records are in memory, loaded from apps/healthcare-demo/data/ist/. The per-client limits and hourly caps are off, except model approvals, which are limited to 2 per minute so the last approval example shows a 429. No framework service was running, so the status example lists each one as unavailable. The framework service addresses point at port 9, where nothing listens, so the answers are the same on a machine that runs the services.",
+ "examples": [
+  {
+   "id": "health",
+   "endpoint": "GET /health",
+   "title": "Check that the app answers",
+   "request": {
+    "method": "GET",
+    "path": "/health"
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json",
+     "x-dagents-app": "healthcare-demo"
+    },
+    "body": {
+     "status": "ok",
+     "service": "dagents-healthcare-stroke-demo",
+     "environment": "development",
+     "data": "ist-1-deidentified"
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "health-v1",
+   "endpoint": "GET /api/v1/health",
+   "title": "Check that the app answers, on the versioned path",
+   "request": {
+    "method": "GET",
+    "path": "/api/v1/health"
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json",
+     "x-dagents-app": "healthcare-demo"
+    },
+    "body": {
+     "status": "ok",
+     "service": "dagents-healthcare-stroke-demo",
+     "environment": "development",
+     "data": "ist-1-deidentified"
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "overview",
+   "endpoint": "GET /api/v1/overview",
+   "title": "Read the consortium overview",
+   "trim": {
+    "items": 3,
+    "chars": 300
+   },
+   "request": {
+    "method": "GET",
+    "path": "/api/v1/overview"
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json",
+     "x-dagents-app": "healthcare-demo"
+    },
+    "body": {
+     "study_id": "stroke-triage-pilot",
+     "condition": {
+      "condition_id": "suspected_stroke",
+      "display_name": "Suspected stroke",
+      "intended_use": "Flag patients with suspected acute stroke who are at high risk of death or dependency at six months, so a specialist reviews them first. Decision support only: it does not diagnose stroke, does not choose treatment, and does not remove any case from the normal work queue. A clinician reviews every r…",
+      "limitations": [
+       "The records are real, de-identified patient records from the International Stroke Trial, recruited in 1991-1996. Stroke care has changed since then, so outcomes today differ.",
+       "The trial enrolled patients with a clinical diagnosis of acute ischaemic stroke within 48 hours of onset and no clear reason for or against aspirin or heparin. That is a narrower group than everyone seen with a suspected stroke.",
+       "The seed rule's points were chosen by hand as an illustration. They were not fitted or validated."
+      ]
+     },
+     "dataset": {
+      "name": "International Stroke Trial database (version 2)",
+      "citation": "Sandercock PAG, Niewada M, Członkowska A; International Stroke Trial Collaborative Group. The International Stroke Trial database. Trials 2011;12:101 (erratum Trials 2012;13:24).",
+      "licence": "ODC Attribution License (ODC-By) 1.0",
+      "licence_url": "https://opendatacommons.org/licenses/by/1-0/",
+      "source_url": "https://doi.org/10.7488/ds/104",
+      "notice": "Contains information from the International Stroke Trial database (version 2) (https://doi.org/10.7488/ds/104), made available under the ODC Attribution License (https://opendatacommons.org/licenses/by/1-0/).",
+      "credit": "The International Stroke Trial Collaborative Group collected the data from 19,435 patients in 1991-1996. The trial was funded mainly by the UK Medical Research Council, the UK Stroke Association and the European Union BIOMED-1 programme."
+     },
+     "feature_contract": {
+      "contract_id": "stroke-triage-features",
+      "version": "stroke-triage-features-v3",
+      "required_fields": [
+       "age_band",
+       "sex",
+       "conscious_level"
+      ]
+     },
+     "field_labels": {
+      "age": "Age",
+      "age_band": "Age band",
+      "sex": "Sex",
+      "conscious_level": "Conscious level",
+      "face_weakness": "Face weakness",
+      "arm_weakness": "Arm or hand weakness",
+      "leg_weakness": "Leg or foot weakness",
+      "speech_difficulty": "Speech difficulty (dysphasia)",
+      "hours_since_onset": "Time since symptom onset",
+      "systolic_bp": "Systolic blood pressure",
+      "visual_field_loss": "Visual field loss (hemianopia)",
+      "atrial_fibrillation": "Atrial fibrillation",
+      "onset_on_waking": "Symptoms noticed on waking",
+      "stroke_subtype": "Stroke subtype (OCSP)",
+      "poor_outcome_6m": "Dead or dependent at six months"
+     },
+     "engine": "in-process-parameter-averaging",
+     "secure_aggregation_threshold": 3,
+     "minimum_cohort": 20,
+     "current_model": {
+      "version": "stroke-outcome-rule-v1",
+      "kind": "points_rule"
+     },
+     "hospitals": [
+      {
+       "site_id": "uk-134",
+       "display_name": "Hospital 134",
+       "country": "United Kingdom",
+       "record_count": 524,
+       "entered_count": 0,
+       "labelled_count": 524,
+       "outcome_rate": 0.7977099236641222,
+       "outcome_rate_status": "released",
+       "minimum_cohort": 20,
+       "store": {
+        "kind": "in-memory",
+        "memory": "process"
+       }
+      },
+      {
+       "site_id": "it-002",
+       "display_name": "Hospital 2",
+       "country": "Italy",
+       "record_count": 292,
+       "entered_count": 0,
+       "labelled_count": 292,
+       "outcome_rate": 0.5993150684931506,
+       "outcome_rate_status": "released",
+       "minimum_cohort": 20,
+       "store": {
+        "kind": "in-memory",
+        "memory": "process"
+       }
+      },
+      {
+       "site_id": "ch-245",
+       "display_name": "Hospital 245",
+       "country": "Switzerland",
+       "record_count": 198,
+       "entered_count": 0,
+       "labelled_count": 198,
+       "outcome_rate": 0.6868686868686869,
+       "outcome_rate_status": "released",
+       "minimum_cohort": 20,
+       "store": {
+        "kind": "in-memory",
+        "memory": "process"
+       }
+      }
+     ],
+     "release_gates": [
+      {
+       "gate_id": "discrimination",
+       "metric": "auc",
+       "comparison": {
+        "kind": "at_least",
+        "value": 0.7,
+        "margin": null
+       },
+       "blocking": true
+      },
+      {
+       "gate_id": "improves_on_current_release",
+       "metric": "auc",
+       "comparison": {
+        "kind": "improves_on_baseline",
+        "value": null,
+        "margin": 0.02
+       },
+       "blocking": true
+      },
+      {
+       "gate_id": "subgroup_fairness",
+       "metric": "subgroup_auc_gap",
+       "comparison": {
+        "kind": "at_most",
+        "value": 0.1,
+        "margin": null
+       },
+       "blocking": true
+      }
+     ]
+    },
+    "trimmed": [
+     {
+      "pointer": "/condition/intended_use",
+      "note": "339 characters, cut to 300"
+     },
+     {
+      "pointer": "/condition/limitations",
+      "note": "5 items, cut to 3"
+     },
+     {
+      "pointer": "/feature_contract/required_fields",
+      "note": "9 items, cut to 3"
+     },
+     {
+      "pointer": "/release_gates",
+      "note": "5 items, cut to 3"
+     }
+    ]
+   },
+   "planner_calls": [
+    "governance restrict"
+   ]
+  },
+  {
+   "id": "conditions",
+   "endpoint": "GET /api/v1/conditions",
+   "title": "Read the condition, its feature contract and its classification",
+   "trim": {
+    "items": 3,
+    "chars": 300
+   },
+   "request": {
+    "method": "GET",
+    "path": "/api/v1/conditions"
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json",
+     "x-dagents-app": "healthcare-demo"
+    },
+    "body": {
+     "implemented": [
+      {
+       "condition_id": "suspected_stroke",
+       "display_name": "Suspected stroke",
+       "intended_use": "Flag patients with suspected acute stroke who are at high risk of death or dependency at six months, so a specialist reviews them first. Decision support only: it does not diagnose stroke, does not choose treatment, and does not remove any case from the normal work queue. A clinician reviews every r…",
+       "feature_contract_id": "stroke-triage-features",
+       "classification_id": "stroke-triage-phi",
+       "cohort_description": "Adults with a suspected acute stroke, assessed within 48 hours of symptom onset. The demo's records come from three hospitals in the International Stroke Trial.",
+       "release_gates": [
+        {
+         "gate_id": "discrimination",
+         "metric": "auc",
+         "comparison": {
+          "kind": "at_least",
+          "value": 0.7,
+          "margin": null
+         },
+         "blocking": true
+        },
+        {
+         "gate_id": "improves_on_current_release",
+         "metric": "auc",
+         "comparison": {
+          "kind": "improves_on_baseline",
+          "value": null,
+          "margin": 0.02
+         },
+         "blocking": true
+        },
+        {
+         "gate_id": "subgroup_fairness",
+         "metric": "subgroup_auc_gap",
+         "comparison": {
+          "kind": "at_most",
+          "value": 0.1,
+          "margin": null
+         },
+         "blocking": true
+        }
+       ],
+       "limitations": [
+        "The records are real, de-identified patient records from the International Stroke Trial, recruited in 1991-1996. Stroke care has changed since then, so outcomes today differ.",
+        "The trial enrolled patients with a clinical diagnosis of acute ischaemic stroke within 48 hours of onset and no clear reason for or against aspirin or heparin. That is a narrower group than everyone seen with a suspected stroke.",
+        "The seed rule's points were chosen by hand as an illustration. They were not fitted or validated."
+       ],
+       "owner": "demo-stroke-pathway-lead"
+      }
+     ],
+     "planned": [
+      {
+       "condition_id": "suspected_myocardial_infarction",
+       "display_name": "Heart attack",
+       "status": "not implemented",
+       "needs": "Its own ECG and troponin feature contract, model, thresholds, workflow, and safety case."
+      },
+      {
+       "condition_id": "acute_kidney_injury",
+       "display_name": "Sudden kidney injury",
+       "status": "not implemented",
+       "needs": "Creatinine and urine-output trend rules with their own validation and baseline."
+      },
+      {
+       "condition_id": "respiratory_decline",
+       "display_name": "Serious breathing decline",
+       "status": "not implemented",
+       "needs": "Oxygenation and support-device monitoring with its own escalation workflow."
+      }
+     ],
+     "feature_contract": {
+      "contract_id": "stroke-triage-features",
+      "version": "stroke-triage-features-v3",
+      "fields": [
+       {
+        "name": "age_band",
+        "dtype": "string",
+        "required": true,
+        "unit": null,
+        "terminology": null,
+        "description": "Age band: <50, 50-59, 60-69, 70-79, 80-89 or 90+. The exact age stays at the site."
+       },
+       {
+        "name": "sex",
+        "dtype": "string",
+        "required": true,
+        "unit": null,
+        "terminology": null,
+        "description": "female or male."
+       },
+       {
+        "name": "conscious_level",
+        "dtype": "string",
+        "required": true,
+        "unit": null,
+        "terminology": null,
+        "description": "Conscious level at assessment: alert, drowsy or unconscious."
+       }
+      ],
+      "description": "Fields a hospital agrees to derive locally for prognostic stroke triage. The fields follow the International Stroke Trial's baseline form. Units and codes are part of the agreement, because the same field name can mean different things at different sites."
+     },
+     "classification": {
+      "classification_id": "stroke-triage-phi",
+      "field_sensitivity": {
+       "hours_since_onset": "high",
+       "systolic_bp": "high",
+       "atrial_fibrillation": "high",
+       "poor_outcome_6m": "high",
+       "age_band": "medium",
+       "sex": "medium",
+       "conscious_level": "medium",
+       "face_weakness": "medium",
+       "arm_weakness": "medium",
+       "leg_weakness": "medium",
+       "speech_difficulty": "medium",
+       "visual_field_loss": "medium",
+       "stroke_subtype": "medium",
+       "onset_on_waking": "low",
+       "model_update": "high"
+      },
+      "default_sensitivity": "high",
+      "regulations": [
+       "each hospital's national data protection law"
+      ],
+      "minimum_cohort": 20
+     }
+    },
+    "trimmed": [
+     {
+      "pointer": "/implemented/0/intended_use",
+      "note": "339 characters, cut to 300"
+     },
+     {
+      "pointer": "/implemented/0/release_gates",
+      "note": "5 items, cut to 3"
+     },
+     {
+      "pointer": "/implemented/0/limitations",
+      "note": "5 items, cut to 3"
+     },
+     {
+      "pointer": "/planned",
+      "note": "4 items, cut to 3"
+     },
+     {
+      "pointer": "/feature_contract/fields",
+      "note": "14 items, cut to 3"
+     }
+    ]
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "extension",
+   "endpoint": "GET /api/v1/extension",
+   "title": "Read what the app's extension contributes",
+   "request": {
+    "method": "GET",
+    "path": "/api/v1/extension"
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json",
+     "x-dagents-app": "healthcare-demo"
+    },
+    "body": {
+     "registry": {
+      "extensions": [
+       {
+        "extension_id": "dagents-healthcare-stroke-demo",
+        "version": "0.3.0"
+       }
+      ],
+      "feature_contracts": [
+       {
+        "contract_id": "stroke-triage-features",
+        "version": "stroke-triage-features-v3"
+       }
+      ],
+      "classifications": [
+       "stroke-triage-phi"
+      ],
+      "condition_packs": [
+       {
+        "condition_id": "suspected_stroke",
+        "display_name": "Suspected stroke"
+       }
+      ],
+      "pipeline_steps": [
+       "evaluate_stroke_rule",
+       "score_stroke_worklist"
+      ],
+      "model_adapters": [
+       "stroke_outcome_logreg_v1",
+       "stroke_outcome_rule_v1"
+      ]
+     },
+     "boundary": {
+      "framework_owns": [
+       "source and schema validation",
+       "data-quality rule evaluation",
+       "restriction planning (Ethical-Restriction Rails)",
+       "Guard enforcement and audit",
+       "federated round planning, quorum and aggregation readiness"
+      ],
+      "app_owns": [
+       "the stroke feature contract and its units",
+       "which fields are sensitive and under which regulations",
+       "the seed outcome rule and the federated model's encoding",
+       "FHIR mapping into the contract",
+       "the intended-use statement and its limitations"
+      ]
+     }
+    },
+    "trimmed": [
+     {
+      "pointer": "/boundary/framework_owns",
+      "note": "7 items, cut to 5"
+     },
+     {
+      "pointer": "/boundary/app_owns",
+      "note": "6 items, cut to 5"
+     }
+    ]
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "assess",
+   "endpoint": "POST /api/v1/triage:assess",
+   "title": "Score one record with the seed rule",
+   "request": {
+    "method": "POST",
+    "path": "/api/v1/triage:assess",
+    "json": {
+     "record": {
+      "age_band": "80-89",
+      "sex": "female",
+      "conscious_level": "drowsy",
+      "face_weakness": true,
+      "arm_weakness": true,
+      "leg_weakness": false,
+      "speech_difficulty": true,
+      "visual_field_loss": false,
+      "atrial_fibrillation": true,
+      "systolic_bp": 225,
+      "hours_since_onset": 6,
+      "onset_on_waking": false,
+      "stroke_subtype": "PACS"
+     }
+    }
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json",
+     "x-dagents-app": "healthcare-demo"
+    },
+    "body": {
+     "model_version": "stroke-outcome-rule-v1",
+     "score": 0.9241,
+     "priority": "urgent",
+     "points": 10,
+     "max_points": 17,
+     "contributions": {
+      "age_band": 4,
+      "conscious_level": 2,
+      "face_weakness": 1,
+      "arm_weakness": 1,
+      "speech_difficulty": 1,
+      "atrial_fibrillation": 1
+     },
+     "basis": [
+      "age band 80-89: 4 points",
+      "conscious level drowsy: 2 points",
+      "face weakness, arm weakness, speech difficulty: 3 points",
+      "atrial fibrillation: 1 point"
+     ],
+     "warnings": [
+      "systolic blood pressure 225 mmHg is markedly raised"
+     ],
+     "data_quality_issues": [],
+     "suppressed": false
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "assess-no-examination",
+   "endpoint": "POST /api/v1/triage:assess",
+   "title": "A record with no examination finding is not scored",
+   "request": {
+    "method": "POST",
+    "path": "/api/v1/triage:assess",
+    "json": {
+     "record": {
+      "age_band": "60-69",
+      "sex": "male"
+     }
+    }
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json",
+     "x-dagents-app": "healthcare-demo"
+    },
+    "body": {
+     "model_version": "stroke-outcome-rule-v1",
+     "score": 0.0,
+     "priority": "routine",
+     "points": 0,
+     "max_points": 17,
+     "contributions": {},
+     "basis": [],
+     "warnings": [],
+     "data_quality_issues": [
+      "conscious_level is missing",
+      "face_weakness is missing",
+      "arm_weakness is missing",
+      "leg_weakness is missing",
+      "speech_difficulty is missing"
+     ],
+     "suppressed": true
+    },
+    "trimmed": [
+     {
+      "pointer": "/data_quality_issues",
+      "note": "6 items, cut to 5"
+     }
+    ]
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "assess-not-an-object",
+   "endpoint": "POST /api/v1/triage:assess",
+   "title": "A record that is not a JSON object",
+   "request": {
+    "method": "POST",
+    "path": "/api/v1/triage:assess",
+    "json": {
+     "record": [
+      "80-89",
+      "drowsy"
+     ]
+    }
+   },
+   "response": {
+    "status": 422,
+    "headers": {
+     "content-type": "application/json",
+     "x-dagents-app": "healthcare-demo"
+    },
+    "body": {
+     "detail": "Some fields are not valid.",
+     "errors": {
+      "record": "Input should be a valid dictionary"
+     }
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "rank",
+   "endpoint": "POST /api/v1/triage:worklist",
+   "title": "Rank three records, highest risk first",
+   "description": "case_id is not a contract field. It is returned unchanged, which shows that other keys pass through.",
+   "trim": {
+    "items": 10,
+    "chars": 300
+   },
+   "request": {
+    "method": "POST",
+    "path": "/api/v1/triage:worklist",
+    "json": {
+     "records": [
+      {
+       "case_id": "a",
+       "age_band": "50-59",
+       "conscious_level": "alert",
+       "face_weakness": true,
+       "arm_weakness": false,
+       "leg_weakness": false,
+       "speech_difficulty": false
+      },
+      {
+       "case_id": "b",
+       "age_band": "90+",
+       "conscious_level": "unconscious",
+       "face_weakness": true,
+       "arm_weakness": true,
+       "leg_weakness": true,
+       "speech_difficulty": true,
+       "stroke_subtype": "TACS"
+      },
+      {
+       "case_id": "c",
+       "age_band": "70-79",
+       "sex": "male"
+      }
+     ]
+    }
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json",
+     "x-dagents-app": "healthcare-demo"
+    },
+    "body": {
+     "worklist": [
+      {
+       "case_id": "b",
+       "age_band": "90+",
+       "conscious_level": "unconscious",
+       "face_weakness": true,
+       "arm_weakness": true,
+       "leg_weakness": true,
+       "speech_difficulty": true,
+       "stroke_subtype": "TACS",
+       "assessment": {
+        "model_version": "stroke-outcome-rule-v1",
+        "score": 0.9933,
+        "priority": "urgent",
+        "points": 15,
+        "max_points": 17,
+        "contributions": {
+         "age_band": 5,
+         "conscious_level": 4,
+         "face_weakness": 1,
+         "arm_weakness": 1,
+         "leg_weakness": 1,
+         "speech_difficulty": 1,
+         "stroke_subtype": 2
+        },
+        "basis": [
+         "age band 90+: 5 points",
+         "conscious level unconscious: 4 points",
+         "face weakness, arm weakness, leg weakness, speech difficulty: 4 points",
+         "stroke subtype TACS: 2 points"
+        ],
+        "warnings": [],
+        "data_quality_issues": [],
+        "suppressed": false
+       }
+      },
+      {
+       "case_id": "a",
+       "age_band": "50-59",
+       "conscious_level": "alert",
+       "face_weakness": true,
+       "arm_weakness": false,
+       "leg_weakness": false,
+       "speech_difficulty": false,
+       "assessment": {
+        "model_version": "stroke-outcome-rule-v1",
+        "score": 0.1824,
+        "priority": "routine",
+        "points": 2,
+        "max_points": 17,
+        "contributions": {
+         "age_band": 1,
+         "conscious_level": 0,
+         "face_weakness": 1
+        },
+        "basis": [
+         "age band 50-59: 1 point",
+         "conscious level alert: 0 points",
+         "face weakness: 1 point"
+        ],
+        "warnings": [],
+        "data_quality_issues": [],
+        "suppressed": false
+       }
+      },
+      {
+       "case_id": "c",
+       "age_band": "70-79",
+       "sex": "male",
+       "assessment": {
+        "model_version": "stroke-outcome-rule-v1",
+        "score": 0.0,
+        "priority": "routine",
+        "points": 0,
+        "max_points": 17,
+        "contributions": {},
+        "basis": [],
+        "warnings": [],
+        "data_quality_issues": [
+         "conscious_level is missing",
+         "face_weakness is missing",
+         "arm_weakness is missing",
+         "leg_weakness is missing",
+         "speech_difficulty is missing",
+         "no examination finding was recorded; no score was produced"
+        ],
+        "suppressed": true
+       }
+      }
+     ]
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "rank-not-a-list",
+   "endpoint": "POST /api/v1/triage:worklist",
+   "title": "records that is not a list",
+   "request": {
+    "method": "POST",
+    "path": "/api/v1/triage:worklist",
+    "json": {
+     "records": {
+      "case_id": "a"
+     }
+    }
+   },
+   "response": {
+    "status": 422,
+    "headers": {
+     "content-type": "application/json",
+     "x-dagents-app": "healthcare-demo"
+    },
+    "body": {
+     "detail": "Some fields are not valid.",
+     "errors": {
+      "records": "Input should be a valid list"
+     }
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "fhir",
+   "endpoint": "POST /api/v1/ingest:fhir",
+   "title": "Map a FHIR-shaped encounter with two observations",
+   "description": "The systolic pressure arrives in kPa and is converted to mmHg. LOINC 8462-4 (diastolic pressure) is not in the mapper's table, so it is reported in unmapped_codes.",
+   "request": {
+    "method": "POST",
+    "path": "/api/v1/ingest:fhir",
+    "json": {
+     "bundle": {
+      "resourceType": "Bundle",
+      "type": "collection",
+      "entry": [
+       {
+        "resource": {
+         "resourceType": "Encounter",
+         "id": "enc-1",
+         "age": 77,
+         "gender": "female",
+         "consciousLevel": "alert",
+         "faceWeakness": true,
+         "armWeakness": true,
+         "legWeakness": false,
+         "speechDifficulty": true,
+         "visualFieldLoss": false,
+         "atrialFibrillation": false,
+         "onsetOnWaking": false,
+         "strokeSubtype": "PACS",
+         "minutesSinceOnset": 210
+        }
+       },
+       {
+        "resource": {
+         "resourceType": "Observation",
+         "encounter": {
+          "reference": "Encounter/enc-1"
+         },
+         "code": {
+          "coding": [
+           {
+            "system": "http://loinc.org",
+            "code": "8480-6"
+           }
+          ]
+         },
+         "valueQuantity": {
+          "value": 21.3,
+          "unit": "kPa"
+         }
+        }
+       },
+       {
+        "resource": {
+         "resourceType": "Observation",
+         "encounter": {
+          "reference": "Encounter/enc-1"
+         },
+         "code": {
+          "coding": [
+           {
+            "system": "http://loinc.org",
+            "code": "8462-4"
+           }
+          ]
+         },
+         "valueQuantity": {
+          "value": 92,
+          "unit": "mmHg"
+         }
+        }
+       }
+      ]
+     }
+    }
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json",
+     "x-dagents-app": "healthcare-demo"
+    },
+    "body": {
+     "mapped": [
+      {
+       "record": {
+        "age_band": "70-79",
+        "age": 77,
+        "sex": "female",
+        "conscious_level": "alert",
+        "stroke_subtype": "PACS",
+        "face_weakness": true,
+        "arm_weakness": true,
+        "leg_weakness": false,
+        "speech_difficulty": true,
+        "visual_field_loss": false,
+        "atrial_fibrillation": false,
+        "onset_on_waking": false,
+        "hours_since_onset": 3.5,
+        "systolic_bp": 159.763206
+       },
+       "unmapped": [
+        "8462-4"
+       ],
+       "issues": []
+      }
+     ],
+     "unmapped_codes": [
+      "8462-4"
+     ],
+     "record_count": 1
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "hospitals",
+   "endpoint": "GET /api/v1/hospitals",
+   "title": "List what each hospital reports",
+   "request": {
+    "method": "GET",
+    "path": "/api/v1/hospitals"
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json",
+     "x-dagents-app": "healthcare-demo"
+    },
+    "body": [
+     {
+      "site_id": "uk-134",
+      "display_name": "Hospital 134",
+      "country": "United Kingdom",
+      "record_count": 524,
+      "entered_count": 0,
+      "labelled_count": 524,
+      "outcome_rate": 0.7977099236641222,
+      "outcome_rate_status": "released",
+      "minimum_cohort": 20,
+      "store": {
+       "kind": "in-memory",
+       "memory": "process"
+      }
+     },
+     {
+      "site_id": "it-002",
+      "display_name": "Hospital 2",
+      "country": "Italy",
+      "record_count": 292,
+      "entered_count": 0,
+      "labelled_count": 292,
+      "outcome_rate": 0.5993150684931506,
+      "outcome_rate_status": "released",
+      "minimum_cohort": 20,
+      "store": {
+       "kind": "in-memory",
+       "memory": "process"
+      }
+     },
+     {
+      "site_id": "ch-245",
+      "display_name": "Hospital 245",
+      "country": "Switzerland",
+      "record_count": 198,
+      "entered_count": 0,
+      "labelled_count": 198,
+      "outcome_rate": 0.6868686868686869,
+      "outcome_rate_status": "released",
+      "minimum_cohort": 20,
+      "store": {
+       "kind": "in-memory",
+       "memory": "process"
+      }
+     }
+    ],
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "hospital",
+   "endpoint": "GET /api/v1/hospitals/{site_id}",
+   "title": "Read one hospital's own view",
+   "volatile": [
+    "/current_model/created_at"
+   ],
+   "trim": {
+    "items": 3,
+    "chars": 300
+   },
+   "request": {
+    "method": "GET",
+    "path": "/api/v1/hospitals/ch-245"
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json",
+     "x-dagents-app": "healthcare-demo"
+    },
+    "body": {
+     "site_id": "ch-245",
+     "display_name": "Hospital 245",
+     "country": "Switzerland",
+     "store": {
+      "kind": "in-memory",
+      "memory": "process"
+     },
+     "counts": {
+      "total": 198,
+      "entered": 0,
+      "labelled": 198
+     },
+     "outcome_rate": 0.6868686868686869,
+     "outcome_rate_status": "released",
+     "minimum_cohort": 20,
+     "max_entered": 300,
+     "profile": {
+      "record_count": 198,
+      "tracked_fields": [
+       "age",
+       "age_band",
+       "arm_weakness"
+      ],
+      "fields": {
+       "age": {
+        "present": 198,
+        "missing": 0,
+        "kind": "numeric",
+        "numeric": {
+         "count": 198,
+         "mean": 74.66161616161615,
+         "variance": 140.42806234938223,
+         "min": 27,
+         "max": 98,
+         "m2": 27664.3282828283
+        },
+        "categories": {},
+        "booleans": {},
+        "other": 0
+       },
+       "age_band": {
+        "present": 198,
+        "missing": 0,
+        "kind": "categorical",
+        "numeric": null,
+        "categories": {
+         "50-59": 16,
+         "60-69": 29,
+         "70-79": 68,
+         "80-89": 70,
+         "90+": 8,
+         "<50": 7
+        },
+        "booleans": {},
+        "other": 0
+       },
+       "arm_weakness": {
+        "present": 196,
+        "missing": 2,
+        "kind": "boolean",
+        "numeric": null,
+        "categories": {},
+        "booleans": {
+         "false": 39,
+         "true": 157
+        },
+        "other": 0
+       },
+       "atrial_fibrillation": {
+        "present": 198,
+        "missing": 0,
+        "kind": "boolean",
+        "numeric": null,
+        "categories": {},
+        "booleans": {
+         "false": 172,
+         "true": 26
+        },
+        "other": 0
+       },
+       "conscious_level": {
+        "present": 198,
+        "missing": 0,
+        "kind": "categorical",
+        "numeric": null,
+        "categories": {
+         "alert": 125,
+         "drowsy": 65,
+         "unconscious": 8
+        },
+        "booleans": {},
+        "other": 0
+       },
+       "face_weakness": {
+        "present": 191,
+        "missing": 7,
+        "kind": "boolean",
+        "numeric": null,
+        "categories": {},
+        "booleans": {
+         "false": 65,
+         "true": 126
+        },
+        "other": 0
+       },
+       "hours_since_onset": {
+        "present": 198,
+        "missing": 0,
+        "kind": "numeric",
+        "numeric": {
+         "count": 198,
+         "mean": 20.267676767676765,
+         "variance": 147.4762087883916,
+         "min": 1.0,
+         "max": 48.0,
+         "m2": 29052.813131313145
+        },
+        "categories": {},
+        "booleans": {},
+        "other": 0
+       },
+       "leg_weakness": {
+        "present": 193,
+        "missing": 5,
+        "kind": "boolean",
+        "numeric": null,
+        "categories": {},
+        "booleans": {
+         "false": 66,
+         "true": 127
+        },
+        "other": 0
+       },
+       "onset_on_waking": {
+        "present": 198,
+        "missing": 0,
+        "kind": "boolean",
+        "numeric": null,
+        "categories": {},
+        "booleans": {
+         "false": 158,
+         "true": 40
+        },
+        "other": 0
+       },
+       "origin": {
+        "present": 198,
+        "missing": 0,
+        "kind": "categorical",
+        "numeric": null,
+        "categories": {
+         "dataset": 198
+        },
+        "booleans": {},
+        "other": 0
+       },
+       "poor_outcome_6m": {
+        "present": 198,
+        "missing": 0,
+        "kind": "boolean",
+        "numeric": null,
+        "categories": {},
+        "booleans": {
+         "false": 62,
+         "true": 136
+        },
+        "other": 0
+       },
+       "sex": {
+        "present": 198,
+        "missing": 0,
+        "kind": "categorical",
+        "numeric": null,
+        "categories": {
+         "female": 99,
+         "male": 99
+        },
+        "booleans": {},
+        "other": 0
+       },
+       "speech_difficulty": {
+        "present": 192,
+        "missing": 6,
+        "kind": "boolean",
+        "numeric": null,
+        "categories": {},
+        "booleans": {
+         "false": 65,
+         "true": 127
+        },
+        "other": 0
+       },
+       "stroke_subtype": {
+        "present": 198,
+        "missing": 0,
+        "kind": "categorical",
+        "numeric": null,
+        "categories": {
+         "LACS": 17,
+         "PACS": 89,
+         "POCS": 36,
+         "TACS": 56
+        },
+        "booleans": {},
+        "other": 0
+       },
+       "systolic_bp": {
+        "present": 198,
+        "missing": 0,
+        "kind": "numeric",
+        "numeric": {
+         "count": 198,
+         "mean": 164.34343434343432,
+         "variance": 908.2266318002365,
+         "min": 100.0,
+         "max": 260.0,
+         "m2": 178920.6464646466
+        },
+        "categories": {},
+        "booleans": {},
+        "other": 0
+       },
+       "visual_field_loss": {
+        "present": 123,
+        "missing": 75,
+        "kind": "boolean",
+        "numeric": null,
+        "categories": {},
+        "booleans": {
+         "false": 101,
+         "true": 22
+        },
+        "other": 0
+       }
+      }
+     },
+     "local_metrics": {
+      "model_version": "stroke-outcome-rule-v1",
+      "labelled_records": 198,
+      "metrics": {
+       "auc": 0.8006404174573055,
+       "alerts_per_1000": 823.2323232323232,
+       "sensitivity": 0.9191176470588235,
+       "specificity": 0.3870967741935484,
+       "subgroup_auc_gap": 0.03509975749559091
+      }
+     },
+     "current_model": {
+      "version": "stroke-outcome-rule-v1",
+      "kind": "points_rule",
+      "digest": "sha256:04177e54a0c7c829a484a962f37eb0945a39f1ff7e5dc3319b266842fc3bd416",
+      "status": "released",
+      "parent_version": null,
+      "created_at": "2026-10-14T12:10:55.652963+00:00",
+      "release_decision": null
+     },
+     "contributions": []
+    },
+    "trimmed": [
+     {
+      "pointer": "/profile/tracked_fields",
+      "note": "16 items, cut to 3"
+     }
+    ]
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "hospital-unknown",
+   "endpoint": "GET /api/v1/hospitals/{site_id}",
+   "title": "A hospital id that does not exist",
+   "request": {
+    "method": "GET",
+    "path": "/api/v1/hospitals/xx-1"
+   },
+   "response": {
+    "status": 404,
+    "headers": {
+     "content-type": "application/json",
+     "x-dagents-app": "healthcare-demo"
+    },
+    "body": {
+     "detail": "There is no hospital with the id 'xx-1'."
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "hospital-worklist",
+   "endpoint": "GET /api/v1/hospitals/{site_id}/worklist",
+   "title": "Read the two highest-risk records at one hospital",
+   "request": {
+    "method": "GET",
+    "path": "/api/v1/hospitals/ch-245/worklist",
+    "query": {
+     "limit": 2
+    }
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json",
+     "x-dagents-app": "healthcare-demo"
+    },
+    "body": {
+     "site_id": "ch-245",
+     "worklist": [
+      {
+       "encounter_id": "ch-245-02401",
+       "source_row": 2401,
+       "origin": "dataset",
+       "age": 85,
+       "age_band": "80-89",
+       "sex": "female",
+       "conscious_level": "unconscious",
+       "face_weakness": true,
+       "arm_weakness": true,
+       "leg_weakness": true,
+       "speech_difficulty": true,
+       "hours_since_onset": 36.0,
+       "systolic_bp": 190.0,
+       "atrial_fibrillation": false,
+       "onset_on_waking": false,
+       "stroke_subtype": "TACS",
+       "poor_outcome_6m": true,
+       "assessment": {
+        "model_version": "stroke-outcome-rule-v1",
+        "score": 0.989,
+        "priority": "urgent",
+        "points": 14,
+        "max_points": 17,
+        "contributions": {
+         "age_band": 4,
+         "conscious_level": 4,
+         "face_weakness": 1,
+         "arm_weakness": 1,
+         "leg_weakness": 1,
+         "speech_difficulty": 1,
+         "stroke_subtype": 2
+        },
+        "basis": [
+         "age band 80-89: 4 points",
+         "conscious level unconscious: 4 points",
+         "face weakness, arm weakness, leg weakness, speech difficulty: 4 points",
+         "stroke subtype TACS: 2 points"
+        ],
+        "warnings": [],
+        "data_quality_issues": [],
+        "suppressed": false,
+        "model_kind": "points_rule"
+       }
+      },
+      {
+       "encounter_id": "ch-245-13843",
+       "source_row": 13843,
+       "origin": "dataset",
+       "age": 82,
+       "age_band": "80-89",
+       "sex": "female",
+       "conscious_level": "drowsy",
+       "face_weakness": true,
+       "arm_weakness": true,
+       "leg_weakness": true,
+       "speech_difficulty": true,
+       "hours_since_onset": 12.0,
+       "systolic_bp": 170.0,
+       "visual_field_loss": true,
+       "atrial_fibrillation": true,
+       "onset_on_waking": false,
+       "stroke_subtype": "TACS",
+       "poor_outcome_6m": true,
+       "assessment": {
+        "model_version": "stroke-outcome-rule-v1",
+        "score": 0.989,
+        "priority": "urgent",
+        "points": 14,
+        "max_points": 17,
+        "contributions": {
+         "age_band": 4,
+         "conscious_level": 2,
+         "face_weakness": 1,
+         "arm_weakness": 1,
+         "leg_weakness": 1,
+         "speech_difficulty": 1,
+         "visual_field_loss": 1,
+         "atrial_fibrillation": 1,
+         "stroke_subtype": 2
+        },
+        "basis": [
+         "age band 80-89: 4 points",
+         "conscious level drowsy: 2 points",
+         "face weakness, arm weakness, leg weakness, speech difficulty, visual field loss: 5 points",
+         "atrial fibrillation: 1 point",
+         "stroke subtype TACS: 2 points"
+        ],
+        "warnings": [],
+        "data_quality_issues": [],
+        "suppressed": false,
+        "model_kind": "points_rule"
+       }
+      }
+     ]
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "hospital-worklist-limit",
+   "endpoint": "GET /api/v1/hospitals/{site_id}/worklist",
+   "title": "A limit outside 1 to 200",
+   "request": {
+    "method": "GET",
+    "path": "/api/v1/hospitals/ch-245/worklist",
+    "query": {
+     "limit": 0
+    }
+   },
+   "response": {
+    "status": 422,
+    "headers": {
+     "content-type": "application/json",
+     "x-dagents-app": "healthcare-demo"
+    },
+    "body": {
+     "detail": "Some fields are not valid.",
+     "errors": {
+      "limit": "Input should be greater than or equal to 1"
+     }
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "thresholds",
+   "endpoint": "GET /api/v1/hospitals/{site_id}/thresholds",
+   "title": "Read the threshold sweep at one hospital",
+   "trim": {
+    "items": 4
+   },
+   "request": {
+    "method": "GET",
+    "path": "/api/v1/hospitals/ch-245/thresholds"
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json",
+     "x-dagents-app": "healthcare-demo"
+    },
+    "body": {
+     "site_id": "ch-245",
+     "sweep": [
+      {
+       "threshold": 0.05,
+       "alerts_per_1000": 1000.0,
+       "sensitivity": 1.0,
+       "specificity": 0.0
+      },
+      {
+       "threshold": 0.1,
+       "alerts_per_1000": 1000.0,
+       "sensitivity": 1.0,
+       "specificity": 0.0
+      },
+      {
+       "threshold": 0.15,
+       "alerts_per_1000": 994.9494949494949,
+       "sensitivity": 1.0,
+       "specificity": 0.016129032258064516
+      },
+      {
+       "threshold": 0.2,
+       "alerts_per_1000": 969.6969696969697,
+       "sensitivity": 0.9926470588235294,
+       "specificity": 0.08064516129032258
+      }
+     ]
+    },
+    "trimmed": [
+     {
+      "pointer": "/sweep",
+      "note": "19 items, cut to 4"
+     }
+    ]
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "entry-form",
+   "endpoint": "GET /api/v1/hospitals/{site_id}/entry-form",
+   "title": "Read the data-entry form",
+   "trim": {
+    "items": 3
+   },
+   "request": {
+    "method": "GET",
+    "path": "/api/v1/hospitals/ch-245/entry-form"
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json",
+     "x-dagents-app": "healthcare-demo"
+    },
+    "body": {
+     "site_id": "ch-245",
+     "display_name": "Hospital 245",
+     "fields": [
+      {
+       "name": "age",
+       "label": "Age",
+       "type": "integer",
+       "required": true,
+       "options": null,
+       "min": 16,
+       "max": 110,
+       "unit": "years",
+       "help": "Stays at this hospital. Only the age band is shared."
+      },
+      {
+       "name": "sex",
+       "label": "Sex",
+       "type": "choice",
+       "required": true,
+       "options": [
+        "female",
+        "male"
+       ],
+       "min": null,
+       "max": null,
+       "unit": null,
+       "help": null
+      },
+      {
+       "name": "conscious_level",
+       "label": "Conscious level",
+       "type": "choice",
+       "required": true,
+       "options": [
+        "alert",
+        "drowsy",
+        "unconscious"
+       ],
+       "min": null,
+       "max": null,
+       "unit": null,
+       "help": null
+      }
+     ],
+     "max_entered": 300,
+     "entered_count": 0,
+     "remaining": 300,
+     "idempotency": {
+      "header": "Idempotency-Key",
+      "max_length": 100,
+      "pattern": "^[A-Za-z0-9._:-]{1,100}$"
+     },
+     "notice": "Do not enter real patient information. This is a public demo: anything entered here is stored in the hospital's demo store and is visible to every visitor."
+    },
+    "trimmed": [
+     {
+      "pointer": "/fields",
+      "note": "13 items, cut to 3"
+     }
+    ]
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "enter",
+   "endpoint": "POST /api/v1/hospitals/{site_id}/encounters",
+   "title": "Enter a record at Hospital 245",
+   "volatile": [
+    "/record/recorded_at"
+   ],
+   "trim": {
+    "items": 3,
+    "chars": 300
+   },
+   "request": {
+    "method": "POST",
+    "path": "/api/v1/hospitals/ch-245/encounters",
+    "headers": {
+     "Idempotency-Key": "docs-ch245-0001"
+    },
+    "json": {
+     "age": 81,
+     "sex": "female",
+     "conscious_level": "drowsy",
+     "face_weakness": true,
+     "arm_weakness": true,
+     "leg_weakness": false,
+     "speech_difficulty": true,
+     "hours_since_onset": 6.5,
+     "systolic_bp": 172.0,
+     "visual_field_loss": null,
+     "atrial_fibrillation": true,
+     "onset_on_waking": false,
+     "stroke_subtype": "PACS"
+    }
+   },
+   "response": {
+    "status": 201,
+    "headers": {
+     "content-type": "application/json",
+     "x-dagents-app": "healthcare-demo"
+    },
+    "body": {
+     "record": {
+      "encounter_id": "ch-245-e1",
+      "origin": "entered",
+      "age": 81,
+      "age_band": "80-89",
+      "sex": "female",
+      "conscious_level": "drowsy",
+      "face_weakness": true,
+      "arm_weakness": true,
+      "leg_weakness": false,
+      "speech_difficulty": true,
+      "hours_since_onset": 6.5,
+      "systolic_bp": 172.0,
+      "atrial_fibrillation": true,
+      "onset_on_waking": false,
+      "stroke_subtype": "PACS",
+      "recorded_at": "2026-10-14T12:10:55.742779+00:00"
+     },
+     "assessment": {
+      "model_version": "stroke-outcome-rule-v1",
+      "score": 0.9241,
+      "priority": "urgent",
+      "points": 10,
+      "max_points": 17,
+      "contributions": {
+       "age_band": 4,
+       "conscious_level": 2,
+       "face_weakness": 1,
+       "arm_weakness": 1,
+       "speech_difficulty": 1,
+       "atrial_fibrillation": 1
+      },
+      "basis": [
+       "age band 80-89: 4 points",
+       "conscious level drowsy: 2 points",
+       "face weakness, arm weakness, speech difficulty: 3 points"
+      ],
+      "warnings": [],
+      "data_quality_issues": [],
+      "suppressed": false,
+      "model_kind": "points_rule"
+     },
+     "counts": {
+      "total": 199,
+      "entered": 1,
+      "labelled": 198
+     },
+     "profile": {
+      "record_count": 199,
+      "tracked_fields": [
+       "age",
+       "age_band",
+       "arm_weakness"
+      ],
+      "fields": {
+       "age": {
+        "present": 199,
+        "missing": 0,
+        "kind": "numeric",
+        "numeric": {
+         "count": 199,
+         "mean": 74.69346733668341,
+         "variance": 139.9207146845339,
+         "min": 27,
+         "max": 98,
+         "m2": 27704.301507537708
+        },
+        "categories": {},
+        "booleans": {},
+        "other": 0
+       },
+       "age_band": {
+        "present": 199,
+        "missing": 0,
+        "kind": "categorical",
+        "numeric": null,
+        "categories": {
+         "50-59": 16,
+         "60-69": 29,
+         "70-79": 68,
+         "80-89": 71,
+         "90+": 8,
+         "<50": 7
+        },
+        "booleans": {},
+        "other": 0
+       },
+       "arm_weakness": {
+        "present": 197,
+        "missing": 2,
+        "kind": "boolean",
+        "numeric": null,
+        "categories": {},
+        "booleans": {
+         "false": 39,
+         "true": 158
+        },
+        "other": 0
+       },
+       "atrial_fibrillation": {
+        "present": 199,
+        "missing": 0,
+        "kind": "boolean",
+        "numeric": null,
+        "categories": {},
+        "booleans": {
+         "false": 172,
+         "true": 27
+        },
+        "other": 0
+       },
+       "conscious_level": {
+        "present": 199,
+        "missing": 0,
+        "kind": "categorical",
+        "numeric": null,
+        "categories": {
+         "alert": 125,
+         "drowsy": 66,
+         "unconscious": 8
+        },
+        "booleans": {},
+        "other": 0
+       },
+       "face_weakness": {
+        "present": 192,
+        "missing": 7,
+        "kind": "boolean",
+        "numeric": null,
+        "categories": {},
+        "booleans": {
+         "false": 65,
+         "true": 127
+        },
+        "other": 0
+       },
+       "hours_since_onset": {
+        "present": 199,
+        "missing": 0,
+        "kind": "numeric",
+        "numeric": {
+         "count": 199,
+         "mean": 20.198492462311556,
+         "variance": 147.68388660474096,
+         "min": 1.0,
+         "max": 48.0,
+         "m2": 29241.40954773871
+        },
+        "categories": {},
+        "booleans": {},
+        "other": 0
+       },
+       "leg_weakness": {
+        "present": 194,
+        "missing": 5,
+        "kind": "boolean",
+        "numeric": null,
+        "categories": {},
+        "booleans": {
+         "false": 67,
+         "true": 127
+        },
+        "other": 0
+       },
+       "onset_on_waking": {
+        "present": 199,
+        "missing": 0,
+        "kind": "boolean",
+        "numeric": null,
+        "categories": {},
+        "booleans": {
+         "false": 159,
+         "true": 40
+        },
+        "other": 0
+       },
+       "origin": {
+        "present": 199,
+        "missing": 0,
+        "kind": "categorical",
+        "numeric": null,
+        "categories": {
+         "dataset": 198,
+         "entered": 1
+        },
+        "booleans": {},
+        "other": 0
+       },
+       "poor_outcome_6m": {
+        "present": 198,
+        "missing": 1,
+        "kind": "boolean",
+        "numeric": null,
+        "categories": {},
+        "booleans": {
+         "false": 62,
+         "true": 136
+        },
+        "other": 0
+       },
+       "sex": {
+        "present": 199,
+        "missing": 0,
+        "kind": "categorical",
+        "numeric": null,
+        "categories": {
+         "female": 100,
+         "male": 99
+        },
+        "booleans": {},
+        "other": 0
+       },
+       "speech_difficulty": {
+        "present": 193,
+        "missing": 6,
+        "kind": "boolean",
+        "numeric": null,
+        "categories": {},
+        "booleans": {
+         "false": 65,
+         "true": 128
+        },
+        "other": 0
+       },
+       "stroke_subtype": {
+        "present": 199,
+        "missing": 0,
+        "kind": "categorical",
+        "numeric": null,
+        "categories": {
+         "LACS": 17,
+         "PACS": 90,
+         "POCS": 36,
+         "TACS": 56
+        },
+        "booleans": {},
+        "other": 0
+       },
+       "systolic_bp": {
+        "present": 199,
+        "missing": 0,
+        "kind": "numeric",
+        "numeric": {
+         "count": 199,
+         "mean": 164.38190954773867,
+         "variance": 903.9342165372323,
+         "min": 100.0,
+         "max": 260.0,
+         "m2": 178978.97487437198
+        },
+        "categories": {},
+        "booleans": {},
+        "other": 0
+       },
+       "visual_field_loss": {
+        "present": 123,
+        "missing": 76,
+        "kind": "boolean",
+        "numeric": null,
+        "categories": {},
+        "booleans": {
+         "false": 101,
+         "true": 22
+        },
+        "other": 0
+       }
+      }
+     }
+    },
+    "trimmed": [
+     {
+      "pointer": "/assessment/basis",
+      "note": "4 items, cut to 3"
+     },
+     {
+      "pointer": "/profile/tracked_fields",
+      "note": "16 items, cut to 3"
+     }
+    ]
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "enter-retry",
+   "endpoint": "POST /api/v1/hospitals/{site_id}/encounters",
+   "title": "Send the same record with the same key again",
+   "description": "The answer holds the record stored the first time. Nothing new is stored, so counts.entered stays 1.",
+   "volatile": [
+    "/record/recorded_at"
+   ],
+   "trim": {
+    "items": 3,
+    "chars": 300
+   },
+   "request": {
+    "method": "POST",
+    "path": "/api/v1/hospitals/ch-245/encounters",
+    "headers": {
+     "Idempotency-Key": "docs-ch245-0001"
+    },
+    "json": {
+     "age": 81,
+     "sex": "female",
+     "conscious_level": "drowsy",
+     "face_weakness": true,
+     "arm_weakness": true,
+     "leg_weakness": false,
+     "speech_difficulty": true,
+     "hours_since_onset": 6.5,
+     "systolic_bp": 172.0,
+     "visual_field_loss": null,
+     "atrial_fibrillation": true,
+     "onset_on_waking": false,
+     "stroke_subtype": "PACS"
+    }
+   },
+   "response": {
+    "status": 201,
+    "headers": {
+     "content-type": "application/json",
+     "x-dagents-app": "healthcare-demo"
+    },
+    "body": {
+     "record": {
+      "encounter_id": "ch-245-e1",
+      "origin": "entered",
+      "age": 81,
+      "age_band": "80-89",
+      "sex": "female",
+      "conscious_level": "drowsy",
+      "face_weakness": true,
+      "arm_weakness": true,
+      "leg_weakness": false,
+      "speech_difficulty": true,
+      "hours_since_onset": 6.5,
+      "systolic_bp": 172.0,
+      "atrial_fibrillation": true,
+      "onset_on_waking": false,
+      "stroke_subtype": "PACS",
+      "recorded_at": "2026-10-14T12:10:55.742779+00:00"
+     },
+     "assessment": {
+      "model_version": "stroke-outcome-rule-v1",
+      "score": 0.9241,
+      "priority": "urgent",
+      "points": 10,
+      "max_points": 17,
+      "contributions": {
+       "age_band": 4,
+       "conscious_level": 2,
+       "face_weakness": 1,
+       "arm_weakness": 1,
+       "speech_difficulty": 1,
+       "atrial_fibrillation": 1
+      },
+      "basis": [
+       "age band 80-89: 4 points",
+       "conscious level drowsy: 2 points",
+       "face weakness, arm weakness, speech difficulty: 3 points"
+      ],
+      "warnings": [],
+      "data_quality_issues": [],
+      "suppressed": false,
+      "model_kind": "points_rule"
+     },
+     "counts": {
+      "total": 199,
+      "entered": 1,
+      "labelled": 198
+     },
+     "profile": {
+      "record_count": 199,
+      "tracked_fields": [
+       "age",
+       "age_band",
+       "arm_weakness"
+      ],
+      "fields": {
+       "age": {
+        "present": 199,
+        "missing": 0,
+        "kind": "numeric",
+        "numeric": {
+         "count": 199,
+         "mean": 74.69346733668341,
+         "variance": 139.9207146845339,
+         "min": 27,
+         "max": 98,
+         "m2": 27704.301507537708
+        },
+        "categories": {},
+        "booleans": {},
+        "other": 0
+       },
+       "age_band": {
+        "present": 199,
+        "missing": 0,
+        "kind": "categorical",
+        "numeric": null,
+        "categories": {
+         "50-59": 16,
+         "60-69": 29,
+         "70-79": 68,
+         "80-89": 71,
+         "90+": 8,
+         "<50": 7
+        },
+        "booleans": {},
+        "other": 0
+       },
+       "arm_weakness": {
+        "present": 197,
+        "missing": 2,
+        "kind": "boolean",
+        "numeric": null,
+        "categories": {},
+        "booleans": {
+         "false": 39,
+         "true": 158
+        },
+        "other": 0
+       },
+       "atrial_fibrillation": {
+        "present": 199,
+        "missing": 0,
+        "kind": "boolean",
+        "numeric": null,
+        "categories": {},
+        "booleans": {
+         "false": 172,
+         "true": 27
+        },
+        "other": 0
+       },
+       "conscious_level": {
+        "present": 199,
+        "missing": 0,
+        "kind": "categorical",
+        "numeric": null,
+        "categories": {
+         "alert": 125,
+         "drowsy": 66,
+         "unconscious": 8
+        },
+        "booleans": {},
+        "other": 0
+       },
+       "face_weakness": {
+        "present": 192,
+        "missing": 7,
+        "kind": "boolean",
+        "numeric": null,
+        "categories": {},
+        "booleans": {
+         "false": 65,
+         "true": 127
+        },
+        "other": 0
+       },
+       "hours_since_onset": {
+        "present": 199,
+        "missing": 0,
+        "kind": "numeric",
+        "numeric": {
+         "count": 199,
+         "mean": 20.198492462311556,
+         "variance": 147.68388660474096,
+         "min": 1.0,
+         "max": 48.0,
+         "m2": 29241.40954773871
+        },
+        "categories": {},
+        "booleans": {},
+        "other": 0
+       },
+       "leg_weakness": {
+        "present": 194,
+        "missing": 5,
+        "kind": "boolean",
+        "numeric": null,
+        "categories": {},
+        "booleans": {
+         "false": 67,
+         "true": 127
+        },
+        "other": 0
+       },
+       "onset_on_waking": {
+        "present": 199,
+        "missing": 0,
+        "kind": "boolean",
+        "numeric": null,
+        "categories": {},
+        "booleans": {
+         "false": 159,
+         "true": 40
+        },
+        "other": 0
+       },
+       "origin": {
+        "present": 199,
+        "missing": 0,
+        "kind": "categorical",
+        "numeric": null,
+        "categories": {
+         "dataset": 198,
+         "entered": 1
+        },
+        "booleans": {},
+        "other": 0
+       },
+       "poor_outcome_6m": {
+        "present": 198,
+        "missing": 1,
+        "kind": "boolean",
+        "numeric": null,
+        "categories": {},
+        "booleans": {
+         "false": 62,
+         "true": 136
+        },
+        "other": 0
+       },
+       "sex": {
+        "present": 199,
+        "missing": 0,
+        "kind": "categorical",
+        "numeric": null,
+        "categories": {
+         "female": 100,
+         "male": 99
+        },
+        "booleans": {},
+        "other": 0
+       },
+       "speech_difficulty": {
+        "present": 193,
+        "missing": 6,
+        "kind": "boolean",
+        "numeric": null,
+        "categories": {},
+        "booleans": {
+         "false": 65,
+         "true": 128
+        },
+        "other": 0
+       },
+       "stroke_subtype": {
+        "present": 199,
+        "missing": 0,
+        "kind": "categorical",
+        "numeric": null,
+        "categories": {
+         "LACS": 17,
+         "PACS": 90,
+         "POCS": 36,
+         "TACS": 56
+        },
+        "booleans": {},
+        "other": 0
+       },
+       "systolic_bp": {
+        "present": 199,
+        "missing": 0,
+        "kind": "numeric",
+        "numeric": {
+         "count": 199,
+         "mean": 164.38190954773867,
+         "variance": 903.9342165372323,
+         "min": 100.0,
+         "max": 260.0,
+         "m2": 178978.97487437198
+        },
+        "categories": {},
+        "booleans": {},
+        "other": 0
+       },
+       "visual_field_loss": {
+        "present": 123,
+        "missing": 76,
+        "kind": "boolean",
+        "numeric": null,
+        "categories": {},
+        "booleans": {
+         "false": 101,
+         "true": 22
+        },
+        "other": 0
+       }
+      }
+     }
+    },
+    "trimmed": [
+     {
+      "pointer": "/assessment/basis",
+      "note": "4 items, cut to 3"
+     },
+     {
+      "pointer": "/profile/tracked_fields",
+      "note": "16 items, cut to 3"
+     }
+    ]
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "enter-key-reused",
+   "endpoint": "POST /api/v1/hospitals/{site_id}/encounters",
+   "title": "The same key with a different record",
+   "request": {
+    "method": "POST",
+    "path": "/api/v1/hospitals/ch-245/encounters",
+    "headers": {
+     "Idempotency-Key": "docs-ch245-0001"
+    },
+    "json": {
+     "age": 64,
+     "sex": "male",
+     "conscious_level": "alert",
+     "hours_since_onset": 2.0,
+     "systolic_bp": 150.0
+    }
+   },
+   "response": {
+    "status": 409,
+    "headers": {
+     "content-type": "application/json",
+     "x-dagents-app": "healthcare-demo"
+    },
+    "body": {
+     "detail": "This Idempotency-Key was already used for a different record. Send a new key."
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "enter-invalid",
+   "endpoint": "POST /api/v1/hospitals/{site_id}/encounters",
+   "title": "A record with values outside their domains and a free-text field",
+   "request": {
+    "method": "POST",
+    "path": "/api/v1/hospitals/ch-245/encounters",
+    "json": {
+     "age": 130,
+     "sex": "unknown",
+     "conscious_level": "alert",
+     "hours_since_onset": 2.0,
+     "systolic_bp": 150.0,
+     "name": "A. Patient"
+    }
+   },
+   "response": {
+    "status": 422,
+    "headers": {
+     "content-type": "application/json",
+     "x-dagents-app": "healthcare-demo"
+    },
+    "body": {
+     "detail": "Some fields are not valid.",
+     "errors": {
+      "age": "must be between 16 and 110",
+      "sex": "must be one of female, male",
+      "name": "not a field of the record"
+     }
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "enter-bad-key",
+   "endpoint": "POST /api/v1/hospitals/{site_id}/encounters",
+   "title": "An Idempotency-Key with characters that are not allowed",
+   "request": {
+    "method": "POST",
+    "path": "/api/v1/hospitals/ch-245/encounters",
+    "headers": {
+     "Idempotency-Key": "key with spaces"
+    },
+    "json": {
+     "age": 64,
+     "sex": "male",
+     "conscious_level": "alert",
+     "hours_since_onset": 2.0,
+     "systolic_bp": 150.0
+    }
+   },
+   "response": {
+    "status": 422,
+    "headers": {
+     "content-type": "application/json",
+     "x-dagents-app": "healthcare-demo"
+    },
+    "body": {
+     "detail": "Some fields are not valid.",
+     "errors": {
+      "Idempotency-Key": "must be 1-100 letters, digits or the characters . _ : -"
+     }
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "encounters",
+   "endpoint": "GET /api/v1/hospitals/{site_id}/encounters",
+   "title": "List the records entered at Hospital 245",
+   "volatile": [
+    "/encounters/*/recorded_at"
+   ],
+   "request": {
+    "method": "GET",
+    "path": "/api/v1/hospitals/ch-245/encounters",
+    "query": {
+     "limit": 5
+    }
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json",
+     "x-dagents-app": "healthcare-demo"
+    },
+    "body": {
+     "site_id": "ch-245",
+     "origin": "entered",
+     "encounters": [
+      {
+       "encounter_id": "ch-245-e1",
+       "origin": "entered",
+       "age": 81,
+       "age_band": "80-89",
+       "sex": "female",
+       "conscious_level": "drowsy",
+       "face_weakness": true,
+       "arm_weakness": true,
+       "leg_weakness": false,
+       "speech_difficulty": true,
+       "hours_since_onset": 6.5,
+       "systolic_bp": 172.0,
+       "atrial_fibrillation": true,
+       "onset_on_waking": false,
+       "stroke_subtype": "PACS",
+       "recorded_at": "2026-10-14T12:10:55.742779+00:00",
+       "assessment": {
+        "model_version": "stroke-outcome-rule-v1",
+        "score": 0.9241,
+        "priority": "urgent",
+        "points": 10,
+        "max_points": 17,
+        "contributions": {
+         "age_band": 4,
+         "conscious_level": 2,
+         "face_weakness": 1,
+         "arm_weakness": 1,
+         "speech_difficulty": 1,
+         "atrial_fibrillation": 1
+        },
+        "basis": [
+         "age band 80-89: 4 points",
+         "conscious level drowsy: 2 points",
+         "face weakness, arm weakness, speech difficulty: 3 points",
+         "atrial fibrillation: 1 point"
+        ],
+        "warnings": [],
+        "data_quality_issues": [],
+        "suppressed": false,
+        "model_kind": "points_rule"
+       }
+      }
+     ],
+     "counts": {
+      "total": 199,
+      "entered": 1,
+      "labelled": 198
+     },
+     "max_entered": 300
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "outcome",
+   "endpoint": "POST /api/v1/hospitals/{site_id}/encounters/{encounter_id}/outcome",
+   "title": "Record the entered record's six-month outcome",
+   "volatile": [
+    "/record/recorded_at",
+    "/record/outcome_recorded_at"
+   ],
+   "trim": {
+    "items": 3,
+    "chars": 300
+   },
+   "request": {
+    "method": "POST",
+    "path": "/api/v1/hospitals/ch-245/encounters/ch-245-e1/outcome",
+    "json": {
+     "poor_outcome_6m": true
+    }
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json",
+     "x-dagents-app": "healthcare-demo"
+    },
+    "body": {
+     "record": {
+      "encounter_id": "ch-245-e1",
+      "origin": "entered",
+      "age": 81,
+      "age_band": "80-89",
+      "sex": "female",
+      "conscious_level": "drowsy",
+      "face_weakness": true,
+      "arm_weakness": true,
+      "leg_weakness": false,
+      "speech_difficulty": true,
+      "hours_since_onset": 6.5,
+      "systolic_bp": 172.0,
+      "atrial_fibrillation": true,
+      "onset_on_waking": false,
+      "stroke_subtype": "PACS",
+      "poor_outcome_6m": true,
+      "recorded_at": "2026-10-14T12:10:55.742779+00:00",
+      "outcome_recorded_at": "2026-10-14T12:10:55.755045+00:00"
+     },
+     "counts": {
+      "total": 199,
+      "entered": 1,
+      "labelled": 199
+     },
+     "profile": {
+      "record_count": 199,
+      "tracked_fields": [
+       "age",
+       "age_band",
+       "arm_weakness"
+      ],
+      "fields": {
+       "age": {
+        "present": 199,
+        "missing": 0,
+        "kind": "numeric",
+        "numeric": {
+         "count": 199,
+         "mean": 74.69346733668341,
+         "variance": 139.9207146845339,
+         "min": 27,
+         "max": 98,
+         "m2": 27704.301507537708
+        },
+        "categories": {},
+        "booleans": {},
+        "other": 0
+       },
+       "age_band": {
+        "present": 199,
+        "missing": 0,
+        "kind": "categorical",
+        "numeric": null,
+        "categories": {
+         "50-59": 16,
+         "60-69": 29,
+         "70-79": 68,
+         "80-89": 71,
+         "90+": 8,
+         "<50": 7
+        },
+        "booleans": {},
+        "other": 0
+       },
+       "arm_weakness": {
+        "present": 197,
+        "missing": 2,
+        "kind": "boolean",
+        "numeric": null,
+        "categories": {},
+        "booleans": {
+         "false": 39,
+         "true": 158
+        },
+        "other": 0
+       },
+       "atrial_fibrillation": {
+        "present": 199,
+        "missing": 0,
+        "kind": "boolean",
+        "numeric": null,
+        "categories": {},
+        "booleans": {
+         "false": 172,
+         "true": 27
+        },
+        "other": 0
+       },
+       "conscious_level": {
+        "present": 199,
+        "missing": 0,
+        "kind": "categorical",
+        "numeric": null,
+        "categories": {
+         "alert": 125,
+         "drowsy": 66,
+         "unconscious": 8
+        },
+        "booleans": {},
+        "other": 0
+       },
+       "face_weakness": {
+        "present": 192,
+        "missing": 7,
+        "kind": "boolean",
+        "numeric": null,
+        "categories": {},
+        "booleans": {
+         "false": 65,
+         "true": 127
+        },
+        "other": 0
+       },
+       "hours_since_onset": {
+        "present": 199,
+        "missing": 0,
+        "kind": "numeric",
+        "numeric": {
+         "count": 199,
+         "mean": 20.198492462311556,
+         "variance": 147.68388660474096,
+         "min": 1.0,
+         "max": 48.0,
+         "m2": 29241.40954773871
+        },
+        "categories": {},
+        "booleans": {},
+        "other": 0
+       },
+       "leg_weakness": {
+        "present": 194,
+        "missing": 5,
+        "kind": "boolean",
+        "numeric": null,
+        "categories": {},
+        "booleans": {
+         "false": 67,
+         "true": 127
+        },
+        "other": 0
+       },
+       "onset_on_waking": {
+        "present": 199,
+        "missing": 0,
+        "kind": "boolean",
+        "numeric": null,
+        "categories": {},
+        "booleans": {
+         "false": 159,
+         "true": 40
+        },
+        "other": 0
+       },
+       "origin": {
+        "present": 199,
+        "missing": 0,
+        "kind": "categorical",
+        "numeric": null,
+        "categories": {
+         "dataset": 198,
+         "entered": 1
+        },
+        "booleans": {},
+        "other": 0
+       },
+       "poor_outcome_6m": {
+        "present": 199,
+        "missing": 0,
+        "kind": "boolean",
+        "numeric": null,
+        "categories": {},
+        "booleans": {
+         "false": 62,
+         "true": 137
+        },
+        "other": 0
+       },
+       "sex": {
+        "present": 199,
+        "missing": 0,
+        "kind": "categorical",
+        "numeric": null,
+        "categories": {
+         "female": 100,
+         "male": 99
+        },
+        "booleans": {},
+        "other": 0
+       },
+       "speech_difficulty": {
+        "present": 193,
+        "missing": 6,
+        "kind": "boolean",
+        "numeric": null,
+        "categories": {},
+        "booleans": {
+         "false": 65,
+         "true": 128
+        },
+        "other": 0
+       },
+       "stroke_subtype": {
+        "present": 199,
+        "missing": 0,
+        "kind": "categorical",
+        "numeric": null,
+        "categories": {
+         "LACS": 17,
+         "PACS": 90,
+         "POCS": 36,
+         "TACS": 56
+        },
+        "booleans": {},
+        "other": 0
+       },
+       "systolic_bp": {
+        "present": 199,
+        "missing": 0,
+        "kind": "numeric",
+        "numeric": {
+         "count": 199,
+         "mean": 164.38190954773867,
+         "variance": 903.9342165372323,
+         "min": 100.0,
+         "max": 260.0,
+         "m2": 178978.97487437198
+        },
+        "categories": {},
+        "booleans": {},
+        "other": 0
+       },
+       "visual_field_loss": {
+        "present": 123,
+        "missing": 76,
+        "kind": "boolean",
+        "numeric": null,
+        "categories": {},
+        "booleans": {
+         "false": 101,
+         "true": 22
+        },
+        "other": 0
+       }
+      }
+     }
+    },
+    "trimmed": [
+     {
+      "pointer": "/profile/tracked_fields",
+      "note": "16 items, cut to 3"
+     }
+    ]
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "outcome-conflict",
+   "endpoint": "POST /api/v1/hospitals/{site_id}/encounters/{encounter_id}/outcome",
+   "title": "A different outcome for a record that already has one",
+   "request": {
+    "method": "POST",
+    "path": "/api/v1/hospitals/ch-245/encounters/ch-245-e1/outcome",
+    "json": {
+     "poor_outcome_6m": false
+    }
+   },
+   "response": {
+    "status": 409,
+    "headers": {
+     "content-type": "application/json",
+     "x-dagents-app": "healthcare-demo"
+    },
+    "body": {
+     "detail": "This record already has an outcome. It cannot be changed."
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "outcome-dataset-record",
+   "endpoint": "POST /api/v1/hospitals/{site_id}/encounters/{encounter_id}/outcome",
+   "title": "An outcome for a record from the dataset",
+   "request": {
+    "method": "POST",
+    "path": "/api/v1/hospitals/ch-245/encounters/ch-245-01423/outcome",
+    "json": {
+     "poor_outcome_6m": true
+    }
+   },
+   "response": {
+    "status": 422,
+    "headers": {
+     "content-type": "application/json",
+     "x-dagents-app": "healthcare-demo"
+    },
+    "body": {
+     "detail": "The record was not saved. Correct the fields listed.",
+     "errors": {
+      "encounter_id": "only entered records take an outcome"
+     }
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "outcome-unknown",
+   "endpoint": "POST /api/v1/hospitals/{site_id}/encounters/{encounter_id}/outcome",
+   "title": "A record id the hospital does not hold",
+   "request": {
+    "method": "POST",
+    "path": "/api/v1/hospitals/ch-245/encounters/ch-245-e99/outcome",
+    "json": {
+     "poor_outcome_6m": true
+    }
+   },
+   "response": {
+    "status": 404,
+    "headers": {
+     "content-type": "application/json",
+     "x-dagents-app": "healthcare-demo"
+    },
+    "body": {
+     "detail": "This hospital has no record with the id 'ch-245-e99'."
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "probe",
+   "endpoint": "POST /api/v1/governance:probe",
+   "title": "Ask Hospital 134's Guard about a row request from a verified person",
+   "volatile": [
+    "/audit_id"
+   ],
+   "request": {
+    "method": "POST",
+    "path": "/api/v1/governance:probe",
+    "json": {
+     "site_id": "uk-134"
+    }
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json",
+     "x-dagents-app": "healthcare-demo"
+    },
+    "body": {
+     "site_id": "uk-134",
+     "request_id": "probe:uk-134:before_read:row",
+     "boundary": "before_read",
+     "permitted": true,
+     "plan": {
+      "request_id": "probe:uk-134:before_read:row",
+      "boundary": "before_read",
+      "assessment": {
+       "requester_id": "demo-operator",
+       "kyu_score": 0.97,
+       "trust": "high",
+       "rationale": [
+        "requester_kind=human",
+        "verified_attributes=2/2",
+        "compliance_history=0.90",
+        "kyu_score=0.97",
+        "affiliation=stroke-triage-consortium"
+       ]
+      },
+      "granularity": "row",
+      "field_restrictions": [
+       {
+        "field": "systolic_bp",
+        "sensitivity": "high",
+        "strategy": "generalize:1",
+        "reason": "sensitivity=high trust=high granularity=row -> generalize:1"
+       },
+       {
+        "field": "age_band",
+        "sensitivity": "medium",
+        "strategy": "allow_full",
+        "reason": "sensitivity=medium trust=high granularity=row -> allow_full"
+       },
+       {
+        "field": "onset_on_waking",
+        "sensitivity": "low",
+        "strategy": "allow_full",
+        "reason": "sensitivity=low trust=high granularity=row -> allow_full"
+       }
+      ],
+      "decision": "narrow",
+      "filtering_score": 0.11666666666666665,
+      "obligations": [
+       "record the decision, reason, and request id probe:uk-134:before_read:row in the audit log",
+       "enforce at boundary before_read",
+       "apply controls required by each hospital's national data protection law"
+      ],
+      "violations": []
+     },
+     "released_count": 5,
+     "released_fields": [
+      "systolic_bp",
+      "age_band",
+      "onset_on_waking"
+     ],
+     "withheld_fields": [],
+     "transformed_fields": [
+      "systolic_bp"
+     ],
+     "audit_id": "e78bab7f0bab4204b3704f9c643c103c",
+     "message": "permitted with restrictions"
+    },
+    "trimmed": [
+     {
+      "pointer": "/plan/assessment/rationale",
+      "note": "6 items, cut to 5"
+     }
+    ]
+   },
+   "planner_calls": [
+    "governance restrict"
+   ]
+  },
+  {
+   "id": "probe-small-table",
+   "endpoint": "POST /api/v1/governance:probe",
+   "title": "A table request about 12 patients from an unverified requester",
+   "description": "A table request describes a group, so the planner checks it against the minimum cohort of 20 and denies it.",
+   "volatile": [
+    "/audit_id"
+   ],
+   "request": {
+    "method": "POST",
+    "path": "/api/v1/governance:probe",
+    "json": {
+     "site_id": "uk-134",
+     "verified": false,
+     "boundary": "before_send",
+     "granularity": "table",
+     "requested_fields": [
+      "systolic_bp",
+      "age_band"
+     ],
+     "cohort_size": 12
+    }
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json",
+     "x-dagents-app": "healthcare-demo"
+    },
+    "body": {
+     "site_id": "uk-134",
+     "request_id": "probe:uk-134:before_send:table",
+     "boundary": "before_send",
+     "permitted": false,
+     "plan": {
+      "request_id": "probe:uk-134:before_send:table",
+      "boundary": "before_send",
+      "assessment": {
+       "requester_id": "demo-operator",
+       "kyu_score": 0.445,
+       "trust": "moderate",
+       "rationale": [
+        "requester_kind=human",
+        "verified_attributes=0/2",
+        "compliance_history=0.90",
+        "kyu_score=0.45",
+        "affiliation=stroke-triage-consortium"
+       ]
+      },
+      "granularity": "table",
+      "field_restrictions": [
+       {
+        "field": "systolic_bp",
+        "sensitivity": "high",
+        "strategy": "refuse",
+        "reason": "request-level gate failed; field withheld"
+       },
+       {
+        "field": "age_band",
+        "sensitivity": "medium",
+        "strategy": "refuse",
+        "reason": "request-level gate failed; field withheld"
+       }
+      ],
+      "decision": "deny",
+      "filtering_score": 1.0,
+      "obligations": [
+       "record the decision, reason, and request id probe:uk-134:before_send:table in the audit log",
+       "enforce at boundary before_send",
+       "apply controls required by each hospital's national data protection law",
+       "suppress results describing fewer than 20 subjects"
+      ],
+      "violations": [
+       "cohort_size 12 is below minimum_cohort 20"
+      ]
+     },
+     "released_count": 0,
+     "released_fields": [],
+     "withheld_fields": [
+      "systolic_bp",
+      "age_band"
+     ],
+     "transformed_fields": [],
+     "audit_id": "d67b4a446949403aaa9acd3a049b544d",
+     "message": "cohort_size 12 is below minimum_cohort 20"
+    },
+    "trimmed": [
+     {
+      "pointer": "/plan/assessment/rationale",
+      "note": "6 items, cut to 5"
+     }
+    ]
+   },
+   "planner_calls": [
+    "governance restrict"
+   ]
+  },
+  {
+   "id": "probe-label-refused",
+   "endpoint": "POST /api/v1/governance:probe",
+   "title": "Asking for the outcome label",
+   "request": {
+    "method": "POST",
+    "path": "/api/v1/governance:probe",
+    "json": {
+     "site_id": "uk-134",
+     "requested_fields": [
+      "poor_outcome_6m"
+     ]
+    }
+   },
+   "response": {
+    "status": 422,
+    "headers": {
+     "content-type": "application/json",
+     "x-dagents-app": "healthcare-demo"
+    },
+    "body": {
+     "detail": "Some fields are not valid.",
+     "errors": {
+      "requested_fields": "poor_outcome_6m cannot be requested. Choose from: age_band, sex, conscious_level, face_weakness, arm_weakness, leg_weakness, speech_difficulty, hours_since_onset, systolic_bp, visual_field_loss, atrial_fibrillation, onset_on_waking, stroke_subtype"
+     }
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "audit",
+   "endpoint": "GET /api/v1/hospitals/{site_id}/audit",
+   "title": "Read the two newest decisions in Hospital 134's audit chain",
+   "description": "They are the two probes above. Each record holds the digest of the one before it.",
+   "volatile": [
+    "/records/*/audit_id",
+    "/records/*/recorded_at",
+    "/records/*/digest",
+    "/records/*/previous_digest"
+   ],
+   "request": {
+    "method": "GET",
+    "path": "/api/v1/hospitals/uk-134/audit",
+    "query": {
+     "limit": 2
+    }
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json",
+     "x-dagents-app": "healthcare-demo"
+    },
+    "body": {
+     "site_id": "uk-134",
+     "chain_intact": true,
+     "records": [
+      {
+       "audit_id": "d67b4a446949403aaa9acd3a049b544d",
+       "recorded_at": 1791979855,
+       "boundary": "before_send",
+       "request_id": "probe:uk-134:before_send:table",
+       "requester_id": "demo-operator",
+       "decision": "deny",
+       "permitted": false,
+       "granularity": "table",
+       "filtering_score": 1.0,
+       "withheld_fields": [
+        "systolic_bp",
+        "age_band"
+       ],
+       "obligations": [
+        "record the decision, reason, and request id probe:uk-134:before_send:table in the audit log",
+        "enforce at boundary before_send",
+        "apply controls required by each hospital's national data protection law",
+        "suppress results describing fewer than 20 subjects"
+       ],
+       "violations": [
+        "cohort_size 12 is below minimum_cohort 20"
+       ],
+       "correlation_id": null,
+       "contribution_norm_before": null,
+       "contribution_norm_after": null,
+       "contribution_strategies": [],
+       "previous_digest": "89a5e27a175e86db572ea62366a57fd9a0165f9af8e03c89099d5dcc1966ab90",
+       "digest": "77025bc329755ef97ff7ae49315cbd21aad7e1643da40b987d229645d9f166dc"
+      },
+      {
+       "audit_id": "e78bab7f0bab4204b3704f9c643c103c",
+       "recorded_at": 1791979855,
+       "boundary": "before_read",
+       "request_id": "probe:uk-134:before_read:row",
+       "requester_id": "demo-operator",
+       "decision": "narrow",
+       "permitted": true,
+       "granularity": "row",
+       "filtering_score": 0.11666666666666665,
+       "withheld_fields": [],
+       "obligations": [
+        "record the decision, reason, and request id probe:uk-134:before_read:row in the audit log",
+        "enforce at boundary before_read",
+        "apply controls required by each hospital's national data protection law"
+       ],
+       "violations": [],
+       "correlation_id": null,
+       "contribution_norm_before": null,
+       "contribution_norm_after": null,
+       "contribution_strategies": [],
+       "previous_digest": "",
+       "digest": "89a5e27a175e86db572ea62366a57fd9a0165f9af8e03c89099d5dcc1966ab90"
+      }
+     ]
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "charts",
+   "endpoint": "GET /api/v1/charts",
+   "title": "List the consortium charts before any pilot",
+   "description": "The three charts that show pilot results are listed with available false and a reason.",
+   "trim": {
+    "items": 5,
+    "chars": 300
+   },
+   "request": {
+    "method": "GET",
+    "path": "/api/v1/charts"
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json",
+     "x-dagents-app": "healthcare-demo"
+    },
+    "body": {
+     "charts": [
+      {
+       "chart_id": "hospital-records",
+       "title": "Records each hospital holds",
+       "description": "How many records each hospital reports holding: records from the International Stroke Trial, and records entered in this demo. Each hospital reports its own counts; the coordinator reads no records.",
+       "alt": "Grouped bar chart of record counts per hospital, from the dataset and entered in the demo.",
+       "available": true,
+       "reason": null,
+       "table": {
+        "columns": [
+         "Hospital",
+         "Records from the dataset",
+         "Entered in the demo",
+         "Total",
+         "With an outcome"
+        ],
+        "rows": [
+         [
+          "Hospital 134",
+          524,
+          0,
+          524,
+          524
+         ],
+         [
+          "Hospital 2",
+          292,
+          0,
+          292,
+          292
+         ],
+         [
+          "Hospital 245",
+          198,
+          1,
+          199,
+          199
+         ]
+        ]
+       },
+       "notice": "Contains information from the International Stroke Trial database (version 2) (https://doi.org/10.7488/ds/104), made available under the ODC Attribution License (https://opendatacommons.org/licenses/by/1-0/).",
+       "svg_path": "/api/v1/charts/hospital-records.svg",
+       "version": "7d2f0e8aaca94ff1"
+      },
+      {
+       "chart_id": "hospital-outcome-rates",
+       "title": "Poor outcome at six months, by hospital",
+       "description": "The share of each hospital's labelled records where the patient was dead or dependent at six months, as the hospital reports it. A hospital that reports no rate has a gap marked suppressed. The table gives its reason: fewer than 20 labelled records, the Guard withheld the rate, or the planner could …",
+       "alt": "Bar chart of the share of patients with a poor outcome at each hospital.",
+       "available": true,
+       "reason": null,
+       "table": {
+        "columns": [
+         "Hospital",
+         "Records with an outcome",
+         "Share with a poor outcome"
+        ],
+        "rows": [
+         [
+          "Hospital 134",
+          524,
+          0.7977
+         ],
+         [
+          "Hospital 2",
+          292,
+          0.5993
+         ],
+         [
+          "Hospital 245",
+          199,
+          0.6884
+         ]
+        ]
+       },
+       "notice": "Contains information from the International Stroke Trial database (version 2) (https://doi.org/10.7488/ds/104), made available under the ODC Attribution License (https://opendatacommons.org/licenses/by/1-0/).",
+       "svg_path": "/api/v1/charts/hospital-outcome-rates.svg",
+       "version": "39e6e46ce9a95a60"
+      },
+      {
+       "chart_id": "site-auc",
+       "title": "AUC at each hospital: model in use and candidate",
+       "description": "Each hospital measures the model in use and the federated candidate on its own labelled records, and reports the AUC (0.5 is chance, 1.0 is perfect ranking).",
+       "alt": "Horizontal grouped bar chart of each hospital's AUC for the model in use and the federated candidate.",
+       "available": false,
+       "reason": "Run the pilot to see this chart. It shows results from the last pilot.",
+       "table": {
+        "columns": [],
+        "rows": []
+       },
+       "notice": "Contains information from the International Stroke Trial database (version 2) (https://doi.org/10.7488/ds/104), made available under the ODC Attribution License (https://opendatacommons.org/licenses/by/1-0/).",
+       "svg_path": "/api/v1/charts/site-auc.svg",
+       "version": "d9c63e9f57e8da5b"
+      },
+      {
+       "chart_id": "training-curve",
+       "title": "Training loss by round",
+       "description": "The federated model's log loss before training and after each training round, averaged over the hospitals with the planner's weights. Lower is better.",
+       "alt": "Line chart of the federated model's log loss after each training round.",
+       "available": false,
+       "reason": "Run the pilot to see this chart. It shows results from the last pilot.",
+       "table": {
+        "columns": [],
+        "rows": []
+       },
+       "notice": "Contains information from the International Stroke Trial database (version 2) (https://doi.org/10.7488/ds/104), made available under the ODC Attribution License (https://opendatacommons.org/licenses/by/1-0/).",
+       "svg_path": "/api/v1/charts/training-curve.svg",
+       "version": "abba871fd0af2939"
+      },
+      {
+       "chart_id": "release-gates",
+       "title": "Release gates: observed value and threshold",
+       "description": "Each gate the candidate must pass before anyone may release it, with the value measured in the last pilot and the threshold it was checked against. The outcomes come from the release decision; the chart only shows them. A failed advisory gate does not block a release.",
+       "alt": "Chart of each release gate's observed value against its threshold, with the outcome in words.",
+       "available": false,
+       "reason": "Run the pilot to see this chart. It shows results from the last pilot.",
+       "table": {
+        "columns": [],
+        "rows": []
+       },
+       "notice": "Contains information from the International Stroke Trial database (version 2) (https://doi.org/10.7488/ds/104), made available under the ODC Attribution License (https://opendatacommons.org/licenses/by/1-0/).",
+       "svg_path": "/api/v1/charts/release-gates.svg",
+       "version": "88e60ab3390aa027"
+      }
+     ]
+    },
+    "trimmed": [
+     {
+      "pointer": "/charts/1/description",
+      "note": "313 characters, cut to 300"
+     }
+    ]
+   },
+   "planner_calls": [
+    "governance restrict"
+   ]
+  },
+  {
+   "id": "chart-svg",
+   "endpoint": "GET /api/v1/charts/{chart_id}.svg",
+   "title": "Draw the chart of the records each hospital holds",
+   "trim": {
+    "chars": 400
+   },
+   "request": {
+    "method": "GET",
+    "path": "/api/v1/charts/hospital-records.svg"
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "image/svg+xml",
+     "etag": "\"7d2f0e8aaca94ff1-light\"",
+     "x-dagents-app": "healthcare-demo",
+     "cache-control": "no-cache"
+    },
+    "body": "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<svg role=\"img\" aria-labelledby=\"dchart-c7e550c3f7-title dchart-c7e550c3f7-desc\" xmlns:xlink=\"http://www.w3.org/1999/xlink\" width=\"480pt\" height=\"316.5pt\" viewBox=\"0 0 480 316.5\" xmlns=\"http://www.w3.org/2000/svg\" version=\"1.1\">\n <title id=\"dchart-c7e550c3f7-title\">Records each hospital holds</title>\n <desc id=\"dchart-c7e550c3f7-desc\">Grouped bar chart. From …",
+    "trimmed": [
+     {
+      "pointer": "/",
+      "note": "10156 characters, cut to 400"
+     }
+    ]
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "chart-svg-not-modified",
+   "endpoint": "GET /api/v1/charts/{chart_id}.svg",
+   "title": "Ask again with the ETag from the last answer",
+   "description": "The ETag is a digest of everything the chart shows, so it stays the same until a record is entered or a pilot runs.",
+   "request": {
+    "method": "GET",
+    "path": "/api/v1/charts/hospital-records.svg",
+    "headers": {
+     "If-None-Match": "\"7d2f0e8aaca94ff1-light\""
+    }
+   },
+   "response": {
+    "status": 304,
+    "headers": {
+     "etag": "\"7d2f0e8aaca94ff1-light\"",
+     "x-dagents-app": "healthcare-demo",
+     "cache-control": "no-cache"
+    },
+    "body": "",
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "chart-needs-pilot",
+   "endpoint": "GET /api/v1/charts/{chart_id}.svg",
+   "title": "A chart that needs a pilot that has not run",
+   "request": {
+    "method": "GET",
+    "path": "/api/v1/charts/training-curve.svg"
+   },
+   "response": {
+    "status": 404,
+    "headers": {
+     "content-type": "application/json",
+     "x-dagents-app": "healthcare-demo"
+    },
+    "body": {
+     "detail": "Run the pilot to see this chart. It shows results from the last pilot."
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "hospital-charts",
+   "endpoint": "GET /api/v1/hospitals/{site_id}/charts",
+   "title": "List Hospital 245's charts",
+   "trim": {
+    "items": 4,
+    "chars": 300
+   },
+   "request": {
+    "method": "GET",
+    "path": "/api/v1/hospitals/ch-245/charts"
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json",
+     "x-dagents-app": "healthcare-demo"
+    },
+    "body": {
+     "site_id": "ch-245",
+     "charts": [
+      {
+       "chart_id": "outcome-by-age-band",
+       "title": "Poor outcome at six months, by age band",
+       "description": "The share of Hospital 245's labelled records in each age band where the patient was dead or dependent six months after the stroke. Records without a recorded outcome are left out.",
+       "alt": "Bar chart of the share of patients with a poor outcome in each age band at Hospital 245.",
+       "available": true,
+       "reason": null,
+       "table": {
+        "columns": [
+         "Age band",
+         "Labelled records",
+         "Poor outcome",
+         "Share with a poor outcome"
+        ],
+        "rows": [
+         [
+          "<50",
+          7,
+          2,
+          0.2857
+         ],
+         [
+          "50-59",
+          16,
+          9,
+          0.5625
+         ],
+         [
+          "60-69",
+          29,
+          15,
+          0.5172
+         ],
+         [
+          "70-79",
+          68,
+          46,
+          0.6765
+         ]
+        ]
+       },
+       "notice": "Contains information from the International Stroke Trial database (version 2) (https://doi.org/10.7488/ds/104), made available under the ODC Attribution License (https://opendatacommons.org/licenses/by/1-0/).",
+       "svg_path": "/api/v1/hospitals/ch-245/charts/outcome-by-age-band.svg",
+       "version": "5d5eb3fe21e5bcab"
+      },
+      {
+       "chart_id": "presentation",
+       "title": "Findings at presentation",
+       "description": "For each examination finding, the share of Hospital 245's records that have it, among the records where it was assessed.",
+       "alt": "Horizontal bar chart of how often each finding was present at Hospital 245.",
+       "available": true,
+       "reason": null,
+       "table": {
+        "columns": [
+         "Finding",
+         "Records with the finding",
+         "Records where it was assessed",
+         "Share"
+        ],
+        "rows": [
+         [
+          "Face weakness",
+          127,
+          192,
+          0.6615
+         ],
+         [
+          "Arm or hand weakness",
+          158,
+          197,
+          0.802
+         ],
+         [
+          "Leg or foot weakness",
+          127,
+          194,
+          0.6546
+         ],
+         [
+          "Speech difficulty (dysphasia)",
+          128,
+          193,
+          0.6632
+         ]
+        ]
+       },
+       "notice": "Contains information from the International Stroke Trial database (version 2) (https://doi.org/10.7488/ds/104), made available under the ODC Attribution License (https://opendatacommons.org/licenses/by/1-0/).",
+       "svg_path": "/api/v1/hospitals/ch-245/charts/presentation.svg",
+       "version": "f1e3357d1b326254"
+      },
+      {
+       "chart_id": "systolic-bp",
+       "title": "Systolic blood pressure at presentation",
+       "description": "How many of Hospital 245's records fall in each 20 mmHg band of systolic blood pressure.",
+       "alt": "Histogram of systolic blood pressure at Hospital 245, in 20 mmHg bands from 60 to 300.",
+       "available": true,
+       "reason": null,
+       "table": {
+        "columns": [
+         "Systolic blood pressure (mmHg)",
+         "Records"
+        ],
+        "rows": [
+         [
+          "60–80",
+          0
+         ],
+         [
+          "80–100",
+          0
+         ],
+         [
+          "100–120",
+          8
+         ],
+         [
+          "120–140",
+          27
+         ]
+        ]
+       },
+       "notice": "Contains information from the International Stroke Trial database (version 2) (https://doi.org/10.7488/ds/104), made available under the ODC Attribution License (https://opendatacommons.org/licenses/by/1-0/).",
+       "svg_path": "/api/v1/hospitals/ch-245/charts/systolic-bp.svg",
+       "version": "36f0e0264fe65f69"
+      },
+      {
+       "chart_id": "risk-scores",
+       "title": "Estimated risk, by recorded outcome",
+       "description": "The risk of a poor outcome that the model in use (stroke-outcome-rule-v1) estimates for each of Hospital 245's records, grouped by the outcome recorded six months later. A patient is flagged when the estimate is 0.5 or more.",
+       "alt": "Three histograms of estimated risk at Hospital 245, one above the other: records with a poor outcome, records without one, and records whose outcome is not recorded.",
+       "available": true,
+       "reason": null,
+       "table": {
+        "columns": [
+         "Estimated risk",
+         "Poor outcome",
+         "No poor outcome",
+         "Outcome not recorded"
+        ],
+        "rows": [
+         [
+          "0.0–0.1",
+          0,
+          0,
+          0
+         ],
+         [
+          "0.1–0.2",
+          1,
+          5,
+          0
+         ],
+         [
+          "0.2–0.3",
+          2,
+          6,
+          0
+         ],
+         [
+          "0.3–0.4",
+          8,
+          13,
+          0
+         ]
+        ]
+       },
+       "notice": "Contains information from the International Stroke Trial database (version 2) (https://doi.org/10.7488/ds/104), made available under the ODC Attribution License (https://opendatacommons.org/licenses/by/1-0/).",
+       "svg_path": "/api/v1/hospitals/ch-245/charts/risk-scores.svg",
+       "version": "dac4e408344cec5a"
+      }
+     ]
+    },
+    "trimmed": [
+     {
+      "pointer": "/charts/0/table/columns",
+      "note": "5 items, cut to 4"
+     },
+     {
+      "pointer": "/charts/0/table/rows",
+      "note": "6 items, cut to 4"
+     },
+     {
+      "pointer": "/charts/0/table/rows/0",
+      "note": "5 items, cut to 4"
+     },
+     {
+      "pointer": "/charts/0/table/rows/1",
+      "note": "5 items, cut to 4"
+     },
+     {
+      "pointer": "/charts/0/table/rows/2",
+      "note": "5 items, cut to 4"
+     },
+     {
+      "pointer": "/charts/0/table/rows/3",
+      "note": "5 items, cut to 4"
+     },
+     {
+      "pointer": "/charts/1/table/rows",
+      "note": "6 items, cut to 4"
+     },
+     {
+      "pointer": "/charts/2/table/rows",
+      "note": "12 items, cut to 4"
+     },
+     {
+      "pointer": "/charts/3/table/rows",
+      "note": "10 items, cut to 4"
+     }
+    ]
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "hospital-chart-svg",
+   "endpoint": "GET /api/v1/hospitals/{site_id}/charts/{chart_id}.svg",
+   "title": "Draw Hospital 245's blood pressure chart in the dark theme",
+   "trim": {
+    "chars": 400
+   },
+   "request": {
+    "method": "GET",
+    "path": "/api/v1/hospitals/ch-245/charts/systolic-bp.svg",
+    "query": {
+     "theme": "dark"
+    }
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "image/svg+xml",
+     "etag": "\"36f0e0264fe65f69-dark\"",
+     "x-dagents-app": "healthcare-demo",
+     "cache-control": "no-cache"
+    },
+    "body": "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<svg role=\"img\" aria-labelledby=\"dchart-756e34aa84-title dchart-756e34aa84-desc\" xmlns:xlink=\"http://www.w3.org/1999/xlink\" width=\"480pt\" height=\"316.5pt\" viewBox=\"0 0 480 316.5\" xmlns=\"http://www.w3.org/2000/svg\" version=\"1.1\">\n <title id=\"dchart-756e34aa84-title\">Systolic blood pressure at presentation</title>\n <desc id=\"dchart-756e34aa84-desc\">Histogram. 6…",
+    "trimmed": [
+     {
+      "pointer": "/",
+      "note": "13116 characters, cut to 400"
+     }
+    ]
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "hospital-chart-unknown",
+   "endpoint": "GET /api/v1/hospitals/{site_id}/charts/{chart_id}.svg",
+   "title": "A chart id that does not exist",
+   "request": {
+    "method": "GET",
+    "path": "/api/v1/hospitals/ch-245/charts/heart-rate.svg"
+   },
+   "response": {
+    "status": 404,
+    "headers": {
+     "content-type": "application/json",
+     "x-dagents-app": "healthcare-demo"
+    },
+    "body": {
+     "detail": "There is no chart called 'heart-rate'."
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "pilot",
+   "endpoint": "POST /api/v1/pilot:run",
+   "title": "Run the federated pilot",
+   "description": "Trimmed: the full report holds every round's plan, results and readiness, and all five training rounds. Ids made from the clock and the random suffix differ on every run.",
+   "volatile": [
+    "/pilot_id",
+    "/model_in_use/created_at",
+    "/rounds/*/round_id",
+    "/rounds/*/digest",
+    "/rounds/*/model_version",
+    "/rounds/*/plan/round_id",
+    "/rounds/*/plan/round_digest",
+    "/rounds/*/readiness/round_id",
+    "/rounds/*/results/*/round_id",
+    "/rounds/*/results/*/job_digest",
+    "/rounds/*/results/*/local_evidence_pointer",
+    "/rounds/training/*/round_id",
+    "/rounds/training/*/digest",
+    "/rounds/training/*/model_version",
+    "/rounds/training/*/plan/round_id",
+    "/rounds/training/*/plan/round_digest",
+    "/rounds/training/*/readiness/round_id",
+    "/rounds/training/*/results/*/round_id",
+    "/rounds/training/*/results/*/job_digest",
+    "/rounds/training/*/results/*/local_evidence_pointer",
+    "/rounds/training/*/candidate_version",
+    "/training_curve/*/round_id",
+    "/training_curve/*/candidate_version",
+    "/candidate/round_id",
+    "/candidate/candidate_version",
+    "/candidate/parent_version",
+    "/candidate/artifact_uri",
+    "/candidate/produced_at",
+    "/release/guard/request_id",
+    "/release/guard/audit_id",
+    "/release/guard/plan/request_id",
+    "/release/guard/plan/obligations/0",
+    "/release/gates/round_id",
+    "/release/gates/candidate_version"
+   ],
+   "trim": {
+    "items": 3,
+    "chars": 200
+   },
+   "request": {
+    "method": "POST",
+    "path": "/api/v1/pilot:run",
+    "json": {
+     "round_prefix": "api"
+    }
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json",
+     "x-dagents-app": "healthcare-demo"
+    },
+    "body": {
+     "study_id": "stroke-triage-pilot",
+     "pilot_id": "api-20261014T121056Z-8588cd",
+     "condition": {
+      "condition_id": "suspected_stroke",
+      "display_name": "Suspected stroke",
+      "intended_use": "Flag patients with suspected acute stroke who are at high risk of death or dependency at six months, so a specialist reviews them first. Decision support only: it does not diagnose stroke, does not ch…",
+      "feature_contract_id": "stroke-triage-features",
+      "classification_id": "stroke-triage-phi",
+      "cohort_description": "Adults with a suspected acute stroke, assessed within 48 hours of symptom onset. The demo's records come from three hospitals in the International Stroke Trial.",
+      "release_gates": [
+       {
+        "gate_id": "discrimination",
+        "metric": "auc",
+        "comparison": {
+         "kind": "at_least",
+         "value": 0.7,
+         "margin": null
+        },
+        "blocking": true
+       },
+       {
+        "gate_id": "improves_on_current_release",
+        "metric": "auc",
+        "comparison": {
+         "kind": "improves_on_baseline",
+         "value": null,
+         "margin": 0.02
+        },
+        "blocking": true
+       },
+       {
+        "gate_id": "subgroup_fairness",
+        "metric": "subgroup_auc_gap",
+        "comparison": {
+         "kind": "at_most",
+         "value": 0.1,
+         "margin": null
+        },
+        "blocking": true
+       }
+      ],
+      "limitations": [
+       "The records are real, de-identified patient records from the International Stroke Trial, recruited in 1991-1996. Stroke care has changed since then, so outcomes today differ.",
+       "The trial enrolled patients with a clinical diagnosis of acute ischaemic stroke within 48 hours of onset and no clear reason for or against aspirin or heparin. That is a narrower group than everyone s…",
+       "The seed rule's points were chosen by hand as an illustration. They were not fitted or validated."
+      ],
+      "owner": "demo-stroke-pathway-lead"
+     },
+     "engine": "in-process-parameter-averaging",
+     "model_in_use": {
+      "version": "stroke-outcome-rule-v1",
+      "kind": "points_rule",
+      "digest": "sha256:04177e54a0c7c829a484a962f37eb0945a39f1ff7e5dc3319b266842fc3bd416",
+      "status": "released",
+      "parent_version": null,
+      "created_at": "2026-10-14T12:10:55.652963+00:00",
+      "release_decision": null
+     },
+     "rounds": {
+      "analytics": {
+       "round_id": "api-20261014T121056Z-8588cd-analytics",
+       "phase": "analytics",
+       "model_version": "stroke-outcome-rule-v1",
+       "model_artifact_digest": "sha256:04177e54a0c7c829a484a962f37eb0945a39f1ff7e5dc3319b266842fc3bd416",
+       "training_code_digest": "sha256:04177e54a0c7c829a484a962f37eb0945a39f1ff7e5dc3319b266842fc3bd416",
+       "digest": "fnv1a:5818533828dce021",
+       "plan": {
+        "round_id": "api-20261014T121056Z-8588cd-analytics",
+        "study_id": "stroke-triage-pilot",
+        "phase": "analytics",
+        "selected_sites": [
+         "ch-245",
+         "it-002",
+         "uk-134"
+        ],
+        "excluded_sites": [],
+        "quorum_met": true,
+        "required_participants": 3,
+        "aggregation": {
+         "kind": "secure_aggregation",
+         "mu": null,
+         "optimizer": null,
+         "threshold": 3
+        },
+        "stop_reason": null,
+        "round_digest": "fnv1a:5818533828dce021"
+       },
+       "results": [
+        {
+         "round_id": "api-20261014T121056Z-8588cd-analytics",
+         "site_id": "ch-245",
+         "job_digest": "fnv1a:5818533828dce021",
+         "participation": "completed",
+         "code_verified": true,
+         "privacy_checks_passed": true,
+         "contributed_examples": 199,
+         "update_norm": 0.0,
+         "update_digest": null,
+         "metrics": {
+          "record_count": 199.0,
+          "completeness": 0.9246231155778895,
+          "label_coverage": 1.0,
+          "outcome_rate": 0.6884422110552764
+         },
+         "local_evidence_pointer": "site-local://ch-245/rounds/api-20261014T121056Z-8588cd-analytics/evidence"
+        },
+        {
+         "round_id": "api-20261014T121056Z-8588cd-analytics",
+         "site_id": "it-002",
+         "job_digest": "fnv1a:5818533828dce021",
+         "participation": "completed",
+         "code_verified": true,
+         "privacy_checks_passed": true,
+         "contributed_examples": 292,
+         "update_norm": 0.0,
+         "update_digest": null,
+         "metrics": {
+          "record_count": 292.0,
+          "completeness": 0.9691780821917808,
+          "label_coverage": 1.0,
+          "outcome_rate": 0.5993150684931506
+         },
+         "local_evidence_pointer": "site-local://it-002/rounds/api-20261014T121056Z-8588cd-analytics/evidence"
+        },
+        {
+         "round_id": "api-20261014T121056Z-8588cd-analytics",
+         "site_id": "uk-134",
+         "job_digest": "fnv1a:5818533828dce021",
+         "participation": "completed",
+         "code_verified": true,
+         "privacy_checks_passed": true,
+         "contributed_examples": 524,
+         "update_norm": 0.0,
+         "update_digest": null,
+         "metrics": {
+          "record_count": 524.0,
+          "completeness": 0.9465648854961832,
+          "label_coverage": 1.0,
+          "outcome_rate": 0.7977099236641222
+         },
+         "local_evidence_pointer": "site-local://uk-134/rounds/api-20261014T121056Z-8588cd-analytics/evidence"
+        }
+       ],
+       "readiness": {
+        "round_id": "api-20261014T121056Z-8588cd-analytics",
+        "accepted_sites": [
+         "ch-245",
+         "it-002",
+         "uk-134"
+        ],
+        "rejected_contributions": [],
+        "accepted_examples": 1015,
+        "aggregation_permitted": true,
+        "stop_reason": null,
+        "site_weights": {
+         "ch-245": 0.1960591133004926,
+         "it-002": 0.2876847290640394,
+         "uk-134": 0.516256157635468
+        }
+       },
+       "status": "collecting"
+      },
+      "evaluation": {
+       "round_id": "api-20261014T121056Z-8588cd-evaluation",
+       "phase": "evaluation",
+       "model_version": "stroke-outcome-rule-v1",
+       "model_artifact_digest": "sha256:04177e54a0c7c829a484a962f37eb0945a39f1ff7e5dc3319b266842fc3bd416",
+       "training_code_digest": "sha256:04177e54a0c7c829a484a962f37eb0945a39f1ff7e5dc3319b266842fc3bd416",
+       "digest": "fnv1a:52a58615a4947587",
+       "plan": {
+        "round_id": "api-20261014T121056Z-8588cd-evaluation",
+        "study_id": "stroke-triage-pilot",
+        "phase": "evaluation",
+        "selected_sites": [
+         "ch-245",
+         "it-002",
+         "uk-134"
+        ],
+        "excluded_sites": [],
+        "quorum_met": true,
+        "required_participants": 3,
+        "aggregation": {
+         "kind": "secure_aggregation",
+         "mu": null,
+         "optimizer": null,
+         "threshold": 3
+        },
+        "stop_reason": null,
+        "round_digest": "fnv1a:52a58615a4947587"
+       },
+       "results": [
+        {
+         "round_id": "api-20261014T121056Z-8588cd-evaluation",
+         "site_id": "ch-245",
+         "job_digest": "fnv1a:52a58615a4947587",
+         "participation": "completed",
+         "code_verified": true,
+         "privacy_checks_passed": true,
+         "contributed_examples": 199,
+         "update_norm": 0.0,
+         "update_digest": null,
+         "metrics": {
+          "auc": 0.8018012714857546,
+          "alerts_per_1000": 824.1206030150754,
+          "sensitivity": 0.9197080291970803,
+          "specificity": 0.3870967741935484,
+          "subgroup_auc_gap": 0.03298577136333991,
+          "log_loss": 0.48960233041952855
+         },
+         "local_evidence_pointer": "site-local://ch-245/rounds/api-20261014T121056Z-8588cd-evaluation/evidence"
+        },
+        {
+         "round_id": "api-20261014T121056Z-8588cd-evaluation",
+         "site_id": "it-002",
+         "job_digest": "fnv1a:52a58615a4947587",
+         "participation": "completed",
+         "code_verified": true,
+         "privacy_checks_passed": true,
+         "contributed_examples": 292,
+         "update_norm": 0.0,
+         "update_digest": null,
+         "metrics": {
+          "auc": 0.8092307692307692,
+          "alerts_per_1000": 770.5479452054794,
+          "sensitivity": 0.92,
+          "specificity": 0.452991452991453,
+          "subgroup_auc_gap": 0.021132997582031576,
+          "log_loss": 0.5189562055766382
+         },
+         "local_evidence_pointer": "site-local://it-002/rounds/api-20261014T121056Z-8588cd-evaluation/evidence"
+        },
+        {
+         "round_id": "api-20261014T121056Z-8588cd-evaluation",
+         "site_id": "uk-134",
+         "job_digest": "fnv1a:52a58615a4947587",
+         "participation": "completed",
+         "code_verified": true,
+         "privacy_checks_passed": true,
+         "contributed_examples": 524,
+         "update_norm": 0.0,
+         "update_digest": null,
+         "metrics": {
+          "auc": 0.7499435767807168,
+          "alerts_per_1000": 742.3664122137404,
+          "sensitivity": 0.80622009569378,
+          "specificity": 0.5094339622641509,
+          "subgroup_auc_gap": 0.01468341846631327,
+          "log_loss": 0.5383729433015968
+         },
+         "local_evidence_pointer": "site-local://uk-134/rounds/api-20261014T121056Z-8588cd-evaluation/evidence"
+        }
+       ],
+       "readiness": {
+        "round_id": "api-20261014T121056Z-8588cd-evaluation",
+        "accepted_sites": [
+         "ch-245",
+         "it-002",
+         "uk-134"
+        ],
+        "rejected_contributions": [],
+        "accepted_examples": 1015,
+        "aggregation_permitted": true,
+        "stop_reason": null,
+        "site_weights": {
+         "ch-245": 0.1960591133004926,
+         "it-002": 0.2876847290640394,
+         "uk-134": 0.516256157635468
+        }
+       },
+       "status": "collecting"
+      },
+      "training": [
+       {
+        "round_id": "api-20261014T121056Z-8588cd-training-1",
+        "phase": "training",
+        "model_version": "stroke-outcome-logreg-init",
+        "model_artifact_digest": "sha256:aa3d97c86ae04f1598eba39e3224607034579ba621fd11c00eba4b11d4aaf974",
+        "training_code_digest": "sha256:cf1c962b4001c40d2eddd2cd06a7f1144fcccd12f2011afd76f948997f8ba662",
+        "digest": "fnv1a:6a6bb225e7d38b58",
+        "plan": {
+         "round_id": "api-20261014T121056Z-8588cd-training-1",
+         "study_id": "stroke-triage-pilot",
+         "phase": "training",
+         "selected_sites": [
+          "ch-245",
+          "it-002",
+          "uk-134"
+         ],
+         "excluded_sites": [],
+         "quorum_met": true,
+         "required_participants": 3,
+         "aggregation": {
+          "kind": "secure_aggregation",
+          "mu": null,
+          "optimizer": null,
+          "threshold": 3
+         },
+         "stop_reason": null,
+         "round_digest": "fnv1a:6a6bb225e7d38b58"
+        },
+        "results": [
+         {
+          "round_id": "api-20261014T121056Z-8588cd-training-1",
+          "site_id": "ch-245",
+          "job_digest": "fnv1a:6a6bb225e7d38b58",
+          "participation": "completed",
+          "code_verified": true,
+          "privacy_checks_passed": true,
+          "contributed_examples": 199,
+          "update_norm": 1.0,
+          "update_digest": "sha256:7bdb53488ac791e038bfe1d93115e9dece1a5d1706e45bc673944e89f18165e5",
+          "metrics": {
+           "start_loss": 0.6931471805599465,
+           "train_loss": 0.47885711271675885,
+           "record_count": 199.0
+          },
+          "local_evidence_pointer": "site-local://ch-245/rounds/api-20261014T121056Z-8588cd-training-1/evidence"
+         },
+         {
+          "round_id": "api-20261014T121056Z-8588cd-training-1",
+          "site_id": "it-002",
+          "job_digest": "fnv1a:6a6bb225e7d38b58",
+          "participation": "completed",
+          "code_verified": true,
+          "privacy_checks_passed": true,
+          "contributed_examples": 292,
+          "update_norm": 1.0,
+          "update_digest": "sha256:84bdc8cafdcb86091c909cf05872ebc7dce2d479359419a0797e628fc7926b30",
+          "metrics": {
+           "start_loss": 0.6931471805599467,
+           "train_loss": 0.5085733094127751,
+           "record_count": 292.0
+          },
+          "local_evidence_pointer": "site-local://it-002/rounds/api-20261014T121056Z-8588cd-training-1/evidence"
+         },
+         {
+          "round_id": "api-20261014T121056Z-8588cd-training-1",
+          "site_id": "uk-134",
+          "job_digest": "fnv1a:6a6bb225e7d38b58",
+          "participation": "completed",
+          "code_verified": true,
+          "privacy_checks_passed": true,
+          "contributed_examples": 524,
+          "update_norm": 1.0,
+          "update_digest": "sha256:877fb57f04340503a27831ccc96b0f300995ecbd16270ac13e2762e05fc62530",
+          "metrics": {
+           "start_loss": 0.6931471805599468,
+           "train_loss": 0.4415364670160477,
+           "record_count": 524.0
+          },
+          "local_evidence_pointer": "site-local://uk-134/rounds/api-20261014T121056Z-8588cd-training-1/evidence"
+         }
+        ],
+        "readiness": {
+         "round_id": "api-20261014T121056Z-8588cd-training-1",
+         "accepted_sites": [
+          "ch-245",
+          "it-002",
+          "uk-134"
+         ],
+         "rejected_contributions": [],
+         "accepted_examples": 1015,
+         "aggregation_permitted": true,
+         "stop_reason": null,
+         "site_weights": {
+          "ch-245": 0.1960591133004926,
+          "it-002": 0.2876847290640394,
+          "uk-134": 0.516256157635468
+         }
+        },
+        "status": "collecting",
+        "candidate_version": "stroke-outcome-logreg+api-20261014T121056Z-8588cd-training-1"
+       },
+       {
+        "round_id": "api-20261014T121056Z-8588cd-training-2",
+        "phase": "training",
+        "model_version": "stroke-outcome-logreg+api-20261014T121056Z-8588cd-training-1",
+        "model_artifact_digest": "sha256:ae9586dd59d018195458b106267fe66afb536051687fc839236b8fa48ffe20fa",
+        "training_code_digest": "sha256:cf1c962b4001c40d2eddd2cd06a7f1144fcccd12f2011afd76f948997f8ba662",
+        "digest": "fnv1a:38de5d0a243f379b",
+        "plan": {
+         "round_id": "api-20261014T121056Z-8588cd-training-2",
+         "study_id": "stroke-triage-pilot",
+         "phase": "training",
+         "selected_sites": [
+          "ch-245",
+          "it-002",
+          "uk-134"
+         ],
+         "excluded_sites": [],
+         "quorum_met": true,
+         "required_participants": 3,
+         "aggregation": {
+          "kind": "secure_aggregation",
+          "mu": null,
+          "optimizer": null,
+          "threshold": 3
+         },
+         "stop_reason": null,
+         "round_digest": "fnv1a:38de5d0a243f379b"
+        },
+        "results": [
+         {
+          "round_id": "api-20261014T121056Z-8588cd-training-2",
+          "site_id": "ch-245",
+          "job_digest": "fnv1a:38de5d0a243f379b",
+          "participation": "completed",
+          "code_verified": true,
+          "privacy_checks_passed": true,
+          "contributed_examples": 199,
+          "update_norm": 0.5987341614149108,
+          "update_digest": "sha256:f79266ae85307225240fe83c95528ebd7fba9ec95e864ae6c385adf0f8d39742",
+          "metrics": {
+           "start_loss": 0.5069744166375914,
+           "train_loss": 0.47470914270850384,
+           "record_count": 199.0
+          },
+          "local_evidence_pointer": "site-local://ch-245/rounds/api-20261014T121056Z-8588cd-training-2/evidence"
+         },
+         {
+          "round_id": "api-20261014T121056Z-8588cd-training-2",
+          "site_id": "it-002",
+          "job_digest": "fnv1a:38de5d0a243f379b",
+          "participation": "completed",
+          "code_verified": true,
+          "privacy_checks_passed": true,
+          "contributed_examples": 292,
+          "update_norm": 0.7653865892100221,
+          "update_digest": "sha256:9bb4da260573e46756a8597e5be3dd3052a10b2623e4f5ac8ef52626fdfc6781",
+          "metrics": {
+           "start_loss": 0.5665236960071542,
+           "train_loss": 0.5045093708422604,
+           "record_count": 292.0
+          },
+          "local_evidence_pointer": "site-local://it-002/rounds/api-20261014T121056Z-8588cd-training-2/evidence"
+         },
+         {
+          "round_id": "api-20261014T121056Z-8588cd-training-2",
+          "site_id": "uk-134",
+          "job_digest": "fnv1a:38de5d0a243f379b",
+          "participation": "completed",
+          "code_verified": true,
+          "privacy_checks_passed": true,
+          "contributed_examples": 524,
+          "update_norm": 0.6529496613236879,
+          "update_digest": "sha256:74f5b91982176288f605fc922e3cb24ec83b1bf4d017b17106b61b62c7aade39",
+          "metrics": {
+           "start_loss": 0.4915636530507196,
+           "train_loss": 0.43534447046284047,
+           "record_count": 524.0
+          },
+          "local_evidence_pointer": "site-local://uk-134/rounds/api-20261014T121056Z-8588cd-training-2/evidence"
+         }
+        ],
+        "readiness": {
+         "round_id": "api-20261014T121056Z-8588cd-training-2",
+         "accepted_sites": [
+          "ch-245",
+          "it-002",
+          "uk-134"
+         ],
+         "rejected_contributions": [],
+         "accepted_examples": 1015,
+         "aggregation_permitted": true,
+         "stop_reason": null,
+         "site_weights": {
+          "ch-245": 0.1960591133004926,
+          "it-002": 0.2876847290640394,
+          "uk-134": 0.516256157635468
+         }
+        },
+        "status": "collecting",
+        "candidate_version": "stroke-outcome-logreg+api-20261014T121056Z-8588cd-training-2"
+       },
+       {
+        "round_id": "api-20261014T121056Z-8588cd-training-3",
+        "phase": "training",
+        "model_version": "stroke-outcome-logreg+api-20261014T121056Z-8588cd-training-2",
+        "model_artifact_digest": "sha256:a4f8d0ee7d135fa0f022c88527db955ab697f5d418fc44566eed4994006e0b6e",
+        "training_code_digest": "sha256:cf1c962b4001c40d2eddd2cd06a7f1144fcccd12f2011afd76f948997f8ba662",
+        "digest": "fnv1a:50c7161f058bb703",
+        "plan": {
+         "round_id": "api-20261014T121056Z-8588cd-training-3",
+         "study_id": "stroke-triage-pilot",
+         "phase": "training",
+         "selected_sites": [
+          "ch-245",
+          "it-002",
+          "uk-134"
+         ],
+         "excluded_sites": [],
+         "quorum_met": true,
+         "required_participants": 3,
+         "aggregation": {
+          "kind": "secure_aggregation",
+          "mu": null,
+          "optimizer": null,
+          "threshold": 3
+         },
+         "stop_reason": null,
+         "round_digest": "fnv1a:50c7161f058bb703"
+        },
+        "results": [
+         {
+          "round_id": "api-20261014T121056Z-8588cd-training-3",
+          "site_id": "ch-245",
+          "job_digest": "fnv1a:50c7161f058bb703",
+          "participation": "completed",
+          "code_verified": true,
+          "privacy_checks_passed": true,
+          "contributed_examples": 199,
+          "update_norm": 0.4734522158301203,
+          "update_digest": "sha256:be702748fc26f68cd1012a800d2f8daa961b6cb277c2944da0df89ec4a3bdba1",
+          "metrics": {
+           "start_loss": 0.4957655745472494,
+           "train_loss": 0.4723369282927214,
+           "record_count": 199.0
+          },
+          "local_evidence_pointer": "site-local://ch-245/rounds/api-20261014T121056Z-8588cd-training-3/evidence"
+         },
+         {
+          "round_id": "api-20261014T121056Z-8588cd-training-3",
+          "site_id": "it-002",
+          "job_digest": "fnv1a:50c7161f058bb703",
+          "participation": "completed",
+          "code_verified": true,
+          "privacy_checks_passed": true,
+          "contributed_examples": 292,
+          "update_norm": 0.6874704988756806,
+          "update_digest": "sha256:3c0d2fe167dcde70aff301763dd7c6742a3293c25fb714bf0eb1a3535abe2163",
+          "metrics": {
+           "start_loss": 0.5626173360801461,
+           "train_loss": 0.5023013786678774,
+           "record_count": 292.0
+          },
+          "local_evidence_pointer": "site-local://it-002/rounds/api-20261014T121056Z-8588cd-training-3/evidence"
+         },
+         {
+          "round_id": "api-20261014T121056Z-8588cd-training-3",
+          "site_id": "uk-134",
+          "job_digest": "fnv1a:50c7161f058bb703",
+          "participation": "completed",
+          "code_verified": true,
+          "privacy_checks_passed": true,
+          "contributed_examples": 524,
+          "update_norm": 0.5105701587481163,
+          "update_digest": "sha256:b42c8a2dbeff04345c24baa8b1196417f85c0079b692b2fbd7bdee1b9c36bb1f",
+          "metrics": {
+           "start_loss": 0.4658485655285762,
+           "train_loss": 0.4320619610922388,
+           "record_count": 524.0
+          },
+          "local_evidence_pointer": "site-local://uk-134/rounds/api-20261014T121056Z-8588cd-training-3/evidence"
+         }
+        ],
+        "readiness": {
+         "round_id": "api-20261014T121056Z-8588cd-training-3",
+         "accepted_sites": [
+          "ch-245",
+          "it-002",
+          "uk-134"
+         ],
+         "rejected_contributions": [],
+         "accepted_examples": 1015,
+         "aggregation_permitted": true,
+         "stop_reason": null,
+         "site_weights": {
+          "ch-245": 0.1960591133004926,
+          "it-002": 0.2876847290640394,
+          "uk-134": 0.516256157635468
+         }
+        },
+        "status": "collecting",
+        "candidate_version": "stroke-outcome-logreg+api-20261014T121056Z-8588cd-training-3"
+       }
+      ],
+      "candidate_validation": {
+       "round_id": "api-20261014T121056Z-8588cd-candidate-validation",
+       "phase": "evaluation",
+       "model_version": "stroke-outcome-logreg+api-20261014T121056Z-8588cd-training-5",
+       "model_artifact_digest": "sha256:05237605cac4f2bcaa7579fa7f9e6d1e30e07ed2860f7a3228a6ecd0244cd2ff",
+       "training_code_digest": "sha256:cf1c962b4001c40d2eddd2cd06a7f1144fcccd12f2011afd76f948997f8ba662",
+       "digest": "fnv1a:b66658988e9263b9",
+       "plan": {
+        "round_id": "api-20261014T121056Z-8588cd-candidate-validation",
+        "study_id": "stroke-triage-pilot",
+        "phase": "evaluation",
+        "selected_sites": [
+         "ch-245",
+         "it-002",
+         "uk-134"
+        ],
+        "excluded_sites": [],
+        "quorum_met": true,
+        "required_participants": 3,
+        "aggregation": {
+         "kind": "secure_aggregation",
+         "mu": null,
+         "optimizer": null,
+         "threshold": 3
+        },
+        "stop_reason": null,
+        "round_digest": "fnv1a:b66658988e9263b9"
+       },
+       "results": [
+        {
+         "round_id": "api-20261014T121056Z-8588cd-candidate-validation",
+         "site_id": "ch-245",
+         "job_digest": "fnv1a:b66658988e9263b9",
+         "participation": "completed",
+         "code_verified": true,
+         "privacy_checks_passed": true,
+         "contributed_examples": 199,
+         "update_norm": 0.0,
+         "update_digest": null,
+         "metrics": {
+          "auc": 0.8190487402872616,
+          "alerts_per_1000": 899.4974874371859,
+          "sensitivity": 0.9635036496350365,
+          "specificity": 0.24193548387096775,
+          "subgroup_auc_gap": 0.05633244545915783,
+          "log_loss": 0.49256247337099424
+         },
+         "local_evidence_pointer": "site-local://ch-245/rounds/api-20261014T121056Z-8588cd-candidate-validation/evidence"
+        },
+        {
+         "round_id": "api-20261014T121056Z-8588cd-candidate-validation",
+         "site_id": "it-002",
+         "job_digest": "fnv1a:b66658988e9263b9",
+         "participation": "completed",
+         "code_verified": true,
+         "privacy_checks_passed": true,
+         "contributed_examples": 292,
+         "update_norm": 0.0,
+         "update_digest": null,
+         "metrics": {
+          "auc": 0.8116727716727716,
+          "alerts_per_1000": 842.4657534246576,
+          "sensitivity": 0.9657142857142857,
+          "specificity": 0.3418803418803419,
+          "subgroup_auc_gap": 0.00566149373611069,
+          "log_loss": 0.5588721133727008
+         },
+         "local_evidence_pointer": "site-local://it-002/rounds/api-20261014T121056Z-8588cd-candidate-validation/evidence"
+        },
+        {
+         "round_id": "api-20261014T121056Z-8588cd-candidate-validation",
+         "site_id": "uk-134",
+         "job_digest": "fnv1a:b66658988e9263b9",
+         "participation": "completed",
+         "code_verified": true,
+         "privacy_checks_passed": true,
+         "contributed_examples": 524,
+         "update_norm": 0.0,
+         "update_digest": null,
+         "metrics": {
+          "auc": 0.7593324004694412,
+          "alerts_per_1000": 839.6946564885496,
+          "sensitivity": 0.8827751196172249,
+          "specificity": 0.330188679245283,
+          "subgroup_auc_gap": 0.01913067373593691,
+          "log_loss": 0.4619806263649448
+         },
+         "local_evidence_pointer": "site-local://uk-134/rounds/api-20261014T121056Z-8588cd-candidate-validation/evidence"
+        }
+       ],
+       "readiness": {
+        "round_id": "api-20261014T121056Z-8588cd-candidate-validation",
+        "accepted_sites": [
+         "ch-245",
+         "it-002",
+         "uk-134"
+        ],
+        "rejected_contributions": [],
+        "accepted_examples": 1015,
+        "aggregation_permitted": true,
+        "stop_reason": null,
+        "site_weights": {
+         "ch-245": 0.1960591133004926,
+         "it-002": 0.2876847290640394,
+         "uk-134": 0.516256157635468
+        }
+       },
+       "status": "collecting"
+      }
+     },
+     "training_curve": [
+      {
+       "round": 1,
+       "round_id": "api-20261014T121056Z-8588cd-training-1",
+       "loss": 0.5161499333433959,
+       "start_loss": 0.6931471805599467,
+       "local_loss": 0.4681389955621422,
+       "update_norms": {
+        "ch-245": 1.0,
+        "it-002": 1.0,
+        "uk-134": 1.0
+       },
+       "max_update_norm": 1.0,
+       "contributing_sites": [
+        "ch-245",
+        "it-002",
+        "uk-134"
+       ],
+       "contributed_examples": 1015,
+       "candidate_version": "stroke-outcome-logreg+api-20261014T121056Z-8588cd-training-1"
+      },
+      {
+       "round": 2,
+       "round_id": "api-20261014T121056Z-8588cd-training-2",
+       "loss": 0.49955296532736865,
+       "start_loss": 0.5161499333433959,
+       "local_loss": 0.46295995882508445,
+       "update_norms": {
+        "ch-245": 0.5987341614149108,
+        "it-002": 0.7653865892100221,
+        "uk-134": 0.6529496613236879
+       },
+       "max_update_norm": 0.7653865892100221,
+       "contributing_sites": [
+        "ch-245",
+        "it-002",
+        "uk-134"
+       ],
+       "contributed_examples": 1015,
+       "candidate_version": "stroke-outcome-logreg+api-20261014T121056Z-8588cd-training-2"
+      },
+      {
+       "round": 3,
+       "round_id": "api-20261014T121056Z-8588cd-training-3",
+       "loss": 0.4970526201245551,
+       "start_loss": 0.49955296532736865,
+       "local_loss": 0.46016504326463537,
+       "update_norms": {
+        "ch-245": 0.4734522158301203,
+        "it-002": 0.6874704988756806,
+        "uk-134": 0.5105701587481163
+       },
+       "max_update_norm": 0.6874704988756806,
+       "contributing_sites": [
+        "ch-245",
+        "it-002",
+        "uk-134"
+       ],
+       "contributed_examples": 1015,
+       "candidate_version": "stroke-outcome-logreg+api-20261014T121056Z-8588cd-training-3"
+      }
+     ],
+     "training_settings": {
+      "rounds": 5,
+      "epochs": 30,
+      "learning_rate": 0.5,
+      "l2": 0.01,
+      "initial_version": "stroke-outcome-logreg-init"
+     },
+     "candidate": {
+      "round_id": "api-20261014T121056Z-8588cd-training-5",
+      "candidate_version": "stroke-outcome-logreg+api-20261014T121056Z-8588cd-training-5",
+      "parent_version": "stroke-outcome-logreg+api-20261014T121056Z-8588cd-training-4",
+      "aggregation_method": "secure_aggregation",
+      "contributing_sites": [
+       "ch-245",
+       "it-002",
+       "uk-134"
+      ],
+      "site_weights": {
+       "ch-245": 0.1960591133004926,
+       "it-002": 0.2876847290640394,
+       "uk-134": 0.516256157635468
+      },
+      "contributed_examples": 1015,
+      "metrics": {
+       "alerts_per_1000": 852.2167487684728,
+       "auc": 0.7860978586124153,
+       "log_loss": 0.49585067736048033,
+       "sensitivity": 0.9224630151579996,
+       "specificity": 0.31624934881173467,
+       "subgroup_auc_gap": 0.022549542714234157
+      },
+      "artifact_uri": "registry://models/stroke-outcome-logreg+api-20261014T121056Z-8588cd-training-5",
+      "artifact_digest": "sha256:05237605cac4f2bcaa7579fa7f9e6d1e30e07ed2860f7a3228a6ecd0244cd2ff",
+      "produced_at": 1791979857,
+      "status": "rejected"
+     },
+     "release": {
+      "guard": {
+       "request_id": "api-20261014T121056Z-8588cd-training-5:release:stroke-outcome-logreg+api-20261014T121056Z-8588cd-training-5",
+       "boundary": "before_release",
+       "permitted": true,
+       "plan": {
+        "request_id": "api-20261014T121056Z-8588cd-training-5:release:stroke-outcome-logreg+api-20261014T121056Z-8588cd-training-5",
+        "boundary": "before_release",
+        "assessment": {
+         "requester_id": "stroke-consortium-release-committee",
+         "kyu_score": 0.9849999999999999,
+         "trust": "high",
+         "rationale": [
+          "requester_kind=human",
+          "verified_attributes=3/3",
+          "compliance_history=0.95"
+         ]
+        },
+        "granularity": "model_update",
+        "field_restrictions": [
+         {
+          "field": "model_update",
+          "sensitivity": "high",
+          "strategy": "clip_contribution:1",
+          "reason": "sensitivity=high trust=high granularity=model_update -> clip_contribution:1"
+         }
+        ],
+        "decision": "narrow",
+        "filtering_score": 0.45,
+        "obligations": [
+         "record the decision, reason, and request id api-20261014T121056Z-8588cd-training-5:release:stroke-outcome-logreg+api-20261014T121056Z-8588cd-training-5 in the audit log",
+         "enforce at boundary before_release",
+         "apply controls required by each hospital's national data protection law"
+        ],
+        "violations": []
+       },
+       "payload": [
+        {
+         "model_update": 1.0
+        }
+       ],
+       "withheld_fields": [],
+       "transformed_fields": [
+        "model_update"
+       ],
+       "audit_id": "0fe1debee71f4752b950983bc03f15f9",
+       "message": "permitted with restrictions"
+      },
+      "gates": {
+       "round_id": "api-20261014T121056Z-8588cd-training-5",
+       "candidate_version": "stroke-outcome-logreg+api-20261014T121056Z-8588cd-training-5",
+       "gate_results": [
+        {
+         "gate_id": "discrimination",
+         "outcome": "passed",
+         "observed": 0.7860978586124153,
+         "threshold": 0.7,
+         "detail": "auc=0.786098 required >= 0.7"
+        },
+        {
+         "gate_id": "improves_on_current_release",
+         "outcome": "failed",
+         "observed": 0.7860978586124153,
+         "threshold": 0.797166770319355,
+         "detail": "auc=0.786098 required >= baseline 0.777167 + margin 0.02"
+        },
+        {
+         "gate_id": "subgroup_fairness",
+         "outcome": "passed",
+         "observed": 0.022549542714234157,
+         "threshold": 0.1,
+         "detail": "subgroup_auc_gap=0.0225495 required <= 0.1"
+        }
+       ],
+       "action": "reject",
+       "blocking_failures": [
+        "improves_on_current_release: auc=0.786098 required >= baseline 0.777167 + margin 0.02"
+       ],
+       "rollback_version": "stroke-outcome-rule-v1"
+      }
+     },
+     "baseline_metrics": {
+      "alerts_per_1000": 766.5024630541873,
+      "auc": 0.777166770319355,
+      "log_loss": 0.5232251212531047,
+      "sensitivity": 0.8612031802500095,
+      "specificity": 0.4692109936595424,
+      "subgroup_auc_gap": 0.02012720696709952
+     },
+     "stop_reason": null,
+     "site_audits": {
+      "uk-134": {
+       "site_id": "uk-134",
+       "chain_intact": true,
+       "record_count": 26
+      },
+      "it-002": {
+       "site_id": "it-002",
+       "chain_intact": true,
+       "record_count": 24
+      },
+      "ch-245": {
+       "site_id": "ch-245",
+       "chain_intact": true,
+       "record_count": 24
+      }
+     },
+     "coordinator_audit": {
+      "chain_intact": true,
+      "record_count": 1
+     },
+     "notice": "The records are real, de-identified patient records from the International Stroke Trial, recruited in 1991-1996. They are used here to show how the framework works. The seed rule and the federated mod…",
+     "dataset_notice": "Contains information from the International Stroke Trial database (version 2) (https://doi.org/10.7488/ds/104), made available under the ODC Attribution License (https://opendatacommons.org/licenses/b…"
+    },
+    "trimmed": [
+     {
+      "pointer": "/condition/intended_use",
+      "note": "339 characters, cut to 200"
+     },
+     {
+      "pointer": "/condition/release_gates",
+      "note": "5 items, cut to 3"
+     },
+     {
+      "pointer": "/condition/limitations",
+      "note": "5 items, cut to 3"
+     },
+     {
+      "pointer": "/condition/limitations/1",
+      "note": "228 characters, cut to 200"
+     },
+     {
+      "pointer": "/rounds/training",
+      "note": "5 items, cut to 3"
+     },
+     {
+      "pointer": "/training_curve",
+      "note": "5 items, cut to 3"
+     },
+     {
+      "pointer": "/release/guard/plan/assessment/rationale",
+      "note": "6 items, cut to 3"
+     },
+     {
+      "pointer": "/release/guard/plan/obligations",
+      "note": "5 items, cut to 3"
+     },
+     {
+      "pointer": "/release/gates/gate_results",
+      "note": "5 items, cut to 3"
+     },
+     {
+      "pointer": "/notice",
+      "note": "289 characters, cut to 200"
+     },
+     {
+      "pointer": "/dataset_notice",
+      "note": "208 characters, cut to 200"
+     }
+    ]
+   },
+   "planner_calls": [
+    "federation round digest",
+    "federation round plan",
+    "governance restrict",
+    "federation aggregate readiness",
+    "federation release evaluate"
+   ]
+  },
+  {
+   "id": "pilot-bad-prefix",
+   "endpoint": "POST /api/v1/pilot:run",
+   "title": "A round prefix that is not ui or api",
+   "request": {
+    "method": "POST",
+    "path": "/api/v1/pilot:run",
+    "json": {
+     "round_prefix": "nightly"
+    }
+   },
+   "response": {
+    "status": 422,
+    "headers": {
+     "content-type": "application/json",
+     "x-dagents-app": "healthcare-demo"
+    },
+    "body": {
+     "detail": "Some fields are not valid.",
+     "errors": {
+      "round_prefix": "must be one of ui, api"
+     }
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "models",
+   "endpoint": "GET /api/v1/models",
+   "title": "List the model versions after one pilot",
+   "volatile": [
+    "/model_in_use/created_at",
+    "/models/*/created_at",
+    "/models/*/version",
+    "/models/*/parent_version"
+   ],
+   "trim": {
+    "items": 3,
+    "chars": 300
+   },
+   "request": {
+    "method": "GET",
+    "path": "/api/v1/models"
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json",
+     "x-dagents-app": "healthcare-demo"
+    },
+    "body": {
+     "model_in_use": {
+      "version": "stroke-outcome-rule-v1",
+      "kind": "points_rule",
+      "digest": "sha256:04177e54a0c7c829a484a962f37eb0945a39f1ff7e5dc3319b266842fc3bd416",
+      "status": "released",
+      "parent_version": null,
+      "created_at": "2026-10-14T12:10:55.652963+00:00",
+      "release_decision": null
+     },
+     "models": [
+      {
+       "version": "stroke-outcome-rule-v1",
+       "kind": "points_rule",
+       "digest": "sha256:04177e54a0c7c829a484a962f37eb0945a39f1ff7e5dc3319b266842fc3bd416",
+       "status": "released",
+       "parent_version": null,
+       "created_at": "2026-10-14T12:10:55.652963+00:00",
+       "release_decision": null
+      },
+      {
+       "version": "stroke-outcome-logreg-init",
+       "kind": "logistic_regression",
+       "digest": "sha256:aa3d97c86ae04f1598eba39e3224607034579ba621fd11c00eba4b11d4aaf974",
+       "status": "superseded",
+       "parent_version": null,
+       "created_at": "2026-10-14T12:10:56.568956+00:00",
+       "release_decision": null
+      },
+      {
+       "version": "stroke-outcome-logreg+api-20261014T121056Z-8588cd-training-1",
+       "kind": "logistic_regression",
+       "digest": "sha256:ae9586dd59d018195458b106267fe66afb536051687fc839236b8fa48ffe20fa",
+       "status": "superseded",
+       "parent_version": "stroke-outcome-logreg-init",
+       "created_at": "2026-10-14T12:10:56.695643+00:00",
+       "release_decision": null
+      }
+     ]
+    },
+    "trimmed": [
+     {
+      "pointer": "/models",
+      "note": "7 items, cut to 3"
+     }
+    ]
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "approve-unknown",
+   "endpoint": "POST /api/v1/models/{version}:approve",
+   "title": "Approve a version that does not exist",
+   "request": {
+    "method": "POST",
+    "path": "/api/v1/models/no-such-version:approve"
+   },
+   "response": {
+    "status": 404,
+    "headers": {
+     "content-type": "application/json",
+     "x-dagents-app": "healthcare-demo"
+    },
+    "body": {
+     "detail": "There is no model version 'no-such-version'."
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "approve-not-candidate",
+   "endpoint": "POST /api/v1/models/{version}:approve",
+   "title": "Approve the seed rule, which no pilot produced",
+   "request": {
+    "method": "POST",
+    "path": "/api/v1/models/stroke-outcome-rule-v1:approve"
+   },
+   "response": {
+    "status": 409,
+    "headers": {
+     "content-type": "application/json",
+     "x-dagents-app": "healthcare-demo"
+    },
+    "body": {
+     "detail": "The model cannot be approved: stroke-outcome-rule-v1 has no release decision; only a pilot's candidate can be approved."
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "approve-rate-limited",
+   "endpoint": "POST /api/v1/models/{version}:approve",
+   "title": "A third approval within a minute",
+   "description": "The capture limited approvals to 2 per minute (the default is 10), so this third request was refused.",
+   "request": {
+    "method": "POST",
+    "path": "/api/v1/models/stroke-outcome-rule-v1:approve"
+   },
+   "response": {
+    "status": 429,
+    "headers": {
+     "content-type": "application/json",
+     "retry-after": "30",
+     "x-dagents-app": "healthcare-demo"
+    },
+    "body": {
+     "detail": "Too many requests. Try again in 30 seconds."
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "status",
+   "endpoint": "GET /api/v1/framework/status",
+   "title": "Read where the records are stored and which services answer",
+   "request": {
+    "method": "GET",
+    "path": "/api/v1/framework/status"
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json",
+     "x-dagents-app": "healthcare-demo"
+    },
+    "body": {
+     "cohort_source": "in-memory",
+     "store_layout": "in-memory-per-site",
+     "dataset": {
+      "name": "International Stroke Trial database (version 2)",
+      "citation": "Sandercock PAG, Niewada M, Członkowska A; International Stroke Trial Collaborative Group. The International Stroke Trial database. Trials 2011;12:101 (erratum Trials 2012;13:24).",
+      "licence": "ODC Attribution License (ODC-By) 1.0",
+      "licence_url": "https://opendatacommons.org/licenses/by/1-0/",
+      "source_url": "https://doi.org/10.7488/ds/104",
+      "notice": "Contains information from the International Stroke Trial database (version 2) (https://doi.org/10.7488/ds/104), made available under the ODC Attribution License (https://opendatacommons.org/licenses/by/1-0/).",
+      "credit": "The International Stroke Trial Collaborative Group collected the data from 19,435 patients in 1991-1996. The trial was funded mainly by the UK Medical Research Council, the UK Stroke Association and the European Union BIOMED-1 programme."
+     },
+     "ready": true,
+     "hospitals": [
+      {
+       "site_id": "uk-134",
+       "record_count": 524,
+       "labelled_count": 524
+      },
+      {
+       "site_id": "it-002",
+       "record_count": 292,
+       "labelled_count": 292
+      },
+      {
+       "site_id": "ch-245",
+       "record_count": 199,
+       "labelled_count": 199
+      }
+     ],
+     "services": [
+      {
+       "name": "core-service",
+       "status": "unavailable",
+       "detail": "did not answer (ConnectError)"
+      },
+      {
+       "name": "pipeline-service",
+       "status": "unavailable",
+       "detail": "did not answer (ConnectError)"
+      },
+      {
+       "name": "model-service",
+       "status": "unavailable",
+       "detail": "did not answer (ConnectError)"
+      },
+      {
+       "name": "lma",
+       "status": "unavailable",
+       "detail": "did not answer (ConnectError)"
+      },
+      {
+       "name": "gma",
+       "status": "unavailable",
+       "detail": "did not answer (ConnectError)"
+      }
+     ],
+     "allowed_origins": [
+      "*"
+     ],
+     "rate_limit_client": {
+      "source": "peer",
+      "forwarded_for_hops": 0,
+      "forwarded_for_entries": 0
+     }
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "trace",
+   "endpoint": "GET /api/v1/framework/trace",
+   "title": "Trace three of Hospital 2's records through the planners",
+   "trim": {
+    "items": 6,
+    "chars": 300
+   },
+   "request": {
+    "method": "GET",
+    "path": "/api/v1/framework/trace",
+    "query": {
+     "site_id": "it-002",
+     "limit": 3
+    }
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json",
+     "x-dagents-app": "healthcare-demo"
+    },
+    "body": {
+     "site_id": "it-002",
+     "record_count": 3,
+     "trace": [
+      {
+       "name": "Source spec validation",
+       "status": "ok",
+       "detail": "completed",
+       "payload": {
+        "valid": true,
+        "errors": [],
+        "warnings": []
+       }
+      },
+      {
+       "name": "Feature contract validation",
+       "status": "ok",
+       "detail": "completed",
+       "payload": {
+        "valid": true,
+        "missing_fields": [],
+        "type_mismatches": [],
+        "extra_fields": [],
+        "warnings": []
+       }
+      },
+      {
+       "name": "Clinical data-quality rules",
+       "status": "ok",
+       "detail": "completed",
+       "payload": {
+        "results": [
+         {
+          "rule_id": "age_band_present",
+          "severity": "error",
+          "passed": true,
+          "violations": 0,
+          "message": "passed"
+         },
+         {
+          "rule_id": "sex_present",
+          "severity": "error",
+          "passed": true,
+          "violations": 0,
+          "message": "passed"
+         },
+         {
+          "rule_id": "conscious_level_present",
+          "severity": "error",
+          "passed": true,
+          "violations": 0,
+          "message": "passed"
+         },
+         {
+          "rule_id": "face_weakness_present",
+          "severity": "warning",
+          "passed": true,
+          "violations": 0,
+          "message": "passed"
+         },
+         {
+          "rule_id": "arm_weakness_present",
+          "severity": "warning",
+          "passed": true,
+          "violations": 0,
+          "message": "passed"
+         },
+         {
+          "rule_id": "leg_weakness_present",
+          "severity": "warning",
+          "passed": true,
+          "violations": 0,
+          "message": "passed"
+         }
+        ],
+        "blocking": false,
+        "warning_count": 0,
+        "error_count": 0,
+        "total_violations": 0
+       }
+      },
+      {
+       "name": "Pipeline DAG planning",
+       "status": "ok",
+       "detail": "completed",
+       "payload": {
+        "pipeline_id": "stroke-triage-flow",
+        "steps": [
+         {
+          "step_id": "profile_cohort",
+          "kind": "profile_dataset",
+          "depends_on": [],
+          "execution_target": "local_process",
+          "config": null
+         },
+         {
+          "step_id": "score_worklist",
+          "kind": "run_model_job",
+          "depends_on": [
+           "profile_cohort"
+          ],
+          "execution_target": "python_service",
+          "config": null
+         },
+         {
+          "step_id": "project_basis",
+          "kind": "project_fields",
+          "depends_on": [
+           "score_worklist"
+          ],
+          "execution_target": "local_process",
+          "config": null
+         }
+        ]
+       }
+      },
+      {
+       "name": "Model route planning",
+       "status": "ok",
+       "detail": "completed",
+       "payload": {
+        "selected_model": "random_forest",
+        "candidates": [
+         "random_forest",
+         "xgboost",
+         "naive_bayes"
+        ],
+        "packaging_mode": "inline_service_call"
+       }
+      },
+      {
+       "name": "Ethical-Restriction Rails (egress)",
+       "status": "ok",
+       "detail": "completed",
+       "payload": {
+        "request_id": "trace-egress",
+        "boundary": "before_send",
+        "assessment": {
+         "requester_id": "stroke-consortium-gma",
+         "kyu_score": 0.97,
+         "trust": "high",
+         "rationale": [
+          "requester_kind=coordinator",
+          "verified_attributes=2/2",
+          "compliance_history=0.90",
+          "kyu_score=0.97",
+          "affiliation=unstated",
+          "stated_purpose=unstated"
+         ]
+        },
+        "granularity": "model_update",
+        "field_restrictions": [
+         {
+          "field": "model_update",
+          "sensitivity": "high",
+          "strategy": "refuse",
+          "reason": "request-level gate failed; field withheld"
+         }
+        ],
+        "decision": "deny",
+        "filtering_score": 1.0,
+        "obligations": [
+         "record the decision, reason, and request id trace-egress in the audit log",
+         "enforce at boundary before_send",
+         "apply controls required by each hospital's national data protection law",
+         "suppress results describing fewer than 20 subjects"
+        ],
+        "violations": [
+         "cohort_size 3 is below minimum_cohort 20"
+        ]
+       }
+      }
+     ]
+    },
+    "trimmed": [
+     {
+      "pointer": "/trace/2/payload/results",
+      "note": "13 items, cut to 6"
+     }
+    ]
+   },
+   "planner_calls": [
+    "dataset source validate",
+    "dataset schema validate",
+    "dataset quality evaluate",
+    "pipeline compile",
+    "model route",
+    "governance restrict"
+   ]
+  }
+ ]
+}

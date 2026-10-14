@@ -1,0 +1,2677 @@
+{
+ "service": "pipeline-service",
+ "generated_by": "scripts/capture_api_examples.py",
+ "note": "Captured in process with the planner available, so registering and checking a pipeline ran dagentsc pipeline compile.",
+ "examples": [
+  {
+   "id": "health",
+   "endpoint": "GET /api/v1/health",
+   "title": "Check that the service answers",
+   "request": {
+    "method": "GET",
+    "path": "/api/v1/health"
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "status": "ok",
+     "service": "dagents-pipeline-service",
+     "environment": "development",
+     "transport": "http"
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "register-pipeline",
+   "endpoint": "POST /api/v1/pipelines",
+   "title": "Register a pipeline of four steps",
+   "description": "registered_at is set from the clock, so it differs on every call.",
+   "volatile": [
+    "/registered_at"
+   ],
+   "request": {
+    "method": "POST",
+    "path": "/api/v1/pipelines",
+    "json": {
+     "pipeline_id": "paid-large-orders",
+     "description": "Keep paid orders of 100 or more, add the batch date, and report their total.",
+     "steps": [
+      {
+       "step_id": "keep-paid-large",
+       "kind": "filter_items",
+       "config": {
+        "items_field": "orders",
+        "conditions": [
+         {
+          "field": "status",
+          "operator": "eq",
+          "value": "paid"
+         },
+         {
+          "field": "amount",
+          "operator": "gte",
+          "value": 100
+         }
+        ]
+       }
+      },
+      {
+       "step_id": "tag-batch",
+       "kind": "enrich_context",
+       "config": {
+        "target_field": "context",
+        "values": {
+         "batch": "2026-10-13",
+         "currency": "EUR"
+        }
+       }
+      },
+      {
+       "step_id": "totals",
+       "kind": "summarize_items",
+       "depends_on": [
+        "keep-paid-large"
+       ],
+       "config": {
+        "items_field": "orders",
+        "target_field": "summary",
+        "aggregations": [
+         {
+          "operation": "count",
+          "alias": "order_count"
+         },
+         {
+          "operation": "sum",
+          "field": "amount",
+          "alias": "total_amount"
+         },
+         {
+          "operation": "avg",
+          "field": "amount",
+          "alias": "average_amount"
+         },
+         {
+          "operation": "max",
+          "field": "amount",
+          "alias": "largest_amount"
+         }
+        ]
+       }
+      },
+      {
+       "step_id": "report",
+       "kind": "project_fields",
+       "depends_on": [
+        "totals",
+        "tag-batch"
+       ],
+       "config": {
+        "target_field": "report",
+        "fields": [
+         "context.batch",
+         "summary.order_count",
+         "summary.total_amount"
+        ]
+       }
+      }
+     ]
+    }
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "pipeline_id": "paid-large-orders",
+     "description": "Keep paid orders of 100 or more, add the batch date, and report their total.",
+     "steps": [
+      {
+       "step_id": "keep-paid-large",
+       "kind": "filter_items",
+       "depends_on": [],
+       "config": {
+        "items_field": "orders",
+        "conditions": [
+         {
+          "field": "status",
+          "operator": "eq",
+          "value": "paid"
+         },
+         {
+          "field": "amount",
+          "operator": "gte",
+          "value": 100
+         }
+        ]
+       }
+      },
+      {
+       "step_id": "tag-batch",
+       "kind": "enrich_context",
+       "depends_on": [],
+       "config": {
+        "target_field": "context",
+        "values": {
+         "batch": "2026-10-13",
+         "currency": "EUR"
+        }
+       }
+      },
+      {
+       "step_id": "totals",
+       "kind": "summarize_items",
+       "depends_on": [
+        "keep-paid-large"
+       ],
+       "config": {
+        "items_field": "orders",
+        "target_field": "summary",
+        "aggregations": [
+         {
+          "operation": "count",
+          "alias": "order_count"
+         },
+         {
+          "operation": "sum",
+          "field": "amount",
+          "alias": "total_amount"
+         },
+         {
+          "operation": "avg",
+          "field": "amount",
+          "alias": "average_amount"
+         },
+         {
+          "operation": "max",
+          "field": "amount",
+          "alias": "largest_amount"
+         }
+        ]
+       }
+      },
+      {
+       "step_id": "report",
+       "kind": "project_fields",
+       "depends_on": [
+        "totals",
+        "tag-batch"
+       ],
+       "config": {
+        "target_field": "report",
+        "fields": [
+         "context.batch",
+         "summary.order_count",
+         "summary.total_amount"
+        ]
+       }
+      }
+     ],
+     "registered_at": 1791979706
+    },
+    "trimmed": []
+   },
+   "planner_calls": [
+    "pipeline compile"
+   ]
+  },
+  {
+   "id": "register-pipeline-unknown-kind",
+   "endpoint": "POST /api/v1/pipelines",
+   "title": "A step kind the engine does not have",
+   "request": {
+    "method": "POST",
+    "path": "/api/v1/pipelines",
+    "json": {
+     "pipeline_id": "sorted-orders",
+     "steps": [
+      {
+       "step_id": "sort",
+       "kind": "sort_items"
+      }
+     ]
+    }
+   },
+   "response": {
+    "status": 422,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "detail": [
+      {
+       "type": "literal_error",
+       "loc": [
+        "body",
+        "steps",
+        0,
+        "kind"
+       ],
+       "msg": "Input should be 'enrich_context', 'filter_items', 'summarize_items', 'project_fields', 'profile_dataset' or 'run_model_job'",
+       "input": "sort_items",
+       "ctx": {
+        "expected": "'enrich_context', 'filter_items', 'summarize_items', 'project_fields', 'profile_dataset' or 'run_model_job'"
+       }
+      }
+     ]
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "register-source",
+   "endpoint": "POST /api/v1/sources",
+   "title": "Register an inline source",
+   "trim": {
+    "items": 6
+   },
+   "request": {
+    "method": "POST",
+    "path": "/api/v1/sources",
+    "json": {
+     "source_id": "orders-week-41",
+     "kind": "inline",
+     "selection": {
+      "records": [
+       {
+        "order_id": "W41-01",
+        "amount": 42.5,
+        "items": 1,
+        "returned": 0
+       },
+       {
+        "order_id": "W41-02",
+        "amount": 180.0,
+        "items": 3,
+        "returned": 0
+       },
+       {
+        "order_id": "W41-03",
+        "amount": 260.0,
+        "items": 5,
+        "returned": 1
+       },
+       {
+        "order_id": "W41-04",
+        "amount": 125.25,
+        "items": 2,
+        "returned": 0
+       },
+       {
+        "order_id": "W41-05",
+        "amount": 99.99,
+        "items": 2,
+        "returned": 1
+       },
+       {
+        "order_id": "W41-06",
+        "amount": 310.0,
+        "items": 6,
+        "returned": 0
+       }
+      ]
+     }
+    }
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "source_id": "orders-week-41",
+     "kind": "inline",
+     "connection_ref": null,
+     "selection": {
+      "records": [
+       {
+        "order_id": "W41-01",
+        "amount": 42.5,
+        "items": 1,
+        "returned": 0
+       },
+       {
+        "order_id": "W41-02",
+        "amount": 180.0,
+        "items": 3,
+        "returned": 0
+       },
+       {
+        "order_id": "W41-03",
+        "amount": 260.0,
+        "items": 5,
+        "returned": 1
+       },
+       {
+        "order_id": "W41-04",
+        "amount": 125.25,
+        "items": 2,
+        "returned": 0
+       },
+       {
+        "order_id": "W41-05",
+        "amount": 99.99,
+        "items": 2,
+        "returned": 1
+       },
+       {
+        "order_id": "W41-06",
+        "amount": 310.0,
+        "items": 6,
+        "returned": 0
+       }
+      ]
+     },
+     "format": "rows",
+     "schema_hint": {},
+     "batching": {
+      "batch_size": 1000,
+      "max_records": null
+     },
+     "checkpoint": {},
+     "options": {}
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "register-postgres-source",
+   "endpoint": "POST /api/v1/sources",
+   "title": "Register a Postgres table with no connection id",
+   "description": "Registration checks only the shape of the body, so this succeeds. Validation finds the problem.",
+   "request": {
+    "method": "POST",
+    "path": "/api/v1/sources",
+    "json": {
+     "source_id": "orders-db",
+     "kind": "postgres",
+     "connection_ref": {
+      "connection_id": ""
+     },
+     "selection": {
+      "table": "orders"
+     }
+    }
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "source_id": "orders-db",
+     "kind": "postgres",
+     "connection_ref": {
+      "connection_id": "",
+      "options": {}
+     },
+     "selection": {
+      "sql": null,
+      "table": "orders",
+      "columns": [],
+      "where": null,
+      "order_by": []
+     },
+     "format": "rows",
+     "schema_hint": {},
+     "batching": {
+      "batch_size": 1000,
+      "max_records": null
+     },
+     "checkpoint": {},
+     "options": {}
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "register-source-422",
+   "endpoint": "POST /api/v1/sources",
+   "title": "A body that is not a JSON object",
+   "request": {
+    "method": "POST",
+    "path": "/api/v1/sources",
+    "json": [
+     "orders-week-41"
+    ]
+   },
+   "response": {
+    "status": 422,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "detail": [
+      {
+       "type": "dict_type",
+       "loc": [
+        "body"
+       ],
+       "msg": "Input should be a valid dictionary",
+       "input": [
+        "orders-week-41"
+       ]
+      }
+     ]
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "list-sources",
+   "endpoint": "GET /api/v1/sources",
+   "title": "List the registered sources",
+   "trim": {
+    "items": 3
+   },
+   "request": {
+    "method": "GET",
+    "path": "/api/v1/sources"
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": [
+     {
+      "source_id": "orders-db",
+      "kind": "postgres",
+      "connection_ref": {
+       "connection_id": "",
+       "options": {}
+      },
+      "selection": {
+       "sql": null,
+       "table": "orders",
+       "columns": [],
+       "where": null,
+       "order_by": []
+      },
+      "format": "rows",
+      "schema_hint": {},
+      "batching": {
+       "batch_size": 1000,
+       "max_records": null
+      },
+      "checkpoint": {},
+      "options": {}
+     },
+     {
+      "source_id": "orders-week-41",
+      "kind": "inline",
+      "connection_ref": null,
+      "selection": {
+       "records": [
+        {
+         "order_id": "W41-01",
+         "amount": 42.5,
+         "items": 1,
+         "returned": 0
+        },
+        {
+         "order_id": "W41-02",
+         "amount": 180.0,
+         "items": 3,
+         "returned": 0
+        },
+        {
+         "order_id": "W41-03",
+         "amount": 260.0,
+         "items": 5,
+         "returned": 1
+        }
+       ]
+      },
+      "format": "rows",
+      "schema_hint": {},
+      "batching": {
+       "batch_size": 1000,
+       "max_records": null
+      },
+      "checkpoint": {},
+      "options": {}
+     }
+    ],
+    "trimmed": [
+     {
+      "pointer": "/1/selection/records",
+      "note": "6 items, cut to 3"
+     }
+    ]
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "get-source",
+   "endpoint": "GET /api/v1/sources/{source_id}",
+   "title": "Fetch one source",
+   "request": {
+    "method": "GET",
+    "path": "/api/v1/sources/orders-db"
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "source_id": "orders-db",
+     "kind": "postgres",
+     "connection_ref": {
+      "connection_id": "",
+      "options": {}
+     },
+     "selection": {
+      "sql": null,
+      "table": "orders",
+      "columns": [],
+      "where": null,
+      "order_by": []
+     },
+     "format": "rows",
+     "schema_hint": {},
+     "batching": {
+      "batch_size": 1000,
+      "max_records": null
+     },
+     "checkpoint": {},
+     "options": {}
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "get-missing-source",
+   "endpoint": "GET /api/v1/sources/{source_id}",
+   "title": "Fetch a source that does not exist",
+   "request": {
+    "method": "GET",
+    "path": "/api/v1/sources/no-such-source"
+   },
+   "response": {
+    "status": 404,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "detail": "Unknown source: no-such-source"
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "validate-source",
+   "endpoint": "POST /api/v1/sources/{source_id}:validate",
+   "title": "Validate the inline source",
+   "request": {
+    "method": "POST",
+    "path": "/api/v1/sources/orders-week-41:validate"
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "valid": true,
+     "errors": [],
+     "warnings": []
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "validate-postgres-source",
+   "endpoint": "POST /api/v1/sources/{source_id}:validate",
+   "title": "Validate the Postgres source with no connection id",
+   "request": {
+    "method": "POST",
+    "path": "/api/v1/sources/orders-db:validate"
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "valid": false,
+     "errors": [
+      "connection_ref.connection_id is required"
+     ],
+     "warnings": [
+      "No resolved connection found; scan requires a configured connection or mock rows"
+     ]
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "validate-missing-source",
+   "endpoint": "POST /api/v1/sources/{source_id}:validate",
+   "title": "Validate a source that does not exist",
+   "request": {
+    "method": "POST",
+    "path": "/api/v1/sources/no-such-source:validate"
+   },
+   "response": {
+    "status": 404,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "detail": "Unknown source: no-such-source"
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "register-definition",
+   "endpoint": "POST /api/v1/pipeline-definitions",
+   "title": "Register a pipeline that reads a registered source",
+   "description": "The same handler as POST /api/v1/pipelines.",
+   "volatile": [
+    "/registered_at"
+   ],
+   "request": {
+    "method": "POST",
+    "path": "/api/v1/pipeline-definitions",
+    "json": {
+     "pipeline_id": "orders-profile",
+     "description": "Profile a registered source, then record a classification run on it.",
+     "steps": [
+      {
+       "step_id": "profile",
+       "kind": "profile_dataset",
+       "config": {
+        "dataset_input": {
+         "source_id": "orders-week-41"
+        },
+        "scope_id": "orders-week-41",
+        "feature_fields": [
+         "amount",
+         "items"
+        ],
+        "label_field": "returned",
+        "target_field": "dataset_profile"
+       }
+      },
+      {
+       "step_id": "score",
+       "kind": "run_model_job",
+       "depends_on": [
+        "profile"
+       ],
+       "config": {
+        "dataset_input": {
+         "source_id": "orders-week-41"
+        },
+        "scope_id": "orders-week-41",
+        "task_type": "classification",
+        "model_family": "random_forest",
+        "feature_fields": [
+         "amount",
+         "items"
+        ],
+        "label_field": "returned",
+        "target_field": "model_run"
+       }
+      }
+     ]
+    }
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "pipeline_id": "orders-profile",
+     "description": "Profile a registered source, then record a classification run on it.",
+     "steps": [
+      {
+       "step_id": "profile",
+       "kind": "profile_dataset",
+       "depends_on": [],
+       "config": {
+        "dataset_input": {
+         "source_id": "orders-week-41"
+        },
+        "scope_id": "orders-week-41",
+        "feature_fields": [
+         "amount",
+         "items"
+        ],
+        "label_field": "returned",
+        "target_field": "dataset_profile"
+       }
+      },
+      {
+       "step_id": "score",
+       "kind": "run_model_job",
+       "depends_on": [
+        "profile"
+       ],
+       "config": {
+        "dataset_input": {
+         "source_id": "orders-week-41"
+        },
+        "scope_id": "orders-week-41",
+        "task_type": "classification",
+        "model_family": "random_forest",
+        "feature_fields": [
+         "amount",
+         "items"
+        ],
+        "label_field": "returned",
+        "target_field": "model_run"
+       }
+      }
+     ],
+     "registered_at": 1791979706
+    },
+    "trimmed": []
+   },
+   "planner_calls": [
+    "pipeline compile"
+   ]
+  },
+  {
+   "id": "list-pipelines",
+   "endpoint": "GET /api/v1/pipelines",
+   "title": "List the stored pipelines",
+   "volatile": [
+    "/pipelines/*/registered_at"
+   ],
+   "request": {
+    "method": "GET",
+    "path": "/api/v1/pipelines"
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "pipelines": [
+      {
+       "pipeline_id": "orders-profile",
+       "description": "Profile a registered source, then record a classification run on it.",
+       "steps": [
+        {
+         "step_id": "profile",
+         "kind": "profile_dataset",
+         "depends_on": [],
+         "config": {
+          "dataset_input": {
+           "source_id": "orders-week-41"
+          },
+          "scope_id": "orders-week-41",
+          "feature_fields": [
+           "amount",
+           "items"
+          ],
+          "label_field": "returned",
+          "target_field": "dataset_profile"
+         }
+        },
+        {
+         "step_id": "score",
+         "kind": "run_model_job",
+         "depends_on": [
+          "profile"
+         ],
+         "config": {
+          "dataset_input": {
+           "source_id": "orders-week-41"
+          },
+          "scope_id": "orders-week-41",
+          "task_type": "classification",
+          "model_family": "random_forest",
+          "feature_fields": [
+           "amount",
+           "items"
+          ],
+          "label_field": "returned",
+          "target_field": "model_run"
+         }
+        }
+       ],
+       "registered_at": 1791979706
+      },
+      {
+       "pipeline_id": "paid-large-orders",
+       "description": "Keep paid orders of 100 or more, add the batch date, and report their total.",
+       "steps": [
+        {
+         "step_id": "keep-paid-large",
+         "kind": "filter_items",
+         "depends_on": [],
+         "config": {
+          "items_field": "orders",
+          "conditions": [
+           {
+            "field": "status",
+            "operator": "eq",
+            "value": "paid"
+           },
+           {
+            "field": "amount",
+            "operator": "gte",
+            "value": 100
+           }
+          ]
+         }
+        },
+        {
+         "step_id": "tag-batch",
+         "kind": "enrich_context",
+         "depends_on": [],
+         "config": {
+          "target_field": "context",
+          "values": {
+           "batch": "2026-10-13",
+           "currency": "EUR"
+          }
+         }
+        },
+        {
+         "step_id": "totals",
+         "kind": "summarize_items",
+         "depends_on": [
+          "keep-paid-large"
+         ],
+         "config": {
+          "items_field": "orders",
+          "target_field": "summary",
+          "aggregations": [
+           {
+            "operation": "count",
+            "alias": "order_count"
+           },
+           {
+            "operation": "sum",
+            "field": "amount",
+            "alias": "total_amount"
+           },
+           {
+            "operation": "avg",
+            "field": "amount",
+            "alias": "average_amount"
+           },
+           {
+            "operation": "max",
+            "field": "amount",
+            "alias": "largest_amount"
+           }
+          ]
+         }
+        },
+        {
+         "step_id": "report",
+         "kind": "project_fields",
+         "depends_on": [
+          "totals",
+          "tag-batch"
+         ],
+         "config": {
+          "target_field": "report",
+          "fields": [
+           "context.batch",
+           "summary.order_count",
+           "summary.total_amount"
+          ]
+         }
+        }
+       ],
+       "registered_at": 1791979706
+      }
+     ]
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "list-pipeline-definitions",
+   "endpoint": "GET /api/v1/pipeline-definitions",
+   "title": "List the stored pipelines by the other path",
+   "description": "The same handler as GET /api/v1/pipelines.",
+   "volatile": [
+    "/pipelines/*/registered_at"
+   ],
+   "request": {
+    "method": "GET",
+    "path": "/api/v1/pipeline-definitions"
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "pipelines": [
+      {
+       "pipeline_id": "orders-profile",
+       "description": "Profile a registered source, then record a classification run on it.",
+       "steps": [
+        {
+         "step_id": "profile",
+         "kind": "profile_dataset",
+         "depends_on": [],
+         "config": {
+          "dataset_input": {
+           "source_id": "orders-week-41"
+          },
+          "scope_id": "orders-week-41",
+          "feature_fields": [
+           "amount",
+           "items"
+          ],
+          "label_field": "returned",
+          "target_field": "dataset_profile"
+         }
+        },
+        {
+         "step_id": "score",
+         "kind": "run_model_job",
+         "depends_on": [
+          "profile"
+         ],
+         "config": {
+          "dataset_input": {
+           "source_id": "orders-week-41"
+          },
+          "scope_id": "orders-week-41",
+          "task_type": "classification",
+          "model_family": "random_forest",
+          "feature_fields": [
+           "amount",
+           "items"
+          ],
+          "label_field": "returned",
+          "target_field": "model_run"
+         }
+        }
+       ],
+       "registered_at": 1791979706
+      },
+      {
+       "pipeline_id": "paid-large-orders",
+       "description": "Keep paid orders of 100 or more, add the batch date, and report their total.",
+       "steps": [
+        {
+         "step_id": "keep-paid-large",
+         "kind": "filter_items",
+         "depends_on": [],
+         "config": {
+          "items_field": "orders",
+          "conditions": [
+           {
+            "field": "status",
+            "operator": "eq",
+            "value": "paid"
+           },
+           {
+            "field": "amount",
+            "operator": "gte",
+            "value": 100
+           }
+          ]
+         }
+        },
+        {
+         "step_id": "tag-batch",
+         "kind": "enrich_context",
+         "depends_on": [],
+         "config": {
+          "target_field": "context",
+          "values": {
+           "batch": "2026-10-13",
+           "currency": "EUR"
+          }
+         }
+        },
+        {
+         "step_id": "totals",
+         "kind": "summarize_items",
+         "depends_on": [
+          "keep-paid-large"
+         ],
+         "config": {
+          "items_field": "orders",
+          "target_field": "summary",
+          "aggregations": [
+           {
+            "operation": "count",
+            "alias": "order_count"
+           },
+           {
+            "operation": "sum",
+            "field": "amount",
+            "alias": "total_amount"
+           },
+           {
+            "operation": "avg",
+            "field": "amount",
+            "alias": "average_amount"
+           },
+           {
+            "operation": "max",
+            "field": "amount",
+            "alias": "largest_amount"
+           }
+          ]
+         }
+        },
+        {
+         "step_id": "report",
+         "kind": "project_fields",
+         "depends_on": [
+          "totals",
+          "tag-batch"
+         ],
+         "config": {
+          "target_field": "report",
+          "fields": [
+           "context.batch",
+           "summary.order_count",
+           "summary.total_amount"
+          ]
+         }
+        }
+       ],
+       "registered_at": 1791979706
+      }
+     ]
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "get-definition",
+   "endpoint": "GET /api/v1/pipeline-definitions/{pipeline_id}",
+   "title": "Fetch one pipeline",
+   "volatile": [
+    "/registered_at"
+   ],
+   "request": {
+    "method": "GET",
+    "path": "/api/v1/pipeline-definitions/orders-profile"
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "pipeline_id": "orders-profile",
+     "description": "Profile a registered source, then record a classification run on it.",
+     "steps": [
+      {
+       "step_id": "profile",
+       "kind": "profile_dataset",
+       "depends_on": [],
+       "config": {
+        "dataset_input": {
+         "source_id": "orders-week-41"
+        },
+        "scope_id": "orders-week-41",
+        "feature_fields": [
+         "amount",
+         "items"
+        ],
+        "label_field": "returned",
+        "target_field": "dataset_profile"
+       }
+      },
+      {
+       "step_id": "score",
+       "kind": "run_model_job",
+       "depends_on": [
+        "profile"
+       ],
+       "config": {
+        "dataset_input": {
+         "source_id": "orders-week-41"
+        },
+        "scope_id": "orders-week-41",
+        "task_type": "classification",
+        "model_family": "random_forest",
+        "feature_fields": [
+         "amount",
+         "items"
+        ],
+        "label_field": "returned",
+        "target_field": "model_run"
+       }
+      }
+     ],
+     "registered_at": 1791979706
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "get-missing-definition",
+   "endpoint": "GET /api/v1/pipeline-definitions/{pipeline_id}",
+   "title": "Fetch a pipeline that does not exist",
+   "request": {
+    "method": "GET",
+    "path": "/api/v1/pipeline-definitions/no-such-pipeline"
+   },
+   "response": {
+    "status": 404,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "detail": "Unknown pipeline: no-such-pipeline"
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "validate-definition",
+   "endpoint": "POST /api/v1/pipeline-definitions/{pipeline_id}:validate",
+   "title": "Check a stored pipeline again",
+   "volatile": [
+    "/registered_at"
+   ],
+   "request": {
+    "method": "POST",
+    "path": "/api/v1/pipeline-definitions/paid-large-orders:validate"
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "pipeline_id": "paid-large-orders",
+     "description": "Keep paid orders of 100 or more, add the batch date, and report their total.",
+     "steps": [
+      {
+       "step_id": "keep-paid-large",
+       "kind": "filter_items",
+       "depends_on": [],
+       "config": {
+        "items_field": "orders",
+        "conditions": [
+         {
+          "field": "status",
+          "operator": "eq",
+          "value": "paid"
+         },
+         {
+          "field": "amount",
+          "operator": "gte",
+          "value": 100
+         }
+        ]
+       }
+      },
+      {
+       "step_id": "tag-batch",
+       "kind": "enrich_context",
+       "depends_on": [],
+       "config": {
+        "target_field": "context",
+        "values": {
+         "batch": "2026-10-13",
+         "currency": "EUR"
+        }
+       }
+      },
+      {
+       "step_id": "totals",
+       "kind": "summarize_items",
+       "depends_on": [
+        "keep-paid-large"
+       ],
+       "config": {
+        "items_field": "orders",
+        "target_field": "summary",
+        "aggregations": [
+         {
+          "operation": "count",
+          "alias": "order_count"
+         },
+         {
+          "operation": "sum",
+          "field": "amount",
+          "alias": "total_amount"
+         },
+         {
+          "operation": "avg",
+          "field": "amount",
+          "alias": "average_amount"
+         },
+         {
+          "operation": "max",
+          "field": "amount",
+          "alias": "largest_amount"
+         }
+        ]
+       }
+      },
+      {
+       "step_id": "report",
+       "kind": "project_fields",
+       "depends_on": [
+        "totals",
+        "tag-batch"
+       ],
+       "config": {
+        "target_field": "report",
+        "fields": [
+         "context.batch",
+         "summary.order_count",
+         "summary.total_amount"
+        ]
+       }
+      }
+     ],
+     "registered_at": 1791979706
+    },
+    "trimmed": []
+   },
+   "planner_calls": [
+    "pipeline compile"
+   ]
+  },
+  {
+   "id": "validate-missing-definition",
+   "endpoint": "POST /api/v1/pipeline-definitions/{pipeline_id}:validate",
+   "title": "Check a pipeline that does not exist",
+   "request": {
+    "method": "POST",
+    "path": "/api/v1/pipeline-definitions/no-such-pipeline:validate"
+   },
+   "response": {
+    "status": 404,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "detail": "Unknown pipeline: no-such-pipeline"
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "run-pipeline",
+   "endpoint": "POST /api/v1/pipelines/{pipeline_id}/runs",
+   "title": "Run the four-step pipeline and wait",
+   "volatile": [
+    "/run_id",
+    "/started_at",
+    "/completed_at",
+    "/step_results/*/started_at",
+    "/step_results/*/completed_at"
+   ],
+   "request": {
+    "method": "POST",
+    "path": "/api/v1/pipelines/paid-large-orders/runs",
+    "json": {
+     "payload": {
+      "orders": [
+       {
+        "order_id": "A-1001",
+        "amount": 42.5,
+        "status": "paid",
+        "customer": {
+         "country": "DE"
+        }
+       },
+       {
+        "order_id": "A-1002",
+        "amount": 180.0,
+        "status": "paid",
+        "customer": {
+         "country": "FR"
+        }
+       },
+       {
+        "order_id": "A-1003",
+        "amount": 260.0,
+        "status": "refunded",
+        "customer": {
+         "country": "DE"
+        }
+       },
+       {
+        "order_id": "A-1004",
+        "amount": 125.25,
+        "status": "paid",
+        "customer": {
+         "country": "DE"
+        }
+       },
+       {
+        "order_id": "A-1005",
+        "amount": 99.99,
+        "status": "paid",
+        "customer": {
+         "country": "NL"
+        }
+       },
+       {
+        "order_id": "A-1006",
+        "amount": 310.0,
+        "status": "paid",
+        "customer": {
+         "country": "NL"
+        }
+       }
+      ]
+     }
+    }
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "run_id": "paid-large-orders-run-1791979706756",
+     "pipeline_id": "paid-large-orders",
+     "status": "completed",
+     "started_at": 1791979706,
+     "completed_at": 1791979706,
+     "final_payload": {
+      "orders": [
+       {
+        "order_id": "A-1002",
+        "amount": 180.0,
+        "status": "paid",
+        "customer": {
+         "country": "FR"
+        }
+       },
+       {
+        "order_id": "A-1004",
+        "amount": 125.25,
+        "status": "paid",
+        "customer": {
+         "country": "DE"
+        }
+       },
+       {
+        "order_id": "A-1006",
+        "amount": 310.0,
+        "status": "paid",
+        "customer": {
+         "country": "NL"
+        }
+       }
+      ],
+      "context": {
+       "batch": "2026-10-13",
+       "currency": "EUR"
+      },
+      "summary": {
+       "order_count": 3,
+       "total_amount": 615.25,
+       "average_amount": 205.08333333333334,
+       "largest_amount": 310.0
+      },
+      "report": {
+       "context.batch": "2026-10-13",
+       "summary.order_count": 3,
+       "summary.total_amount": 615.25
+      }
+     },
+     "step_results": [
+      {
+       "step_id": "keep-paid-large",
+       "kind": "filter_items",
+       "status": "completed",
+       "output": {
+        "items_field": "orders",
+        "input_count": 6,
+        "output_count": 3
+       },
+       "started_at": 1791979706,
+       "completed_at": 1791979706
+      },
+      {
+       "step_id": "tag-batch",
+       "kind": "enrich_context",
+       "status": "completed",
+       "output": {
+        "target_field": "context",
+        "merged_keys": [
+         "batch",
+         "currency"
+        ]
+       },
+       "started_at": 1791979706,
+       "completed_at": 1791979706
+      },
+      {
+       "step_id": "totals",
+       "kind": "summarize_items",
+       "status": "completed",
+       "output": {
+        "target_field": "summary",
+        "summary_keys": [
+         "average_amount",
+         "largest_amount",
+         "order_count",
+         "total_amount"
+        ]
+       },
+       "started_at": 1791979706,
+       "completed_at": 1791979706
+      },
+      {
+       "step_id": "report",
+       "kind": "project_fields",
+       "status": "completed",
+       "output": {
+        "target_field": "report",
+        "projected_fields": [
+         "context.batch",
+         "summary.order_count",
+         "summary.total_amount"
+        ]
+       },
+       "started_at": 1791979706,
+       "completed_at": 1791979706
+      }
+     ],
+     "error": null
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "run-profile-pipeline",
+   "endpoint": "POST /api/v1/pipelines/{pipeline_id}/runs",
+   "title": "Run the pipeline that reads the registered source",
+   "description": "The payload is empty: both steps read the source named in their config.",
+   "volatile": [
+    "/run_id",
+    "/started_at",
+    "/completed_at",
+    "/step_results/*/started_at",
+    "/step_results/*/completed_at",
+    "/final_payload/model_run/run_id",
+    "/final_payload/model_run/started_at",
+    "/final_payload/model_run/completed_at"
+   ],
+   "request": {
+    "method": "POST",
+    "path": "/api/v1/pipelines/orders-profile/runs",
+    "json": {
+     "payload": {}
+    }
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "run_id": "orders-profile-run-1791979706761",
+     "pipeline_id": "orders-profile",
+     "status": "completed",
+     "started_at": 1791979706,
+     "completed_at": 1791979706,
+     "final_payload": {
+      "dataset_profile": {
+       "scope_id": "orders-week-41",
+       "scope_kind": "source",
+       "extraction_strategy": "tabular",
+       "record_count": 6,
+       "feature_fields": [
+        "amount",
+        "items"
+       ],
+       "label_field": "returned",
+       "numeric_fields": [
+        "amount",
+        "items"
+       ],
+       "categorical_fields": [],
+       "partition_count": 1,
+       "suggested_models": [
+        "random_forest",
+        "xgboost",
+        "naive_bayes"
+       ]
+      },
+      "model_run": {
+       "run_id": "service-orders-week-41-1791979706",
+       "agent_role": "SERVICE",
+       "scope_id": "orders-week-41",
+       "scope_kind": "source",
+       "task_type": "classification",
+       "model_family": "random_forest",
+       "record_count": 6,
+       "feature_count": 2,
+       "batch_count": 1,
+       "status": "completed",
+       "metrics": {
+        "quality_score": 0.735,
+        "throughput_rows_per_batch": 6.0,
+        "feature_coverage": 1.0
+       },
+       "artifact_uri": "artifacts/service/orders-week-41/random_forest-v1.json",
+       "started_at": 1791979706,
+       "completed_at": 1791979706
+      }
+     },
+     "step_results": [
+      {
+       "step_id": "profile",
+       "kind": "profile_dataset",
+       "status": "completed",
+       "output": {
+        "target_field": "dataset_profile",
+        "record_count": 6,
+        "feature_count": 2
+       },
+       "started_at": 1791979706,
+       "completed_at": 1791979706
+      },
+      {
+       "step_id": "score",
+       "kind": "run_model_job",
+       "status": "completed",
+       "output": {
+        "target_field": "model_run",
+        "model_family": "random_forest",
+        "record_count": 6
+       },
+       "started_at": 1791979706,
+       "completed_at": 1791979706
+      }
+     ],
+     "error": null
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "run-missing-pipeline",
+   "endpoint": "POST /api/v1/pipelines/{pipeline_id}/runs",
+   "title": "Run a pipeline that does not exist",
+   "request": {
+    "method": "POST",
+    "path": "/api/v1/pipelines/no-such-pipeline/runs",
+    "json": {
+     "payload": {}
+    }
+   },
+   "response": {
+    "status": 404,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "detail": "Unknown pipeline: no-such-pipeline"
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "list-runs",
+   "endpoint": "GET /api/v1/runs",
+   "title": "List the two newest runs",
+   "volatile": [
+    "/runs/*/run_id",
+    "/runs/*/started_at",
+    "/runs/*/completed_at",
+    "/runs/*/step_results/*/started_at",
+    "/runs/*/step_results/*/completed_at",
+    "/runs/*/final_payload/model_run/run_id",
+    "/runs/*/final_payload/model_run/started_at",
+    "/runs/*/final_payload/model_run/completed_at"
+   ],
+   "trim": {
+    "items": 4
+   },
+   "request": {
+    "method": "GET",
+    "path": "/api/v1/runs",
+    "query": {
+     "limit": 2
+    }
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "runs": [
+      {
+       "run_id": "orders-profile-run-1791979706761",
+       "pipeline_id": "orders-profile",
+       "status": "completed",
+       "started_at": 1791979706,
+       "completed_at": 1791979706,
+       "final_payload": {
+        "dataset_profile": {
+         "scope_id": "orders-week-41",
+         "scope_kind": "source",
+         "extraction_strategy": "tabular",
+         "record_count": 6,
+         "feature_fields": [
+          "amount",
+          "items"
+         ],
+         "label_field": "returned",
+         "numeric_fields": [
+          "amount",
+          "items"
+         ],
+         "categorical_fields": [],
+         "partition_count": 1,
+         "suggested_models": [
+          "random_forest",
+          "xgboost",
+          "naive_bayes"
+         ]
+        },
+        "model_run": {
+         "run_id": "service-orders-week-41-1791979706",
+         "agent_role": "SERVICE",
+         "scope_id": "orders-week-41",
+         "scope_kind": "source",
+         "task_type": "classification",
+         "model_family": "random_forest",
+         "record_count": 6,
+         "feature_count": 2,
+         "batch_count": 1,
+         "status": "completed",
+         "metrics": {
+          "quality_score": 0.735,
+          "throughput_rows_per_batch": 6.0,
+          "feature_coverage": 1.0
+         },
+         "artifact_uri": "artifacts/service/orders-week-41/random_forest-v1.json",
+         "started_at": 1791979706,
+         "completed_at": 1791979706
+        }
+       },
+       "step_results": [
+        {
+         "step_id": "profile",
+         "kind": "profile_dataset",
+         "status": "completed",
+         "output": {
+          "target_field": "dataset_profile",
+          "record_count": 6,
+          "feature_count": 2
+         },
+         "started_at": 1791979706,
+         "completed_at": 1791979706
+        },
+        {
+         "step_id": "score",
+         "kind": "run_model_job",
+         "status": "completed",
+         "output": {
+          "target_field": "model_run",
+          "model_family": "random_forest",
+          "record_count": 6
+         },
+         "started_at": 1791979706,
+         "completed_at": 1791979706
+        }
+       ],
+       "error": null
+      },
+      {
+       "run_id": "paid-large-orders-run-1791979706756",
+       "pipeline_id": "paid-large-orders",
+       "status": "completed",
+       "started_at": 1791979706,
+       "completed_at": 1791979706,
+       "final_payload": {
+        "orders": [
+         {
+          "order_id": "A-1002",
+          "amount": 180.0,
+          "status": "paid",
+          "customer": {
+           "country": "FR"
+          }
+         },
+         {
+          "order_id": "A-1004",
+          "amount": 125.25,
+          "status": "paid",
+          "customer": {
+           "country": "DE"
+          }
+         },
+         {
+          "order_id": "A-1006",
+          "amount": 310.0,
+          "status": "paid",
+          "customer": {
+           "country": "NL"
+          }
+         }
+        ],
+        "context": {
+         "batch": "2026-10-13",
+         "currency": "EUR"
+        },
+        "summary": {
+         "order_count": 3,
+         "total_amount": 615.25,
+         "average_amount": 205.08333333333334,
+         "largest_amount": 310.0
+        },
+        "report": {
+         "context.batch": "2026-10-13",
+         "summary.order_count": 3,
+         "summary.total_amount": 615.25
+        }
+       },
+       "step_results": [
+        {
+         "step_id": "keep-paid-large",
+         "kind": "filter_items",
+         "status": "completed",
+         "output": {
+          "items_field": "orders",
+          "input_count": 6,
+          "output_count": 3
+         },
+         "started_at": 1791979706,
+         "completed_at": 1791979706
+        },
+        {
+         "step_id": "tag-batch",
+         "kind": "enrich_context",
+         "status": "completed",
+         "output": {
+          "target_field": "context",
+          "merged_keys": [
+           "batch",
+           "currency"
+          ]
+         },
+         "started_at": 1791979706,
+         "completed_at": 1791979706
+        },
+        {
+         "step_id": "totals",
+         "kind": "summarize_items",
+         "status": "completed",
+         "output": {
+          "target_field": "summary",
+          "summary_keys": [
+           "average_amount",
+           "largest_amount",
+           "order_count",
+           "total_amount"
+          ]
+         },
+         "started_at": 1791979706,
+         "completed_at": 1791979706
+        },
+        {
+         "step_id": "report",
+         "kind": "project_fields",
+         "status": "completed",
+         "output": {
+          "target_field": "report",
+          "projected_fields": [
+           "context.batch",
+           "summary.order_count",
+           "summary.total_amount"
+          ]
+         },
+         "started_at": 1791979706,
+         "completed_at": 1791979706
+        }
+       ],
+       "error": null
+      }
+     ]
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "list-pipeline-runs",
+   "endpoint": "GET /api/v1/pipeline-runs",
+   "title": "List the newest run by the other path",
+   "description": "The same handler as GET /api/v1/runs.",
+   "volatile": [
+    "/runs/*/run_id",
+    "/runs/*/started_at",
+    "/runs/*/completed_at",
+    "/runs/*/step_results/*/started_at",
+    "/runs/*/step_results/*/completed_at",
+    "/runs/*/final_payload/model_run/run_id",
+    "/runs/*/final_payload/model_run/started_at",
+    "/runs/*/final_payload/model_run/completed_at"
+   ],
+   "request": {
+    "method": "GET",
+    "path": "/api/v1/pipeline-runs",
+    "query": {
+     "limit": 1
+    }
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "runs": [
+      {
+       "run_id": "orders-profile-run-1791979706761",
+       "pipeline_id": "orders-profile",
+       "status": "completed",
+       "started_at": 1791979706,
+       "completed_at": 1791979706,
+       "final_payload": {
+        "dataset_profile": {
+         "scope_id": "orders-week-41",
+         "scope_kind": "source",
+         "extraction_strategy": "tabular",
+         "record_count": 6,
+         "feature_fields": [
+          "amount",
+          "items"
+         ],
+         "label_field": "returned",
+         "numeric_fields": [
+          "amount",
+          "items"
+         ],
+         "categorical_fields": [],
+         "partition_count": 1,
+         "suggested_models": [
+          "random_forest",
+          "xgboost",
+          "naive_bayes"
+         ]
+        },
+        "model_run": {
+         "run_id": "service-orders-week-41-1791979706",
+         "agent_role": "SERVICE",
+         "scope_id": "orders-week-41",
+         "scope_kind": "source",
+         "task_type": "classification",
+         "model_family": "random_forest",
+         "record_count": 6,
+         "feature_count": 2,
+         "batch_count": 1,
+         "status": "completed",
+         "metrics": {
+          "quality_score": 0.735,
+          "throughput_rows_per_batch": 6.0,
+          "feature_coverage": 1.0
+         },
+         "artifact_uri": "artifacts/service/orders-week-41/random_forest-v1.json",
+         "started_at": 1791979706,
+         "completed_at": 1791979706
+        }
+       },
+       "step_results": [
+        {
+         "step_id": "profile",
+         "kind": "profile_dataset",
+         "status": "completed",
+         "output": {
+          "target_field": "dataset_profile",
+          "record_count": 6,
+          "feature_count": 2
+         },
+         "started_at": 1791979706,
+         "completed_at": 1791979706
+        },
+        {
+         "step_id": "score",
+         "kind": "run_model_job",
+         "status": "completed",
+         "output": {
+          "target_field": "model_run",
+          "model_family": "random_forest",
+          "record_count": 6
+         },
+         "started_at": 1791979706,
+         "completed_at": 1791979706
+        }
+       ],
+       "error": null
+      }
+     ]
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "list-runs-422",
+   "endpoint": "GET /api/v1/runs",
+   "title": "A limit that is not a number",
+   "request": {
+    "method": "GET",
+    "path": "/api/v1/runs",
+    "query": {
+     "limit": "ten"
+    }
+   },
+   "response": {
+    "status": 422,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "detail": [
+      {
+       "type": "int_parsing",
+       "loc": [
+        "query",
+        "limit"
+       ],
+       "msg": "Input should be a valid integer, unable to parse string as an integer",
+       "input": "ten"
+      }
+     ]
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "get-run",
+   "endpoint": "GET /api/v1/runs/{run_id}",
+   "title": "Fetch the run the four-step pipeline example made",
+   "description": "The run_id in the path is the one the earlier run example returned. It comes from the clock, so the replay check compares the path template.",
+   "volatile": [
+    "/run_id",
+    "/started_at",
+    "/completed_at",
+    "/step_results/*/started_at",
+    "/step_results/*/completed_at"
+   ],
+   "request": {
+    "method": "GET",
+    "path": "/api/v1/runs/paid-large-orders-run-1791979706756"
+   },
+   "request_template": {
+    "path": "/api/v1/runs/{from:run-pipeline:/run_id}"
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "run_id": "paid-large-orders-run-1791979706756",
+     "pipeline_id": "paid-large-orders",
+     "status": "completed",
+     "started_at": 1791979706,
+     "completed_at": 1791979706,
+     "final_payload": {
+      "orders": [
+       {
+        "order_id": "A-1002",
+        "amount": 180.0,
+        "status": "paid",
+        "customer": {
+         "country": "FR"
+        }
+       },
+       {
+        "order_id": "A-1004",
+        "amount": 125.25,
+        "status": "paid",
+        "customer": {
+         "country": "DE"
+        }
+       },
+       {
+        "order_id": "A-1006",
+        "amount": 310.0,
+        "status": "paid",
+        "customer": {
+         "country": "NL"
+        }
+       }
+      ],
+      "context": {
+       "batch": "2026-10-13",
+       "currency": "EUR"
+      },
+      "summary": {
+       "order_count": 3,
+       "total_amount": 615.25,
+       "average_amount": 205.08333333333334,
+       "largest_amount": 310.0
+      },
+      "report": {
+       "context.batch": "2026-10-13",
+       "summary.order_count": 3,
+       "summary.total_amount": 615.25
+      }
+     },
+     "step_results": [
+      {
+       "step_id": "keep-paid-large",
+       "kind": "filter_items",
+       "status": "completed",
+       "output": {
+        "items_field": "orders",
+        "input_count": 6,
+        "output_count": 3
+       },
+       "started_at": 1791979706,
+       "completed_at": 1791979706
+      },
+      {
+       "step_id": "tag-batch",
+       "kind": "enrich_context",
+       "status": "completed",
+       "output": {
+        "target_field": "context",
+        "merged_keys": [
+         "batch",
+         "currency"
+        ]
+       },
+       "started_at": 1791979706,
+       "completed_at": 1791979706
+      },
+      {
+       "step_id": "totals",
+       "kind": "summarize_items",
+       "status": "completed",
+       "output": {
+        "target_field": "summary",
+        "summary_keys": [
+         "average_amount",
+         "largest_amount",
+         "order_count",
+         "total_amount"
+        ]
+       },
+       "started_at": 1791979706,
+       "completed_at": 1791979706
+      },
+      {
+       "step_id": "report",
+       "kind": "project_fields",
+       "status": "completed",
+       "output": {
+        "target_field": "report",
+        "projected_fields": [
+         "context.batch",
+         "summary.order_count",
+         "summary.total_amount"
+        ]
+       },
+       "started_at": 1791979706,
+       "completed_at": 1791979706
+      }
+     ],
+     "error": null
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "get-pipeline-run",
+   "endpoint": "GET /api/v1/pipeline-runs/{run_id}",
+   "title": "Fetch the same run by the other path",
+   "volatile": [
+    "/run_id",
+    "/started_at",
+    "/completed_at",
+    "/step_results/*/started_at",
+    "/step_results/*/completed_at"
+   ],
+   "request": {
+    "method": "GET",
+    "path": "/api/v1/pipeline-runs/paid-large-orders-run-1791979706756"
+   },
+   "request_template": {
+    "path": "/api/v1/pipeline-runs/{from:run-pipeline:/run_id}"
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "run_id": "paid-large-orders-run-1791979706756",
+     "pipeline_id": "paid-large-orders",
+     "status": "completed",
+     "started_at": 1791979706,
+     "completed_at": 1791979706,
+     "final_payload": {
+      "orders": [
+       {
+        "order_id": "A-1002",
+        "amount": 180.0,
+        "status": "paid",
+        "customer": {
+         "country": "FR"
+        }
+       },
+       {
+        "order_id": "A-1004",
+        "amount": 125.25,
+        "status": "paid",
+        "customer": {
+         "country": "DE"
+        }
+       },
+       {
+        "order_id": "A-1006",
+        "amount": 310.0,
+        "status": "paid",
+        "customer": {
+         "country": "NL"
+        }
+       }
+      ],
+      "context": {
+       "batch": "2026-10-13",
+       "currency": "EUR"
+      },
+      "summary": {
+       "order_count": 3,
+       "total_amount": 615.25,
+       "average_amount": 205.08333333333334,
+       "largest_amount": 310.0
+      },
+      "report": {
+       "context.batch": "2026-10-13",
+       "summary.order_count": 3,
+       "summary.total_amount": 615.25
+      }
+     },
+     "step_results": [
+      {
+       "step_id": "keep-paid-large",
+       "kind": "filter_items",
+       "status": "completed",
+       "output": {
+        "items_field": "orders",
+        "input_count": 6,
+        "output_count": 3
+       },
+       "started_at": 1791979706,
+       "completed_at": 1791979706
+      },
+      {
+       "step_id": "tag-batch",
+       "kind": "enrich_context",
+       "status": "completed",
+       "output": {
+        "target_field": "context",
+        "merged_keys": [
+         "batch",
+         "currency"
+        ]
+       },
+       "started_at": 1791979706,
+       "completed_at": 1791979706
+      },
+      {
+       "step_id": "totals",
+       "kind": "summarize_items",
+       "status": "completed",
+       "output": {
+        "target_field": "summary",
+        "summary_keys": [
+         "average_amount",
+         "largest_amount",
+         "order_count",
+         "total_amount"
+        ]
+       },
+       "started_at": 1791979706,
+       "completed_at": 1791979706
+      },
+      {
+       "step_id": "report",
+       "kind": "project_fields",
+       "status": "completed",
+       "output": {
+        "target_field": "report",
+        "projected_fields": [
+         "context.batch",
+         "summary.order_count",
+         "summary.total_amount"
+        ]
+       },
+       "started_at": 1791979706,
+       "completed_at": 1791979706
+      }
+     ],
+     "error": null
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "get-missing-run",
+   "endpoint": "GET /api/v1/runs/{run_id}",
+   "title": "Fetch a run that does not exist",
+   "request": {
+    "method": "GET",
+    "path": "/api/v1/runs/paid-large-orders-run-0"
+   },
+   "response": {
+    "status": 404,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "detail": "Unknown run: paid-large-orders-run-0"
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "get-missing-pipeline-run",
+   "endpoint": "GET /api/v1/pipeline-runs/{run_id}",
+   "title": "Fetch a run that does not exist, by the other path",
+   "request": {
+    "method": "GET",
+    "path": "/api/v1/pipeline-runs/paid-large-orders-run-0"
+   },
+   "response": {
+    "status": 404,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "detail": "Unknown run: paid-large-orders-run-0"
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "register-broken-summary",
+   "endpoint": "POST /api/v1/pipelines",
+   "title": "Register a pipeline whose step config is wrong",
+   "show": false,
+   "volatile": [
+    "/registered_at"
+   ],
+   "request": {
+    "method": "POST",
+    "path": "/api/v1/pipelines",
+    "json": {
+     "pipeline_id": "broken-summary",
+     "steps": [
+      {
+       "step_id": "totals",
+       "kind": "summarize_items",
+       "config": {
+        "items_field": "orders",
+        "aggregations": [
+         {
+          "operation": "sum"
+         }
+        ]
+       }
+      }
+     ]
+    }
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "pipeline_id": "broken-summary",
+     "description": "",
+     "steps": [
+      {
+       "step_id": "totals",
+       "kind": "summarize_items",
+       "depends_on": [],
+       "config": {
+        "items_field": "orders",
+        "aggregations": [
+         {
+          "operation": "sum"
+         }
+        ]
+       }
+      }
+     ],
+     "registered_at": 1791979706
+    },
+    "trimmed": []
+   },
+   "planner_calls": [
+    "pipeline compile"
+   ]
+  },
+  {
+   "id": "run-broken-summary",
+   "endpoint": "POST /api/v1/pipelines/{pipeline_id}/runs",
+   "title": "A step whose config is wrong",
+   "description": "The graph is valid, so registration succeeded; the sum has no field, so the run fails. Nothing is stored.",
+   "request": {
+    "method": "POST",
+    "path": "/api/v1/pipelines/broken-summary/runs",
+    "json": {
+     "payload": {
+      "orders": [
+       {
+        "order_id": "A-1001",
+        "amount": 42.5,
+        "status": "paid",
+        "customer": {
+         "country": "DE"
+        }
+       },
+       {
+        "order_id": "A-1002",
+        "amount": 180.0,
+        "status": "paid",
+        "customer": {
+         "country": "FR"
+        }
+       },
+       {
+        "order_id": "A-1003",
+        "amount": 260.0,
+        "status": "refunded",
+        "customer": {
+         "country": "DE"
+        }
+       },
+       {
+        "order_id": "A-1004",
+        "amount": 125.25,
+        "status": "paid",
+        "customer": {
+         "country": "DE"
+        }
+       },
+       {
+        "order_id": "A-1005",
+        "amount": 99.99,
+        "status": "paid",
+        "customer": {
+         "country": "NL"
+        }
+       },
+       {
+        "order_id": "A-1006",
+        "amount": 310.0,
+        "status": "paid",
+        "customer": {
+         "country": "NL"
+        }
+       }
+      ]
+     }
+    }
+   },
+   "response": {
+    "status": 404,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "detail": "Aggregation sum requires a field"
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "submit-run",
+   "endpoint": "POST /api/v1/pipeline-runs",
+   "title": "Queue a run and answer at once",
+   "description": "The run is queued; it executes on a background thread after the answer.",
+   "volatile": [
+    "/run_id",
+    "/started_at"
+   ],
+   "trim": {
+    "items": 6
+   },
+   "request": {
+    "method": "POST",
+    "path": "/api/v1/pipeline-runs",
+    "json": {
+     "pipeline_id": "paid-large-orders",
+     "payload": {
+      "orders": [
+       {
+        "order_id": "A-1001",
+        "amount": 42.5,
+        "status": "paid",
+        "customer": {
+         "country": "DE"
+        }
+       },
+       {
+        "order_id": "A-1002",
+        "amount": 180.0,
+        "status": "paid",
+        "customer": {
+         "country": "FR"
+        }
+       },
+       {
+        "order_id": "A-1003",
+        "amount": 260.0,
+        "status": "refunded",
+        "customer": {
+         "country": "DE"
+        }
+       },
+       {
+        "order_id": "A-1004",
+        "amount": 125.25,
+        "status": "paid",
+        "customer": {
+         "country": "DE"
+        }
+       },
+       {
+        "order_id": "A-1005",
+        "amount": 99.99,
+        "status": "paid",
+        "customer": {
+         "country": "NL"
+        }
+       },
+       {
+        "order_id": "A-1006",
+        "amount": 310.0,
+        "status": "paid",
+        "customer": {
+         "country": "NL"
+        }
+       }
+      ]
+     }
+    }
+   },
+   "response": {
+    "status": 202,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "run_id": "paid-large-orders-run-1791979706786",
+     "pipeline_id": "paid-large-orders",
+     "status": "queued",
+     "started_at": 1791979706,
+     "completed_at": 0,
+     "final_payload": {
+      "orders": [
+       {
+        "order_id": "A-1001",
+        "amount": 42.5,
+        "status": "paid",
+        "customer": {
+         "country": "DE"
+        }
+       },
+       {
+        "order_id": "A-1002",
+        "amount": 180.0,
+        "status": "paid",
+        "customer": {
+         "country": "FR"
+        }
+       },
+       {
+        "order_id": "A-1003",
+        "amount": 260.0,
+        "status": "refunded",
+        "customer": {
+         "country": "DE"
+        }
+       },
+       {
+        "order_id": "A-1004",
+        "amount": 125.25,
+        "status": "paid",
+        "customer": {
+         "country": "DE"
+        }
+       },
+       {
+        "order_id": "A-1005",
+        "amount": 99.99,
+        "status": "paid",
+        "customer": {
+         "country": "NL"
+        }
+       },
+       {
+        "order_id": "A-1006",
+        "amount": 310.0,
+        "status": "paid",
+        "customer": {
+         "country": "NL"
+        }
+       }
+      ]
+     },
+     "step_results": [],
+     "error": null
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "submit-run-without-id",
+   "endpoint": "POST /api/v1/pipeline-runs",
+   "title": "Queue a run without a pipeline id",
+   "request": {
+    "method": "POST",
+    "path": "/api/v1/pipeline-runs",
+    "json": {
+     "payload": {
+      "orders": [
+       {
+        "order_id": "A-1001",
+        "amount": 42.5,
+        "status": "paid",
+        "customer": {
+         "country": "DE"
+        }
+       },
+       {
+        "order_id": "A-1002",
+        "amount": 180.0,
+        "status": "paid",
+        "customer": {
+         "country": "FR"
+        }
+       },
+       {
+        "order_id": "A-1003",
+        "amount": 260.0,
+        "status": "refunded",
+        "customer": {
+         "country": "DE"
+        }
+       },
+       {
+        "order_id": "A-1004",
+        "amount": 125.25,
+        "status": "paid",
+        "customer": {
+         "country": "DE"
+        }
+       },
+       {
+        "order_id": "A-1005",
+        "amount": 99.99,
+        "status": "paid",
+        "customer": {
+         "country": "NL"
+        }
+       },
+       {
+        "order_id": "A-1006",
+        "amount": 310.0,
+        "status": "paid",
+        "customer": {
+         "country": "NL"
+        }
+       }
+      ]
+     }
+    }
+   },
+   "response": {
+    "status": 404,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "detail": "pipeline_id is required"
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  }
+ ]
+}

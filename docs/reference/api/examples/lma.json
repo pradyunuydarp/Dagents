@@ -1,0 +1,2586 @@
+{
+ "service": "lma",
+ "generated_by": "scripts/capture_api_examples.py",
+ "note": "Captured in process with the planner available. The requests run in this order against one new agent, so later requests see what earlier ones stored.",
+ "examples": [
+  {
+   "id": "health",
+   "endpoint": "GET /api/v1/health",
+   "title": "Check the agent before anything is stored",
+   "request": {
+    "method": "GET",
+    "path": "/api/v1/health"
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "status": "ok",
+     "agent_type": "LMA",
+     "deployed_bundles": 0,
+     "runs": 0,
+     "model_runs": 0,
+     "active_bundle": null
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "deploy-bundle",
+   "endpoint": "POST /bundles/deploy",
+   "title": "Deploy a monitoring bundle",
+   "request": {
+    "method": "POST",
+    "path": "/bundles/deploy",
+    "json": {
+     "agent": {
+      "agent_id": "lma-store-north",
+      "workspace_id": "store-north",
+      "name": "LMA for the north store"
+     },
+     "bundle_id": "order-checks",
+     "bundle_version": "1.4.0",
+     "bundle_uri": "oci://registry.example.com/dagents/order-checks:1.4.0",
+     "signature": "sha256:5f1c0e"
+    }
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "accepted": true,
+     "message": "Deployed bundle order-checks:1.4.0"
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "deploy-bundle-422",
+   "endpoint": "POST /bundles/deploy",
+   "title": "A deploy without a bundle version",
+   "request": {
+    "method": "POST",
+    "path": "/bundles/deploy",
+    "json": {
+     "agent": {
+      "agent_id": "lma-store-north",
+      "workspace_id": "store-north",
+      "name": "LMA for the north store"
+     },
+     "bundle_id": "order-checks"
+    }
+   },
+   "response": {
+    "status": 422,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "detail": [
+      {
+       "type": "missing",
+       "loc": [
+        "body",
+        "bundle_version"
+       ],
+       "msg": "Field required",
+       "input": {
+        "agent": {
+         "agent_id": "lma-store-north",
+         "workspace_id": "store-north",
+         "name": "LMA for the north store"
+        },
+        "bundle_id": "order-checks"
+       }
+      }
+     ]
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "list-bundles",
+   "endpoint": "GET /bundles",
+   "title": "List the deployed bundles",
+   "volatile": [
+    "/*/deployed_at"
+   ],
+   "request": {
+    "method": "GET",
+    "path": "/bundles"
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": [
+     {
+      "bundle_id": "order-checks",
+      "bundle_version": "1.4.0",
+      "bundle_uri": "oci://registry.example.com/dagents/order-checks:1.4.0",
+      "signature": "sha256:5f1c0e",
+      "deployed_at": 1791970325,
+      "config_digest": "4e34d7cfe08d9bd3e286804e474a171396a525691f427ac27477c21d0730ab5e"
+     }
+    ],
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "run-bundle",
+   "endpoint": "POST /run",
+   "title": "Run the deployed bundle once",
+   "volatile": [
+    "/run/started_at",
+    "/run/completed_at",
+    "/telemetry/metrics/*/observed_at"
+   ],
+   "request": {
+    "method": "POST",
+    "path": "/run",
+    "json": {
+     "correlation_id": "nightly-2026-10-14",
+     "bundle_id": "order-checks",
+     "bundle_version": "1.4.0",
+     "scope": {
+      "table": "orders",
+      "store": "north"
+     },
+     "metadata": {
+      "workspace_id": "store-north",
+      "triggered_by": "scheduler"
+     }
+    }
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "run": {
+      "run_id": "run-nightly-2026-10-14",
+      "correlation_id": "nightly-2026-10-14",
+      "bundle_id": "order-checks",
+      "bundle_version": "1.4.0",
+      "scope": {
+       "table": "orders",
+       "store": "north"
+      },
+      "status": "COMPLETED",
+      "started_at": 1791970325,
+      "completed_at": 1791970325,
+      "metrics_emitted": 2,
+      "pointers": {
+       "scope": "{'table': 'orders', 'store': 'north'}",
+       "bundle_uri": "oci://registry.example.com/dagents/order-checks:1.4.0",
+       "correlation_id": "nightly-2026-10-14"
+      }
+     },
+     "telemetry": {
+      "agent": {
+       "agent_id": "lma-dev-1",
+       "workspace_id": "store-north",
+       "name": "dagents-local-monitoring-agent",
+       "agent_type": "LMA"
+      },
+      "metrics": [
+       {
+        "key": "local_checks_total",
+        "value": 2.0,
+        "labels": {
+         "bundle_id": "order-checks",
+         "bundle_version": "1.4.0"
+        },
+        "observed_at": 1791970325
+       },
+       {
+        "key": "metadata_fields_total",
+        "value": 2.0,
+        "labels": {
+         "correlation_id": "nightly-2026-10-14"
+        },
+        "observed_at": 1791970325
+       }
+      ],
+      "pointers": {
+       "scope": "{'table': 'orders', 'store': 'north'}",
+       "bundle_uri": "oci://registry.example.com/dagents/order-checks:1.4.0",
+       "correlation_id": "nightly-2026-10-14"
+      }
+     }
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "run-bundle-422",
+   "endpoint": "POST /run",
+   "title": "A run without a correlation id",
+   "request": {
+    "method": "POST",
+    "path": "/run",
+    "json": {
+     "bundle_id": "order-checks",
+     "bundle_version": "1.4.0"
+    }
+   },
+   "response": {
+    "status": 422,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "detail": [
+      {
+       "type": "missing",
+       "loc": [
+        "body",
+        "correlation_id"
+       ],
+       "msg": "Field required",
+       "input": {
+        "bundle_id": "order-checks",
+        "bundle_version": "1.4.0"
+       }
+      }
+     ]
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "list-runs",
+   "endpoint": "GET /runs",
+   "title": "List the newest runs",
+   "volatile": [
+    "/*/started_at",
+    "/*/completed_at"
+   ],
+   "request": {
+    "method": "GET",
+    "path": "/runs",
+    "query": {
+     "limit": 5
+    }
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": [
+     {
+      "run_id": "run-nightly-2026-10-14",
+      "correlation_id": "nightly-2026-10-14",
+      "bundle_id": "order-checks",
+      "bundle_version": "1.4.0",
+      "scope": {
+       "table": "orders",
+       "store": "north"
+      },
+      "status": "COMPLETED",
+      "started_at": 1791970325,
+      "completed_at": 1791970325,
+      "metrics_emitted": 2,
+      "pointers": {
+       "scope": "{'table': 'orders', 'store': 'north'}",
+       "bundle_uri": "oci://registry.example.com/dagents/order-checks:1.4.0",
+       "correlation_id": "nightly-2026-10-14"
+      }
+     }
+    ],
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "list-runs-422",
+   "endpoint": "GET /runs",
+   "title": "A limit that is not a number",
+   "request": {
+    "method": "GET",
+    "path": "/runs",
+    "query": {
+     "limit": "many"
+    }
+   },
+   "response": {
+    "status": 422,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "detail": [
+      {
+       "type": "int_parsing",
+       "loc": [
+        "query",
+        "limit"
+       ],
+       "msg": "Input should be a valid integer, unable to parse string as an integer",
+       "input": "many"
+      }
+     ]
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "list-telemetry",
+   "endpoint": "GET /telemetry",
+   "title": "List the telemetry the runs published",
+   "volatile": [
+    "/*/metrics/*/observed_at"
+   ],
+   "request": {
+    "method": "GET",
+    "path": "/telemetry",
+    "query": {
+     "limit": 5
+    }
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": [
+     {
+      "agent": {
+       "agent_id": "lma-dev-1",
+       "workspace_id": "store-north",
+       "name": "dagents-local-monitoring-agent",
+       "agent_type": "LMA"
+      },
+      "metrics": [
+       {
+        "key": "local_checks_total",
+        "value": 2.0,
+        "labels": {
+         "bundle_id": "order-checks",
+         "bundle_version": "1.4.0"
+        },
+        "observed_at": 1791970325
+       },
+       {
+        "key": "metadata_fields_total",
+        "value": 2.0,
+        "labels": {
+         "correlation_id": "nightly-2026-10-14"
+        },
+        "observed_at": 1791970325
+       }
+      ],
+      "pointers": {
+       "scope": "{'table': 'orders', 'store': 'north'}",
+       "bundle_uri": "oci://registry.example.com/dagents/order-checks:1.4.0",
+       "correlation_id": "nightly-2026-10-14"
+      }
+     }
+    ],
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "health-after-run",
+   "endpoint": "GET /health",
+   "title": "Check the agent after a deploy and a run",
+   "description": "The short path answers with the same handler. active_bundle now names the deployed bundle.",
+   "request": {
+    "method": "GET",
+    "path": "/health"
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "status": "ok",
+     "agent_type": "LMA",
+     "deployed_bundles": 1,
+     "runs": 1,
+     "model_runs": 0,
+     "active_bundle": "order-checks:1.4.0"
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "register-inline-source",
+   "endpoint": "POST /api/v1/sources",
+   "title": "Register an inline source",
+   "request": {
+    "method": "POST",
+    "path": "/api/v1/sources",
+    "json": {
+     "source_id": "store-north-orders",
+     "kind": "inline",
+     "selection": {
+      "records": [
+       {
+        "order_id": "N-001",
+        "order_value": 53.57,
+        "items": 1,
+        "category": "shoes",
+        "customer_age_band": "18-24",
+        "loyalty_member": false,
+        "returned": false
+       },
+       {
+        "order_id": "N-002",
+        "order_value": 56.57,
+        "items": 1,
+        "category": "electronics",
+        "customer_age_band": "18-24",
+        "loyalty_member": true,
+        "returned": false
+       },
+       {
+        "order_id": "N-003",
+        "order_value": 95.84,
+        "items": 2,
+        "category": "clothing",
+        "customer_age_band": "55+",
+        "loyalty_member": false,
+        "returned": false
+       },
+       {
+        "order_id": "N-004",
+        "order_value": 109.36,
+        "items": 5,
+        "category": "clothing",
+        "customer_age_band": "18-24",
+        "loyalty_member": true,
+        "returned": true
+       },
+       {
+        "order_id": "N-005",
+        "order_value": 142.17,
+        "items": 3,
+        "category": "clothing",
+        "customer_age_band": "25-34",
+        "loyalty_member": false,
+        "returned": true
+       },
+       {
+        "order_id": "N-006",
+        "order_value": 127.73,
+        "items": 4,
+        "category": "clothing",
+        "customer_age_band": "25-34",
+        "loyalty_member": false,
+        "returned": true
+       }
+      ]
+     },
+     "batching": {
+      "batch_size": 500
+     }
+    }
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "source_id": "store-north-orders",
+     "kind": "inline",
+     "connection_ref": null,
+     "selection": {
+      "records": [
+       {
+        "order_id": "N-001",
+        "order_value": 53.57,
+        "items": 1,
+        "category": "shoes",
+        "customer_age_band": "18-24",
+        "loyalty_member": false,
+        "returned": false
+       },
+       {
+        "order_id": "N-002",
+        "order_value": 56.57,
+        "items": 1,
+        "category": "electronics",
+        "customer_age_band": "18-24",
+        "loyalty_member": true,
+        "returned": false
+       },
+       {
+        "order_id": "N-003",
+        "order_value": 95.84,
+        "items": 2,
+        "category": "clothing",
+        "customer_age_band": "55+",
+        "loyalty_member": false,
+        "returned": false
+       },
+       {
+        "order_id": "N-004",
+        "order_value": 109.36,
+        "items": 5,
+        "category": "clothing",
+        "customer_age_band": "18-24",
+        "loyalty_member": true,
+        "returned": true
+       },
+       {
+        "order_id": "N-005",
+        "order_value": 142.17,
+        "items": 3,
+        "category": "clothing",
+        "customer_age_band": "25-34",
+        "loyalty_member": false,
+        "returned": true
+       }
+      ]
+     },
+     "format": "rows",
+     "schema_hint": {},
+     "batching": {
+      "batch_size": 500,
+      "max_records": null
+     },
+     "checkpoint": {},
+     "options": {}
+    },
+    "trimmed": [
+     {
+      "pointer": "/selection/records",
+      "note": "6 items, cut to 5"
+     }
+    ]
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "register-postgres-source",
+   "endpoint": "POST /api/v1/sources",
+   "title": "Register a Postgres table",
+   "request": {
+    "method": "POST",
+    "path": "/api/v1/sources",
+    "json": {
+     "source_id": "store-north-db",
+     "kind": "postgres",
+     "connection_ref": {
+      "connection_id": "store-north"
+     },
+     "selection": {
+      "table": "orders",
+      "columns": [
+       "order_id",
+       "order_value",
+       "items",
+       "category",
+       "customer_age_band",
+       "loyalty_member",
+       "returned"
+      ],
+      "order_by": [
+       "order_id"
+      ]
+     },
+     "batching": {
+      "batch_size": 1000,
+      "max_records": 5000
+     }
+    }
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "source_id": "store-north-db",
+     "kind": "postgres",
+     "connection_ref": {
+      "connection_id": "store-north",
+      "options": {}
+     },
+     "selection": {
+      "sql": null,
+      "table": "orders",
+      "columns": [
+       "order_id",
+       "order_value",
+       "items",
+       "category",
+       "customer_age_band"
+      ],
+      "where": null,
+      "order_by": [
+       "order_id"
+      ]
+     },
+     "format": "rows",
+     "schema_hint": {},
+     "batching": {
+      "batch_size": 1000,
+      "max_records": 5000
+     },
+     "checkpoint": {},
+     "options": {}
+    },
+    "trimmed": [
+     {
+      "pointer": "/selection/columns",
+      "note": "7 items, cut to 5"
+     }
+    ]
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "register-csv-source",
+   "endpoint": "POST /api/v1/sources",
+   "title": "Register a CSV file",
+   "description": "The path is read relative to the directory the LMA runs in, here the repository root.",
+   "request": {
+    "method": "POST",
+    "path": "/api/v1/sources",
+    "json": {
+     "source_id": "store-north-csv",
+     "kind": "object_storage",
+     "connection_ref": {
+      "connection_id": "local-files"
+     },
+     "selection": {
+      "uri": "examples/getting-started/data/store-north.csv"
+     },
+     "format": "csv"
+    }
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "source_id": "store-north-csv",
+     "kind": "object_storage",
+     "connection_ref": {
+      "connection_id": "local-files",
+      "options": {}
+     },
+     "selection": {
+      "uri": "examples/getting-started/data/store-north.csv",
+      "prefix": null,
+      "glob": null,
+      "compression": null
+     },
+     "format": "csv",
+     "schema_hint": {},
+     "batching": {
+      "batch_size": 1000,
+      "max_records": null
+     },
+     "checkpoint": {},
+     "options": {}
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "register-reserved-role",
+   "endpoint": "POST /api/v1/sources",
+   "title": "Register a source whose role name is reserved",
+   "description": "Registration checks only the shape of the body, so this succeeds. Validation finds the problem.",
+   "request": {
+    "method": "POST",
+    "path": "/api/v1/sources",
+    "json": {
+     "source_id": "store-south-db",
+     "kind": "postgres",
+     "connection_ref": {
+      "connection_id": "store-south",
+      "options": {
+       "role": "postgres"
+      }
+     },
+     "selection": {
+      "table": "orders"
+     }
+    }
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "source_id": "store-south-db",
+     "kind": "postgres",
+     "connection_ref": {
+      "connection_id": "store-south",
+      "options": {
+       "role": "postgres"
+      }
+     },
+     "selection": {
+      "sql": null,
+      "table": "orders",
+      "columns": [],
+      "where": null,
+      "order_by": []
+     },
+     "format": "rows",
+     "schema_hint": {},
+     "batching": {
+      "batch_size": 1000,
+      "max_records": null
+     },
+     "checkpoint": {},
+     "options": {}
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "register-source-422",
+   "endpoint": "POST /api/v1/sources",
+   "title": "A body that is not a JSON object",
+   "request": {
+    "method": "POST",
+    "path": "/api/v1/sources",
+    "json": [
+     {
+      "source_id": "store-north-orders"
+     }
+    ]
+   },
+   "response": {
+    "status": 422,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "detail": [
+      {
+       "type": "dict_type",
+       "loc": [
+        "body"
+       ],
+       "msg": "Input should be a valid dictionary",
+       "input": [
+        {
+         "source_id": "store-north-orders"
+        }
+       ]
+      }
+     ]
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "list-sources",
+   "endpoint": "GET /api/v1/sources",
+   "title": "List the registered sources",
+   "trim": {
+    "items": 2
+   },
+   "request": {
+    "method": "GET",
+    "path": "/api/v1/sources"
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": [
+     {
+      "source_id": "store-north-csv",
+      "kind": "object_storage",
+      "connection_ref": {
+       "connection_id": "local-files",
+       "options": {}
+      },
+      "selection": {
+       "uri": "examples/getting-started/data/store-north.csv",
+       "prefix": null,
+       "glob": null,
+       "compression": null
+      },
+      "format": "csv",
+      "schema_hint": {},
+      "batching": {
+       "batch_size": 1000,
+       "max_records": null
+      },
+      "checkpoint": {},
+      "options": {}
+     },
+     {
+      "source_id": "store-north-db",
+      "kind": "postgres",
+      "connection_ref": {
+       "connection_id": "store-north",
+       "options": {}
+      },
+      "selection": {
+       "sql": null,
+       "table": "orders",
+       "columns": [
+        "order_id",
+        "order_value"
+       ],
+       "where": null,
+       "order_by": [
+        "order_id"
+       ]
+      },
+      "format": "rows",
+      "schema_hint": {},
+      "batching": {
+       "batch_size": 1000,
+       "max_records": 5000
+      },
+      "checkpoint": {},
+      "options": {}
+     }
+    ],
+    "trimmed": [
+     {
+      "pointer": "/",
+      "note": "4 items, cut to 2"
+     },
+     {
+      "pointer": "/1/selection/columns",
+      "note": "7 items, cut to 2"
+     }
+    ]
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "get-source",
+   "endpoint": "GET /api/v1/sources/{source_id}",
+   "title": "Fetch one source",
+   "request": {
+    "method": "GET",
+    "path": "/api/v1/sources/store-north-db"
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "source_id": "store-north-db",
+     "kind": "postgres",
+     "connection_ref": {
+      "connection_id": "store-north",
+      "options": {}
+     },
+     "selection": {
+      "sql": null,
+      "table": "orders",
+      "columns": [
+       "order_id",
+       "order_value",
+       "items",
+       "category",
+       "customer_age_band"
+      ],
+      "where": null,
+      "order_by": [
+       "order_id"
+      ]
+     },
+     "format": "rows",
+     "schema_hint": {},
+     "batching": {
+      "batch_size": 1000,
+      "max_records": 5000
+     },
+     "checkpoint": {},
+     "options": {}
+    },
+    "trimmed": [
+     {
+      "pointer": "/selection/columns",
+      "note": "7 items, cut to 5"
+     }
+    ]
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "get-missing-source",
+   "endpoint": "GET /api/v1/sources/{source_id}",
+   "title": "Fetch a source that does not exist",
+   "description": "An unknown id answers 200 with null, not 404.",
+   "request": {
+    "method": "GET",
+    "path": "/api/v1/sources/no-such-source"
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": null,
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "validate-inline-source",
+   "endpoint": "POST /api/v1/sources/{source_id}:validate",
+   "title": "Validate the inline source",
+   "request": {
+    "method": "POST",
+    "path": "/api/v1/sources/store-north-orders:validate"
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "valid": true,
+     "errors": [],
+     "warnings": []
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "validate-postgres-source",
+   "endpoint": "POST /api/v1/sources/{source_id}:validate",
+   "title": "Validate a Postgres source the agent has no connection settings for",
+   "request": {
+    "method": "POST",
+    "path": "/api/v1/sources/store-north-db:validate"
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "valid": true,
+     "errors": [],
+     "warnings": [
+      "No resolved connection found; scan requires a configured connection or mock rows"
+     ]
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "validate-reserved-role",
+   "endpoint": "POST /api/v1/sources/{source_id}:validate",
+   "title": "Validate the source with a reserved role name",
+   "request": {
+    "method": "POST",
+    "path": "/api/v1/sources/store-south-db:validate"
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "valid": false,
+     "errors": [
+      "refusing role name 'postgres': it is reserved"
+     ],
+     "warnings": []
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "profile-registered-source",
+   "endpoint": "POST /api/v1/datasets:profile",
+   "title": "Profile a registered source",
+   "request": {
+    "method": "POST",
+    "path": "/api/v1/datasets:profile",
+    "json": {
+     "scope_id": "store-north",
+     "dataset": {
+      "source_id": "store-north-orders"
+     },
+     "feature_fields": [
+      "order_value",
+      "items",
+      "category",
+      "customer_age_band",
+      "loyalty_member"
+     ],
+     "label_field": "returned",
+     "batch_size": 4
+    }
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "scope_id": "store-north",
+     "scope_kind": "source",
+     "extraction_strategy": "tabular",
+     "record_count": 6,
+     "feature_fields": [
+      "order_value",
+      "items",
+      "category",
+      "customer_age_band",
+      "loyalty_member"
+     ],
+     "label_field": "returned",
+     "numeric_fields": [
+      "order_value",
+      "items"
+     ],
+     "categorical_fields": [
+      "category",
+      "customer_age_band",
+      "loyalty_member"
+     ],
+     "partition_count": 2,
+     "suggested_models": [
+      "random_forest",
+      "xgboost",
+      "naive_bayes"
+     ]
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "profile-records",
+   "endpoint": "POST /datasets/profile",
+   "title": "Profile records sent in the request",
+   "description": "The request asks for assimilated, but the LMA always profiles one source, so scope_kind comes back as source.",
+   "request": {
+    "method": "POST",
+    "path": "/datasets/profile",
+    "json": {
+     "scope_id": "store-north",
+     "scope_kind": "assimilated",
+     "extraction_strategy": "tabular",
+     "records": [
+      {
+       "order_value": 53.57,
+       "items": 1
+      },
+      {
+       "order_value": 56.57,
+       "items": 1
+      },
+      {
+       "order_value": 95.84,
+       "items": 2
+      }
+     ]
+    }
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "scope_id": "store-north",
+     "scope_kind": "source",
+     "extraction_strategy": "tabular",
+     "record_count": 3,
+     "feature_fields": [
+      "order_value",
+      "items"
+     ],
+     "label_field": null,
+     "numeric_fields": [
+      "order_value",
+      "items"
+     ],
+     "categorical_fields": [],
+     "partition_count": 1,
+     "suggested_models": [
+      "autoencoder",
+      "variational_autoencoder",
+      "random_forest"
+     ]
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "profile-422",
+   "endpoint": "POST /api/v1/datasets:profile",
+   "title": "A dataset with nothing in it",
+   "request": {
+    "method": "POST",
+    "path": "/api/v1/datasets:profile",
+    "json": {
+     "scope_id": "store-north",
+     "dataset": {}
+    }
+   },
+   "response": {
+    "status": 422,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "detail": [
+      {
+       "type": "value_error",
+       "loc": [
+        "body",
+        "dataset"
+       ],
+       "msg": "Value error, Dataset input requires inline_records, source, or source_id",
+       "input": {},
+       "ctx": {
+        "error": {}
+       }
+      }
+     ]
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "run-model-job",
+   "endpoint": "POST /api/v1/model-jobs",
+   "title": "Run a classification model on a registered source",
+   "volatile": [
+    "/run/run_id",
+    "/run/started_at",
+    "/run/completed_at"
+   ],
+   "request": {
+    "method": "POST",
+    "path": "/api/v1/model-jobs",
+    "json": {
+     "scope_id": "store-north",
+     "task_type": "classification",
+     "model_family": "random_forest",
+     "dataset": {
+      "source_id": "store-north-orders"
+     },
+     "feature_fields": [
+      "order_value",
+      "items",
+      "category",
+      "customer_age_band",
+      "loyalty_member"
+     ],
+     "label_field": "returned",
+     "hyperparameters": {
+      "batch_size": 4
+     },
+     "model_version": "v2"
+    }
+   },
+   "response": {
+    "status": 202,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "dataset_profile": {
+      "scope_id": "store-north",
+      "scope_kind": "source",
+      "extraction_strategy": "tabular",
+      "record_count": 6,
+      "feature_fields": [
+       "order_value",
+       "items",
+       "category",
+       "customer_age_band",
+       "loyalty_member"
+      ],
+      "label_field": "returned",
+      "numeric_fields": [
+       "order_value",
+       "items"
+      ],
+      "categorical_fields": [
+       "category",
+       "customer_age_band",
+       "loyalty_member"
+      ],
+      "partition_count": 2,
+      "suggested_models": [
+       "random_forest",
+       "xgboost",
+       "naive_bayes"
+      ]
+     },
+     "run": {
+      "run_id": "lma-store-north-1791970325",
+      "agent_role": "LMA",
+      "scope_id": "store-north",
+      "scope_kind": "source",
+      "task_type": "classification",
+      "model_family": "random_forest",
+      "record_count": 6,
+      "feature_count": 5,
+      "batch_count": 2,
+      "status": "completed",
+      "metrics": {
+       "quality_score": 0.735,
+       "throughput_rows_per_batch": 3.0,
+       "feature_coverage": 0.625
+      },
+      "artifact_uri": "artifacts/lma/store-north/random_forest-v2.json",
+      "started_at": 1791970325,
+      "completed_at": 1791970325
+     }
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "run-model",
+   "endpoint": "POST /models/run",
+   "title": "Run an anomaly model on records sent in the request",
+   "description": "The short path runs the same handler and answers 200 instead of 202.",
+   "volatile": [
+    "/run/run_id",
+    "/run/started_at",
+    "/run/completed_at"
+   ],
+   "request": {
+    "method": "POST",
+    "path": "/models/run",
+    "json": {
+     "scope_id": "store-north",
+     "task_type": "anomaly_detection",
+     "model_family": "autoencoder",
+     "dataset": {
+      "inline_records": [
+       {
+        "order_value": 53.57,
+        "items": 1
+       },
+       {
+        "order_value": 56.57,
+        "items": 1
+       },
+       {
+        "order_value": 95.84,
+        "items": 2
+       },
+       {
+        "order_value": 109.36,
+        "items": 5
+       },
+       {
+        "order_value": 142.17,
+        "items": 3
+       },
+       {
+        "order_value": 127.73,
+        "items": 4
+       }
+      ]
+     }
+    }
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "dataset_profile": {
+      "scope_id": "store-north",
+      "scope_kind": "source",
+      "extraction_strategy": "tabular",
+      "record_count": 6,
+      "feature_fields": [
+       "order_value",
+       "items"
+      ],
+      "label_field": null,
+      "numeric_fields": [
+       "order_value",
+       "items"
+      ],
+      "categorical_fields": [],
+      "partition_count": 1,
+      "suggested_models": [
+       "autoencoder",
+       "variational_autoencoder",
+       "random_forest"
+      ]
+     },
+     "run": {
+      "run_id": "lma-store-north-1791970325",
+      "agent_role": "LMA",
+      "scope_id": "store-north",
+      "scope_kind": "source",
+      "task_type": "anomaly_detection",
+      "model_family": "autoencoder",
+      "record_count": 6,
+      "feature_count": 2,
+      "batch_count": 1,
+      "status": "completed",
+      "metrics": {
+       "quality_score": 0.755,
+       "throughput_rows_per_batch": 6.0,
+       "feature_coverage": 1.0
+      },
+      "artifact_uri": "artifacts/lma/store-north/autoencoder-v1.json",
+      "started_at": 1791970325,
+      "completed_at": 1791970325
+     }
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "run-model-422",
+   "endpoint": "POST /api/v1/model-jobs",
+   "title": "A model family the agent does not know",
+   "request": {
+    "method": "POST",
+    "path": "/api/v1/model-jobs",
+    "json": {
+     "scope_id": "store-north",
+     "model_family": "resnet",
+     "records": [
+      {
+       "order_id": "N-001",
+       "order_value": 53.57,
+       "items": 1,
+       "category": "shoes",
+       "customer_age_band": "18-24",
+       "loyalty_member": false,
+       "returned": false
+      }
+     ]
+    }
+   },
+   "response": {
+    "status": 422,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "detail": [
+      {
+       "type": "literal_error",
+       "loc": [
+        "body",
+        "model_family"
+       ],
+       "msg": "Input should be 'autoencoder', 'variational_autoencoder', 'gru', 'lstm', 'naive_bayes', 'transformer', 'random_forest', 'xgboost', 'linear' or 'custom'",
+       "input": "resnet",
+       "ctx": {
+        "expected": "'autoencoder', 'variational_autoencoder', 'gru', 'lstm', 'naive_bayes', 'transformer', 'random_forest', 'xgboost', 'linear' or 'custom'"
+       }
+      }
+     ]
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "list-model-jobs",
+   "endpoint": "GET /api/v1/model-jobs",
+   "title": "List the newest model runs",
+   "volatile": [
+    "/*/run_id",
+    "/*/started_at",
+    "/*/completed_at"
+   ],
+   "request": {
+    "method": "GET",
+    "path": "/api/v1/model-jobs",
+    "query": {
+     "limit": 5
+    }
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": [
+     {
+      "run_id": "lma-store-north-1791970325",
+      "agent_role": "LMA",
+      "scope_id": "store-north",
+      "scope_kind": "source",
+      "task_type": "anomaly_detection",
+      "model_family": "autoencoder",
+      "record_count": 6,
+      "feature_count": 2,
+      "batch_count": 1,
+      "status": "completed",
+      "metrics": {
+       "quality_score": 0.755,
+       "throughput_rows_per_batch": 6.0,
+       "feature_coverage": 1.0
+      },
+      "artifact_uri": "artifacts/lma/store-north/autoencoder-v1.json",
+      "started_at": 1791970325,
+      "completed_at": 1791970325
+     },
+     {
+      "run_id": "lma-store-north-1791970325",
+      "agent_role": "LMA",
+      "scope_id": "store-north",
+      "scope_kind": "source",
+      "task_type": "classification",
+      "model_family": "random_forest",
+      "record_count": 6,
+      "feature_count": 5,
+      "batch_count": 2,
+      "status": "completed",
+      "metrics": {
+       "quality_score": 0.735,
+       "throughput_rows_per_batch": 3.0,
+       "feature_coverage": 0.625
+      },
+      "artifact_uri": "artifacts/lma/store-north/random_forest-v2.json",
+      "started_at": 1791970325,
+      "completed_at": 1791970325
+     }
+    ],
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "register-classification",
+   "endpoint": "PUT /api/v1/governance/classifications/{classification_id}",
+   "title": "Register the retail-orders classification",
+   "request": {
+    "method": "PUT",
+    "path": "/api/v1/governance/classifications/retail-orders",
+    "json": {
+     "classification_id": "retail-orders",
+     "field_sensitivity": {
+      "order_value": "high",
+      "customer_age_band": "medium",
+      "loyalty_member": "medium",
+      "returned": "medium",
+      "items": "low",
+      "category": "low",
+      "model_update": "high"
+     },
+     "default_sensitivity": "high",
+     "regulations": [
+      "GDPR"
+     ],
+     "minimum_cohort": 20
+    }
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "classification_id": "retail-orders",
+     "field_sensitivity": {
+      "order_value": "high",
+      "customer_age_band": "medium",
+      "loyalty_member": "medium",
+      "returned": "medium",
+      "items": "low",
+      "category": "low",
+      "model_update": "high"
+     },
+     "default_sensitivity": "high",
+     "regulations": [
+      "GDPR"
+     ],
+     "minimum_cohort": 20
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "register-classification-400",
+   "endpoint": "PUT /api/v1/governance/classifications/{classification_id}",
+   "title": "A path id that differs from the body id",
+   "request": {
+    "method": "PUT",
+    "path": "/api/v1/governance/classifications/retail-orders-v2",
+    "json": {
+     "classification_id": "retail-orders",
+     "field_sensitivity": {
+      "order_value": "high",
+      "customer_age_band": "medium",
+      "loyalty_member": "medium",
+      "returned": "medium",
+      "items": "low",
+      "category": "low",
+      "model_update": "high"
+     },
+     "default_sensitivity": "high",
+     "regulations": [
+      "GDPR"
+     ],
+     "minimum_cohort": 20
+    }
+   },
+   "response": {
+    "status": 400,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "detail": "path id retail-orders-v2 does not match body id retail-orders"
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "register-classification-422",
+   "endpoint": "PUT /api/v1/governance/classifications/{classification_id}",
+   "title": "A sensitivity that does not exist",
+   "request": {
+    "method": "PUT",
+    "path": "/api/v1/governance/classifications/retail-orders",
+    "json": {
+     "classification_id": "retail-orders",
+     "field_sensitivity": {
+      "order_value": "secret"
+     },
+     "default_sensitivity": "high",
+     "regulations": [
+      "GDPR"
+     ],
+     "minimum_cohort": 20
+    }
+   },
+   "response": {
+    "status": 422,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "detail": [
+      {
+       "type": "literal_error",
+       "loc": [
+        "body",
+        "field_sensitivity",
+        "order_value"
+       ],
+       "msg": "Input should be 'low', 'medium' or 'high'",
+       "input": "secret",
+       "ctx": {
+        "expected": "'low', 'medium' or 'high'"
+       }
+      }
+     ]
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "list-classifications",
+   "endpoint": "GET /api/v1/governance/classifications",
+   "title": "List the classifications",
+   "request": {
+    "method": "GET",
+    "path": "/api/v1/governance/classifications"
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": [
+     {
+      "classification_id": "retail-orders",
+      "field_sensitivity": {
+       "order_value": "high",
+       "customer_age_band": "medium",
+       "loyalty_member": "medium",
+       "returned": "medium",
+       "items": "low",
+       "category": "low",
+       "model_update": "high"
+      },
+      "default_sensitivity": "high",
+      "regulations": [
+       "GDPR"
+      ],
+      "minimum_cohort": 20
+     }
+    ],
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "plan-narrow",
+   "endpoint": "POST /api/v1/governance/restrictions:plan",
+   "title": "Plan a row request from a trusted analyst",
+   "trim": {
+    "items": 6
+   },
+   "request": {
+    "method": "POST",
+    "path": "/api/v1/governance/restrictions:plan",
+    "json": {
+     "request_id": "plan-rows-001",
+     "boundary": "before_read",
+     "requester": {
+      "requester_id": "returns-analyst-17",
+      "requester_kind": "human",
+      "affiliation": "retail-hq",
+      "stated_purpose": "order_returns",
+      "attributes": [
+       {
+        "attribute_id": "employee_sso",
+        "weight": 1.0,
+        "verified": true
+       },
+       {
+        "attribute_id": "signed_data_agreement",
+        "weight": 1.0,
+        "verified": true
+       }
+      ],
+      "compliance_history": 0.9
+     },
+     "classification": {
+      "classification_id": "retail-orders",
+      "field_sensitivity": {
+       "order_value": "high",
+       "customer_age_band": "medium",
+       "loyalty_member": "medium",
+       "returned": "medium",
+       "items": "low",
+       "category": "low",
+       "model_update": "high"
+      },
+      "default_sensitivity": "high",
+      "regulations": [
+       "GDPR"
+      ],
+      "minimum_cohort": 20
+     },
+     "requested_fields": [
+      "order_value",
+      "category",
+      "customer_age_band",
+      "customer_postcode"
+     ],
+     "granularity": "row",
+     "declared_purpose": "order_returns",
+     "approved_purposes": [
+      "order_returns",
+      "returns_quality_review"
+     ]
+    }
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "request_id": "plan-rows-001",
+     "boundary": "before_read",
+     "assessment": {
+      "requester_id": "returns-analyst-17",
+      "kyu_score": 0.97,
+      "trust": "high",
+      "rationale": [
+       "requester_kind=human",
+       "verified_attributes=2/2",
+       "compliance_history=0.90",
+       "kyu_score=0.97",
+       "affiliation=retail-hq",
+       "stated_purpose=order_returns"
+      ]
+     },
+     "granularity": "row",
+     "field_restrictions": [
+      {
+       "field": "order_value",
+       "sensitivity": "high",
+       "strategy": "generalize:1",
+       "reason": "sensitivity=high trust=high granularity=row -> generalize:1"
+      },
+      {
+       "field": "category",
+       "sensitivity": "low",
+       "strategy": "allow_full",
+       "reason": "sensitivity=low trust=high granularity=row -> allow_full"
+      },
+      {
+       "field": "customer_age_band",
+       "sensitivity": "medium",
+       "strategy": "allow_full",
+       "reason": "sensitivity=medium trust=high granularity=row -> allow_full"
+      },
+      {
+       "field": "customer_postcode",
+       "sensitivity": "high",
+       "strategy": "generalize:1",
+       "reason": "sensitivity=high trust=high granularity=row -> generalize:1"
+      }
+     ],
+     "decision": "narrow",
+     "filtering_score": 0.175,
+     "obligations": [
+      "record the decision, reason, and request id plan-rows-001 in the audit log",
+      "enforce at boundary before_read",
+      "apply controls required by GDPR"
+     ],
+     "violations": []
+    },
+    "trimmed": []
+   },
+   "planner_calls": [
+    "governance restrict"
+   ]
+  },
+  {
+   "id": "plan-deny",
+   "endpoint": "POST /governance/restrictions:plan",
+   "title": "Plan a table request for too small a group",
+   "description": "The group has 8 orders and the classification's minimum is 20, so every field is refused.",
+   "trim": {
+    "items": 6
+   },
+   "request": {
+    "method": "POST",
+    "path": "/governance/restrictions:plan",
+    "json": {
+     "request_id": "plan-table-002",
+     "boundary": "before_read",
+     "requester": {
+      "requester_id": "store-north-dashboard",
+      "requester_kind": "service",
+      "attributes": [
+       {
+        "attribute_id": "service_certificate",
+        "weight": 1.0,
+        "verified": true
+       },
+       {
+        "attribute_id": "owner_team",
+        "weight": 1.0,
+        "verified": false
+       }
+      ],
+      "compliance_history": 0.5
+     },
+     "classification": {
+      "classification_id": "retail-orders",
+      "field_sensitivity": {
+       "order_value": "high",
+       "customer_age_band": "medium",
+       "loyalty_member": "medium",
+       "returned": "medium",
+       "items": "low",
+       "category": "low",
+       "model_update": "high"
+      },
+      "default_sensitivity": "high",
+      "regulations": [
+       "GDPR"
+      ],
+      "minimum_cohort": 20
+     },
+     "requested_fields": [
+      "order_value",
+      "returned"
+     ],
+     "granularity": "table",
+     "cohort_size": 8,
+     "declared_purpose": "order_returns",
+     "approved_purposes": [
+      "order_returns",
+      "returns_quality_review"
+     ]
+    }
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "request_id": "plan-table-002",
+     "boundary": "before_read",
+     "assessment": {
+      "requester_id": "store-north-dashboard",
+      "kyu_score": 0.5875,
+      "trust": "moderate",
+      "rationale": [
+       "requester_kind=service",
+       "verified_attributes=1/2",
+       "compliance_history=0.50",
+       "kyu_score=0.59",
+       "affiliation=unstated",
+       "stated_purpose=unstated"
+      ]
+     },
+     "granularity": "table",
+     "field_restrictions": [
+      {
+       "field": "order_value",
+       "sensitivity": "high",
+       "strategy": "refuse",
+       "reason": "request-level gate failed; field withheld"
+      },
+      {
+       "field": "returned",
+       "sensitivity": "medium",
+       "strategy": "refuse",
+       "reason": "request-level gate failed; field withheld"
+      }
+     ],
+     "decision": "deny",
+     "filtering_score": 1.0,
+     "obligations": [
+      "record the decision, reason, and request id plan-table-002 in the audit log",
+      "enforce at boundary before_read",
+      "apply controls required by GDPR",
+      "suppress results describing fewer than 20 subjects"
+     ],
+     "violations": [
+      "cohort_size 8 is below minimum_cohort 20"
+     ]
+    },
+    "trimmed": []
+   },
+   "planner_calls": [
+    "governance restrict"
+   ]
+  },
+  {
+   "id": "plan-422",
+   "endpoint": "POST /api/v1/governance/restrictions:plan",
+   "title": "A granularity that does not exist",
+   "request": {
+    "method": "POST",
+    "path": "/api/v1/governance/restrictions:plan",
+    "json": {
+     "request_id": "plan-bad-003",
+     "boundary": "before_read",
+     "requester": {
+      "requester_id": "unknown-caller",
+      "requester_kind": "human"
+     },
+     "classification": {
+      "classification_id": "retail-orders",
+      "field_sensitivity": {
+       "order_value": "high",
+       "customer_age_band": "medium",
+       "loyalty_member": "medium",
+       "returned": "medium",
+       "items": "low",
+       "category": "low",
+       "model_update": "high"
+      },
+      "default_sensitivity": "high",
+      "regulations": [
+       "GDPR"
+      ],
+      "minimum_cohort": 20
+     },
+     "requested_fields": [
+      "items"
+     ],
+     "granularity": "everything"
+    }
+   },
+   "response": {
+    "status": 422,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "detail": [
+      {
+       "type": "literal_error",
+       "loc": [
+        "body",
+        "granularity"
+       ],
+       "msg": "Input should be 'cell', 'row', 'column', 'table' or 'model_update'",
+       "input": "everything",
+       "ctx": {
+        "expected": "'cell', 'row', 'column', 'table' or 'model_update'"
+       }
+      }
+     ]
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "enforce-rows",
+   "endpoint": "POST /api/v1/governance/restrictions:enforce",
+   "title": "Enforce a row request: redact one field, generalize another",
+   "description": "order_id and customer_postcode were not requested, so the Guard drops them.",
+   "volatile": [
+    "/audit_id"
+   ],
+   "trim": {
+    "items": 6
+   },
+   "request": {
+    "method": "POST",
+    "path": "/api/v1/governance/restrictions:enforce",
+    "json": {
+     "request": {
+      "request_id": "read-rows-004",
+      "boundary": "before_read",
+      "requester": {
+       "requester_id": "store-north-dashboard",
+       "requester_kind": "service",
+       "attributes": [
+        {
+         "attribute_id": "service_certificate",
+         "weight": 1.0,
+         "verified": true
+        },
+        {
+         "attribute_id": "owner_team",
+         "weight": 1.0,
+         "verified": false
+        }
+       ],
+       "compliance_history": 0.5
+      },
+      "classification": {
+       "classification_id": "retail-orders",
+       "field_sensitivity": {
+        "order_value": "high",
+        "customer_age_band": "medium",
+        "loyalty_member": "medium",
+        "returned": "medium",
+        "items": "low",
+        "category": "low",
+        "model_update": "high"
+       },
+       "default_sensitivity": "high",
+       "regulations": [
+        "GDPR"
+       ],
+       "minimum_cohort": 20
+      },
+      "requested_fields": [
+       "order_value",
+       "items",
+       "category",
+       "customer_age_band"
+      ],
+      "granularity": "row",
+      "declared_purpose": "returns_quality_review",
+      "approved_purposes": [
+       "order_returns",
+       "returns_quality_review"
+      ]
+     },
+     "payload": [
+      {
+       "order_id": "N-001",
+       "customer_postcode": "10115",
+       "order_value": 53.57,
+       "items": 1,
+       "category": "shoes",
+       "customer_age_band": "18-24"
+      },
+      {
+       "order_id": "N-003",
+       "customer_postcode": "10179",
+       "order_value": 95.84,
+       "items": 2,
+       "category": "clothing",
+       "customer_age_band": "55+"
+      },
+      {
+       "order_id": "N-005",
+       "customer_postcode": "10115",
+       "order_value": 142.17,
+       "items": 3,
+       "category": "clothing",
+       "customer_age_band": "25-34"
+      }
+     ],
+     "correlation_id": "dashboard-refresh-88"
+    }
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "request_id": "read-rows-004",
+     "boundary": "before_read",
+     "permitted": true,
+     "plan": {
+      "request_id": "read-rows-004",
+      "boundary": "before_read",
+      "assessment": {
+       "requester_id": "store-north-dashboard",
+       "kyu_score": 0.5875,
+       "trust": "moderate",
+       "rationale": [
+        "requester_kind=service",
+        "verified_attributes=1/2",
+        "compliance_history=0.50",
+        "kyu_score=0.59",
+        "affiliation=unstated",
+        "stated_purpose=unstated"
+       ]
+      },
+      "granularity": "row",
+      "field_restrictions": [
+       {
+        "field": "order_value",
+        "sensitivity": "high",
+        "strategy": "redact",
+        "reason": "sensitivity=high trust=moderate granularity=row -> redact"
+       },
+       {
+        "field": "items",
+        "sensitivity": "low",
+        "strategy": "allow_full",
+        "reason": "sensitivity=low trust=moderate granularity=row -> allow_full"
+       },
+       {
+        "field": "category",
+        "sensitivity": "low",
+        "strategy": "allow_full",
+        "reason": "sensitivity=low trust=moderate granularity=row -> allow_full"
+       },
+       {
+        "field": "customer_age_band",
+        "sensitivity": "medium",
+        "strategy": "generalize:1",
+        "reason": "sensitivity=medium trust=moderate granularity=row -> generalize:1"
+       }
+      ],
+      "decision": "narrow",
+      "filtering_score": 0.3125,
+      "obligations": [
+       "record the decision, reason, and request id read-rows-004 in the audit log",
+       "enforce at boundary before_read",
+       "apply controls required by GDPR"
+      ],
+      "violations": []
+     },
+     "payload": [
+      {
+       "items": 1,
+       "category": "shoes",
+       "customer_age_band": "18-*"
+      },
+      {
+       "items": 2,
+       "category": "clothing",
+       "customer_age_band": "55+"
+      },
+      {
+       "items": 3,
+       "category": "clothing",
+       "customer_age_band": "25-*"
+      }
+     ],
+     "withheld_fields": [
+      "order_value"
+     ],
+     "transformed_fields": [
+      "customer_age_band"
+     ],
+     "audit_id": "5e38470b362f434f815d7d278b55d33b",
+     "message": "permitted with restrictions"
+    },
+    "trimmed": []
+   },
+   "planner_calls": [
+    "governance restrict"
+   ]
+  },
+  {
+   "id": "enforce-model-update",
+   "endpoint": "POST /governance/restrictions:enforce",
+   "title": "Clip a model update before it leaves the site",
+   "description": "The update's L2 norm is 1.56. The plan clips it to 1.0, keeping its direction.",
+   "volatile": [
+    "/audit_id"
+   ],
+   "trim": {
+    "items": 6
+   },
+   "request": {
+    "method": "POST",
+    "path": "/governance/restrictions:enforce",
+    "json": {
+     "request": {
+      "request_id": "send-update-005",
+      "boundary": "before_send",
+      "requester": {
+       "requester_id": "returns-coordinator",
+       "requester_kind": "coordinator",
+       "attributes": [
+        {
+         "attribute_id": "mutual_tls",
+         "weight": 1.0,
+         "verified": true
+        },
+        {
+         "attribute_id": "consortium_agreement",
+         "weight": 1.0,
+         "verified": true
+        }
+       ],
+       "compliance_history": 1.0
+      },
+      "classification": {
+       "classification_id": "retail-orders",
+       "field_sensitivity": {
+        "order_value": "high",
+        "customer_age_band": "medium",
+        "loyalty_member": "medium",
+        "returned": "medium",
+        "items": "low",
+        "category": "low",
+        "model_update": "high"
+       },
+       "default_sensitivity": "high",
+       "regulations": [
+        "GDPR"
+       ],
+       "minimum_cohort": 20
+      },
+      "requested_fields": [
+       "model_update"
+      ],
+      "granularity": "model_update",
+      "cohort_size": 40,
+      "declared_purpose": "order_returns",
+      "approved_purposes": [
+       "order_returns",
+       "returns_quality_review"
+      ]
+     },
+     "payload": [
+      {
+       "model_update": [
+        0.6,
+        0.8,
+        1.2
+       ]
+      }
+     ],
+     "correlation_id": "round-7"
+    }
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "request_id": "send-update-005",
+     "boundary": "before_send",
+     "permitted": true,
+     "plan": {
+      "request_id": "send-update-005",
+      "boundary": "before_send",
+      "assessment": {
+       "requester_id": "returns-coordinator",
+       "kyu_score": 1.0,
+       "trust": "high",
+       "rationale": [
+        "requester_kind=coordinator",
+        "verified_attributes=2/2",
+        "compliance_history=1.00",
+        "kyu_score=1.00",
+        "affiliation=unstated",
+        "stated_purpose=unstated"
+       ]
+      },
+      "granularity": "model_update",
+      "field_restrictions": [
+       {
+        "field": "model_update",
+        "sensitivity": "high",
+        "strategy": "clip_contribution:1",
+        "reason": "sensitivity=high trust=high granularity=model_update -> clip_contribution:1"
+       }
+      ],
+      "decision": "narrow",
+      "filtering_score": 0.45,
+      "obligations": [
+       "record the decision, reason, and request id send-update-005 in the audit log",
+       "enforce at boundary before_send",
+       "apply controls required by GDPR",
+       "suppress results describing fewer than 20 subjects",
+       "record privacy accounting for the bounded contribution before it leaves the boundary"
+      ],
+      "violations": []
+     },
+     "payload": [
+      {
+       "model_update": [
+        0.3841106397986879,
+        0.512147519731584,
+        0.7682212795973759
+       ]
+      }
+     ],
+     "withheld_fields": [],
+     "transformed_fields": [
+      "model_update"
+     ],
+     "audit_id": "6f921689971d4f7db4fbd5351faf1376",
+     "message": "permitted with restrictions"
+    },
+    "trimmed": []
+   },
+   "planner_calls": [
+    "governance restrict"
+   ]
+  },
+  {
+   "id": "enforce-deny",
+   "endpoint": "POST /api/v1/governance/restrictions:enforce",
+   "title": "A denial: an unknown caller asks for a high-sensitivity field",
+   "description": "A denial is a normal answer with status 200 and permitted false.",
+   "volatile": [
+    "/audit_id"
+   ],
+   "trim": {
+    "items": 6
+   },
+   "request": {
+    "method": "POST",
+    "path": "/api/v1/governance/restrictions:enforce",
+    "json": {
+     "request": {
+      "request_id": "read-rows-006",
+      "boundary": "before_read",
+      "requester": {
+       "requester_id": "unknown-caller",
+       "requester_kind": "human"
+      },
+      "classification": {
+       "classification_id": "retail-orders",
+       "field_sensitivity": {
+        "order_value": "high",
+        "customer_age_band": "medium",
+        "loyalty_member": "medium",
+        "returned": "medium",
+        "items": "low",
+        "category": "low",
+        "model_update": "high"
+       },
+       "default_sensitivity": "high",
+       "regulations": [
+        "GDPR"
+       ],
+       "minimum_cohort": 20
+      },
+      "requested_fields": [
+       "order_value",
+       "category"
+      ],
+      "granularity": "row"
+     },
+     "payload": [
+      {
+       "order_value": 53.57,
+       "category": "shoes"
+      }
+     ]
+    }
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "request_id": "read-rows-006",
+     "boundary": "before_read",
+     "permitted": false,
+     "plan": {
+      "request_id": "read-rows-006",
+      "boundary": "before_read",
+      "assessment": {
+       "requester_id": "unknown-caller",
+       "kyu_score": 0.0,
+       "trust": "low",
+       "rationale": [
+        "requester_kind=human",
+        "verified_attributes=0/0",
+        "compliance_history=0.00",
+        "kyu_score=0.00",
+        "affiliation=unstated",
+        "stated_purpose=unstated"
+       ]
+      },
+      "granularity": "row",
+      "field_restrictions": [
+       {
+        "field": "order_value",
+        "sensitivity": "high",
+        "strategy": "refuse",
+        "reason": "sensitivity=high trust=low granularity=row -> refuse"
+       },
+       {
+        "field": "category",
+        "sensitivity": "low",
+        "strategy": "allow_full",
+        "reason": "sensitivity=low trust=low granularity=row -> allow_full"
+       }
+      ],
+      "decision": "deny",
+      "filtering_score": 0.5,
+      "obligations": [
+       "record the decision, reason, and request id read-rows-006 in the audit log",
+       "enforce at boundary before_read",
+       "apply controls required by GDPR"
+      ],
+      "violations": []
+     },
+     "payload": [],
+     "withheld_fields": [
+      "order_value",
+      "category"
+     ],
+     "transformed_fields": [],
+     "audit_id": "c6941c56c07e4936a4d7f3a9871b8577",
+     "message": "the restriction planner denied this request"
+    },
+    "trimmed": []
+   },
+   "planner_calls": [
+    "governance restrict"
+   ]
+  },
+  {
+   "id": "enforce-422",
+   "endpoint": "POST /api/v1/governance/restrictions:enforce",
+   "title": "A body without a request",
+   "request": {
+    "method": "POST",
+    "path": "/api/v1/governance/restrictions:enforce",
+    "json": {
+     "payload": [
+      {
+       "items": 1
+      }
+     ]
+    }
+   },
+   "response": {
+    "status": 422,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "detail": [
+      {
+       "type": "missing",
+       "loc": [
+        "body",
+        "request"
+       ],
+       "msg": "Field required",
+       "input": {
+        "payload": [
+         {
+          "items": 1
+         }
+        ]
+       }
+      }
+     ]
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "audit-log",
+   "endpoint": "GET /api/v1/governance/audit",
+   "title": "Read the audit log",
+   "description": "Three records, one per enforcement above, newest first. Planning wrote none.",
+   "volatile": [
+    "/records/*/audit_id",
+    "/records/*/recorded_at",
+    "/records/*/previous_digest",
+    "/records/*/digest"
+   ],
+   "request": {
+    "method": "GET",
+    "path": "/api/v1/governance/audit",
+    "query": {
+     "limit": 5
+    }
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "chain_intact": true,
+     "records": [
+      {
+       "audit_id": "c6941c56c07e4936a4d7f3a9871b8577",
+       "recorded_at": 1791970325,
+       "boundary": "before_read",
+       "request_id": "read-rows-006",
+       "requester_id": "unknown-caller",
+       "decision": "deny",
+       "permitted": false,
+       "granularity": "row",
+       "filtering_score": 0.5,
+       "withheld_fields": [
+        "order_value",
+        "category"
+       ],
+       "obligations": [
+        "record the decision, reason, and request id read-rows-006 in the audit log",
+        "enforce at boundary before_read",
+        "apply controls required by GDPR"
+       ],
+       "violations": [],
+       "correlation_id": null,
+       "contribution_norm_before": null,
+       "contribution_norm_after": null,
+       "contribution_strategies": [],
+       "previous_digest": "fdb9bef99917c465d0649187798ae61f43f5809f8952cf35af36be6637ca84bd",
+       "digest": "dd01dd32d6f0e085abfb565c42117f47b9de9754f48314f3ae5646839255b732"
+      },
+      {
+       "audit_id": "6f921689971d4f7db4fbd5351faf1376",
+       "recorded_at": 1791970325,
+       "boundary": "before_send",
+       "request_id": "send-update-005",
+       "requester_id": "returns-coordinator",
+       "decision": "narrow",
+       "permitted": true,
+       "granularity": "model_update",
+       "filtering_score": 0.45,
+       "withheld_fields": [],
+       "obligations": [
+        "record the decision, reason, and request id send-update-005 in the audit log",
+        "enforce at boundary before_send",
+        "apply controls required by GDPR",
+        "suppress results describing fewer than 20 subjects",
+        "record privacy accounting for the bounded contribution before it leaves the boundary"
+       ],
+       "violations": [],
+       "correlation_id": "round-7",
+       "contribution_norm_before": 1.5620499351813308,
+       "contribution_norm_after": 1.0,
+       "contribution_strategies": [
+        "clip_contribution:1"
+       ],
+       "previous_digest": "9dc0970d0d8b728e79d44e397f87c6ae958b26d92dedcb1cdb6907733352fcc8",
+       "digest": "fdb9bef99917c465d0649187798ae61f43f5809f8952cf35af36be6637ca84bd"
+      },
+      {
+       "audit_id": "5e38470b362f434f815d7d278b55d33b",
+       "recorded_at": 1791970325,
+       "boundary": "before_read",
+       "request_id": "read-rows-004",
+       "requester_id": "store-north-dashboard",
+       "decision": "narrow",
+       "permitted": true,
+       "granularity": "row",
+       "filtering_score": 0.3125,
+       "withheld_fields": [
+        "order_value"
+       ],
+       "obligations": [
+        "record the decision, reason, and request id read-rows-004 in the audit log",
+        "enforce at boundary before_read",
+        "apply controls required by GDPR"
+       ],
+       "violations": [],
+       "correlation_id": "dashboard-refresh-88",
+       "contribution_norm_before": null,
+       "contribution_norm_after": null,
+       "contribution_strategies": [],
+       "previous_digest": "",
+       "digest": "9dc0970d0d8b728e79d44e397f87c6ae958b26d92dedcb1cdb6907733352fcc8"
+      }
+     ]
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "extensions",
+   "endpoint": "GET /api/v1/extensions",
+   "title": "List what extensions contribute",
+   "description": "The LMA on its own registers no extension, so every list is empty.",
+   "request": {
+    "method": "GET",
+    "path": "/api/v1/extensions"
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "extensions": [],
+     "feature_contracts": [],
+     "classifications": [],
+     "condition_packs": [],
+     "pipeline_steps": [],
+     "model_adapters": []
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  }
+ ]
+}

@@ -1,0 +1,838 @@
+{
+  "service": "healthcare-demo-backend",
+  "note": "Captured in process with the planner available and no database, so each hospital's records are in memory, loaded from apps/healthcare-demo/data/ist/. The per-client limits and hourly caps are off, except model approvals, which are limited to 2 per minute so the last approval example shows a 429. No framework service was running, so the status example lists each one as unavailable. The framework service addresses point at port 9, where nothing listens, so the answers are the same on a machine that runs the services.",
+  "env": {
+    "HEALTHCARE_DEMO_DATABASE_URL": "",
+    "HEALTHCARE_DEMO_RATE_LIMIT_ENTRIES": "0",
+    "HEALTHCARE_DEMO_RATE_LIMIT_PROBES": "0",
+    "HEALTHCARE_DEMO_RATE_LIMIT_PILOTS": "0",
+    "HEALTHCARE_DEMO_RATE_LIMIT_APPROVALS": "2",
+    "HEALTHCARE_DEMO_PROBES_PER_SITE_PER_HOUR": "0",
+    "HEALTHCARE_DEMO_PILOTS_PER_HOUR": "0",
+    "HEALTHCARE_DEMO_CORS_ORIGINS": "",
+    "HEALTHCARE_DEMO_TRUST_FORWARDED_FOR": "0",
+    "CORE_SERVICE_PUBLIC_URL": "http://127.0.0.1:9",
+    "PIPELINE_SERVICE_PUBLIC_URL": "http://127.0.0.1:9",
+    "MODEL_SERVICE_PUBLIC_URL": "http://127.0.0.1:9",
+    "LMA_PUBLIC_URL": "http://127.0.0.1:9",
+    "GMA_PUBLIC_URL": "http://127.0.0.1:9",
+    "NO_PROXY": "127.0.0.1,localhost",
+    "no_proxy": "127.0.0.1,localhost"
+  },
+  "examples": [
+    {
+      "id": "health",
+      "endpoint": "GET /health",
+      "title": "Check that the app answers",
+      "request": {
+        "path": "/health"
+      },
+      "status": 200
+    },
+    {
+      "id": "health-v1",
+      "endpoint": "GET /api/v1/health",
+      "title": "Check that the app answers, on the versioned path",
+      "request": {
+        "path": "/api/v1/health"
+      },
+      "status": 200
+    },
+    {
+      "id": "overview",
+      "endpoint": "GET /api/v1/overview",
+      "title": "Read the consortium overview",
+      "request": {
+        "path": "/api/v1/overview"
+      },
+      "status": 200,
+      "trim": {
+        "items": 3,
+        "chars": 300
+      }
+    },
+    {
+      "id": "conditions",
+      "endpoint": "GET /api/v1/conditions",
+      "title": "Read the condition, its feature contract and its classification",
+      "request": {
+        "path": "/api/v1/conditions"
+      },
+      "status": 200,
+      "trim": {
+        "items": 3,
+        "chars": 300
+      }
+    },
+    {
+      "id": "extension",
+      "endpoint": "GET /api/v1/extension",
+      "title": "Read what the app's extension contributes",
+      "request": {
+        "path": "/api/v1/extension"
+      },
+      "status": 200
+    },
+    {
+      "id": "assess",
+      "endpoint": "POST /api/v1/triage:assess",
+      "title": "Score one record with the seed rule",
+      "request": {
+        "path": "/api/v1/triage:assess",
+        "json": {
+          "record": {
+            "age_band": "80-89",
+            "sex": "female",
+            "conscious_level": "drowsy",
+            "face_weakness": true,
+            "arm_weakness": true,
+            "leg_weakness": false,
+            "speech_difficulty": true,
+            "visual_field_loss": false,
+            "atrial_fibrillation": true,
+            "systolic_bp": 225,
+            "hours_since_onset": 6,
+            "onset_on_waking": false,
+            "stroke_subtype": "PACS"
+          }
+        }
+      },
+      "status": 200
+    },
+    {
+      "id": "assess-no-examination",
+      "endpoint": "POST /api/v1/triage:assess",
+      "title": "A record with no examination finding is not scored",
+      "request": {
+        "path": "/api/v1/triage:assess",
+        "json": {
+          "record": {
+            "age_band": "60-69",
+            "sex": "male"
+          }
+        }
+      },
+      "status": 200
+    },
+    {
+      "id": "assess-not-an-object",
+      "endpoint": "POST /api/v1/triage:assess",
+      "title": "A record that is not a JSON object",
+      "request": {
+        "path": "/api/v1/triage:assess",
+        "json": {
+          "record": [
+            "80-89",
+            "drowsy"
+          ]
+        }
+      },
+      "status": 422
+    },
+    {
+      "id": "rank",
+      "endpoint": "POST /api/v1/triage:worklist",
+      "title": "Rank three records, highest risk first",
+      "description": "case_id is not a contract field. It is returned unchanged, which shows that other keys pass through.",
+      "request": {
+        "path": "/api/v1/triage:worklist",
+        "json": {
+          "records": [
+            {
+              "case_id": "a",
+              "age_band": "50-59",
+              "conscious_level": "alert",
+              "face_weakness": true,
+              "arm_weakness": false,
+              "leg_weakness": false,
+              "speech_difficulty": false
+            },
+            {
+              "case_id": "b",
+              "age_band": "90+",
+              "conscious_level": "unconscious",
+              "face_weakness": true,
+              "arm_weakness": true,
+              "leg_weakness": true,
+              "speech_difficulty": true,
+              "stroke_subtype": "TACS"
+            },
+            {
+              "case_id": "c",
+              "age_band": "70-79",
+              "sex": "male"
+            }
+          ]
+        }
+      },
+      "status": 200,
+      "trim": {
+        "items": 10,
+        "chars": 300
+      }
+    },
+    {
+      "id": "rank-not-a-list",
+      "endpoint": "POST /api/v1/triage:worklist",
+      "title": "records that is not a list",
+      "request": {
+        "path": "/api/v1/triage:worklist",
+        "json": {
+          "records": {
+            "case_id": "a"
+          }
+        }
+      },
+      "status": 422
+    },
+    {
+      "id": "fhir",
+      "endpoint": "POST /api/v1/ingest:fhir",
+      "title": "Map a FHIR-shaped encounter with two observations",
+      "description": "The systolic pressure arrives in kPa and is converted to mmHg. LOINC 8462-4 (diastolic pressure) is not in the mapper's table, so it is reported in unmapped_codes.",
+      "request": {
+        "path": "/api/v1/ingest:fhir",
+        "json": {
+          "bundle": {
+            "resourceType": "Bundle",
+            "type": "collection",
+            "entry": [
+              {
+                "resource": {
+                  "resourceType": "Encounter",
+                  "id": "enc-1",
+                  "age": 77,
+                  "gender": "female",
+                  "consciousLevel": "alert",
+                  "faceWeakness": true,
+                  "armWeakness": true,
+                  "legWeakness": false,
+                  "speechDifficulty": true,
+                  "visualFieldLoss": false,
+                  "atrialFibrillation": false,
+                  "onsetOnWaking": false,
+                  "strokeSubtype": "PACS",
+                  "minutesSinceOnset": 210
+                }
+              },
+              {
+                "resource": {
+                  "resourceType": "Observation",
+                  "encounter": {
+                    "reference": "Encounter/enc-1"
+                  },
+                  "code": {
+                    "coding": [
+                      {
+                        "system": "http://loinc.org",
+                        "code": "8480-6"
+                      }
+                    ]
+                  },
+                  "valueQuantity": {
+                    "value": 21.3,
+                    "unit": "kPa"
+                  }
+                }
+              },
+              {
+                "resource": {
+                  "resourceType": "Observation",
+                  "encounter": {
+                    "reference": "Encounter/enc-1"
+                  },
+                  "code": {
+                    "coding": [
+                      {
+                        "system": "http://loinc.org",
+                        "code": "8462-4"
+                      }
+                    ]
+                  },
+                  "valueQuantity": {
+                    "value": 92,
+                    "unit": "mmHg"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      },
+      "status": 200
+    },
+    {
+      "id": "hospitals",
+      "endpoint": "GET /api/v1/hospitals",
+      "title": "List what each hospital reports",
+      "request": {
+        "path": "/api/v1/hospitals"
+      },
+      "status": 200
+    },
+    {
+      "id": "hospital",
+      "endpoint": "GET /api/v1/hospitals/{site_id}",
+      "title": "Read one hospital's own view",
+      "request": {
+        "path": "/api/v1/hospitals/ch-245"
+      },
+      "status": 200,
+      "volatile": [
+        "/current_model/created_at"
+      ],
+      "trim": {
+        "items": 3,
+        "chars": 300
+      }
+    },
+    {
+      "id": "hospital-unknown",
+      "endpoint": "GET /api/v1/hospitals/{site_id}",
+      "title": "A hospital id that does not exist",
+      "request": {
+        "path": "/api/v1/hospitals/xx-1"
+      },
+      "status": 404
+    },
+    {
+      "id": "hospital-worklist",
+      "endpoint": "GET /api/v1/hospitals/{site_id}/worklist",
+      "title": "Read the two highest-risk records at one hospital",
+      "request": {
+        "path": "/api/v1/hospitals/ch-245/worklist",
+        "query": {
+          "limit": 2
+        }
+      },
+      "status": 200
+    },
+    {
+      "id": "hospital-worklist-limit",
+      "endpoint": "GET /api/v1/hospitals/{site_id}/worklist",
+      "title": "A limit outside 1 to 200",
+      "request": {
+        "path": "/api/v1/hospitals/ch-245/worklist",
+        "query": {
+          "limit": 0
+        }
+      },
+      "status": 422
+    },
+    {
+      "id": "thresholds",
+      "endpoint": "GET /api/v1/hospitals/{site_id}/thresholds",
+      "title": "Read the threshold sweep at one hospital",
+      "request": {
+        "path": "/api/v1/hospitals/ch-245/thresholds"
+      },
+      "status": 200,
+      "trim": {
+        "items": 4
+      }
+    },
+    {
+      "id": "entry-form",
+      "endpoint": "GET /api/v1/hospitals/{site_id}/entry-form",
+      "title": "Read the data-entry form",
+      "request": {
+        "path": "/api/v1/hospitals/ch-245/entry-form"
+      },
+      "status": 200,
+      "trim": {
+        "items": 3
+      }
+    },
+    {
+      "id": "enter",
+      "endpoint": "POST /api/v1/hospitals/{site_id}/encounters",
+      "title": "Enter a record at Hospital 245",
+      "request": {
+        "path": "/api/v1/hospitals/ch-245/encounters",
+        "headers": {
+          "Idempotency-Key": "docs-ch245-0001"
+        },
+        "json": {
+          "age": 81,
+          "sex": "female",
+          "conscious_level": "drowsy",
+          "face_weakness": true,
+          "arm_weakness": true,
+          "leg_weakness": false,
+          "speech_difficulty": true,
+          "hours_since_onset": 6.5,
+          "systolic_bp": 172.0,
+          "visual_field_loss": null,
+          "atrial_fibrillation": true,
+          "onset_on_waking": false,
+          "stroke_subtype": "PACS"
+        }
+      },
+      "status": 201,
+      "volatile": [
+        "/record/recorded_at"
+      ],
+      "trim": {
+        "items": 3,
+        "chars": 300
+      }
+    },
+    {
+      "id": "enter-retry",
+      "endpoint": "POST /api/v1/hospitals/{site_id}/encounters",
+      "title": "Send the same record with the same key again",
+      "description": "The answer holds the record stored the first time. Nothing new is stored, so counts.entered stays 1.",
+      "request": {
+        "path": "/api/v1/hospitals/ch-245/encounters",
+        "headers": {
+          "Idempotency-Key": "docs-ch245-0001"
+        },
+        "json": {
+          "age": 81,
+          "sex": "female",
+          "conscious_level": "drowsy",
+          "face_weakness": true,
+          "arm_weakness": true,
+          "leg_weakness": false,
+          "speech_difficulty": true,
+          "hours_since_onset": 6.5,
+          "systolic_bp": 172.0,
+          "visual_field_loss": null,
+          "atrial_fibrillation": true,
+          "onset_on_waking": false,
+          "stroke_subtype": "PACS"
+        }
+      },
+      "status": 201,
+      "volatile": [
+        "/record/recorded_at"
+      ],
+      "trim": {
+        "items": 3,
+        "chars": 300
+      }
+    },
+    {
+      "id": "enter-key-reused",
+      "endpoint": "POST /api/v1/hospitals/{site_id}/encounters",
+      "title": "The same key with a different record",
+      "request": {
+        "path": "/api/v1/hospitals/ch-245/encounters",
+        "headers": {
+          "Idempotency-Key": "docs-ch245-0001"
+        },
+        "json": {
+          "age": 64,
+          "sex": "male",
+          "conscious_level": "alert",
+          "hours_since_onset": 2.0,
+          "systolic_bp": 150.0
+        }
+      },
+      "status": 409
+    },
+    {
+      "id": "enter-invalid",
+      "endpoint": "POST /api/v1/hospitals/{site_id}/encounters",
+      "title": "A record with values outside their domains and a free-text field",
+      "request": {
+        "path": "/api/v1/hospitals/ch-245/encounters",
+        "json": {
+          "age": 130,
+          "sex": "unknown",
+          "conscious_level": "alert",
+          "hours_since_onset": 2.0,
+          "systolic_bp": 150.0,
+          "name": "A. Patient"
+        }
+      },
+      "status": 422
+    },
+    {
+      "id": "enter-bad-key",
+      "endpoint": "POST /api/v1/hospitals/{site_id}/encounters",
+      "title": "An Idempotency-Key with characters that are not allowed",
+      "request": {
+        "path": "/api/v1/hospitals/ch-245/encounters",
+        "headers": {
+          "Idempotency-Key": "key with spaces"
+        },
+        "json": {
+          "age": 64,
+          "sex": "male",
+          "conscious_level": "alert",
+          "hours_since_onset": 2.0,
+          "systolic_bp": 150.0
+        }
+      },
+      "status": 422
+    },
+    {
+      "id": "encounters",
+      "endpoint": "GET /api/v1/hospitals/{site_id}/encounters",
+      "title": "List the records entered at Hospital 245",
+      "request": {
+        "path": "/api/v1/hospitals/ch-245/encounters",
+        "query": {
+          "limit": 5
+        }
+      },
+      "status": 200,
+      "volatile": [
+        "/encounters/*/recorded_at"
+      ]
+    },
+    {
+      "id": "outcome",
+      "endpoint": "POST /api/v1/hospitals/{site_id}/encounters/{encounter_id}/outcome",
+      "title": "Record the entered record's six-month outcome",
+      "request": {
+        "path": "/api/v1/hospitals/ch-245/encounters/ch-245-e1/outcome",
+        "json": {
+          "poor_outcome_6m": true
+        }
+      },
+      "status": 200,
+      "volatile": [
+        "/record/recorded_at",
+        "/record/outcome_recorded_at"
+      ],
+      "trim": {
+        "items": 3,
+        "chars": 300
+      }
+    },
+    {
+      "id": "outcome-conflict",
+      "endpoint": "POST /api/v1/hospitals/{site_id}/encounters/{encounter_id}/outcome",
+      "title": "A different outcome for a record that already has one",
+      "request": {
+        "path": "/api/v1/hospitals/ch-245/encounters/ch-245-e1/outcome",
+        "json": {
+          "poor_outcome_6m": false
+        }
+      },
+      "status": 409
+    },
+    {
+      "id": "outcome-dataset-record",
+      "endpoint": "POST /api/v1/hospitals/{site_id}/encounters/{encounter_id}/outcome",
+      "title": "An outcome for a record from the dataset",
+      "request": {
+        "path": "/api/v1/hospitals/ch-245/encounters/ch-245-01423/outcome",
+        "json": {
+          "poor_outcome_6m": true
+        }
+      },
+      "status": 422
+    },
+    {
+      "id": "outcome-unknown",
+      "endpoint": "POST /api/v1/hospitals/{site_id}/encounters/{encounter_id}/outcome",
+      "title": "A record id the hospital does not hold",
+      "request": {
+        "path": "/api/v1/hospitals/ch-245/encounters/ch-245-e99/outcome",
+        "json": {
+          "poor_outcome_6m": true
+        }
+      },
+      "status": 404
+    },
+    {
+      "id": "probe",
+      "endpoint": "POST /api/v1/governance:probe",
+      "title": "Ask Hospital 134's Guard about a row request from a verified person",
+      "request": {
+        "path": "/api/v1/governance:probe",
+        "json": {
+          "site_id": "uk-134"
+        }
+      },
+      "status": 200,
+      "volatile": [
+        "/audit_id"
+      ]
+    },
+    {
+      "id": "probe-small-table",
+      "endpoint": "POST /api/v1/governance:probe",
+      "title": "A table request about 12 patients from an unverified requester",
+      "description": "A table request describes a group, so the planner checks it against the minimum cohort of 20 and denies it.",
+      "request": {
+        "path": "/api/v1/governance:probe",
+        "json": {
+          "site_id": "uk-134",
+          "verified": false,
+          "boundary": "before_send",
+          "granularity": "table",
+          "requested_fields": [
+            "systolic_bp",
+            "age_band"
+          ],
+          "cohort_size": 12
+        }
+      },
+      "status": 200,
+      "volatile": [
+        "/audit_id"
+      ]
+    },
+    {
+      "id": "probe-label-refused",
+      "endpoint": "POST /api/v1/governance:probe",
+      "title": "Asking for the outcome label",
+      "request": {
+        "path": "/api/v1/governance:probe",
+        "json": {
+          "site_id": "uk-134",
+          "requested_fields": [
+            "poor_outcome_6m"
+          ]
+        }
+      },
+      "status": 422
+    },
+    {
+      "id": "audit",
+      "endpoint": "GET /api/v1/hospitals/{site_id}/audit",
+      "title": "Read the two newest decisions in Hospital 134's audit chain",
+      "description": "They are the two probes above. Each record holds the digest of the one before it.",
+      "request": {
+        "path": "/api/v1/hospitals/uk-134/audit",
+        "query": {
+          "limit": 2
+        }
+      },
+      "status": 200,
+      "volatile": [
+        "/records/*/audit_id",
+        "/records/*/recorded_at",
+        "/records/*/digest",
+        "/records/*/previous_digest"
+      ]
+    },
+    {
+      "id": "charts",
+      "endpoint": "GET /api/v1/charts",
+      "title": "List the consortium charts before any pilot",
+      "description": "The three charts that show pilot results are listed with available false and a reason.",
+      "request": {
+        "path": "/api/v1/charts"
+      },
+      "status": 200,
+      "trim": {
+        "items": 5,
+        "chars": 300
+      }
+    },
+    {
+      "id": "chart-svg",
+      "endpoint": "GET /api/v1/charts/{chart_id}.svg",
+      "title": "Draw the chart of the records each hospital holds",
+      "request": {
+        "path": "/api/v1/charts/hospital-records.svg"
+      },
+      "status": 200,
+      "trim": {
+        "chars": 400
+      }
+    },
+    {
+      "id": "chart-svg-not-modified",
+      "endpoint": "GET /api/v1/charts/{chart_id}.svg",
+      "title": "Ask again with the ETag from the last answer",
+      "request": {
+        "path": "/api/v1/charts/hospital-records.svg",
+        "headers": {
+          "If-None-Match": "\"7d2f0e8aaca94ff1-light\""
+        }
+      },
+      "status": 304,
+      "description": "The ETag is a digest of everything the chart shows, so it stays the same until a record is entered or a pilot runs."
+    },
+    {
+      "id": "chart-needs-pilot",
+      "endpoint": "GET /api/v1/charts/{chart_id}.svg",
+      "title": "A chart that needs a pilot that has not run",
+      "request": {
+        "path": "/api/v1/charts/training-curve.svg"
+      },
+      "status": 404
+    },
+    {
+      "id": "hospital-charts",
+      "endpoint": "GET /api/v1/hospitals/{site_id}/charts",
+      "title": "List Hospital 245's charts",
+      "request": {
+        "path": "/api/v1/hospitals/ch-245/charts"
+      },
+      "status": 200,
+      "trim": {
+        "items": 4,
+        "chars": 300
+      }
+    },
+    {
+      "id": "hospital-chart-svg",
+      "endpoint": "GET /api/v1/hospitals/{site_id}/charts/{chart_id}.svg",
+      "title": "Draw Hospital 245's blood pressure chart in the dark theme",
+      "request": {
+        "path": "/api/v1/hospitals/ch-245/charts/systolic-bp.svg",
+        "query": {
+          "theme": "dark"
+        }
+      },
+      "status": 200,
+      "trim": {
+        "chars": 400
+      }
+    },
+    {
+      "id": "hospital-chart-unknown",
+      "endpoint": "GET /api/v1/hospitals/{site_id}/charts/{chart_id}.svg",
+      "title": "A chart id that does not exist",
+      "request": {
+        "path": "/api/v1/hospitals/ch-245/charts/heart-rate.svg"
+      },
+      "status": 404
+    },
+    {
+      "id": "pilot",
+      "endpoint": "POST /api/v1/pilot:run",
+      "title": "Run the federated pilot",
+      "description": "Trimmed: the full report holds every round's plan, results and readiness, and all five training rounds. Ids made from the clock and the random suffix differ on every run.",
+      "request": {
+        "path": "/api/v1/pilot:run",
+        "json": {
+          "round_prefix": "api"
+        }
+      },
+      "status": 200,
+      "trim": {
+        "items": 3,
+        "chars": 200
+      },
+      "volatile": [
+        "/pilot_id",
+        "/model_in_use/created_at",
+        "/rounds/*/round_id",
+        "/rounds/*/digest",
+        "/rounds/*/model_version",
+        "/rounds/*/plan/round_id",
+        "/rounds/*/plan/round_digest",
+        "/rounds/*/readiness/round_id",
+        "/rounds/*/results/*/round_id",
+        "/rounds/*/results/*/job_digest",
+        "/rounds/*/results/*/local_evidence_pointer",
+        "/rounds/training/*/round_id",
+        "/rounds/training/*/digest",
+        "/rounds/training/*/model_version",
+        "/rounds/training/*/plan/round_id",
+        "/rounds/training/*/plan/round_digest",
+        "/rounds/training/*/readiness/round_id",
+        "/rounds/training/*/results/*/round_id",
+        "/rounds/training/*/results/*/job_digest",
+        "/rounds/training/*/results/*/local_evidence_pointer",
+        "/rounds/training/*/candidate_version",
+        "/training_curve/*/round_id",
+        "/training_curve/*/candidate_version",
+        "/candidate/round_id",
+        "/candidate/candidate_version",
+        "/candidate/parent_version",
+        "/candidate/artifact_uri",
+        "/candidate/produced_at",
+        "/release/guard/request_id",
+        "/release/guard/audit_id",
+        "/release/guard/plan/request_id",
+        "/release/guard/plan/obligations/0",
+        "/release/gates/round_id",
+        "/release/gates/candidate_version"
+      ]
+    },
+    {
+      "id": "pilot-bad-prefix",
+      "endpoint": "POST /api/v1/pilot:run",
+      "title": "A round prefix that is not ui or api",
+      "request": {
+        "path": "/api/v1/pilot:run",
+        "json": {
+          "round_prefix": "nightly"
+        }
+      },
+      "status": 422
+    },
+    {
+      "id": "models",
+      "endpoint": "GET /api/v1/models",
+      "title": "List the model versions after one pilot",
+      "request": {
+        "path": "/api/v1/models"
+      },
+      "status": 200,
+      "trim": {
+        "items": 3,
+        "chars": 300
+      },
+      "volatile": [
+        "/model_in_use/created_at",
+        "/models/*/created_at",
+        "/models/*/version",
+        "/models/*/parent_version"
+      ]
+    },
+    {
+      "id": "approve-unknown",
+      "endpoint": "POST /api/v1/models/{version}:approve",
+      "title": "Approve a version that does not exist",
+      "request": {
+        "path": "/api/v1/models/no-such-version:approve"
+      },
+      "status": 404
+    },
+    {
+      "id": "approve-not-candidate",
+      "endpoint": "POST /api/v1/models/{version}:approve",
+      "title": "Approve the seed rule, which no pilot produced",
+      "request": {
+        "path": "/api/v1/models/stroke-outcome-rule-v1:approve"
+      },
+      "status": 409
+    },
+    {
+      "id": "approve-rate-limited",
+      "endpoint": "POST /api/v1/models/{version}:approve",
+      "title": "A third approval within a minute",
+      "description": "The capture limited approvals to 2 per minute (the default is 10), so this third request was refused.",
+      "request": {
+        "path": "/api/v1/models/stroke-outcome-rule-v1:approve"
+      },
+      "status": 429
+    },
+    {
+      "id": "status",
+      "endpoint": "GET /api/v1/framework/status",
+      "title": "Read where the records are stored and which services answer",
+      "request": {
+        "path": "/api/v1/framework/status"
+      },
+      "status": 200
+    },
+    {
+      "id": "trace",
+      "endpoint": "GET /api/v1/framework/trace",
+      "title": "Trace three of Hospital 2's records through the planners",
+      "request": {
+        "path": "/api/v1/framework/trace",
+        "query": {
+          "site_id": "it-002",
+          "limit": 3
+        }
+      },
+      "status": 200,
+      "trim": {
+        "items": 6,
+        "chars": 300
+      }
+    }
+  ]
+}

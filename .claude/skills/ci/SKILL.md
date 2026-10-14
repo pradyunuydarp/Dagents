@@ -7,7 +7,8 @@ description: Strict rules for the Dagents CI pipeline and the Pages publishing p
 
 These rules are binding. The main one: **a green run must show that the change
 works.** The rest follows from it. Workflow comments and run summaries follow
-the `writing` skill.
+the `writing` skill. Which docs a code change must update, and the docs checks
+CI runs, are in the `docs-sync` skill.
 
 ## 1. What the pipeline covers
 
@@ -97,6 +98,15 @@ Any endpoint change means regenerating the inventory:
 ```bash
 .venv/bin/python scripts/service_inventory.py --write   # then commit both files
 ```
+
+The same job checks the API reference: `scripts/api_reference.py --check`
+regenerates `docs/reference/api-reference.json`, and
+`tests/test_api_examples.py` makes every captured example request again with
+the planner. The job downloads `dagentsc` for that, and the guard requires
+`tests.test_api_examples.ApiExampleReplayTests` to have run, so a missing
+planner fails the job instead of skipping the replay. The replay also starts
+spring-control-service from its jar (the `runner` in its request file), so the
+job sets up JDK 21 and builds that jar first.
 
 ### d. A skipped browser test reported as a pass
 
@@ -196,6 +206,30 @@ that every token is defined on bare `:root` before any dark block. A token
 defined only in a dark block puts one theme's text on the other theme's
 background, and nobody notices until they open that theme.
 
+### j. Code merged while the site described the old behaviour
+
+The Pages workflow publishes the framework site on every push to `main`. A code
+change without its docs leaves the site wrong until someone notices. The
+generated docs have their own tests (failure c), but nothing checked that the
+prose changed at all.
+
+Defence: the `docs-impact` job runs `scripts/check_docs_impact.py` on pull
+requests (`base.sha` to `head.sha`) and on pushes to `main` (`before` to
+`sha`). It fails when the change touches a code area in its `AREAS` map and
+none of that area's docs, unless a commit message in the range has a line
+`Docs-Impact: none [area] (reason)` that names the area. A line exempts only
+the areas it names. The job checks out with `fetch-depth: 0`, because it diffs
+against the base and reads every commit message in the range. The
+commits reach the script through `env:`, never pasted into `run:`. When
+`before` is all zeros or missing from the clone (a force push), the script
+checks the head commit alone and says so. A manual run skips the job, and a
+skipped job does not fail the `ci` gate.
+
+It proves a decision was made, not that the right page changed.
+`tests/test_docs_impact.py` tests the decision, the trailer, the git range, the
+area map against the real tree, and this job's shape. The map and the trailer
+rules are in the `docs-sync` skill.
+
 ## 3. The test loop
 
 CI runs the same commands a contributor runs. Write the failing test first,
@@ -232,6 +266,9 @@ mvn --batch-mode -f services/spring-services/pom.xml verify
 # 6. a frontend, if you changed it
 apps/healthcare-demo/scripts/run_frontend_demo.sh --check
 cd site && npm run build && npm run check && cd -
+
+# 7. the docs changed with the code (the docs-sync skill)
+.venv/bin/python scripts/check_docs_impact.py --base origin/main
 ```
 
 `dune` is not on PATH, so always use `opam exec --`. Python tests import as

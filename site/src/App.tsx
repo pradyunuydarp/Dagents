@@ -3,8 +3,10 @@ import { useEffect } from "react";
 import { ThemeToggle } from "./ThemeToggle";
 import { REPO_LINKS, REPO_URL } from "./config";
 import { Api } from "./pages/Api";
+import { Guide } from "./pages/Guide";
 import { Home } from "./pages/Home";
 import { Learn } from "./pages/Learn";
+import { Resources } from "./pages/Resources";
 import { href, useRoute } from "./router";
 
 /** Old single-section links from the previous version of the site. */
@@ -30,7 +32,9 @@ export default function App() {
   if (!section) page = <Home anchor={route.anchor} />;
   else if (section === "demos") page = <Home anchor="demos" />;
   else if (section === "learn") page = <Learn slug={slug ?? ""} anchor={route.anchor} />;
-  else if (section === "api") page = <Api />;
+  else if (section === "guide") page = <Guide slug={slug ?? ""} anchor={route.anchor} />;
+  else if (section === "api") page = <Api slug={slug ?? ""} anchor={route.anchor} />;
+  else if (section === "resources") page = <Resources anchor={route.anchor} />;
   else
     page = (
       <div className="block">
@@ -41,7 +45,8 @@ export default function App() {
       </div>
     );
 
-  const current = section === "learn" ? "learn" : section === "api" ? "api" : "home";
+  // Each section marks its own nav link; the home page and its demos anchor mark Home.
+  const current = !section || section === "demos" ? "home" : section;
 
   return (
     <>
@@ -57,11 +62,20 @@ export default function App() {
             <a href={href("learn")} aria-current={current === "learn" ? "page" : undefined}>
               Learn
             </a>
+            <a href={href("guide")} aria-current={current === "guide" ? "page" : undefined}>
+              Guide
+            </a>
             <a href={href("api")} aria-current={current === "api" ? "page" : undefined}>
               API
             </a>
+            <a href={href("resources")} aria-current={current === "resources" ? "page" : undefined}>
+              Resources
+            </a>
             <a href={href("", "demos")}>Demos</a>
-            <a href={REPO_URL}>GitHub</a>
+            {/* On a phone the footer's Source link replaces this one, so the sections fit one line. */}
+            <a className="nav-wide" href={REPO_URL}>
+              GitHub
+            </a>
           </nav>
           <ThemeToggle />
         </div>
@@ -74,7 +88,7 @@ export default function App() {
           <p className="ds-note">Dagents is open source under the MIT license.</p>
           <nav aria-label="More links">
             <a href={REPO_URL}>Source</a>
-            <a href={REPO_LINKS.guide}>Guide on GitHub</a>
+            <a href={REPO_LINKS.guide}>Learning guide on GitHub</a>
             <a href={REPO_LINKS.contributing}>Contributor guide</a>
           </nav>
         </div>

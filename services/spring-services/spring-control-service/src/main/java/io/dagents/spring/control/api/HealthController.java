@@ -15,6 +15,9 @@ public class HealthController {
     this.properties = properties;
   }
 
+  /**
+   * Report that the control service is running.
+   */
   @GetMapping("/health")
   public HealthResponse health() {
     return new HealthResponse("ok", properties.appName(), properties.environment(), "http");

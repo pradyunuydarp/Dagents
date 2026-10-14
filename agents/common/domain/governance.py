@@ -59,9 +59,17 @@ class KyuAttribute(DagentsModel):
     to mark must not be treated as checked.
     """
 
-    attribute_id: str
-    weight: float = Field(default=1.0, ge=0.0)
-    verified: bool = False
+    attribute_id: str = Field(description="What the signal is, for example `email_domain` or `signed_agreement`.")
+    weight: float = Field(
+        default=1.0, ge=0.0, description="How much the signal counts toward the trust score. At least 0."
+    )
+    verified: bool = Field(
+        default=False,
+        description=(
+            "Whether the signal has been checked. An unverified signal counts for a quarter of its weight. "
+            "Default false, so a signal nobody marked is not treated as checked."
+        ),
+    )
 
 
 class Requester(DagentsModel):
@@ -72,50 +80,130 @@ class Requester(DagentsModel):
     trust in a coordinator is a different question from trust in a person.
     """
 
-    requester_id: str
-    requester_kind: RequesterKind = "service"
-    affiliation: str | None = None
-    stated_purpose: str | None = None
-    attributes: list[KyuAttribute] = Field(default_factory=list)
-    compliance_history: float = Field(default=0.0, ge=0.0, le=1.0)
+    requester_id: str = Field(description="Who is asking. Written into the plan's assessment and the audit record.")
+    requester_kind: RequesterKind = Field(
+        default="service",
+        description="`human`, `site`, `coordinator` or `service`. Written into the trust rationale; it does not change the score.",
+    )
+    affiliation: str | None = Field(
+        default=None,
+        description="The organization the requester belongs to. Written into the rationale; it does not change the score.",
+    )
+    stated_purpose: str | None = Field(
+        default=None,
+        description=(
+            "Why the requester says it is asking. Written into the rationale. The purpose check reads the "
+            "request's `declared_purpose`, not this field."
+        ),
+    )
+    attributes: list[KyuAttribute] = Field(
+        default_factory=list,
+        description="The signals the trust score is computed from. With none, the score is 0 and trust is `low`.",
+    )
+    compliance_history: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=1.0,
+        description="The requester's record of past compliance, from 0 to 1. It is 30% of the trust score.",
+    )
 
 
 class KyuAssessment(DagentsModel):
     """Computed trust for one requester, with the reasoning behind it."""
 
-    requester_id: str
-    kyu_score: float
-    trust: TrustLevel
-    rationale: list[str] = Field(default_factory=list)
+    requester_id: str = Field(description="The requester that was assessed.")
+    kyu_score: float = Field(
+        description=(
+            "The Know-Your-User score, from 0 to 1: 0.7 times the share of attribute weight that is earned "
+            "(an unverified attribute earns a quarter of its weight), plus 0.3 times `compliance_history`. "
+            "0 when the requester has no attributes."
+        )
+    )
+    trust: TrustLevel = Field(description="`low` below 0.4, `moderate` from 0.4 up to 0.75, `high` from 0.75.")
+    rationale: list[str] = Field(
+        default_factory=list,
+        description="The inputs behind the score, one per entry, such as `verified_attributes=2/2`.",
+    )
 
 
 class DataClassification(DagentsModel):
-    """The data-side half of a restriction decision.
+    """How sensitive each field is, and which regulations cover the data.
 
-    This is configuration, not code: policy changes far more often than the
+    This is the data-side half of a restriction decision. It is configuration, not code: policy changes far more often than the
     framework does. ``default_sensitivity`` is ``"high"`` so an unclassified
     field is treated as the most protected until someone classifies it.
     """
 
-    classification_id: str
-    field_sensitivity: dict[str, Sensitivity] = Field(default_factory=dict)
-    default_sensitivity: Sensitivity = "high"
-    regulations: list[str] = Field(default_factory=list)
-    minimum_cohort: int = Field(default=0, ge=0)
+    classification_id: str = Field(description="The classification's id. Condition packs name a classification by it.")
+    field_sensitivity: dict[str, Sensitivity] = Field(
+        default_factory=dict, description="Field names mapped to their sensitivity: `low`, `medium` or `high`."
+    )
+    default_sensitivity: Sensitivity = Field(
+        default="high",
+        description="The sensitivity of every field not in `field_sensitivity`. Default `high`, the most protected.",
+    )
+    regulations: list[str] = Field(
+        default_factory=list,
+        description="Regulations that cover the data, such as `HIPAA`. Each adds an obligation to every plan.",
+    )
+    minimum_cohort: int = Field(
+        default=0,
+        ge=0,
+        description=(
+            "The fewest subjects a `column`, `table` or `model_update` result may describe. 0 turns the check "
+            "off. At least 0."
+        ),
+    )
 
 
 class RestrictionRequest(DagentsModel):
-    """One request presented to the Ethical-Restriction Rails."""
+    """One request for data, an update or a release, as the governance planner reads it.
 
-    request_id: str
-    boundary: GuardBoundary
-    requester: Requester
-    classification: DataClassification
-    requested_fields: list[str] = Field(default_factory=list)
-    granularity: Granularity
-    cohort_size: int | None = Field(default=None, ge=0)
-    declared_purpose: str | None = None
-    approved_purposes: list[str] = Field(default_factory=list)
+    The planner's governance rules are the Ethical-Restriction Rails.
+    """
+
+    request_id: str = Field(
+        description=(
+            "An id for the request, chosen by the caller. It is copied into the plan, the decision and the "
+            "audit record, and it seeds the random noise `add_noise` draws, so a decision can be reproduced."
+        )
+    )
+    boundary: GuardBoundary = Field(
+        description=(
+            "Where the Guard stands: `before_read`, `before_train`, `before_send` or `before_release`. It is "
+            "recorded in the plan and the audit record; it does not change the strategy chosen."
+        )
+    )
+    requester: Requester = Field(description="Who is asking. The planner computes the requester's trust from it.")
+    classification: DataClassification = Field(
+        description="The classification to plan against, sent in full. It is not looked up by its id."
+    )
+    requested_fields: list[str] = Field(
+        default_factory=list,
+        description=(
+            "The fields asked for. The plan has one restriction per field, and the Guard drops every other "
+            "field from the payload."
+        ),
+    )
+    granularity: Granularity = Field(
+        description="How much is asked for: `cell`, `row`, `column`, `table` or `model_update` (a federated model update)."
+    )
+    cohort_size: int | None = Field(
+        default=None,
+        ge=0,
+        description=(
+            "How many subjects the result describes. Required for `column`, `table` and `model_update` "
+            "requests when the classification's `minimum_cohort` is above 0. Below that minimum, the request "
+            "is denied. At least 0."
+        ),
+    )
+    declared_purpose: str | None = Field(
+        default=None,
+        description="Why the data is wanted. When `approved_purposes` is not empty, it is required and must be one of them.",
+    )
+    approved_purposes: list[str] = Field(
+        default_factory=list, description="The purposes allowed for this data. Empty turns the purpose check off."
+    )
 
 
 class FieldRestriction(DagentsModel):
@@ -126,33 +214,66 @@ class FieldRestriction(DagentsModel):
     applied, not only the strategy's name.
     """
 
-    field: str
-    sensitivity: Sensitivity
-    strategy: str
-    reason: str
+    field: str = Field(description="The requested field.")
+    sensitivity: Sensitivity = Field(description="The field's sensitivity, from the classification.")
+    strategy: str = Field(
+        description=(
+            "What the Guard does with the field: `allow_full`, `generalize:<level>`, "
+            "`clip_contribution:<bound>`, `add_noise:<scale>`, `aggregate_only:<minimum cohort>`, `redact` or "
+            "`refuse`."
+        )
+    )
+    reason: str = Field(
+        description="Why the strategy was chosen, such as `sensitivity=high trust=high granularity=row -> generalize:1`."
+    )
 
 
 class RestrictionPlan(DagentsModel):
-    """The Rails' decision for one request.
+    """The planner's decision for one request: a strategy for each field, and a verdict.
 
     ``filtering_score`` is GRAILS' measure of how much protection was actually
     applied, so the amount of filtering can be reported rather than asserted:
     0.0 means nothing was withheld, 1.0 means the request was fully refused.
     """
 
-    request_id: str
-    boundary: GuardBoundary
-    assessment: KyuAssessment
-    granularity: Granularity
-    field_restrictions: list[FieldRestriction] = Field(default_factory=list)
-    decision: PlanDecision
-    filtering_score: float
-    obligations: list[str] = Field(default_factory=list)
-    violations: list[str] = Field(default_factory=list)
+    request_id: str = Field(description="Copied from the request.")
+    boundary: GuardBoundary = Field(description="Copied from the request.")
+    assessment: KyuAssessment = Field(description="How far the planner trusts the requester, and why.")
+    granularity: Granularity = Field(description="Copied from the request.")
+    field_restrictions: list[FieldRestriction] = Field(
+        default_factory=list, description="One entry per requested field, in the order of the request."
+    )
+    decision: PlanDecision = Field(
+        description=(
+            "`deny` when a request-level check fails or any field is `refuse`, `permit` when every field is "
+            "`allow_full`, and `narrow` otherwise."
+        )
+    )
+    filtering_score: float = Field(
+        description=(
+            "How much protection the plan applies, from 0 (nothing withheld) to 1 (refused): the mean weight "
+            "of the fields' strategies. The weights are allow_full 0, generalize 0.35, clip_contribution 0.45, "
+            "add_noise 0.55, aggregate_only 0.7, redact 0.9 and refuse 1."
+        )
+    )
+    obligations: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Duties the Guard must carry out, such as recording the decision, applying each regulation's "
+            "controls and suppressing groups below the minimum cohort."
+        ),
+    )
+    violations: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Request-level checks that failed: a missing or unapproved purpose, or a missing or too small "
+            "cohort. Any violation makes the decision `deny`."
+        ),
+    )
 
 
 class GuardDecision(DagentsModel):
-    """What the Ethical Guard did after the Rails decided.
+    """What the Ethical Guard did with a request after the planner decided.
 
     The plan says what should happen; this says what happened. ``permitted`` is
     the answer the caller acts on, ``payload`` is what survived enforcement, and
@@ -160,19 +281,39 @@ class GuardDecision(DagentsModel):
     mistaken for a complete one.
     """
 
-    request_id: str
-    boundary: GuardBoundary
-    permitted: bool
-    plan: RestrictionPlan
-    payload: list[dict[str, Any]] = Field(default_factory=list)
-    withheld_fields: list[str] = Field(default_factory=list)
-    transformed_fields: list[str] = Field(default_factory=list)
-    audit_id: str
-    message: str = ""
+    request_id: str = Field(description="Copied from the request.")
+    boundary: GuardBoundary = Field(description="Copied from the request.")
+    permitted: bool = Field(
+        description="Whether the request may go ahead. False for a `deny` plan, and when the planner cannot be reached."
+    )
+    plan: RestrictionPlan = Field(
+        description="The plan the Guard applied. When the planner cannot be reached, a deny plan the Guard builds itself."
+    )
+    payload: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description=(
+            "The records after enforcement: only the requested fields, each changed by its strategy, or one "
+            "summary row when a field is `aggregate_only`. Empty when the request is denied, when every "
+            "requested field is withheld, and when an aggregate group is smaller than its minimum."
+        ),
+    )
+    withheld_fields: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Requested fields that were removed: redacted, refused, or holding a value the strategy could not "
+            "be applied to. Every requested field when the request is denied."
+        ),
+    )
+    transformed_fields: list[str] = Field(
+        default_factory=list,
+        description="Requested fields returned with changed values: generalized, clipped, noised or aggregated.",
+    )
+    audit_id: str = Field(description="The id of the audit record written for this decision.")
+    message: str = Field(default="", description="The result in words, such as `permitted with restrictions`.")
 
 
 class AuditRecord(DagentsModel):
-    """One tamper-evident-by-convention entry in the guard's decision log.
+    """One entry in the Guard's audit log, linked to the entry before it by a digest.
 
     ``previous_digest`` and ``digest`` chain entries together, so removing or
     editing an entry breaks every digest after it. This is a deterministic
@@ -188,21 +329,57 @@ class AuditRecord(DagentsModel):
     their parameters. All three stay empty for a decision that bounded nothing.
     """
 
-    audit_id: str
-    recorded_at: int
-    boundary: GuardBoundary
-    request_id: str
-    requester_id: str
-    decision: PlanDecision
-    permitted: bool
-    granularity: Granularity
-    filtering_score: float
-    withheld_fields: list[str] = Field(default_factory=list)
-    obligations: list[str] = Field(default_factory=list)
-    violations: list[str] = Field(default_factory=list)
-    correlation_id: str | None = None
-    contribution_norm_before: float | None = None
-    contribution_norm_after: float | None = None
-    contribution_strategies: list[str] = Field(default_factory=list)
-    previous_digest: str = ""
-    digest: str = ""
+    audit_id: str = Field(description="A random id for the record: a UUID4 in hex, without hyphens.")
+    recorded_at: int = Field(description="When the decision was recorded, in Unix seconds.")
+    boundary: GuardBoundary = Field(description="The boundary from the request.")
+    request_id: str = Field(description="The id from the request.")
+    requester_id: str = Field(description="The requester's id from the request.")
+    decision: PlanDecision = Field(description="The plan's decision: `permit`, `narrow` or `deny`.")
+    permitted: bool = Field(description="Whether the Guard let the request go ahead.")
+    granularity: Granularity = Field(description="The granularity from the request.")
+    filtering_score: float = Field(description="The plan's filtering score, from 0 to 1.")
+    withheld_fields: list[str] = Field(default_factory=list, description="The fields the Guard removed.")
+    obligations: list[str] = Field(default_factory=list, description="The plan's obligations.")
+    violations: list[str] = Field(default_factory=list, description="The plan's violations.")
+    correlation_id: str | None = Field(
+        default=None, description="The correlation id sent with the enforcement request, such as a round or run id."
+    )
+    contribution_norm_before: float | None = Field(
+        default=None,
+        description="The largest L2 norm of a clipped or noised contribution before the Guard changed it. Empty when nothing was bounded.",
+    )
+    contribution_norm_after: float | None = Field(
+        default=None,
+        description="The largest L2 norm of a clipped or noised contribution after the Guard changed it. Empty when nothing was bounded.",
+    )
+    contribution_strategies: list[str] = Field(
+        default_factory=list, description="The bounding strategies applied, with their parameters, such as `clip_contribution:1`."
+    )
+    previous_digest: str = Field(
+        default="", description="The `digest` of the record before this one. Empty for the first record."
+    )
+    digest: str = Field(
+        default="",
+        description=(
+            "SHA-256, in hex, of every other field of this record as JSON with sorted keys. Editing or removing "
+            "a record breaks the chain from that record on."
+        ),
+    )
+
+
+class GuardAuditLog(DagentsModel):
+    """The audit log as an agent's audit endpoint returns it.
+
+    The endpoints build this shape as a plain dict. The model documents it in
+    the OpenAPI schema; it is not used to build the response.
+    """
+
+    chain_intact: bool = Field(
+        description=(
+            "Whether the log's digest chain verifies. Records an earlier check already verified are not "
+            "hashed again; only newer ones are."
+        )
+    )
+    records: list[AuditRecord] = Field(
+        default_factory=list, description="The newest records first, at most `limit` of them."
+    )

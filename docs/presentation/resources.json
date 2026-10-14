@@ -1,0 +1,416 @@
+{
+  "about": "The list behind the Resources page of the framework site (#/resources). Edit the titles, descriptions and groups here. Then run `python scripts/export_presentations.py --write`: it makes each deck's PDF and preview image in docs/presentation/exports/ and fills in every `facts` field. tests/test_site_resources.py fails when a listed file changes without that step, and when a deck under docs/presentation is neither listed nor excluded.",
+  "groups": [
+    {
+      "id": "framework",
+      "title": "The framework",
+      "intro": "What Dagents is, how it is built, and how an application calls it.",
+      "items": [
+        {
+          "id": "dagents-framework",
+          "kind": "deck",
+          "title": "The Dagents framework",
+          "description": "What the local agent (LMA) at each data source and the coordinator (GMA) do, 15 example tasks, the framework services, the OCaml planners (the programs, written in OCaml, that make Dagents' decisions) and why each layer uses its language. An appendix shows how the NL2SQL demo, an app that turns a question in plain English into SQL, calls the framework.",
+          "audience": "Developers and students new to Dagents",
+          "note": "Made before the governance and federation planners were added on 18 September 2026. It lists governance as future work and does not cover federated rounds or the stroke demo.",
+          "source": "docs/presentation/dagents-project-presentation.pptx",
+          "previewSlide": 2,
+          "facts": {
+            "updated": "2026-09-04",
+            "bytes": 1153964,
+            "sha256": "e9fde3965822eda2840fd55e8c73dae86a4d08afa646f047ec22399de408032c",
+            "slides": 61,
+            "pdf": {
+              "path": "docs/presentation/exports/dagents-framework.pdf",
+              "bytes": 1649995,
+              "sha256": "b0396ee52536624330240f011af600173b30b96cf4834f5831118f0dd793bf92",
+              "pages": 61,
+              "settings": "319627d34f00b00b"
+            },
+            "preview": {
+              "path": "docs/presentation/exports/dagents-framework.webp",
+              "bytes": 10850,
+              "sha256": "742ae68ad3ee13b545cceb029ac786412eb05d0eee04f1695df346f24b361c38",
+              "slide": 2,
+              "width": 480,
+              "height": 270
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "healthcare-case-study",
+      "title": "Healthcare case study",
+      "intro": "Six versions of one case study. Each shows how several hospitals could share an early-warning tool while every hospital keeps its own patient records. Pick the version that fits your audience.",
+      "note": "These decks are proposals written before the stroke demo was built, so they do not describe the demo or its data. The demo uses de-identified records from three hospitals in the International Stroke Trial.",
+      "noteLink": {
+        "label": "About the trial data",
+        "path": "apps/healthcare-demo/data/ist/NOTICE.md"
+      },
+      "items": [
+        {
+          "id": "case-study-stroke",
+          "kind": "deck",
+          "title": "Stroke triage",
+          "description": "The latest version, built around stroke triage, the same condition as the stroke demo. It starts with stroke, then shows how other conditions could reuse the same platform.",
+          "audience": "Any audience. Plain language, with three glossary slides.",
+          "source": "docs/presentation/healthcare-case-study/dagents-healthcare-case-study-stroke.pptx",
+          "previewSlide": 3,
+          "facts": {
+            "updated": "2026-09-04",
+            "bytes": 216355,
+            "sha256": "7b3b8592483e2e6595832231c3a3ed2438a4a721684b719f10fbc0d60eebdf4e",
+            "slides": 25,
+            "pdf": {
+              "path": "docs/presentation/exports/case-study-stroke.pdf",
+              "bytes": 310652,
+              "sha256": "5eba26aafd4abb2032838cde37f66d8dfa755875fbd22f9c781b0a68b0663a15",
+              "pages": 25,
+              "settings": "319627d34f00b00b"
+            },
+            "preview": {
+              "path": "docs/presentation/exports/case-study-stroke.webp",
+              "bytes": 7748,
+              "sha256": "6b4b2984ef0d56e4ab551ab7b259f90cdba9c84b2c27ee1a19ee336d771ce6d4",
+              "slide": 3,
+              "width": 480,
+              "height": 270
+            }
+          }
+        },
+        {
+          "id": "case-study-multi-condition",
+          "kind": "deck",
+          "title": "Sepsis, then other conditions",
+          "description": "Starts with sepsis, then adds a slide on stroke, heart attack, sudden kidney injury and breathing decline. Use it to explain that the platform is shared but each condition needs its own tested model.",
+          "audience": "Any audience. Plain language, with three glossary slides.",
+          "source": "docs/presentation/healthcare-case-study/dagents-healthcare-case-study-multi-condition.pptx",
+          "previewSlide": 5,
+          "facts": {
+            "updated": "2026-09-04",
+            "bytes": 216170,
+            "sha256": "8589f024944a4a620bf1fb97f616a3166aa1a06cdb38904fe98fe16d1cb5e90a",
+            "slides": 25,
+            "pdf": {
+              "path": "docs/presentation/exports/case-study-multi-condition.pdf",
+              "bytes": 310081,
+              "sha256": "a798988deea9dc81b6df6e0527f8aec8f99c58eee1c731dca54f79db81ce8352",
+              "pages": 25,
+              "settings": "319627d34f00b00b"
+            },
+            "preview": {
+              "path": "docs/presentation/exports/case-study-multi-condition.webp",
+              "bytes": 8288,
+              "sha256": "fb6957521b17fcf45e8effa9be3c415bd6678e5f3d0de8054ab4f493e56ef9fb",
+              "slide": 5,
+              "width": 480,
+              "height": 270
+            }
+          }
+        },
+        {
+          "id": "case-study-source-first",
+          "kind": "deck",
+          "title": "Source-first sepsis warnings",
+          "description": "The plain-language version plus the case against a central data lake, a single store that holds a copy of every hospital's records. Use it when the audience asks why the data is not collected in one place.",
+          "audience": "Any audience. Plain language, with two glossary slides.",
+          "source": "docs/presentation/healthcare-case-study/dagents-healthcare-case-study-source-first.pptx",
+          "previewSlide": 8,
+          "facts": {
+            "updated": "2026-09-04",
+            "bytes": 206720,
+            "sha256": "cd0c70bda8047da1f49847289a7bbcdf1b1dfc7b852548b625abb43499d73bf8",
+            "slides": 23,
+            "pdf": {
+              "path": "docs/presentation/exports/case-study-source-first.pdf",
+              "bytes": 291997,
+              "sha256": "36be22af0d0b64b02a5ab1a6810f42c4cd28cf587080cf3eb1cfe7f6b5a6e0ac",
+              "pages": 23,
+              "settings": "319627d34f00b00b"
+            },
+            "preview": {
+              "path": "docs/presentation/exports/case-study-source-first.webp",
+              "bytes": 9022,
+              "sha256": "770fa7da19c4e6edb99cba69ffdc6537b5a4468d760020f384935ad02986db2c",
+              "slide": 8,
+              "width": 480,
+              "height": 270
+            }
+          }
+        },
+        {
+          "id": "case-study-simple-language",
+          "kind": "deck",
+          "title": "Sepsis warnings in plain language",
+          "description": "The expanded version rewritten in plain words, plus a slide on why to start with sepsis and two glossary slides. Use it for an audience without a technical or clinical background.",
+          "audience": "Non-technical audience",
+          "source": "docs/presentation/healthcare-case-study/dagents-healthcare-case-study-simple-language.pptx",
+          "previewSlide": 21,
+          "facts": {
+            "updated": "2026-09-04",
+            "bytes": 202267,
+            "sha256": "55580481a5bcad830006fa912006ff4f77f251ccbdd4d1220d37bd3864aa27ab",
+            "slides": 22,
+            "pdf": {
+              "path": "docs/presentation/exports/case-study-simple-language.pdf",
+              "bytes": 284538,
+              "sha256": "935c89006106a086a8410e8d95af3215085d70aac4356e799cde1d8e956ecceb",
+              "pages": 22,
+              "settings": "319627d34f00b00b"
+            },
+            "preview": {
+              "path": "docs/presentation/exports/case-study-simple-language.webp",
+              "bytes": 7916,
+              "sha256": "83689ec2a4380d495c0320c0cfce4440b9cb296803dda775c98fb4716597f818",
+              "slide": 21,
+              "width": 480,
+              "height": 270
+            }
+          }
+        },
+        {
+          "id": "case-study-expanded",
+          "kind": "deck",
+          "title": "Sepsis, with a comparison of tools",
+          "description": "The first version plus two slides: the coordination problem, and how Dagents compares with Flower, NVIDIA FLARE, SageMaker AI, Azure ML, Airflow and Kubeflow.",
+          "audience": "Technical audience",
+          "source": "docs/presentation/healthcare-case-study/dagents-healthcare-case-study-expanded.pptx",
+          "previewSlide": 16,
+          "facts": {
+            "updated": "2026-09-04",
+            "bytes": 315229,
+            "sha256": "28c76920961a34342e7f8cc1c96dd1a4cc031582015c17e39c848c53e51bd4a3",
+            "slides": 19,
+            "pdf": {
+              "path": "docs/presentation/exports/case-study-expanded.pdf",
+              "bytes": 363562,
+              "sha256": "7578978f7bd7be4fb87c53cb1807810207404c5cdb2ab857194a4d92075408b1",
+              "pages": 19,
+              "settings": "319627d34f00b00b"
+            },
+            "preview": {
+              "path": "docs/presentation/exports/case-study-expanded.webp",
+              "bytes": 9966,
+              "sha256": "5409b087762a685f3ec9e1620e54d27e17dfab6a2f8f64b89217d814a8339d4c",
+              "slide": 16,
+              "width": 480,
+              "height": 270
+            }
+          }
+        },
+        {
+          "id": "case-study-sepsis",
+          "kind": "deck",
+          "title": "Sepsis (first version)",
+          "description": "The shortest version, in technical language: the architecture, the local and global agent flows, a responsibility matrix for HIPAA (the US health-privacy law) and SOC 2 (a security audit standard), four clinical safety gates and a five-phase pilot plan.",
+          "audience": "Technical audience",
+          "source": "docs/presentation/healthcare-case-study/dagents-healthcare-case-study.pptx",
+          "previewSlide": 6,
+          "facts": {
+            "updated": "2026-09-04",
+            "bytes": 319354,
+            "sha256": "483a1ba475da6e13fcb4fed208850cc1763694a6db89676e1ab77025e21743e0",
+            "slides": 17,
+            "pdf": {
+              "path": "docs/presentation/exports/case-study-sepsis.pdf",
+              "bytes": 345778,
+              "sha256": "b1af64f41ead32f4e59296c2dec86e2136f3bd1a01de6c2d73b0e341961b1639",
+              "pages": 17,
+              "settings": "319627d34f00b00b"
+            },
+            "preview": {
+              "path": "docs/presentation/exports/case-study-sepsis.webp",
+              "bytes": 5782,
+              "sha256": "e2f52cd2013a7a73668e762d4cd9e9ff802f96ca4c956f73a8c68aed7bf7d9ec",
+              "slide": 6,
+              "width": 480,
+              "height": 270
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "federated-learning",
+      "title": "Federated learning use cases",
+      "intro": "Two decks on federated learning: training one model across hospitals without moving patient records. A federated learning runtime such as NVIDIA FLARE does the training, and Dagents controls who takes part, each round and each release. Both decks have a section on GRAILS, the governance method that the Dagents planner and Ethical Guard implement.",
+      "note": "Like the case study, these decks were written before the demo. They propose a pilot with five hospitals and NVIDIA FLARE. The demo uses three hospitals and, in place of FLARE, a small parameter-averaging runtime in the demo app, built on the framework's in-process engine.",
+      "items": [
+        {
+          "id": "federated-stroke",
+          "kind": "deck",
+          "title": "Federated stroke triage",
+          "description": "Use-case and sequence diagrams for one round, where Dagents ends and FLARE begins, GRAILS applied to stroke fields, and a 10-slide appendix on the basics: FLARE, FedAvg (averaging the hospitals' model updates) and privacy layers.",
+          "audience": "Technical audience. The appendix suits people new to federated learning.",
+          "source": "docs/presentation/healthcare-case-study/federated-healthcare-use-case/dagents-federated-stroke-use-case.pptx",
+          "previewSlide": 23,
+          "facts": {
+            "updated": "2026-09-04",
+            "bytes": 1129652,
+            "sha256": "ea986e806dcc9ac2fef3e8656285d01580993c95850a49471d834941959f9acf",
+            "slides": 41,
+            "pdf": {
+              "path": "docs/presentation/exports/federated-stroke.pdf",
+              "bytes": 1352275,
+              "sha256": "7eb0d606bd9743871c80a944332cca2201ebb5b86334cb657f2ef65ae008c673",
+              "pages": 41,
+              "settings": "319627d34f00b00b"
+            },
+            "preview": {
+              "path": "docs/presentation/exports/federated-stroke.webp",
+              "bytes": 7430,
+              "sha256": "6cc210b999fab6078af3cf14f386a9847340269a4bcddaff625cec14a4231403",
+              "slide": 23,
+              "width": 480,
+              "height": 270
+            }
+          }
+        },
+        {
+          "id": "federated-sepsis",
+          "kind": "deck",
+          "title": "Federated hospital learning (sepsis)",
+          "description": "The first version, built around a sepsis model: what leaves each hospital, one federated round, how a model version becomes a release, and lessons from the EXAM study (a federated COVID-19 study across 20 institutions) and from backup software.",
+          "audience": "Technical audience",
+          "source": "docs/presentation/healthcare-case-study/federated-healthcare-use-case/dagents-federated-healthcare-use-case.pptx",
+          "previewSlide": 6,
+          "facts": {
+            "updated": "2026-09-04",
+            "bytes": 307023,
+            "sha256": "428211a3b5cc9d23b76e3cbf5fcafb06413f56fa57a60dd77c671a2395f8972f",
+            "slides": 30,
+            "pdf": {
+              "path": "docs/presentation/exports/federated-sepsis.pdf",
+              "bytes": 458845,
+              "sha256": "ff2dd5137820769ab92c5211a5aefa41845b150a9ec3cc84170734e41c57a9b7",
+              "pages": 30,
+              "settings": "319627d34f00b00b"
+            },
+            "preview": {
+              "path": "docs/presentation/exports/federated-sepsis.webp",
+              "bytes": 7666,
+              "sha256": "1a4f0a6e3563a385ca2d75ff19455b5f9075590ba53cf0b6034a85b57b1e01dd",
+              "slide": 6,
+              "width": 480,
+              "height": 270
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "notes-and-reports",
+      "title": "Written notes and reports",
+      "intro": "Text that goes with the decks. The Markdown files open on GitHub. The reports open as PDF files.",
+      "items": [
+        {
+          "id": "case-study-text",
+          "kind": "markdown",
+          "title": "Healthcare case study, full text",
+          "description": "The stroke version of the case study written out in full: the conditions it could cover, why not a central data lake, requirements, diagrams, compliance, the pilot plan and a glossary.",
+          "audience": "Anyone preparing to present the case study",
+          "source": "docs/presentation/healthcare-case-study/dagents-healthcare-case-study.md",
+          "facts": {
+            "updated": "2026-09-04",
+            "bytes": 26104,
+            "sha256": "6e4156d4eb1dac73966f2264c98c1df89d7cef0d258596b9dba7bdc3feae159c"
+          }
+        },
+        {
+          "id": "federated-text",
+          "kind": "markdown",
+          "title": "Federated stroke use case, full text",
+          "description": "The federated use case written out in full: one complete round, message contracts, security controls, the GRAILS safeguards, failure modes and an appendix on NVIDIA FLARE.",
+          "audience": "Anyone preparing to present the federated use case",
+          "source": "docs/presentation/healthcare-case-study/federated-healthcare-use-case/dagents-federated-healthcare-use-case.md",
+          "facts": {
+            "updated": "2026-09-04",
+            "bytes": 51972,
+            "sha256": "2641534977f6610977c6904d8674698d1dc730aa549e2d4c5b15a0c0214617b9"
+          }
+        },
+        {
+          "id": "industry-methods",
+          "kind": "markdown",
+          "title": "Industry methods mapped to Dagents",
+          "description": "Two tables and short notes: how federated learning, federated analytics, federated databases, backup software and GRAILS relate to Dagents, and how Dagents compares with federated learning frameworks, managed cloud services and a central warehouse.",
+          "audience": "Technical audience",
+          "source": "docs/presentation/healthcare-case-study/federated-healthcare-use-case/industry-methods-mapping.md",
+          "facts": {
+            "updated": "2026-09-04",
+            "bytes": 8510,
+            "sha256": "fd5838f443f08bcf3cfd9040b443effe78297e839aa944975cadae32b38f9259"
+          }
+        },
+        {
+          "id": "ocaml-guide",
+          "kind": "markdown",
+          "title": "Speaker guide to the OCaml planners",
+          "description": "Notes for presenting the OCaml layer: why services call it as a command-line tool, and what each planner module does.",
+          "audience": "Presenters of the framework deck",
+          "note": "Written in May 2026. It covers five of the seven planner modules. The governance and federation planners came later.",
+          "source": "docs/presentation/ocaml_presentation_guide.md",
+          "facts": {
+            "updated": "2026-05-09",
+            "bytes": 3155,
+            "sha256": "5cd46a241c976eb7bf1bfda7ab6f8cbab708f433ba667f8f48d4dc5146a78248"
+          }
+        },
+        {
+          "id": "nl2sql-runbook",
+          "kind": "markdown",
+          "title": "NL2SQL demo runbook",
+          "description": "The commands to start the NL2SQL demo, probe its API, stop it, and refresh the planner outputs during a talk.",
+          "audience": "Presenters of the framework deck",
+          "source": "docs/presentation/demo_runbook.md",
+          "facts": {
+            "updated": "2026-05-08",
+            "bytes": 1003,
+            "sha256": "c5ce6975532ba3e3989ea38aa6bfa5e2a20798a683290f3d4dcebd90054faf39"
+          }
+        },
+        {
+          "id": "final-report",
+          "kind": "pdf",
+          "title": "Final project report",
+          "description": "A course report: goals, architecture, the OCaml planners, the NL2SQL demo, testing, design trade-offs and limits.",
+          "audience": "Course reviewers and contributors",
+          "note": "Written in May 2026, before the governance and federation planners and the stroke demo.",
+          "source": "docs/reports/final_dagents_project_report.pdf",
+          "facts": {
+            "updated": "2026-05-09",
+            "bytes": 783934,
+            "sha256": "2ec1f009417e3a0ce0e3d711f61d26e2f77c92bfa8890a5c2f5d3af534107af0",
+            "pages": 6
+          }
+        },
+        {
+          "id": "end-term-report",
+          "kind": "pdf",
+          "title": "End-term report on the OCaml planners",
+          "description": "A short course report on the typed planner modules, how applications call them, and the tests behind them.",
+          "audience": "Course reviewers and contributors",
+          "note": "Written in May 2026, before the governance and federation planners and the stroke demo.",
+          "source": "docs/reports/end_term_functional_programming.pdf",
+          "facts": {
+            "updated": "2026-05-08",
+            "bytes": 37515,
+            "sha256": "70d07bb96cbf4cf9272bdfa9a19b533a7f325693200c90b94c47528b937b85f8",
+            "pages": 2
+          }
+        }
+      ]
+    }
+  ],
+  "excluded": [
+    {
+      "path": "dagents-project-presentation.pdf",
+      "reason": "A 24-slide PDF of an earlier version of the framework deck, from May 2026. The page offers a PDF made from the current deck instead."
+    },
+    {
+      "path": "docs/presentation/presentation_outline.md",
+      "reason": "The slide plan for a 16-slide version of the framework deck from May 2026. The current deck has 61 slides, so the plan no longer matches it."
+    }
+  ]
+}

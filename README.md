@@ -12,7 +12,7 @@ reused by systems such as Datalytics.
 
 | | |
 |---|---|
-| **Framework site** | <https://pradyunuydarp.github.io/Dagents/>: the learning guide, the API reference and links to the demos |
+| **Framework site** | <https://pradyunuydarp.github.io/Dagents/>: the learning guide, the guide to building an application, the API reference and links to the demos |
 | **Stroke triage demo** | <https://pradyunuydarp.github.io/Dagents/healthcare-demo/>: governance, federated training and data entry across three hospitals |
 | **NL2SQL demo** | <https://pradyunuydarp.github.io/Dagents/nl2sql-demo/>: an ordinary app that uses the framework |
 
@@ -49,6 +49,22 @@ on the [framework site](https://pradyunuydarp.github.io/Dagents/#/learn) or in
 4. [Using the APIs](docs/learn/04-apis.md)
 5. [Run it yourself](docs/learn/05-hands-on.md)
 
+The slide decks and reports we used to teach the framework are on the site's
+[Resources page](https://pradyunuydarp.github.io/Dagents/#/resources), as
+PowerPoint files and PDFs. The list is
+[`docs/presentation/resources.json`](docs/presentation/resources.json).
+
+## Build an application on Dagents
+
+The [guide to building an application](docs/guide/README.md) shows, step by
+step, how to use Dagents in your own code: choose one of three ways to build on
+it, describe your data, give each source its own store, govern every read, run
+a federated round, call the framework services, deploy and test. Read it on the
+[framework site](https://pradyunuydarp.github.io/Dagents/#/guide) or in
+[`docs/guide/`](docs/guide/README.md). Its code comes from a small application
+in [`examples/getting-started/`](examples/getting-started/README.md), and a
+test checks that the two match.
+
 ## What is in the repository
 
 | Folder | Contents |
@@ -63,9 +79,10 @@ on the [framework site](https://pradyunuydarp.github.io/Dagents/#/learn) or in
 | `contracts/grpc/dagents/agents/v1/` | Shared protobuf contract for the agents |
 | `apps/healthcare-demo/` | Stroke triage demo: governance and federated learning |
 | `services/nl2sql-demo/` | NL2SQL demo: validation, planning and service checks |
+| `examples/getting-started/` | The worked example of the guide to building an application: two stores check a rule together |
 | `site/` | The framework site |
 | `design/` | The design system shared by the three frontends |
-| `docs/` | The learning guide, architecture notes and the endpoint list |
+| `docs/` | The learning guide, the guide to building an application, architecture notes and the endpoint list |
 | `env/` | Configuration for each service (no secrets) |
 
 ## Governance and federated rounds

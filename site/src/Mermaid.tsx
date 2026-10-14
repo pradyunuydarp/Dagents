@@ -78,6 +78,20 @@ function themeVariables(scheme: Scheme): Record<string, string | boolean> {
   };
 }
 
+/**
+ * The smallest scale a diagram is drawn at. A wide diagram shrunk to a phone's
+ * width has text about 2 px high, so below this scale it keeps its size and
+ * scrolls sideways inside its own box instead.
+ */
+const MIN_SCALE = 0.65;
+
+function keepReadable(svg: SVGSVGElement | null): void {
+  const width = svg?.viewBox.baseVal?.width;
+  if (!svg || !width) return;
+  svg.style.maxWidth = "none";
+  svg.style.width = `clamp(${Math.round(width * MIN_SCALE)}px, 100%, ${Math.round(width)}px)`;
+}
+
 let diagramCount = 0;
 let queue: Promise<void> = Promise.resolve();
 
@@ -112,6 +126,7 @@ async function draw(root: HTMLElement, scheme: Scheme): Promise<void> {
       const { svg } = await mermaid.render(`diagram-${diagramCount}`, source);
       node.innerHTML = svg;
       node.classList.remove("is-error");
+      keepReadable(node.querySelector("svg"));
     } catch (error) {
       showError(node, error);
     }

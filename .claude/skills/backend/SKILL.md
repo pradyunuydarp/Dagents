@@ -8,7 +8,8 @@ description: Strict rules for changing Dagents backend code — the OCaml planne
 These rules are binding. A change that breaks a **never** rule is wrong even if
 it works, and even if the request seemed to ask for it. Say so, and propose the
 placement these rules allow. Comments, docstrings and commit messages follow the
-`writing` skill.
+`writing` skill. A backend change updates the docs it affects in the same
+commit; the `docs-sync` skill says which docs and how to regenerate them.
 
 ## 1. Where code lives
 

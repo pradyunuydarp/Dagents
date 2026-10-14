@@ -1,0 +1,465 @@
+{
+ "service": "core-service",
+ "generated_by": "scripts/capture_api_examples.py",
+ "note": "Captured in process with the planner available, so the YAML comes from dagentsc manifest compile.",
+ "examples": [
+  {
+   "id": "health",
+   "endpoint": "GET /api/v1/health",
+   "title": "Check that the service answers",
+   "request": {
+    "method": "GET",
+    "path": "/api/v1/health"
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "status": "ok",
+     "service": "dagents-core-service",
+     "environment": "development",
+     "transport": "http"
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "services",
+   "endpoint": "GET /api/v1/services",
+   "title": "List the configured services",
+   "request": {
+    "method": "GET",
+    "path": "/api/v1/services"
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "services": [
+      {
+       "name": "lma",
+       "kind": "agent",
+       "base_url": "http://lma:8010"
+      },
+      {
+       "name": "gma",
+       "kind": "agent",
+       "base_url": "http://gma:8020"
+      },
+      {
+       "name": "model-service",
+       "kind": "service",
+       "base_url": "http://model-service:8000"
+      },
+      {
+       "name": "pipeline-service",
+       "kind": "service",
+       "base_url": "http://pipeline-service:8030"
+      }
+     ]
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "topology",
+   "endpoint": "GET /api/v1/topology",
+   "title": "Read the topology",
+   "request": {
+    "method": "GET",
+    "path": "/api/v1/topology"
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "framework": "dagents",
+     "services": [
+      {
+       "name": "lma",
+       "kind": "agent",
+       "base_url": "http://lma:8010"
+      },
+      {
+       "name": "gma",
+       "kind": "agent",
+       "base_url": "http://gma:8020"
+      },
+      {
+       "name": "model-service",
+       "kind": "service",
+       "base_url": "http://model-service:8000"
+      },
+      {
+       "name": "pipeline-service",
+       "kind": "service",
+       "base_url": "http://pipeline-service:8030"
+      }
+     ]
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "compile-a-deployment",
+   "endpoint": "POST /api/v1/workloads:compile",
+   "title": "Compile an LMA Deployment with a Service and a ConfigMap",
+   "request": {
+    "method": "POST",
+    "path": "/api/v1/workloads:compile",
+    "json": {
+     "plan_id": "plan-hospital-a",
+     "namespace": "dagents",
+     "components": [
+      {
+       "name": "lma-hospital-a",
+       "image": "ghcr.io/example/dagents-lma:0.1.0",
+       "kind": "Deployment",
+       "replicas": 1,
+       "ports": [
+        {
+         "name": "http",
+         "container_port": 8010
+        }
+       ],
+       "env": [
+        {
+         "name": "LMA_SITE_ID",
+         "value": "hospital-a"
+        }
+       ],
+       "generated_resources": [
+        "ConfigMap"
+       ],
+       "config_map_data": {
+        "site_id": "hospital-a"
+       }
+      }
+     ]
+    }
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "plan_id": "plan-hospital-a",
+     "namespace": "dagents",
+     "manifests": [
+      {
+       "component_name": "lma-hospital-a",
+       "kind": "Deployment",
+       "deployment_yaml": "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: lma-hospital-a\n  namespace: dagents\nspec:\n  replicas: 1\n  selector:\n    matchLabels:\n      app: lma-hospital-a\n  template:\n    metadata:\n      labels:\n        app: lma-hospital-a\n    spec:\n      containers:\n      - name: main\n        image: ghcr.io/example/dagents-lma:0.1.0\n        ports:\n        - name: http\n          containerPort: 8010\n        env:\n        - name: LMA_SITE_ID\n          value: \"hospital-a\"\n        resources:\n          requests:\n            cpu: 250m\n            memory: 256Mi\n          limits:\n            cpu: 1\n            memory: 1Gi",
+       "service_yaml": "apiVersion: v1\nkind: Service\nmetadata:\n  name: lma-hospital-a\n  namespace: dagents\nspec:\n  type: ClusterIP\n  selector:\n    app: lma-hospital-a\n  ports:\n  - name: http\n    port: 8010\n    targetPort: 8010",
+       "config_map_yaml": "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: lma-hospital-a-config\n  namespace: dagents\ndata:\n  site_id: \"hospital-a\"",
+       "service_account_yaml": null
+      }
+     ],
+     "combined_yaml": "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: lma-hospital-a\n  namespace: dagents\nspec:\n  replicas: 1\n  selector:\n    matchLabels:\n      app: lma-hospital-a\n  template:\n    metadata:\n      labels:\n        app: lma-hospital-a\n    spec:\n      containers:\n      - name: main\n        image: ghcr.io/example/dagents-lma:0.1.0\n        ports:\n        - name: http\n          containerPort: 8010\n        env:\n        - name: LMA_SITE_ID\n          value: \"hospital-a\"\n        resources:\n          requests:\n            cpu: 250m\n            memory: 256Mi\n          limits:\n            cpu: 1\n            memory: 1Gi\n---\napiVersion: v1\nkind: Service\nmetadata:\n  name: lma-hospital-a\n  namespace: dagents\nspec:\n  type: ClusterIP\n  selector:\n    app: lma-hospital-a\n  ports:\n  - name: http\n    port: 8010\n    targetPort: 8010\n---\napiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: lma-hospital-a-config\n  namespace: dagents\ndata:\n  site_id: \"hospital-a\""
+    },
+    "trimmed": []
+   },
+   "planner_calls": [
+    "manifest compile"
+   ]
+  },
+  {
+   "id": "compile-scheduled-jobs",
+   "endpoint": "POST /api/v1/workloads:compile",
+   "title": "Compile a CronJob and a Job, with a generated plan id",
+   "description": "Without a plan_id the service makes one from the clock, so plan_id differs on every call.",
+   "volatile": [
+    "/plan_id"
+   ],
+   "request": {
+    "method": "POST",
+    "path": "/api/v1/workloads:compile",
+    "json": {
+     "namespace": "dagents-batch",
+     "include_config_maps": true,
+     "components": [
+      {
+       "name": "aggregate-rollup",
+       "image": "ghcr.io/example/dagents-gma:0.1.0",
+       "kind": "CronJob",
+       "schedule": "*/30 * * * *",
+       "args": [
+        "--run-mode",
+        "aggregate"
+       ]
+      },
+      {
+       "name": "source-backfill",
+       "image": "ghcr.io/example/dagents-lma:0.1.0",
+       "kind": "Job",
+       "args": [
+        "--trigger",
+        "backfill"
+       ]
+      }
+     ]
+    }
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "plan_id": "workload-plan-1791968073758",
+     "namespace": "dagents-batch",
+     "manifests": [
+      {
+       "component_name": "aggregate-rollup",
+       "kind": "CronJob",
+       "deployment_yaml": "apiVersion: batch/v1\nkind: CronJob\nmetadata:\n  name: aggregate-rollup\n  namespace: dagents-batch\nspec:\n  schedule: \"*/30 * * * *\"\n  jobTemplate:\n    spec:\n      template:\n        spec:\n          restartPolicy: Never\n          containers:\n          - name: main\n            image: ghcr.io/example/dagents-gma:0.1.0\n            args:\n            - \"--run-mode\"\n            - \"aggregate\"\n            resources:\n              requests:\n                cpu: 250m\n                memory: 256Mi\n              limits:\n                cpu: 1\n                memory: 1Gi",
+       "service_yaml": null,
+       "config_map_yaml": "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: aggregate-rollup-config\n  namespace: dagents-batch\ndata:\n  component-kind: \"CronJob\"\n  image: \"ghcr.io/example/dagents-gma:0.1.0\"",
+       "service_account_yaml": null
+      },
+      {
+       "component_name": "source-backfill",
+       "kind": "Job",
+       "deployment_yaml": "apiVersion: batch/v1\nkind: Job\nmetadata:\n  name: source-backfill\n  namespace: dagents-batch\nspec:\n  template:\n    spec:\n      restartPolicy: Never\n      containers:\n      - name: main\n        image: ghcr.io/example/dagents-lma:0.1.0\n        args:\n        - \"--trigger\"\n        - \"backfill\"\n        resources:\n          requests:\n            cpu: 250m\n            memory: 256Mi\n          limits:\n            cpu: 1\n            memory: 1Gi",
+       "service_yaml": null,
+       "config_map_yaml": "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: source-backfill-config\n  namespace: dagents-batch\ndata:\n  component-kind: \"Job\"\n  image: \"ghcr.io/example/dagents-lma:0.1.0\"",
+       "service_account_yaml": null
+      }
+     ],
+     "combined_yaml": "apiVersion: batch/v1\nkind: CronJob\nmetadata:\n  name: aggregate-rollup\n  namespace: dagents-batch\nspec:\n  schedule: \"*/30 * * * *\"\n  jobTemplate:\n    spec:\n      template:\n        spec:\n          restartPolicy: Never\n          containers:\n          - name: main\n            image: ghcr.io/example/dagents-gma:0.1.0\n            args:\n            - \"--run-mode\"\n            - \"aggregate\"\n            resources:\n              requests:\n                cpu: 250m\n                memory: 256Mi\n              limits:\n                cpu: 1\n                memory: 1Gi\n---\napiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: aggregate-rollup-config\n  namespace: dagents-batch\ndata:\n  component-kind: \"CronJob\"\n  image: \"ghcr.io/example/dagents-gma:0.1.0\"\n---\napiVersion: batch/v1\nkind: Job\nmetadata:\n  name: source-backfill\n  namespace: dagents-batch\nspec:\n  template:\n    spec:\n      restartPolicy: Never\n      containers:\n      - name: main\n        image: ghcr.io/example/dagents-lma:0.1.0\n        args:\n        - \"--trigger\"\n        - \"backfill\"\n        resources:\n          requests:\n            cpu: 250m\n            memory: 256Mi\n          limits:\n            cpu: 1\n            memory: 1Gi\n---\napiVersion…"
+    },
+    "trimmed": [
+     {
+      "pointer": "/combined_yaml",
+      "note": "1363 characters, cut to 1200"
+     }
+    ]
+   },
+   "planner_calls": [
+    "manifest compile"
+   ]
+  },
+  {
+   "id": "compile-invalid-kind",
+   "endpoint": "POST /api/v1/workloads:compile",
+   "title": "A component kind the service does not render",
+   "request": {
+    "method": "POST",
+    "path": "/api/v1/workloads:compile",
+    "json": {
+     "components": [
+      {
+       "name": "store",
+       "image": "postgres:16",
+       "kind": "StatefulSet",
+       "replicas": 0
+      }
+     ]
+    }
+   },
+   "response": {
+    "status": 422,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "detail": [
+      {
+       "type": "literal_error",
+       "loc": [
+        "body",
+        "components",
+        0,
+        "kind"
+       ],
+       "msg": "Input should be 'Deployment', 'Job' or 'CronJob'",
+       "input": "StatefulSet",
+       "ctx": {
+        "expected": "'Deployment', 'Job' or 'CronJob'"
+       }
+      },
+      {
+       "type": "greater_than_equal",
+       "loc": [
+        "body",
+        "components",
+        0,
+        "replicas"
+       ],
+       "msg": "Input should be greater than or equal to 1",
+       "input": 0,
+       "ctx": {
+        "ge": 1
+       }
+      }
+     ]
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "get-plan",
+   "endpoint": "GET /api/v1/workload-plans/{plan_id}",
+   "title": "Fetch the plan compiled above",
+   "request": {
+    "method": "GET",
+    "path": "/api/v1/workload-plans/plan-hospital-a"
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "plan_id": "plan-hospital-a",
+     "namespace": "dagents",
+     "manifests": [
+      {
+       "component_name": "lma-hospital-a",
+       "kind": "Deployment",
+       "deployment_yaml": "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: lma-hospital-a\n  namespace: dagents\nspec:\n  replicas: 1\n  selector:\n    matchLabels:\n      app: lma-hospital-a\n  template:\n    metadata:\n      labels:\n        app: lma-hospital-a\n    spec:\n      containers:\n      - name: main\n        image: ghcr.io/example/dagents-lma:0.1.0\n        ports:\n        - name: http\n          containerPort: 8010\n        env:\n        - name: LMA_SITE_ID\n          value: \"hospital-a\"\n        resources:\n          requests:\n            cpu: 250m\n            memory: 256Mi\n          limits:\n            cpu: 1\n            memory: 1Gi",
+       "service_yaml": "apiVersion: v1\nkind: Service\nmetadata:\n  name: lma-hospital-a\n  namespace: dagents\nspec:\n  type: ClusterIP\n  selector:\n    app: lma-hospital-a\n  ports:\n  - name: http\n    port: 8010\n    targetPort: 8010",
+       "config_map_yaml": "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: lma-hospital-a-config\n  namespace: dagents\ndata:\n  site_id: \"hospital-a\"",
+       "service_account_yaml": null
+      }
+     ],
+     "combined_yaml": "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: lma-hospital-a\n  namespace: dagents\nspec:\n  replicas: 1\n  selector:\n    matchLabels:\n      app: lma-hospital-a\n  template:\n    metadata:\n      labels:\n        app: lma-hospital-a\n    spec:\n      containers:\n      - name: main\n        image: ghcr.io/example/dagents-lma:0.1.0\n        ports:\n        - name: http\n          containerPort: 8010\n        env:\n        - name: LMA_SITE_ID\n          value: \"hospital-a\"\n        resources:\n          requests:\n            cpu: 250m\n            memory: 256Mi\n          limits:\n            cpu: 1\n            memory: 1Gi\n---\napiVersion: v1\nkind: Service\nmetadata:\n  name: lma-hospital-a\n  namespace: dagents\nspec:\n  type: ClusterIP\n  selector:\n    app: lma-hospital-a\n  ports:\n  - name: http\n    port: 8010\n    targetPort: 8010\n---\napiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: lma-hospital-a-config\n  namespace: dagents\ndata:\n  site_id: \"hospital-a\""
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "get-unknown-plan",
+   "endpoint": "GET /api/v1/workload-plans/{plan_id}",
+   "title": "A plan id that was never compiled",
+   "request": {
+    "method": "GET",
+    "path": "/api/v1/workload-plans/plan-missing"
+   },
+   "response": {
+    "status": 404,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "detail": "Unknown workload plan: plan-missing"
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "render-pods",
+   "endpoint": "POST /api/v1/manifests/pods",
+   "title": "Render a Deployment without keeping a plan id",
+   "request": {
+    "method": "POST",
+    "path": "/api/v1/manifests/pods",
+    "json": {
+     "namespace": "dagents",
+     "components": [
+      {
+       "name": "gma",
+       "image": "ghcr.io/example/dagents-gma:0.1.0",
+       "ports": [
+        {
+         "name": "http",
+         "container_port": 8020
+        }
+       ],
+       "resources": {
+        "cpu_request": "500m",
+        "memory_limit": "2Gi"
+       }
+      }
+     ]
+    }
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "namespace": "dagents",
+     "manifests": [
+      {
+       "component_name": "gma",
+       "kind": "Deployment",
+       "deployment_yaml": "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: gma\n  namespace: dagents\nspec:\n  replicas: 1\n  selector:\n    matchLabels:\n      app: gma\n  template:\n    metadata:\n      labels:\n        app: gma\n    spec:\n      containers:\n      - name: main\n        image: ghcr.io/example/dagents-gma:0.1.0\n        ports:\n        - name: http\n          containerPort: 8020\n        resources:\n          requests:\n            cpu: 500m\n            memory: 256Mi\n          limits:\n            cpu: 1\n            memory: 2Gi",
+       "service_yaml": "apiVersion: v1\nkind: Service\nmetadata:\n  name: gma\n  namespace: dagents\nspec:\n  type: ClusterIP\n  selector:\n    app: gma\n  ports:\n  - name: http\n    port: 8020\n    targetPort: 8020",
+       "config_map_yaml": null,
+       "service_account_yaml": null
+      }
+     ],
+     "combined_yaml": "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: gma\n  namespace: dagents\nspec:\n  replicas: 1\n  selector:\n    matchLabels:\n      app: gma\n  template:\n    metadata:\n      labels:\n        app: gma\n    spec:\n      containers:\n      - name: main\n        image: ghcr.io/example/dagents-gma:0.1.0\n        ports:\n        - name: http\n          containerPort: 8020\n        resources:\n          requests:\n            cpu: 500m\n            memory: 256Mi\n          limits:\n            cpu: 1\n            memory: 2Gi\n---\napiVersion: v1\nkind: Service\nmetadata:\n  name: gma\n  namespace: dagents\nspec:\n  type: ClusterIP\n  selector:\n    app: gma\n  ports:\n  - name: http\n    port: 8020\n    targetPort: 8020"
+    },
+    "trimmed": []
+   },
+   "planner_calls": [
+    "manifest compile"
+   ]
+  },
+  {
+   "id": "render-pods-invalid-service-type",
+   "endpoint": "POST /api/v1/manifests/pods",
+   "title": "A Service type the service does not render",
+   "request": {
+    "method": "POST",
+    "path": "/api/v1/manifests/pods",
+    "json": {
+     "components": [
+      {
+       "name": "gma",
+       "image": "ghcr.io/example/dagents-gma:0.1.0",
+       "ports": [
+        {
+         "container_port": 8020
+        }
+       ],
+       "service_type": "ExternalName"
+      }
+     ]
+    }
+   },
+   "response": {
+    "status": 422,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "detail": [
+      {
+       "type": "literal_error",
+       "loc": [
+        "body",
+        "components",
+        0,
+        "service_type"
+       ],
+       "msg": "Input should be 'ClusterIP', 'NodePort' or 'LoadBalancer'",
+       "input": "ExternalName",
+       "ctx": {
+        "expected": "'ClusterIP', 'NodePort' or 'LoadBalancer'"
+       }
+      }
+     ]
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  }
+ ]
+}

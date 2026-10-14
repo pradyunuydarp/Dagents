@@ -14,6 +14,10 @@ something to try.
 
 [References](references.md) lists every paper, video and tutorial used in these guides.
 
+To use Dagents in your own application, follow the
+[guide to building an application](../guide/README.md). It goes step by step,
+with a small worked example of two stores.
+
 ## Before you start
 
 You need:
@@ -46,3 +50,10 @@ You do not need to know OCaml. Step 3 explains why part of Dagents is written in
 The stroke demo uses real, de-identified patient records from the International
 Stroke Trial (1991-1996), made available under the ODC Attribution License. Its
 models are demonstrations, not validated clinical models.
+
+## Slides and reports
+
+The slide decks and reports we used to teach Dagents are on the
+[Resources page](https://pradyunuydarp.github.io/Dagents/#/resources) of the
+framework site. Each deck is a PowerPoint file and a PDF. The list is
+[`docs/presentation/resources.json`](../presentation/resources.json).

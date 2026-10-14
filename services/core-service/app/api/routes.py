@@ -1,9 +1,10 @@
 """API routes for the core service."""
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Path
 
 from app.core.config import Settings, settings
 from app.models import (
+    ErrorResponse,
     HealthResponse,
     ServiceCatalogResponse,
     ServiceDescriptor,
@@ -83,16 +84,27 @@ def compile_workloads(
     request: WorkloadCompileRequest,
     service: ManifestService = Depends(get_manifest_service),
 ) -> WorkloadPlanResponse:
-    """Compile a workload request into a stored workload plan."""
+    """Compile a workload request into a stored workload plan.
+
+    The OCaml manifest compiler renders the YAML through `dagentsc manifest
+    compile`. When the planner cannot be run, the service renders it in Python.
+    """
     return service.compile(request)
 
 
-@router.get("/workload-plans/{plan_id}", response_model=WorkloadPlanResponse)
+@router.get(
+    "/workload-plans/{plan_id}",
+    response_model=WorkloadPlanResponse,
+    responses={404: {"model": ErrorResponse, "description": "No plan is stored under this id."}},
+)
 def get_workload_plan(
-    plan_id: str,
+    plan_id: str = Path(description="The `plan_id` a compile request returned."),
     service: ManifestService = Depends(get_manifest_service),
 ) -> WorkloadPlanResponse:
-    """Fetch a previously compiled workload plan by `plan_id`."""
+    """Fetch a previously compiled workload plan by `plan_id`.
+
+    Plans are kept in memory, so they are lost when the service restarts.
+    """
     plan = service.get_plan(plan_id)
     if plan is None:
         raise HTTPException(status_code=404, detail=f"Unknown workload plan: {plan_id}")

@@ -209,11 +209,11 @@ Ports come from `env/`; never hardcode them — each service has distinct
 
 | Method | Path | Handler | Notes |
 |---|---|---|---|
-| GET | `/api/v1/dagents/status` | `dagents_status` | — |
-| POST | `/api/v1/generate` | `generate_sql` | — |
-| GET | `/api/v1/health` | `health` | — |
-| GET | `/api/v1/models` | `models` | — |
-| GET | `/api/v1/samples` | `samples` | — |
+| GET | `/api/v1/dagents/status` | `dagents_status` | Call each framework service's health check and report which ones answer |
+| POST | `/api/v1/generate` | `generate_sql` | Turn a question into SQL, after running the framework steps on its schema |
+| GET | `/api/v1/health` | `health` | Liveness. Reads nothing and calls no other service |
+| GET | `/api/v1/models` | `models` | The SQL models this backend can use: one per model zip in `NL2SQL_MODELS_DIR`, then the heuristic |
+| GET | `/api/v1/samples` | `samples` | The sample questions the demo page offers, each with its tables |
 
 ## pipeline-service
 
@@ -221,23 +221,23 @@ Ports come from `env/`; never hardcode them — each service has distinct
 
 | Method | Path | Handler | Notes |
 |---|---|---|---|
-| GET | `/api/v1/health` | `health` | — |
-| GET | `/api/v1/pipeline-definitions` | `list_pipeline_definitions` | — |
-| POST | `/api/v1/pipeline-definitions` | `register_pipeline_definition` | — |
-| GET | `/api/v1/pipeline-definitions/{pipeline_id}` | `get_pipeline_definition` | — |
-| POST | `/api/v1/pipeline-definitions/{pipeline_id}:validate` | `validate_pipeline_definition` | — |
-| GET | `/api/v1/pipeline-runs` | `list_pipeline_runs` | — |
-| POST | `/api/v1/pipeline-runs` | `submit_pipeline_run` | returns `202` |
-| GET | `/api/v1/pipeline-runs/{run_id}` | `get_pipeline_run` | — |
-| GET | `/api/v1/pipelines` | `list_pipelines` | — |
-| POST | `/api/v1/pipelines` | `register_pipeline` | — |
-| POST | `/api/v1/pipelines/{pipeline_id}/runs` | `run_pipeline` | — |
-| GET | `/api/v1/runs` | `list_runs` | — |
-| GET | `/api/v1/runs/{run_id}` | `get_run` | — |
-| GET | `/api/v1/sources` | `list_sources` | — |
-| POST | `/api/v1/sources` | `register_source` | — |
-| GET | `/api/v1/sources/{source_id}` | `get_source` | — |
-| POST | `/api/v1/sources/{source_id}:validate` | `validate_source` | — |
+| GET | `/api/v1/health` | `health` | Report that the pipeline service is running |
+| GET | `/api/v1/pipeline-definitions` | `list_pipeline_definitions` | List every stored pipeline. The same handler as `GET /api/v1/pipelines` |
+| POST | `/api/v1/pipeline-definitions` | `register_pipeline_definition` | Check a pipeline's graph and store it. The same handler as `POST /api/v1/pipelines` |
+| GET | `/api/v1/pipeline-definitions/{pipeline_id}` | `get_pipeline_definition` | Fetch one stored pipeline by `pipeline_id` |
+| POST | `/api/v1/pipeline-definitions/{pipeline_id}:validate` | `validate_pipeline_definition` | Check a stored pipeline's graph again and return the pipeline |
+| GET | `/api/v1/pipeline-runs` | `list_pipeline_runs` | List the stored runs, newest first. The same handler as `GET /api/v1/runs` |
+| POST | `/api/v1/pipeline-runs` | `submit_pipeline_run` | returns `202`; Queue a run of a stored pipeline and answer at once |
+| GET | `/api/v1/pipeline-runs/{run_id}` | `get_pipeline_run` | Fetch one stored run by `run_id`. The same handler as `GET /api/v1/runs/{run_id}` |
+| GET | `/api/v1/pipelines` | `list_pipelines` | List every stored pipeline, sorted by `pipeline_id` |
+| POST | `/api/v1/pipelines` | `register_pipeline` | Check a pipeline's graph and store it |
+| POST | `/api/v1/pipelines/{pipeline_id}/runs` | `run_pipeline` | Run a stored pipeline on a payload and wait for it to finish |
+| GET | `/api/v1/runs` | `list_runs` | List the stored runs, newest first |
+| GET | `/api/v1/runs/{run_id}` | `get_run` | Fetch one stored run by `run_id`, in its current state |
+| GET | `/api/v1/sources` | `list_sources` | List every stored source definition, sorted by `source_id` |
+| POST | `/api/v1/sources` | `register_source` | Store a source definition in the pipeline service's catalog |
+| GET | `/api/v1/sources/{source_id}` | `get_source` | Fetch one stored source definition by `source_id` |
+| POST | `/api/v1/sources/{source_id}:validate` | `validate_source` | Run the source adapter's checks on a stored source definition |
 
 ## spring-control-service
 

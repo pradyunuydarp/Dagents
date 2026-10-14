@@ -1,0 +1,843 @@
+{
+  "service": "pipeline-service",
+  "note": "Captured in process with the planner available, so registering and checking a pipeline ran dagentsc pipeline compile.",
+  "examples": [
+    {
+      "id": "health",
+      "endpoint": "GET /api/v1/health",
+      "title": "Check that the service answers",
+      "request": {
+        "path": "/api/v1/health"
+      },
+      "status": 200
+    },
+    {
+      "id": "register-pipeline",
+      "endpoint": "POST /api/v1/pipelines",
+      "title": "Register a pipeline of four steps",
+      "description": "registered_at is set from the clock, so it differs on every call.",
+      "request": {
+        "path": "/api/v1/pipelines",
+        "json": {
+          "pipeline_id": "paid-large-orders",
+          "description": "Keep paid orders of 100 or more, add the batch date, and report their total.",
+          "steps": [
+            {
+              "step_id": "keep-paid-large",
+              "kind": "filter_items",
+              "config": {
+                "items_field": "orders",
+                "conditions": [
+                  {
+                    "field": "status",
+                    "operator": "eq",
+                    "value": "paid"
+                  },
+                  {
+                    "field": "amount",
+                    "operator": "gte",
+                    "value": 100
+                  }
+                ]
+              }
+            },
+            {
+              "step_id": "tag-batch",
+              "kind": "enrich_context",
+              "config": {
+                "target_field": "context",
+                "values": {
+                  "batch": "2026-10-13",
+                  "currency": "EUR"
+                }
+              }
+            },
+            {
+              "step_id": "totals",
+              "kind": "summarize_items",
+              "depends_on": [
+                "keep-paid-large"
+              ],
+              "config": {
+                "items_field": "orders",
+                "target_field": "summary",
+                "aggregations": [
+                  {
+                    "operation": "count",
+                    "alias": "order_count"
+                  },
+                  {
+                    "operation": "sum",
+                    "field": "amount",
+                    "alias": "total_amount"
+                  },
+                  {
+                    "operation": "avg",
+                    "field": "amount",
+                    "alias": "average_amount"
+                  },
+                  {
+                    "operation": "max",
+                    "field": "amount",
+                    "alias": "largest_amount"
+                  }
+                ]
+              }
+            },
+            {
+              "step_id": "report",
+              "kind": "project_fields",
+              "depends_on": [
+                "totals",
+                "tag-batch"
+              ],
+              "config": {
+                "target_field": "report",
+                "fields": [
+                  "context.batch",
+                  "summary.order_count",
+                  "summary.total_amount"
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "status": 200,
+      "volatile": [
+        "/registered_at"
+      ]
+    },
+    {
+      "id": "register-pipeline-unknown-kind",
+      "endpoint": "POST /api/v1/pipelines",
+      "title": "A step kind the engine does not have",
+      "request": {
+        "path": "/api/v1/pipelines",
+        "json": {
+          "pipeline_id": "sorted-orders",
+          "steps": [
+            {
+              "step_id": "sort",
+              "kind": "sort_items"
+            }
+          ]
+        }
+      },
+      "status": 422
+    },
+    {
+      "id": "register-source",
+      "endpoint": "POST /api/v1/sources",
+      "title": "Register an inline source",
+      "request": {
+        "path": "/api/v1/sources",
+        "json": {
+          "source_id": "orders-week-41",
+          "kind": "inline",
+          "selection": {
+            "records": [
+              {
+                "order_id": "W41-01",
+                "amount": 42.5,
+                "items": 1,
+                "returned": 0
+              },
+              {
+                "order_id": "W41-02",
+                "amount": 180.0,
+                "items": 3,
+                "returned": 0
+              },
+              {
+                "order_id": "W41-03",
+                "amount": 260.0,
+                "items": 5,
+                "returned": 1
+              },
+              {
+                "order_id": "W41-04",
+                "amount": 125.25,
+                "items": 2,
+                "returned": 0
+              },
+              {
+                "order_id": "W41-05",
+                "amount": 99.99,
+                "items": 2,
+                "returned": 1
+              },
+              {
+                "order_id": "W41-06",
+                "amount": 310.0,
+                "items": 6,
+                "returned": 0
+              }
+            ]
+          }
+        }
+      },
+      "status": 200,
+      "trim": {
+        "items": 6
+      }
+    },
+    {
+      "id": "register-postgres-source",
+      "endpoint": "POST /api/v1/sources",
+      "title": "Register a Postgres table with no connection id",
+      "description": "Registration checks only the shape of the body, so this succeeds. Validation finds the problem.",
+      "request": {
+        "path": "/api/v1/sources",
+        "json": {
+          "source_id": "orders-db",
+          "kind": "postgres",
+          "connection_ref": {
+            "connection_id": ""
+          },
+          "selection": {
+            "table": "orders"
+          }
+        }
+      },
+      "status": 200
+    },
+    {
+      "id": "register-source-422",
+      "endpoint": "POST /api/v1/sources",
+      "title": "A body that is not a JSON object",
+      "request": {
+        "path": "/api/v1/sources",
+        "json": [
+          "orders-week-41"
+        ]
+      },
+      "status": 422
+    },
+    {
+      "id": "list-sources",
+      "endpoint": "GET /api/v1/sources",
+      "title": "List the registered sources",
+      "request": {
+        "path": "/api/v1/sources"
+      },
+      "status": 200,
+      "trim": {
+        "items": 3
+      }
+    },
+    {
+      "id": "get-source",
+      "endpoint": "GET /api/v1/sources/{source_id}",
+      "title": "Fetch one source",
+      "request": {
+        "path": "/api/v1/sources/orders-db"
+      },
+      "status": 200
+    },
+    {
+      "id": "get-missing-source",
+      "endpoint": "GET /api/v1/sources/{source_id}",
+      "title": "Fetch a source that does not exist",
+      "request": {
+        "path": "/api/v1/sources/no-such-source"
+      },
+      "status": 404
+    },
+    {
+      "id": "validate-source",
+      "endpoint": "POST /api/v1/sources/{source_id}:validate",
+      "title": "Validate the inline source",
+      "request": {
+        "path": "/api/v1/sources/orders-week-41:validate"
+      },
+      "status": 200
+    },
+    {
+      "id": "validate-postgres-source",
+      "endpoint": "POST /api/v1/sources/{source_id}:validate",
+      "title": "Validate the Postgres source with no connection id",
+      "request": {
+        "path": "/api/v1/sources/orders-db:validate"
+      },
+      "status": 200
+    },
+    {
+      "id": "validate-missing-source",
+      "endpoint": "POST /api/v1/sources/{source_id}:validate",
+      "title": "Validate a source that does not exist",
+      "request": {
+        "path": "/api/v1/sources/no-such-source:validate"
+      },
+      "status": 404
+    },
+    {
+      "id": "register-definition",
+      "endpoint": "POST /api/v1/pipeline-definitions",
+      "title": "Register a pipeline that reads a registered source",
+      "description": "The same handler as POST /api/v1/pipelines.",
+      "request": {
+        "path": "/api/v1/pipeline-definitions",
+        "json": {
+          "pipeline_id": "orders-profile",
+          "description": "Profile a registered source, then record a classification run on it.",
+          "steps": [
+            {
+              "step_id": "profile",
+              "kind": "profile_dataset",
+              "config": {
+                "dataset_input": {
+                  "source_id": "orders-week-41"
+                },
+                "scope_id": "orders-week-41",
+                "feature_fields": [
+                  "amount",
+                  "items"
+                ],
+                "label_field": "returned",
+                "target_field": "dataset_profile"
+              }
+            },
+            {
+              "step_id": "score",
+              "kind": "run_model_job",
+              "depends_on": [
+                "profile"
+              ],
+              "config": {
+                "dataset_input": {
+                  "source_id": "orders-week-41"
+                },
+                "scope_id": "orders-week-41",
+                "task_type": "classification",
+                "model_family": "random_forest",
+                "feature_fields": [
+                  "amount",
+                  "items"
+                ],
+                "label_field": "returned",
+                "target_field": "model_run"
+              }
+            }
+          ]
+        }
+      },
+      "status": 200,
+      "volatile": [
+        "/registered_at"
+      ]
+    },
+    {
+      "id": "list-pipelines",
+      "endpoint": "GET /api/v1/pipelines",
+      "title": "List the stored pipelines",
+      "request": {
+        "path": "/api/v1/pipelines"
+      },
+      "status": 200,
+      "volatile": [
+        "/pipelines/*/registered_at"
+      ]
+    },
+    {
+      "id": "list-pipeline-definitions",
+      "endpoint": "GET /api/v1/pipeline-definitions",
+      "title": "List the stored pipelines by the other path",
+      "description": "The same handler as GET /api/v1/pipelines.",
+      "request": {
+        "path": "/api/v1/pipeline-definitions"
+      },
+      "status": 200,
+      "volatile": [
+        "/pipelines/*/registered_at"
+      ]
+    },
+    {
+      "id": "get-definition",
+      "endpoint": "GET /api/v1/pipeline-definitions/{pipeline_id}",
+      "title": "Fetch one pipeline",
+      "request": {
+        "path": "/api/v1/pipeline-definitions/orders-profile"
+      },
+      "status": 200,
+      "volatile": [
+        "/registered_at"
+      ]
+    },
+    {
+      "id": "get-missing-definition",
+      "endpoint": "GET /api/v1/pipeline-definitions/{pipeline_id}",
+      "title": "Fetch a pipeline that does not exist",
+      "request": {
+        "path": "/api/v1/pipeline-definitions/no-such-pipeline"
+      },
+      "status": 404
+    },
+    {
+      "id": "validate-definition",
+      "endpoint": "POST /api/v1/pipeline-definitions/{pipeline_id}:validate",
+      "title": "Check a stored pipeline again",
+      "request": {
+        "path": "/api/v1/pipeline-definitions/paid-large-orders:validate"
+      },
+      "status": 200,
+      "volatile": [
+        "/registered_at"
+      ]
+    },
+    {
+      "id": "validate-missing-definition",
+      "endpoint": "POST /api/v1/pipeline-definitions/{pipeline_id}:validate",
+      "title": "Check a pipeline that does not exist",
+      "request": {
+        "path": "/api/v1/pipeline-definitions/no-such-pipeline:validate"
+      },
+      "status": 404
+    },
+    {
+      "id": "run-pipeline",
+      "endpoint": "POST /api/v1/pipelines/{pipeline_id}/runs",
+      "title": "Run the four-step pipeline and wait",
+      "request": {
+        "path": "/api/v1/pipelines/paid-large-orders/runs",
+        "json": {
+          "payload": {
+            "orders": [
+              {
+                "order_id": "A-1001",
+                "amount": 42.5,
+                "status": "paid",
+                "customer": {
+                  "country": "DE"
+                }
+              },
+              {
+                "order_id": "A-1002",
+                "amount": 180.0,
+                "status": "paid",
+                "customer": {
+                  "country": "FR"
+                }
+              },
+              {
+                "order_id": "A-1003",
+                "amount": 260.0,
+                "status": "refunded",
+                "customer": {
+                  "country": "DE"
+                }
+              },
+              {
+                "order_id": "A-1004",
+                "amount": 125.25,
+                "status": "paid",
+                "customer": {
+                  "country": "DE"
+                }
+              },
+              {
+                "order_id": "A-1005",
+                "amount": 99.99,
+                "status": "paid",
+                "customer": {
+                  "country": "NL"
+                }
+              },
+              {
+                "order_id": "A-1006",
+                "amount": 310.0,
+                "status": "paid",
+                "customer": {
+                  "country": "NL"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "status": 200,
+      "volatile": [
+        "/run_id",
+        "/started_at",
+        "/completed_at",
+        "/step_results/*/started_at",
+        "/step_results/*/completed_at"
+      ]
+    },
+    {
+      "id": "run-profile-pipeline",
+      "endpoint": "POST /api/v1/pipelines/{pipeline_id}/runs",
+      "title": "Run the pipeline that reads the registered source",
+      "description": "The payload is empty: both steps read the source named in their config.",
+      "request": {
+        "path": "/api/v1/pipelines/orders-profile/runs",
+        "json": {
+          "payload": {}
+        }
+      },
+      "status": 200,
+      "volatile": [
+        "/run_id",
+        "/started_at",
+        "/completed_at",
+        "/step_results/*/started_at",
+        "/step_results/*/completed_at",
+        "/final_payload/model_run/run_id",
+        "/final_payload/model_run/started_at",
+        "/final_payload/model_run/completed_at"
+      ]
+    },
+    {
+      "id": "run-missing-pipeline",
+      "endpoint": "POST /api/v1/pipelines/{pipeline_id}/runs",
+      "title": "Run a pipeline that does not exist",
+      "request": {
+        "path": "/api/v1/pipelines/no-such-pipeline/runs",
+        "json": {
+          "payload": {}
+        }
+      },
+      "status": 404
+    },
+    {
+      "id": "list-runs",
+      "endpoint": "GET /api/v1/runs",
+      "title": "List the two newest runs",
+      "request": {
+        "path": "/api/v1/runs",
+        "query": {
+          "limit": 2
+        }
+      },
+      "status": 200,
+      "volatile": [
+        "/runs/*/run_id",
+        "/runs/*/started_at",
+        "/runs/*/completed_at",
+        "/runs/*/step_results/*/started_at",
+        "/runs/*/step_results/*/completed_at",
+        "/runs/*/final_payload/model_run/run_id",
+        "/runs/*/final_payload/model_run/started_at",
+        "/runs/*/final_payload/model_run/completed_at"
+      ],
+      "trim": {
+        "items": 4
+      }
+    },
+    {
+      "id": "list-pipeline-runs",
+      "endpoint": "GET /api/v1/pipeline-runs",
+      "title": "List the newest run by the other path",
+      "description": "The same handler as GET /api/v1/runs.",
+      "request": {
+        "path": "/api/v1/pipeline-runs",
+        "query": {
+          "limit": 1
+        }
+      },
+      "status": 200,
+      "volatile": [
+        "/runs/*/run_id",
+        "/runs/*/started_at",
+        "/runs/*/completed_at",
+        "/runs/*/step_results/*/started_at",
+        "/runs/*/step_results/*/completed_at",
+        "/runs/*/final_payload/model_run/run_id",
+        "/runs/*/final_payload/model_run/started_at",
+        "/runs/*/final_payload/model_run/completed_at"
+      ]
+    },
+    {
+      "id": "list-runs-422",
+      "endpoint": "GET /api/v1/runs",
+      "title": "A limit that is not a number",
+      "request": {
+        "path": "/api/v1/runs",
+        "query": {
+          "limit": "ten"
+        }
+      },
+      "status": 422
+    },
+    {
+      "id": "get-run",
+      "endpoint": "GET /api/v1/runs/{run_id}",
+      "title": "Fetch the run the four-step pipeline example made",
+      "description": "The run_id in the path is the one the earlier run example returned. It comes from the clock, so the replay check compares the path template.",
+      "request": {
+        "path": "/api/v1/runs/{from:run-pipeline:/run_id}"
+      },
+      "status": 200,
+      "volatile": [
+        "/run_id",
+        "/started_at",
+        "/completed_at",
+        "/step_results/*/started_at",
+        "/step_results/*/completed_at"
+      ]
+    },
+    {
+      "id": "get-pipeline-run",
+      "endpoint": "GET /api/v1/pipeline-runs/{run_id}",
+      "title": "Fetch the same run by the other path",
+      "request": {
+        "path": "/api/v1/pipeline-runs/{from:run-pipeline:/run_id}"
+      },
+      "status": 200,
+      "volatile": [
+        "/run_id",
+        "/started_at",
+        "/completed_at",
+        "/step_results/*/started_at",
+        "/step_results/*/completed_at"
+      ]
+    },
+    {
+      "id": "get-missing-run",
+      "endpoint": "GET /api/v1/runs/{run_id}",
+      "title": "Fetch a run that does not exist",
+      "request": {
+        "path": "/api/v1/runs/paid-large-orders-run-0"
+      },
+      "status": 404
+    },
+    {
+      "id": "get-missing-pipeline-run",
+      "endpoint": "GET /api/v1/pipeline-runs/{run_id}",
+      "title": "Fetch a run that does not exist, by the other path",
+      "request": {
+        "path": "/api/v1/pipeline-runs/paid-large-orders-run-0"
+      },
+      "status": 404
+    },
+    {
+      "id": "register-broken-summary",
+      "endpoint": "POST /api/v1/pipelines",
+      "title": "Register a pipeline whose step config is wrong",
+      "show": false,
+      "request": {
+        "path": "/api/v1/pipelines",
+        "json": {
+          "pipeline_id": "broken-summary",
+          "steps": [
+            {
+              "step_id": "totals",
+              "kind": "summarize_items",
+              "config": {
+                "items_field": "orders",
+                "aggregations": [
+                  {
+                    "operation": "sum"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "status": 200,
+      "volatile": [
+        "/registered_at"
+      ]
+    },
+    {
+      "id": "run-broken-summary",
+      "endpoint": "POST /api/v1/pipelines/{pipeline_id}/runs",
+      "title": "A step whose config is wrong",
+      "description": "The graph is valid, so registration succeeded; the sum has no field, so the run fails. Nothing is stored.",
+      "request": {
+        "path": "/api/v1/pipelines/broken-summary/runs",
+        "json": {
+          "payload": {
+            "orders": [
+              {
+                "order_id": "A-1001",
+                "amount": 42.5,
+                "status": "paid",
+                "customer": {
+                  "country": "DE"
+                }
+              },
+              {
+                "order_id": "A-1002",
+                "amount": 180.0,
+                "status": "paid",
+                "customer": {
+                  "country": "FR"
+                }
+              },
+              {
+                "order_id": "A-1003",
+                "amount": 260.0,
+                "status": "refunded",
+                "customer": {
+                  "country": "DE"
+                }
+              },
+              {
+                "order_id": "A-1004",
+                "amount": 125.25,
+                "status": "paid",
+                "customer": {
+                  "country": "DE"
+                }
+              },
+              {
+                "order_id": "A-1005",
+                "amount": 99.99,
+                "status": "paid",
+                "customer": {
+                  "country": "NL"
+                }
+              },
+              {
+                "order_id": "A-1006",
+                "amount": 310.0,
+                "status": "paid",
+                "customer": {
+                  "country": "NL"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "status": 404
+    },
+    {
+      "id": "submit-run",
+      "endpoint": "POST /api/v1/pipeline-runs",
+      "title": "Queue a run and answer at once",
+      "description": "The run is queued; it executes on a background thread after the answer.",
+      "request": {
+        "path": "/api/v1/pipeline-runs",
+        "json": {
+          "pipeline_id": "paid-large-orders",
+          "payload": {
+            "orders": [
+              {
+                "order_id": "A-1001",
+                "amount": 42.5,
+                "status": "paid",
+                "customer": {
+                  "country": "DE"
+                }
+              },
+              {
+                "order_id": "A-1002",
+                "amount": 180.0,
+                "status": "paid",
+                "customer": {
+                  "country": "FR"
+                }
+              },
+              {
+                "order_id": "A-1003",
+                "amount": 260.0,
+                "status": "refunded",
+                "customer": {
+                  "country": "DE"
+                }
+              },
+              {
+                "order_id": "A-1004",
+                "amount": 125.25,
+                "status": "paid",
+                "customer": {
+                  "country": "DE"
+                }
+              },
+              {
+                "order_id": "A-1005",
+                "amount": 99.99,
+                "status": "paid",
+                "customer": {
+                  "country": "NL"
+                }
+              },
+              {
+                "order_id": "A-1006",
+                "amount": 310.0,
+                "status": "paid",
+                "customer": {
+                  "country": "NL"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "status": 202,
+      "volatile": [
+        "/run_id",
+        "/started_at"
+      ],
+      "trim": {
+        "items": 6
+      }
+    },
+    {
+      "id": "submit-run-without-id",
+      "endpoint": "POST /api/v1/pipeline-runs",
+      "title": "Queue a run without a pipeline id",
+      "request": {
+        "path": "/api/v1/pipeline-runs",
+        "json": {
+          "payload": {
+            "orders": [
+              {
+                "order_id": "A-1001",
+                "amount": 42.5,
+                "status": "paid",
+                "customer": {
+                  "country": "DE"
+                }
+              },
+              {
+                "order_id": "A-1002",
+                "amount": 180.0,
+                "status": "paid",
+                "customer": {
+                  "country": "FR"
+                }
+              },
+              {
+                "order_id": "A-1003",
+                "amount": 260.0,
+                "status": "refunded",
+                "customer": {
+                  "country": "DE"
+                }
+              },
+              {
+                "order_id": "A-1004",
+                "amount": 125.25,
+                "status": "paid",
+                "customer": {
+                  "country": "DE"
+                }
+              },
+              {
+                "order_id": "A-1005",
+                "amount": 99.99,
+                "status": "paid",
+                "customer": {
+                  "country": "NL"
+                }
+              },
+              {
+                "order_id": "A-1006",
+                "amount": 310.0,
+                "status": "paid",
+                "customer": {
+                  "country": "NL"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "status": 404
+    }
+  ]
+}

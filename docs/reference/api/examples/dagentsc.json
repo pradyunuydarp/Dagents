@@ -1,0 +1,1848 @@
+{
+ "service": "dagentsc",
+ "generated_by": "scripts/capture_api_examples.py",
+ "note": "Each example runs the planner binary with its arguments and its JSON on standard input, from the repository root, so a path such as docs/demo/inputs/quality-rules-orders.json is read from the repository.",
+ "examples": [
+  {
+   "id": "manifest-from-input",
+   "endpoint": "dagentsc manifest compile",
+   "title": "Compile a workload plan from JSON",
+   "description": "The input is docs/demo/inputs/workload-plan.json.",
+   "trim": {
+    "chars": 2000
+   },
+   "request": {
+    "args": [
+     "manifest",
+     "compile",
+     "--input",
+     "-",
+     "--output",
+     "json"
+    ],
+    "stdin": {
+     "planId": "demo-workload-plan",
+     "namespace": "dagents-demo",
+     "includeServices": true,
+     "includeConfigMaps": true,
+     "components": [
+      {
+       "name": "orders-risk-worker",
+       "image": "ghcr.io/dagents/orders-risk-worker:demo",
+       "kind": "Deployment",
+       "replicas": 2,
+       "ports": [
+        {
+         "name": "http",
+         "containerPort": 8080
+        }
+       ],
+       "env": [
+        {
+         "name": "APP_ENV",
+         "value": "demo"
+        }
+       ],
+       "args": [
+        "--pipeline=orders-risk-demo"
+       ]
+      }
+     ]
+    }
+   },
+   "response": {
+    "exit_code": 0,
+    "status": 0,
+    "headers": {},
+    "body": {
+     "planId": "demo-workload-plan",
+     "namespace": "dagents-demo",
+     "manifests": [
+      {
+       "componentName": "orders-risk-worker",
+       "kind": "Deployment",
+       "deploymentYaml": "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: orders-risk-worker\n  namespace: dagents-demo\nspec:\n  replicas: 2\n  selector:\n    matchLabels:\n      app: orders-risk-worker\n  template:\n    metadata:\n      labels:\n        app: orders-risk-worker\n    spec:\n      containers:\n      - name: main\n        image: ghcr.io/dagents/orders-risk-worker:demo\n        args:\n        - \"--pipeline=orders-risk-demo\"\n        ports:\n        - name: http\n          containerPort: 8080\n        env:\n        - name: APP_ENV\n          value: \"demo\"\n        resources:\n          requests:\n            cpu: 250m\n            memory: 256Mi\n          limits:\n            cpu: 1\n            memory: 1Gi",
+       "serviceYaml": "apiVersion: v1\nkind: Service\nmetadata:\n  name: orders-risk-worker\n  namespace: dagents-demo\nspec:\n  type: ClusterIP\n  selector:\n    app: orders-risk-worker\n  ports:\n  - name: http\n    port: 8080\n    targetPort: 8080",
+       "configMapYaml": "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: orders-risk-worker-config\n  namespace: dagents-demo\ndata:\n  component-kind: \"Deployment\"\n  image: \"ghcr.io/dagents/orders-risk-worker:demo\"",
+       "serviceAccountYaml": null
+      }
+     ],
+     "combinedYaml": "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: orders-risk-worker\n  namespace: dagents-demo\nspec:\n  replicas: 2\n  selector:\n    matchLabels:\n      app: orders-risk-worker\n  template:\n    metadata:\n      labels:\n        app: orders-risk-worker\n    spec:\n      containers:\n      - name: main\n        image: ghcr.io/dagents/orders-risk-worker:demo\n        args:\n        - \"--pipeline=orders-risk-demo\"\n        ports:\n        - name: http\n          containerPort: 8080\n        env:\n        - name: APP_ENV\n          value: \"demo\"\n        resources:\n          requests:\n            cpu: 250m\n            memory: 256Mi\n          limits:\n            cpu: 1\n            memory: 1Gi\n---\napiVersion: v1\nkind: Service\nmetadata:\n  name: orders-risk-worker\n  namespace: dagents-demo\nspec:\n  type: ClusterIP\n  selector:\n    app: orders-risk-worker\n  ports:\n  - name: http\n    port: 8080\n    targetPort: 8080\n---\napiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: orders-risk-worker-config\n  namespace: dagents-demo\ndata:\n  component-kind: \"Deployment\"\n  image: \"ghcr.io/dagents/orders-risk-worker:demo\""
+    },
+    "stderr": "",
+    "trimmed": []
+   },
+   "planner_calls": [
+    "manifest compile"
+   ]
+  },
+  {
+   "id": "manifest-from-flags",
+   "endpoint": "dagentsc manifest compile",
+   "title": "Render YAML for one Job from flags, without an input",
+   "trim": {
+    "chars": 2000
+   },
+   "request": {
+    "args": [
+     "manifest",
+     "compile",
+     "--plan-id",
+     "nightly-profile",
+     "--name",
+     "profile-orders",
+     "--image",
+     "ghcr.io/example/dagents-lma:0.1.0",
+     "--kind",
+     "Job"
+    ]
+   },
+   "response": {
+    "exit_code": 0,
+    "status": 0,
+    "headers": {},
+    "body": "apiVersion: batch/v1\nkind: Job\nmetadata:\n  name: profile-orders\n  namespace: dagents\nspec:\n  template:\n    spec:\n      restartPolicy: Never\n      containers:\n      - name: main\n        image: ghcr.io/example/dagents-lma:0.1.0\n        ports:\n        - name: http\n          containerPort: 8080\n        resources:\n          requests:\n            cpu: 250m\n            memory: 256Mi\n          limits:\n            cpu: 1\n            memory: 1Gi\n---\napiVersion: v1\nkind: Service\nmetadata:\n  name: profile-orders\n  namespace: dagents\nspec:\n  type: ClusterIP\n  selector:\n    app: profile-orders\n  ports:\n  - name: http\n    port: 8080\n    targetPort: 8080\n---\napiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: profile-orders-config\n  namespace: dagents\ndata:\n  component-kind: \"Job\"\n  image: \"ghcr.io/example/dagents-lma:0.1.0\"\n",
+    "stderr": "",
+    "trimmed": []
+   },
+   "planner_calls": [
+    "manifest compile"
+   ]
+  },
+  {
+   "id": "pipeline-from-input",
+   "endpoint": "dagentsc pipeline compile",
+   "title": "Order a pipeline's steps",
+   "description": "The input is docs/demo/inputs/pipeline-valid.json.",
+   "request": {
+    "args": [
+     "pipeline",
+     "compile",
+     "--input",
+     "-",
+     "--output",
+     "json"
+    ],
+    "stdin": {
+     "pipelineId": "orders-risk-demo",
+     "steps": [
+      {
+       "stepId": "enrich",
+       "kind": "enrich_context",
+       "dependsOn": [],
+       "config": {
+        "target_field": "context",
+        "values": {
+         "demo": "functional-planning"
+        }
+       }
+      },
+      {
+       "stepId": "filter",
+       "kind": "filter_items",
+       "dependsOn": [
+        "enrich"
+       ],
+       "config": {
+        "items_field": "items",
+        "conditions": [
+         {
+          "field": "risk_score",
+          "operator": "gte",
+          "value": 0.3
+         }
+        ]
+       }
+      },
+      {
+       "stepId": "profile",
+       "kind": "profile_dataset",
+       "dependsOn": [
+        "filter"
+       ],
+       "config": {
+        "items_field": "items",
+        "feature_fields": [
+         "amount_usd",
+         "risk_score"
+        ]
+       }
+      },
+      {
+       "stepId": "model",
+       "kind": "run_model_job",
+       "dependsOn": [
+        "profile"
+       ],
+       "config": {
+        "items_field": "items",
+        "model_family": "autoencoder",
+        "task_type": "anomaly_detection"
+       }
+      }
+     ]
+    }
+   },
+   "response": {
+    "exit_code": 0,
+    "status": 0,
+    "headers": {},
+    "body": {
+     "pipelineId": "orders-risk-demo",
+     "steps": [
+      {
+       "stepId": "enrich",
+       "kind": "enrich_context",
+       "dependsOn": [],
+       "executionTarget": "local_process",
+       "config": {
+        "target_field": "context",
+        "values": {
+         "demo": "functional-planning"
+        }
+       }
+      },
+      {
+       "stepId": "filter",
+       "kind": "filter_items",
+       "dependsOn": [
+        "enrich"
+       ],
+       "executionTarget": "local_process",
+       "config": {
+        "items_field": "items",
+        "conditions": [
+         {
+          "field": "risk_score",
+          "operator": "gte",
+          "value": 0.3
+         }
+        ]
+       }
+      },
+      {
+       "stepId": "profile",
+       "kind": "profile_dataset",
+       "dependsOn": [
+        "filter"
+       ],
+       "executionTarget": "local_process",
+       "config": {
+        "items_field": "items",
+        "feature_fields": [
+         "amount_usd",
+         "risk_score"
+        ]
+       }
+      },
+      {
+       "stepId": "model",
+       "kind": "run_model_job",
+       "dependsOn": [
+        "profile"
+       ],
+       "executionTarget": "python_service",
+       "config": {
+        "items_field": "items",
+        "model_family": "autoencoder",
+        "task_type": "anomaly_detection"
+       }
+      }
+     ]
+    },
+    "stderr": "",
+    "trimmed": []
+   },
+   "planner_calls": [
+    "pipeline compile"
+   ]
+  },
+  {
+   "id": "pipeline-from-steps",
+   "endpoint": "dagentsc pipeline compile",
+   "title": "Order steps given as flags, as text",
+   "description": "The steps are given out of order. The output lists them in the order they run, one step_id:kind per line.",
+   "request": {
+    "args": [
+     "pipeline",
+     "compile",
+     "--pipeline-id",
+     "orders-nightly",
+     "--step",
+     "report:project_fields:score",
+     "--step",
+     "load:profile_dataset",
+     "--step",
+     "score:run_model_job:load"
+    ]
+   },
+   "response": {
+    "exit_code": 0,
+    "status": 0,
+    "headers": {},
+    "body": "load:profile_dataset\nscore:run_model_job\nreport:project_fields\n",
+    "stderr": "",
+    "trimmed": []
+   },
+   "planner_calls": [
+    "pipeline compile"
+   ]
+  },
+  {
+   "id": "pipeline-cycle",
+   "endpoint": "dagentsc pipeline compile",
+   "title": "A pipeline whose steps depend on each other",
+   "description": "The input is docs/demo/inputs/pipeline-cyclic.json. The planner stops with an exception, which is exit code 2.",
+   "request": {
+    "args": [
+     "pipeline",
+     "compile",
+     "--input",
+     "-",
+     "--output",
+     "json"
+    ],
+    "stdin": {
+     "pipelineId": "cyclic-demo",
+     "steps": [
+      {
+       "stepId": "a",
+       "kind": "filter_items",
+       "dependsOn": [
+        "b"
+       ]
+      },
+      {
+       "stepId": "b",
+       "kind": "project_fields",
+       "dependsOn": [
+        "a"
+       ]
+      }
+     ]
+    }
+   },
+   "response": {
+    "exit_code": 2,
+    "status": 2,
+    "headers": {},
+    "body": "",
+    "stderr": "Fatal error: exception Invalid_argument(\"Cyclic dependency detected at a\")",
+    "trimmed": []
+   },
+   "planner_calls": [
+    "pipeline compile"
+   ]
+  },
+  {
+   "id": "route-classification",
+   "endpoint": "dagentsc model route",
+   "title": "Route a classification task",
+   "request": {
+    "args": [
+     "model",
+     "route",
+     "--task",
+     "classification",
+     "--output",
+     "json"
+    ]
+   },
+   "response": {
+    "exit_code": 0,
+    "status": 0,
+    "headers": {},
+    "body": {
+     "selectedModel": "random_forest",
+     "candidates": [
+      "random_forest",
+      "xgboost",
+      "naive_bayes"
+     ],
+     "packagingMode": "inline_service_call"
+    },
+    "stderr": "",
+    "trimmed": []
+   },
+   "planner_calls": [
+    "model route"
+   ]
+  },
+  {
+   "id": "route-unknown-task",
+   "endpoint": "dagentsc model route",
+   "title": "A task the router does not know is routed as anomaly detection",
+   "request": {
+    "args": [
+     "model",
+     "route",
+     "--task",
+     "clustering"
+    ]
+   },
+   "response": {
+    "exit_code": 0,
+    "status": 0,
+    "headers": {},
+    "body": "autoencoder\n",
+    "stderr": "",
+    "trimmed": []
+   },
+   "planner_calls": [
+    "model route"
+   ]
+  },
+  {
+   "id": "profile",
+   "endpoint": "dagentsc dataset profile",
+   "title": "Profile the built-in two-record dataset",
+   "request": {
+    "args": [
+     "dataset",
+     "profile",
+     "--scope-id",
+     "orders",
+     "--output",
+     "json"
+    ]
+   },
+   "response": {
+    "exit_code": 0,
+    "status": 0,
+    "headers": {},
+    "body": {
+     "scopeId": "orders",
+     "scopeKind": "source",
+     "extractionStrategy": "tabular",
+     "recordCount": 2,
+     "featureFields": [
+      "value",
+      "score"
+     ],
+     "labelField": null,
+     "numericFields": [
+      "value",
+      "score"
+     ],
+     "categoricalFields": [],
+     "partitionCount": 1,
+     "suggestedModels": [
+      "autoencoder",
+      "variational_autoencoder",
+      "random_forest"
+     ]
+    },
+    "stderr": "",
+    "trimmed": []
+   },
+   "planner_calls": [
+    "dataset profile"
+   ]
+  },
+  {
+   "id": "source-validate",
+   "endpoint": "dagentsc dataset source validate",
+   "title": "Validate a Postgres source",
+   "description": "The input is docs/demo/inputs/source-postgres-valid.json.",
+   "request": {
+    "args": [
+     "dataset",
+     "source",
+     "validate",
+     "--input",
+     "-"
+    ],
+    "stdin": {
+     "sourceId": "orders-postgres",
+     "kind": "postgres",
+     "connectionRef": {
+      "connectionId": "warehouse-demo"
+     },
+     "selection": {
+      "table": "public.orders",
+      "columns": [
+       "order_id",
+       "tenant_id",
+       "event_time",
+       "amount",
+       "status",
+       "risk_score"
+      ],
+      "where": "event_time >= '2026-05-01T00:00:00Z'",
+      "orderBy": [
+       "event_time"
+      ]
+     },
+     "format": "rows",
+     "batching": {
+      "batchSize": 500,
+      "maxRecords": 5000
+     },
+     "options": {
+      "timeField": "event_time",
+      "timeWindow": "1h",
+      "partitionField": "tenant_id",
+      "partitionCount": "8"
+     }
+    }
+   },
+   "response": {
+    "exit_code": 0,
+    "status": 0,
+    "headers": {},
+    "body": {
+     "valid": true,
+     "errors": [],
+     "warnings": []
+    },
+    "stderr": "",
+    "trimmed": []
+   },
+   "planner_calls": [
+    "dataset source validate"
+   ]
+  },
+  {
+   "id": "source-validate-invalid",
+   "endpoint": "dagentsc dataset source validate",
+   "title": "A Postgres source with no connection, no table and a batch size of 0",
+   "description": "The input is docs/demo/inputs/source-invalid.json. A source that is not valid is a normal result, so the exit code is 0.",
+   "request": {
+    "args": [
+     "dataset",
+     "source",
+     "validate",
+     "--input",
+     "-"
+    ],
+    "stdin": {
+     "sourceId": "broken-postgres",
+     "kind": "postgres",
+     "selection": {
+      "columns": [
+       "order_id",
+       "amount"
+      ]
+     },
+     "format": "rows",
+     "batching": {
+      "batchSize": 0
+     }
+    }
+   },
+   "response": {
+    "exit_code": 0,
+    "status": 0,
+    "headers": {},
+    "body": {
+     "valid": false,
+     "errors": [
+      "batch_size must be positive",
+      "connection_ref is required for external sources",
+      "postgres selection requires sql or table"
+     ],
+     "warnings": []
+    },
+    "stderr": "",
+    "trimmed": []
+   },
+   "planner_calls": [
+    "dataset source validate"
+   ]
+  },
+  {
+   "id": "source-metadata",
+   "endpoint": "dagentsc dataset source metadata",
+   "title": "Describe a Postgres source without reading it",
+   "trim": {
+    "items": 10
+   },
+   "request": {
+    "args": [
+     "dataset",
+     "source",
+     "metadata",
+     "--input",
+     "-"
+    ],
+    "stdin": {
+     "sourceId": "orders-postgres",
+     "kind": "postgres",
+     "connectionRef": {
+      "connectionId": "warehouse-demo"
+     },
+     "selection": {
+      "table": "public.orders",
+      "columns": [
+       "order_id",
+       "tenant_id",
+       "event_time",
+       "amount",
+       "status",
+       "risk_score"
+      ],
+      "where": "event_time >= '2026-05-01T00:00:00Z'",
+      "orderBy": [
+       "event_time"
+      ]
+     },
+     "format": "rows",
+     "batching": {
+      "batchSize": 500,
+      "maxRecords": 5000
+     },
+     "options": {
+      "timeField": "event_time",
+      "timeWindow": "1h",
+      "partitionField": "tenant_id",
+      "partitionCount": "8"
+     }
+    }
+   },
+   "response": {
+    "exit_code": 0,
+    "status": 0,
+    "headers": {},
+    "body": {
+     "sourceId": "orders-postgres",
+     "kind": "postgres",
+     "schema": [
+      {
+       "name": "order_id",
+       "type": "unknown"
+      },
+      {
+       "name": "tenant_id",
+       "type": "unknown"
+      },
+      {
+       "name": "event_time",
+       "type": "unknown"
+      },
+      {
+       "name": "amount",
+       "type": "unknown"
+      },
+      {
+       "name": "status",
+       "type": "unknown"
+      },
+      {
+       "name": "risk_score",
+       "type": "unknown"
+      }
+     ],
+     "estimatedRecords": 5000
+    },
+    "stderr": "",
+    "trimmed": []
+   },
+   "planner_calls": [
+    "dataset source metadata"
+   ]
+  },
+  {
+   "id": "source-extract",
+   "endpoint": "dagentsc dataset source extract",
+   "title": "Plan the extraction of a Postgres source",
+   "trim": {
+    "items": 10
+   },
+   "request": {
+    "args": [
+     "dataset",
+     "source",
+     "extract",
+     "--input",
+     "-"
+    ],
+    "stdin": {
+     "sourceId": "orders-postgres",
+     "kind": "postgres",
+     "connectionRef": {
+      "connectionId": "warehouse-demo"
+     },
+     "selection": {
+      "table": "public.orders",
+      "columns": [
+       "order_id",
+       "tenant_id",
+       "event_time",
+       "amount",
+       "status",
+       "risk_score"
+      ],
+      "where": "event_time >= '2026-05-01T00:00:00Z'",
+      "orderBy": [
+       "event_time"
+      ]
+     },
+     "format": "rows",
+     "batching": {
+      "batchSize": 500,
+      "maxRecords": 5000
+     },
+     "options": {
+      "timeField": "event_time",
+      "timeWindow": "1h",
+      "partitionField": "tenant_id",
+      "partitionCount": "8"
+     }
+    }
+   },
+   "response": {
+    "exit_code": 0,
+    "status": 0,
+    "headers": {},
+    "body": {
+     "sourceId": "orders-postgres",
+     "kind": "postgres",
+     "format": "rows",
+     "selectedFields": [
+      "order_id",
+      "tenant_id",
+      "event_time",
+      "amount",
+      "status",
+      "risk_score"
+     ],
+     "predicates": [
+      "event_time >= '2026-05-01T00:00:00Z'"
+     ],
+     "ordering": [
+      "event_time"
+     ],
+     "partitionStrategy": "time_window:event_time:1h",
+     "batchSize": 500,
+     "maxRecords": 5000,
+     "checkpoint": null
+    },
+    "stderr": "",
+    "trimmed": []
+   },
+   "planner_calls": [
+    "dataset source extract"
+   ]
+  },
+  {
+   "id": "schema-validate",
+   "endpoint": "dagentsc dataset schema validate",
+   "title": "Check four orders against a schema contract",
+   "description": "The records are docs/demo/inputs/records-orders.json, on standard input. The contract is read from the file the flag names.",
+   "request": {
+    "args": [
+     "dataset",
+     "schema",
+     "validate",
+     "--records",
+     "-",
+     "--contract",
+     "docs/demo/inputs/schema-contract-orders.json"
+    ],
+    "stdin": [
+     {
+      "order_id": "o-1001",
+      "tenant_id": "alpha",
+      "event_time": "2026-05-01T09:00:00Z",
+      "amount": "120.50",
+      "status": "paid",
+      "risk_score": 0.12
+     },
+     {
+      "order_id": "o-1002",
+      "tenant_id": "alpha",
+      "event_time": "2026-05-01T09:03:00Z",
+      "amount": "-4.00",
+      "status": "paid",
+      "risk_score": 0.71
+     },
+     {
+      "order_id": "o-1002",
+      "tenant_id": "beta",
+      "event_time": "2026-05-01T09:05:00Z",
+      "amount": "42.00",
+      "status": null,
+      "risk_score": 0.34
+     },
+     {
+      "order_id": "o-1004",
+      "tenant_id": "beta",
+      "event_time": "2026-05-01T09:08:00Z",
+      "amount": "89.90",
+      "status": "review",
+      "risk_score": 0.62
+     }
+    ]
+   },
+   "response": {
+    "exit_code": 0,
+    "status": 0,
+    "headers": {},
+    "body": {
+     "valid": true,
+     "missingFields": [],
+     "typeMismatches": [],
+     "extraFields": [],
+     "warnings": []
+    },
+    "stderr": "",
+    "trimmed": []
+   },
+   "planner_calls": [
+    "dataset schema validate"
+   ]
+  },
+  {
+   "id": "quality-evaluate",
+   "endpoint": "dagentsc dataset quality evaluate",
+   "title": "Apply four quality rules to four orders",
+   "request": {
+    "args": [
+     "dataset",
+     "quality",
+     "evaluate",
+     "--records",
+     "-",
+     "--rules",
+     "docs/demo/inputs/quality-rules-orders.json"
+    ],
+    "stdin": [
+     {
+      "order_id": "o-1001",
+      "tenant_id": "alpha",
+      "event_time": "2026-05-01T09:00:00Z",
+      "amount": "120.50",
+      "status": "paid",
+      "risk_score": 0.12
+     },
+     {
+      "order_id": "o-1002",
+      "tenant_id": "alpha",
+      "event_time": "2026-05-01T09:03:00Z",
+      "amount": "-4.00",
+      "status": "paid",
+      "risk_score": 0.71
+     },
+     {
+      "order_id": "o-1002",
+      "tenant_id": "beta",
+      "event_time": "2026-05-01T09:05:00Z",
+      "amount": "42.00",
+      "status": null,
+      "risk_score": 0.34
+     },
+     {
+      "order_id": "o-1004",
+      "tenant_id": "beta",
+      "event_time": "2026-05-01T09:08:00Z",
+      "amount": "89.90",
+      "status": "review",
+      "risk_score": 0.62
+     }
+    ]
+   },
+   "response": {
+    "exit_code": 0,
+    "status": 0,
+    "headers": {},
+    "body": {
+     "results": [
+      {
+       "ruleId": "order_id_unique",
+       "severity": "error",
+       "passed": false,
+       "violations": 1,
+       "message": "1 record(s) violated unique"
+      },
+      {
+       "ruleId": "status_present",
+       "severity": "warning",
+       "passed": false,
+       "violations": 1,
+       "message": "1 record(s) violated non_null"
+      },
+      {
+       "ruleId": "amount_non_negative",
+       "severity": "error",
+       "passed": false,
+       "violations": 1,
+       "message": "1 record(s) violated min_value:0."
+      },
+      {
+       "ruleId": "status_allowed",
+       "severity": "warning",
+       "passed": true,
+       "violations": 0,
+       "message": "passed"
+      }
+     ],
+     "blocking": true,
+     "warningCount": 1,
+     "errorCount": 2,
+     "totalViolations": 3
+    },
+    "stderr": "",
+    "trimmed": []
+   },
+   "planner_calls": [
+    "dataset quality evaluate"
+   ]
+  },
+  {
+   "id": "transform-compile",
+   "endpoint": "dagentsc dataset transform compile",
+   "title": "Plan three transforms and their output schema",
+   "request": {
+    "args": [
+     "dataset",
+     "transform",
+     "compile",
+     "--records",
+     "-",
+     "--operations",
+     "docs/demo/inputs/transform-operations-orders.json",
+     "--plan-id",
+     "orders-clean"
+    ],
+    "stdin": [
+     {
+      "order_id": "o-1001",
+      "tenant_id": "alpha",
+      "event_time": "2026-05-01T09:00:00Z",
+      "amount": "120.50",
+      "status": "paid",
+      "risk_score": 0.12
+     },
+     {
+      "order_id": "o-1002",
+      "tenant_id": "alpha",
+      "event_time": "2026-05-01T09:03:00Z",
+      "amount": "-4.00",
+      "status": "paid",
+      "risk_score": 0.71
+     },
+     {
+      "order_id": "o-1002",
+      "tenant_id": "beta",
+      "event_time": "2026-05-01T09:05:00Z",
+      "amount": "42.00",
+      "status": null,
+      "risk_score": 0.34
+     },
+     {
+      "order_id": "o-1004",
+      "tenant_id": "beta",
+      "event_time": "2026-05-01T09:08:00Z",
+      "amount": "89.90",
+      "status": "review",
+      "risk_score": 0.62
+     }
+    ]
+   },
+   "response": {
+    "exit_code": 0,
+    "status": 0,
+    "headers": {},
+    "body": {
+     "planId": "orders-clean",
+     "outputSchema": [
+      {
+       "name": "amount_usd",
+       "type": "float"
+      },
+      {
+       "name": "event_time",
+       "type": "string"
+      },
+      {
+       "name": "order_id",
+       "type": "string"
+      },
+      {
+       "name": "risk_score",
+       "type": "float"
+      },
+      {
+       "name": "tenant_id",
+       "type": "string"
+      }
+     ]
+    },
+    "stderr": "",
+    "trimmed": []
+   },
+   "planner_calls": [
+    "dataset transform compile"
+   ]
+  },
+  {
+   "id": "transform-apply",
+   "endpoint": "dagentsc dataset transform apply",
+   "title": "Apply the same three transforms to the records",
+   "request": {
+    "args": [
+     "dataset",
+     "transform",
+     "apply",
+     "--records",
+     "-",
+     "--operations",
+     "docs/demo/inputs/transform-operations-orders.json"
+    ],
+    "stdin": [
+     {
+      "order_id": "o-1001",
+      "tenant_id": "alpha",
+      "event_time": "2026-05-01T09:00:00Z",
+      "amount": "120.50",
+      "status": "paid",
+      "risk_score": 0.12
+     },
+     {
+      "order_id": "o-1002",
+      "tenant_id": "alpha",
+      "event_time": "2026-05-01T09:03:00Z",
+      "amount": "-4.00",
+      "status": "paid",
+      "risk_score": 0.71
+     },
+     {
+      "order_id": "o-1002",
+      "tenant_id": "beta",
+      "event_time": "2026-05-01T09:05:00Z",
+      "amount": "42.00",
+      "status": null,
+      "risk_score": 0.34
+     },
+     {
+      "order_id": "o-1004",
+      "tenant_id": "beta",
+      "event_time": "2026-05-01T09:08:00Z",
+      "amount": "89.90",
+      "status": "review",
+      "risk_score": 0.62
+     }
+    ]
+   },
+   "response": {
+    "exit_code": 0,
+    "status": 0,
+    "headers": {},
+    "body": [
+     {
+      "order_id": "o-1001",
+      "tenant_id": "alpha",
+      "event_time": "2026-05-01T09:00:00Z",
+      "amount_usd": 120.5,
+      "risk_score": 0.12
+     },
+     {
+      "order_id": "o-1002",
+      "tenant_id": "alpha",
+      "event_time": "2026-05-01T09:03:00Z",
+      "amount_usd": -4.0,
+      "risk_score": 0.71
+     },
+     {
+      "order_id": "o-1002",
+      "tenant_id": "beta",
+      "event_time": "2026-05-01T09:05:00Z",
+      "amount_usd": 42.0,
+      "risk_score": 0.34
+     },
+     {
+      "order_id": "o-1004",
+      "tenant_id": "beta",
+      "event_time": "2026-05-01T09:08:00Z",
+      "amount_usd": 89.9,
+      "risk_score": 0.62
+     }
+    ],
+    "stderr": "",
+    "trimmed": []
+   },
+   "planner_calls": [
+    "dataset transform apply"
+   ]
+  },
+  {
+   "id": "restrict-narrow",
+   "endpoint": "dagentsc governance restrict",
+   "title": "Plan a row request from a verified analyst",
+   "trim": {
+    "items": 10
+   },
+   "request": {
+    "args": [
+     "governance",
+     "restrict",
+     "--input",
+     "-"
+    ],
+    "stdin": {
+     "requestId": "plan-rows-001",
+     "boundary": "before_read",
+     "requester": {
+      "requesterId": "returns-analyst-17",
+      "requesterKind": "human",
+      "affiliation": "retail-hq",
+      "statedPurpose": "order_returns",
+      "attributes": [
+       {
+        "attributeId": "employee_sso",
+        "weight": 1.0,
+        "verified": true
+       },
+       {
+        "attributeId": "signed_data_agreement",
+        "weight": 1.0,
+        "verified": true
+       }
+      ],
+      "complianceHistory": 0.9
+     },
+     "classification": {
+      "classificationId": "retail-orders",
+      "fieldSensitivity": {
+       "order_value": "high",
+       "customer_age_band": "medium",
+       "loyalty_member": "medium",
+       "returned": "medium",
+       "items": "low",
+       "category": "low",
+       "model_update": "high"
+      },
+      "defaultSensitivity": "high",
+      "regulations": [
+       "GDPR"
+      ],
+      "minimumCohort": 20
+     },
+     "requestedFields": [
+      "order_value",
+      "category",
+      "customer_age_band",
+      "customer_postcode"
+     ],
+     "granularity": "row",
+     "declaredPurpose": "order_returns",
+     "approvedPurposes": [
+      "order_returns",
+      "returns_quality_review"
+     ]
+    }
+   },
+   "response": {
+    "exit_code": 0,
+    "status": 0,
+    "headers": {},
+    "body": {
+     "requestId": "plan-rows-001",
+     "boundary": "before_read",
+     "assessment": {
+      "requesterId": "returns-analyst-17",
+      "kyuScore": 0.97,
+      "trust": "high",
+      "rationale": [
+       "requester_kind=human",
+       "verified_attributes=2/2",
+       "compliance_history=0.90",
+       "kyu_score=0.97",
+       "affiliation=retail-hq",
+       "stated_purpose=order_returns"
+      ]
+     },
+     "granularity": "row",
+     "fieldRestrictions": [
+      {
+       "field": "order_value",
+       "sensitivity": "high",
+       "strategy": "generalize:1",
+       "reason": "sensitivity=high trust=high granularity=row -> generalize:1"
+      },
+      {
+       "field": "category",
+       "sensitivity": "low",
+       "strategy": "allow_full",
+       "reason": "sensitivity=low trust=high granularity=row -> allow_full"
+      },
+      {
+       "field": "customer_age_band",
+       "sensitivity": "medium",
+       "strategy": "allow_full",
+       "reason": "sensitivity=medium trust=high granularity=row -> allow_full"
+      },
+      {
+       "field": "customer_postcode",
+       "sensitivity": "high",
+       "strategy": "generalize:1",
+       "reason": "sensitivity=high trust=high granularity=row -> generalize:1"
+      }
+     ],
+     "decision": "narrow",
+     "filteringScore": 0.175,
+     "obligations": [
+      "record the decision, reason, and request id plan-rows-001 in the audit log",
+      "enforce at boundary before_read",
+      "apply controls required by GDPR"
+     ],
+     "violations": []
+    },
+    "stderr": "",
+    "trimmed": []
+   },
+   "planner_calls": [
+    "governance restrict"
+   ]
+  },
+  {
+   "id": "restrict-deny",
+   "endpoint": "dagentsc governance restrict",
+   "title": "Plan a table request about 8 customers",
+   "description": "A deny is a normal decision, so the exit code is 0.",
+   "trim": {
+    "items": 10
+   },
+   "request": {
+    "args": [
+     "governance",
+     "restrict",
+     "--input",
+     "-"
+    ],
+    "stdin": {
+     "requestId": "plan-table-002",
+     "boundary": "before_read",
+     "requester": {
+      "requesterId": "store-north-dashboard",
+      "requesterKind": "service",
+      "attributes": [
+       {
+        "attributeId": "service_certificate",
+        "weight": 1.0,
+        "verified": true
+       },
+       {
+        "attributeId": "owner_team",
+        "weight": 1.0,
+        "verified": false
+       }
+      ],
+      "complianceHistory": 0.5
+     },
+     "classification": {
+      "classificationId": "retail-orders",
+      "fieldSensitivity": {
+       "order_value": "high",
+       "customer_age_band": "medium",
+       "loyalty_member": "medium",
+       "returned": "medium",
+       "items": "low",
+       "category": "low",
+       "model_update": "high"
+      },
+      "defaultSensitivity": "high",
+      "regulations": [
+       "GDPR"
+      ],
+      "minimumCohort": 20
+     },
+     "requestedFields": [
+      "order_value",
+      "returned"
+     ],
+     "granularity": "table",
+     "cohortSize": 8,
+     "declaredPurpose": "order_returns",
+     "approvedPurposes": [
+      "order_returns",
+      "returns_quality_review"
+     ]
+    }
+   },
+   "response": {
+    "exit_code": 0,
+    "status": 0,
+    "headers": {},
+    "body": {
+     "requestId": "plan-table-002",
+     "boundary": "before_read",
+     "assessment": {
+      "requesterId": "store-north-dashboard",
+      "kyuScore": 0.5875,
+      "trust": "moderate",
+      "rationale": [
+       "requester_kind=service",
+       "verified_attributes=1/2",
+       "compliance_history=0.50",
+       "kyu_score=0.59",
+       "affiliation=unstated",
+       "stated_purpose=unstated"
+      ]
+     },
+     "granularity": "table",
+     "fieldRestrictions": [
+      {
+       "field": "order_value",
+       "sensitivity": "high",
+       "strategy": "refuse",
+       "reason": "request-level gate failed; field withheld"
+      },
+      {
+       "field": "returned",
+       "sensitivity": "medium",
+       "strategy": "refuse",
+       "reason": "request-level gate failed; field withheld"
+      }
+     ],
+     "decision": "deny",
+     "filteringScore": 1.0,
+     "obligations": [
+      "record the decision, reason, and request id plan-table-002 in the audit log",
+      "enforce at boundary before_read",
+      "apply controls required by GDPR",
+      "suppress results describing fewer than 20 subjects"
+     ],
+     "violations": [
+      "cohort_size 8 is below minimum_cohort 20"
+     ]
+    },
+    "stderr": "",
+    "trimmed": []
+   },
+   "planner_calls": [
+    "governance restrict"
+   ]
+  },
+  {
+   "id": "restrict-missing-field",
+   "endpoint": "dagentsc governance restrict",
+   "title": "A request without a boundary",
+   "request": {
+    "args": [
+     "governance",
+     "restrict",
+     "--input",
+     "-"
+    ],
+    "stdin": {
+     "requestId": "plan-bad-003",
+     "requester": {
+      "requesterId": "unknown-caller"
+     },
+     "classification": {
+      "classificationId": "retail-orders",
+      "fieldSensitivity": {
+       "order_value": "high",
+       "customer_age_band": "medium",
+       "loyalty_member": "medium",
+       "returned": "medium",
+       "items": "low",
+       "category": "low",
+       "model_update": "high"
+      },
+      "defaultSensitivity": "high",
+      "regulations": [
+       "GDPR"
+      ],
+      "minimumCohort": 20
+     },
+     "requestedFields": [
+      "items"
+     ],
+     "granularity": "row"
+    }
+   },
+   "response": {
+    "exit_code": 2,
+    "status": 2,
+    "headers": {},
+    "body": "",
+    "stderr": "Fatal error: exception Invalid_argument(\"Missing JSON field: boundary\")",
+    "trimmed": []
+   },
+   "planner_calls": [
+    "governance restrict"
+   ]
+  },
+  {
+   "id": "assess",
+   "endpoint": "dagentsc governance assess",
+   "title": "Assess a service with one verified and one unverified attribute",
+   "trim": {
+    "items": 10
+   },
+   "request": {
+    "args": [
+     "governance",
+     "assess",
+     "--input",
+     "-"
+    ],
+    "stdin": {
+     "requesterId": "store-north-dashboard",
+     "requesterKind": "service",
+     "attributes": [
+      {
+       "attributeId": "service_certificate",
+       "weight": 1.0,
+       "verified": true
+      },
+      {
+       "attributeId": "owner_team",
+       "weight": 1.0,
+       "verified": false
+      }
+     ],
+     "complianceHistory": 0.5
+    }
+   },
+   "response": {
+    "exit_code": 0,
+    "status": 0,
+    "headers": {},
+    "body": {
+     "requesterId": "store-north-dashboard",
+     "kyuScore": 0.5875,
+     "trust": "moderate",
+     "rationale": [
+      "requester_kind=service",
+      "verified_attributes=1/2",
+      "compliance_history=0.50",
+      "kyu_score=0.59",
+      "affiliation=unstated",
+      "stated_purpose=unstated"
+     ]
+    },
+    "stderr": "",
+    "trimmed": []
+   },
+   "planner_calls": [
+    "governance assess"
+   ]
+  },
+  {
+   "id": "round-plan",
+   "endpoint": "dagentsc federation round plan",
+   "title": "Plan an evaluation round across five invited stores",
+   "description": "store-east holds 12 customers, below the minimum of 20. store-west is not enrolled. store-central has no registration.",
+   "request": {
+    "args": [
+     "federation",
+     "round",
+     "plan",
+     "--input",
+     "-"
+    ],
+    "stdin": {
+     "manifest": {
+      "roundId": "returns-round-1",
+      "studyId": "returns-pilot",
+      "conditionId": "order_returns",
+      "phase": "evaluation",
+      "modelVersion": "returns-rule-1.0",
+      "modelArtifactDigest": "sha256:4f1c0e9a",
+      "trainingCodeDigest": "sha256:9b27d3e1",
+      "featureContractVersion": "retail-orders-v1",
+      "privacyProfile": "guarded-rows",
+      "aggregation": {
+       "kind": "fedavg"
+      },
+      "minimumParticipants": 2,
+      "minimumCohortPerSite": 20,
+      "requiredCapabilities": [
+       "evaluate"
+      ],
+      "stopConditions": [
+       "schema_failure",
+       "quorum_not_met"
+      ],
+      "invitedSites": [
+       "store-central",
+       "store-east",
+       "store-north",
+       "store-south",
+       "store-west"
+      ]
+     },
+     "registrations": [
+      {
+       "siteId": "store-north",
+       "capabilities": [
+        "evaluate",
+        "train"
+       ],
+       "featureContractVersion": "retail-orders-v1",
+       "approvedConditions": [
+        "order_returns"
+       ],
+       "policyVersion": "retail-policy-3",
+       "cohortSize": 60,
+       "enrolled": true
+      },
+      {
+       "siteId": "store-south",
+       "capabilities": [
+        "evaluate",
+        "train"
+       ],
+       "featureContractVersion": "retail-orders-v1",
+       "approvedConditions": [
+        "order_returns"
+       ],
+       "policyVersion": "retail-policy-3",
+       "cohortSize": 40,
+       "enrolled": true
+      },
+      {
+       "siteId": "store-east",
+       "capabilities": [
+        "evaluate",
+        "train"
+       ],
+       "featureContractVersion": "retail-orders-v1",
+       "approvedConditions": [
+        "order_returns"
+       ],
+       "policyVersion": "retail-policy-3",
+       "cohortSize": 12,
+       "enrolled": true
+      },
+      {
+       "siteId": "store-west",
+       "capabilities": [
+        "evaluate"
+       ],
+       "featureContractVersion": "retail-orders-v1",
+       "approvedConditions": [
+        "order_returns"
+       ],
+       "policyVersion": "retail-policy-3",
+       "cohortSize": 80
+      }
+     ]
+    }
+   },
+   "response": {
+    "exit_code": 0,
+    "status": 0,
+    "headers": {},
+    "body": {
+     "roundId": "returns-round-1",
+     "studyId": "returns-pilot",
+     "phase": "evaluation",
+     "selectedSites": [
+      "store-north",
+      "store-south"
+     ],
+     "excludedSites": [
+      {
+       "siteId": "store-east",
+       "reason": "site cohort 12 is below the per-site minimum 20"
+      },
+      {
+       "siteId": "store-west",
+       "reason": "site is not enrolled in the study"
+      },
+      {
+       "siteId": "store-central",
+       "reason": "invited site has no registration"
+      }
+     ],
+     "quorumMet": true,
+     "requiredParticipants": 2,
+     "aggregation": {
+      "kind": "fedavg"
+     },
+     "stopReason": null,
+     "roundDigest": "fnv1a:767d1ad0c4595843"
+    },
+    "stderr": "",
+    "trimmed": []
+   },
+   "planner_calls": [
+    "federation round plan"
+   ]
+  },
+  {
+   "id": "round-digest",
+   "endpoint": "dagentsc federation round digest",
+   "title": "Compute the round manifest's digest",
+   "request": {
+    "args": [
+     "federation",
+     "round",
+     "digest",
+     "--input",
+     "-"
+    ],
+    "stdin": {
+     "manifest": {
+      "roundId": "returns-round-1",
+      "studyId": "returns-pilot",
+      "conditionId": "order_returns",
+      "phase": "evaluation",
+      "modelVersion": "returns-rule-1.0",
+      "modelArtifactDigest": "sha256:4f1c0e9a",
+      "trainingCodeDigest": "sha256:9b27d3e1",
+      "featureContractVersion": "retail-orders-v1",
+      "privacyProfile": "guarded-rows",
+      "aggregation": {
+       "kind": "fedavg"
+      },
+      "minimumParticipants": 2,
+      "minimumCohortPerSite": 20,
+      "requiredCapabilities": [
+       "evaluate"
+      ],
+      "stopConditions": [
+       "schema_failure",
+       "quorum_not_met"
+      ],
+      "invitedSites": [
+       "store-central",
+       "store-east",
+       "store-north",
+       "store-south",
+       "store-west"
+      ]
+     }
+    }
+   },
+   "response": {
+    "exit_code": 0,
+    "status": 0,
+    "headers": {},
+    "body": {
+     "roundId": "returns-round-1",
+     "roundDigest": "fnv1a:767d1ad0c4595843"
+    },
+    "stderr": "",
+    "trimmed": []
+   },
+   "planner_calls": [
+    "federation round digest"
+   ]
+  },
+  {
+   "id": "aggregate-readiness",
+   "endpoint": "dagentsc federation aggregate readiness",
+   "title": "Decide which results may be aggregated",
+   "description": "Each jobDigest is the manifest's digest, from the example above. store-east did not verify the round's code, so its result is rejected.",
+   "request": {
+    "args": [
+     "federation",
+     "aggregate",
+     "readiness",
+     "--input",
+     "-"
+    ],
+    "stdin": {
+     "manifest": {
+      "roundId": "returns-round-1",
+      "studyId": "returns-pilot",
+      "conditionId": "order_returns",
+      "phase": "evaluation",
+      "modelVersion": "returns-rule-1.0",
+      "modelArtifactDigest": "sha256:4f1c0e9a",
+      "trainingCodeDigest": "sha256:9b27d3e1",
+      "featureContractVersion": "retail-orders-v1",
+      "privacyProfile": "guarded-rows",
+      "aggregation": {
+       "kind": "fedavg"
+      },
+      "minimumParticipants": 2,
+      "minimumCohortPerSite": 20,
+      "requiredCapabilities": [
+       "evaluate"
+      ],
+      "stopConditions": [
+       "schema_failure",
+       "quorum_not_met"
+      ],
+      "invitedSites": [
+       "store-central",
+       "store-east",
+       "store-north",
+       "store-south",
+       "store-west"
+      ]
+     },
+     "results": [
+      {
+       "roundId": "returns-round-1",
+       "siteId": "store-north",
+       "jobDigest": "fnv1a:767d1ad0c4595843",
+       "participation": "completed",
+       "codeVerified": true,
+       "privacyChecksPassed": true,
+       "contributedExamples": 60,
+       "metrics": {
+        "accuracy": 0.86,
+        "recall": 0.74
+       },
+       "localEvidencePointer": "lma://store-north/rounds/returns-round-1"
+      },
+      {
+       "roundId": "returns-round-1",
+       "siteId": "store-south",
+       "jobDigest": "fnv1a:767d1ad0c4595843",
+       "participation": "completed",
+       "codeVerified": true,
+       "privacyChecksPassed": true,
+       "contributedExamples": 40,
+       "metrics": {
+        "accuracy": 0.82,
+        "recall": 0.71
+       },
+       "localEvidencePointer": "lma://store-south/rounds/returns-round-1"
+      },
+      {
+       "roundId": "returns-round-1",
+       "siteId": "store-east",
+       "jobDigest": "fnv1a:767d1ad0c4595843",
+       "participation": "completed",
+       "codeVerified": false,
+       "privacyChecksPassed": true,
+       "contributedExamples": 50,
+       "metrics": {
+        "accuracy": 0.9,
+        "recall": 0.8
+       },
+       "localEvidencePointer": "lma://store-east/rounds/returns-round-1"
+      }
+     ]
+    }
+   },
+   "response": {
+    "exit_code": 0,
+    "status": 0,
+    "headers": {},
+    "body": {
+     "roundId": "returns-round-1",
+     "acceptedSites": [
+      "store-north",
+      "store-south"
+     ],
+     "rejectedContributions": [
+      {
+       "siteId": "store-east",
+       "reason": "site did not verify the training code digest"
+      }
+     ],
+     "acceptedExamples": 100,
+     "aggregationPermitted": true,
+     "stopReason": null,
+     "siteWeights": {
+      "store-north": 0.6,
+      "store-south": 0.4
+     }
+    },
+    "stderr": "",
+    "trimmed": []
+   },
+   "planner_calls": [
+    "federation aggregate readiness"
+   ]
+  },
+  {
+   "id": "release-evaluate",
+   "endpoint": "dagentsc federation release evaluate",
+   "title": "Evaluate three release gates, one with a missing metric",
+   "description": "The candidate reports no false_alert_rate, so that blocking gate is not evaluated and the release is rejected.",
+   "request": {
+    "args": [
+     "federation",
+     "release",
+     "evaluate",
+     "--input",
+     "-"
+    ],
+    "stdin": {
+     "roundId": "returns-round-1",
+     "candidateVersion": "returns-rule-1.0+returns-round-1",
+     "rollbackVersion": "returns-rule-1.0",
+     "gates": [
+      {
+       "gateId": "accuracy-floor",
+       "metric": "accuracy",
+       "comparison": {
+        "kind": "at_least",
+        "value": 0.8
+       },
+       "blocking": true
+      },
+      {
+       "gateId": "recall-gain",
+       "metric": "recall",
+       "comparison": {
+        "kind": "improves_on_baseline",
+        "margin": 0.02
+       },
+       "blocking": false
+      },
+      {
+       "gateId": "false-alert-cap",
+       "metric": "false_alert_rate",
+       "comparison": {
+        "kind": "at_most",
+        "value": 0.1
+       },
+       "blocking": true
+      }
+     ],
+     "candidateMetrics": {
+      "accuracy": 0.844,
+      "recall": 0.728
+     },
+     "baselineMetrics": {
+      "accuracy": 0.81,
+      "recall": 0.7
+     }
+    }
+   },
+   "response": {
+    "exit_code": 0,
+    "status": 0,
+    "headers": {},
+    "body": {
+     "roundId": "returns-round-1",
+     "candidateVersion": "returns-rule-1.0+returns-round-1",
+     "gateResults": [
+      {
+       "gateId": "accuracy-floor",
+       "outcome": "passed",
+       "observed": 0.844,
+       "threshold": 0.8,
+       "detail": "accuracy=0.844 required >= 0.8"
+      },
+      {
+       "gateId": "recall-gain",
+       "outcome": "passed",
+       "observed": 0.728,
+       "threshold": 0.72,
+       "detail": "recall=0.728 required >= baseline 0.7 + margin 0.02"
+      },
+      {
+       "gateId": "false-alert-cap",
+       "outcome": "not_evaluated",
+       "observed": null,
+       "threshold": 0.1,
+       "detail": "candidate reported no metric named false_alert_rate"
+      }
+     ],
+     "action": "reject",
+     "blockingFailures": [
+      "false-alert-cap: candidate reported no metric named false_alert_rate"
+     ],
+     "rollbackVersion": "returns-rule-1.0"
+    },
+    "stderr": "",
+    "trimmed": []
+   },
+   "planner_calls": [
+    "federation release evaluate"
+   ]
+  }
+ ]
+}

@@ -107,6 +107,58 @@ class ConditionPack(DagentsModel):
     owner: str = ""
 
 
+class RegisteredExtension(DagentsModel):
+    """One registered extension, as `ExtensionRegistry.describe` lists it."""
+
+    extension_id: str = Field(description="The extension's id. Two extensions cannot share one.")
+    version: str = Field(description="The version the extension declares.")
+
+
+class RegisteredFeatureContract(DagentsModel):
+    """One registered feature contract, as `ExtensionRegistry.describe` lists it."""
+
+    contract_id: str = Field(description="The contract's id.")
+    version: str = Field(description="The contract's version. Sites compare it before they join a federated round.")
+
+
+class RegisteredConditionPack(DagentsModel):
+    """One registered condition pack, as `ExtensionRegistry.describe` lists it."""
+
+    condition_id: str = Field(description="The condition pack's id.")
+    display_name: str = Field(description="The name shown to operators.")
+
+
+class ExtensionSummary(DagentsModel):
+    """What the registered extensions contribute, as an agent's extensions endpoint returns it.
+
+    `ExtensionRegistry.describe` builds this shape as a plain dict. The model
+    documents it in the OpenAPI schema; it is not used to build the response.
+    """
+
+    extensions: list[RegisteredExtension] = Field(
+        default_factory=list, description="The registered extensions, in the order they were registered."
+    )
+    feature_contracts: list[RegisteredFeatureContract] = Field(
+        default_factory=list, description="Every registered feature contract, sorted by id."
+    )
+    classifications: list[str] = Field(
+        default_factory=list,
+        description=(
+            "The ids of the data classifications extensions contribute, sorted. Classifications registered "
+            "at runtime through the governance endpoints are not listed here."
+        ),
+    )
+    condition_packs: list[RegisteredConditionPack] = Field(
+        default_factory=list, description="Every registered condition pack, sorted by id."
+    )
+    pipeline_steps: list[str] = Field(
+        default_factory=list, description="The names of the contributed pipeline steps, sorted."
+    )
+    model_adapters: list[str] = Field(
+        default_factory=list, description="The names of the contributed model adapters, sorted."
+    )
+
+
 @runtime_checkable
 class DagentsExtension(Protocol):
     """What a consumer implements to extend the framework.

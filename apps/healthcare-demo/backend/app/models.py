@@ -147,19 +147,39 @@ class OutcomeRequest(BaseModel):
 class TriageRequest(BaseModel):
     """One record to score with the seed rule."""
 
-    record: dict[str, Any] = Field(default_factory=dict)
+    record: dict[str, Any] = Field(
+        default_factory=dict,
+        description=(
+            "A record in the stroke feature contract, such as `age_band`, `conscious_level` and the five "
+            "deficits. The record is not checked against the contract: a missing or unknown value adds no "
+            "points and is listed in `data_quality_issues`, and other keys are ignored."
+        ),
+    )
 
 
 class WorklistRequest(BaseModel):
     """Records to rank by the seed rule's score."""
 
-    records: list[dict[str, Any]] = Field(default_factory=list, max_length=500)
+    records: list[dict[str, Any]] = Field(
+        default_factory=list,
+        max_length=500,
+        description=(
+            "Records in the stroke feature contract, at most 500. Each one is returned with its assessment "
+            "added under `assessment`; every other key is returned unchanged."
+        ),
+    )
 
 
 class FhirIngestRequest(BaseModel):
     """A FHIR-shaped bundle to map into the stroke feature contract."""
 
-    bundle: dict[str, Any] = Field(default_factory=dict)
+    bundle: dict[str, Any] = Field(
+        default_factory=dict,
+        description=(
+            "A FHIR-shaped `Bundle`. Each `Encounter` in `entry` becomes one record, with the `Observation` "
+            "entries whose `encounter.reference` is `Encounter/<its id>`. Other resource types are skipped."
+        ),
+    )
 
 
 class PilotRequest(BaseModel):
@@ -171,7 +191,13 @@ class PilotRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    round_prefix: Literal[ROUND_PREFIXES] | None = None  # type: ignore[valid-type]
+    round_prefix: Literal[ROUND_PREFIXES] | None = Field(  # type: ignore[valid-type]
+        default=None,
+        description=(
+            "The start of the pilot id and every round id: `ui` for the demo page, `api` for scripts. "
+            "Without it the prefix is `pilot`. A UTC timestamp and six random hex characters follow."
+        ),
+    )
 
 
 class GuardProbeRequest(BaseModel):
@@ -191,17 +217,59 @@ class GuardProbeRequest(BaseModel):
 
     #: The levers use the domain's own types, so a value outside the set is a
     #: 422 that names the field, not a 500 from deeper in the Guard.
-    site_id: str | None = Field(default=None, max_length=64)
-    requester_kind: RequesterKind = "human"
-    verified: bool = True
-    compliance_history: float = Field(default=0.9, ge=0.0, le=1.0)
-    boundary: GuardBoundary = "before_read"
-    granularity: Granularity = "row"
-    requested_fields: list[str] = Field(
-        default_factory=lambda: list(GUARD_PROBE_DEFAULT_FIELDS), max_length=len(PROBE_FIELDS)
+    site_id: str | None = Field(
+        default=None,
+        max_length=64,
+        description="The hospital whose Guard answers, such as `uk-134`. Without it, the first hospital answers.",
     )
-    cohort_size: int | None = Field(default=None, ge=0, le=1_000_000)
-    record_limit: int = Field(default=5, ge=0, le=20)
+    requester_kind: RequesterKind = Field(
+        default="human",
+        description="Who the requester is. It is written into the trust rationale and does not change the score.",
+    )
+    verified: bool = Field(
+        default=True,
+        description=(
+            "Whether the requester's two attributes, `verified_identity` and `signed_dua`, are verified. "
+            "With `false`, each counts for a quarter of its weight, so trust falls."
+        ),
+    )
+    compliance_history: float = Field(
+        default=0.9,
+        ge=0.0,
+        le=1.0,
+        description="The requester's record of past compliance, from 0 to 1. It is 30% of the trust score.",
+    )
+    boundary: GuardBoundary = Field(
+        default="before_read",
+        description="Where the Guard stands. It is recorded in the plan and the audit record.",
+    )
+    granularity: Granularity = Field(
+        default="row",
+        description=(
+            "How much is asked for. `column`, `table` and `model_update` requests are checked against the "
+            "minimum cohort of 20."
+        ),
+    )
+    requested_fields: list[str] = Field(
+        default_factory=lambda: list(GUARD_PROBE_DEFAULT_FIELDS),
+        max_length=len(PROBE_FIELDS),
+        description=(
+            "The contract fields asked for. Any field of the stroke feature contract except the outcome "
+            "`poor_outcome_6m`. Every other field is dropped from the released records."
+        ),
+    )
+    cohort_size: int | None = Field(
+        default=None,
+        ge=0,
+        le=1_000_000,
+        description="How many patients the result describes. Without it, the number of records read (`record_limit`).",
+    )
+    record_limit: int = Field(
+        default=5,
+        ge=0,
+        le=20,
+        description="How many of the hospital's first records the Guard reads, 0 to 20.",
+    )
 
     @field_validator("requested_fields")
     @classmethod
@@ -226,16 +294,59 @@ class GuardProbeResponse(BaseModel):
     that is not listed here is dropped from the response.
     """
 
-    site_id: str
-    request_id: str
-    boundary: GuardBoundary
-    permitted: bool
-    plan: RestrictionPlan
+    site_id: str = Field(description="The hospital whose Guard answered.")
+    request_id: str = Field(
+        description="`probe:<site_id>:<boundary>:<granularity>`. It is the request id in the plan and the audit record."
+    )
+    boundary: GuardBoundary = Field(description="Copied from the request.")
+    permitted: bool = Field(description="False when the plan's decision is `deny`.")
+    plan: RestrictionPlan = Field(description="The planner's restriction plan: a strategy for each requested field.")
     released_count: int = Field(ge=0, description="How many records or summary rows the Guard would release.")
     released_fields: list[str] = Field(
         description="The field names in the released records, in the order they first appear."
     )
-    withheld_fields: list[str]
-    transformed_fields: list[str]
-    audit_id: str
-    message: str
+    withheld_fields: list[str] = Field(
+        description=(
+            "Requested fields the Guard removed: a field whose strategy is `redact` or `refuse`, a field it "
+            "could not protect, and every requested field when the request is denied."
+        )
+    )
+    transformed_fields: list[str] = Field(
+        description="Requested fields the Guard changed before release: generalized, clipped, noised or aggregated."
+    )
+    audit_id: str = Field(description="The id of the record the decision added to the hospital's audit chain.")
+    message: str = Field(description="The Guard's decision in words, such as `permitted with restrictions`.")
+
+
+# --- Error bodies, for the OpenAPI document ---------------------------------------
+# The app's exception handlers in ``app.main`` write these shapes. The models
+# only describe them; nothing validates a response against them.
+
+
+class ErrorResponse(BaseModel):
+    """The body of every error the app sends except a 422: one plain message."""
+
+    detail: str = Field(
+        description=(
+            "What went wrong, in plain words, and what to do where there is something to do. It never names a "
+            "database host, a user or the API's address."
+        )
+    )
+
+
+class ValidationErrorResponse(BaseModel):
+    """The body of a 422: a message, and one plain reason per field."""
+
+    detail: str = Field(
+        description=(
+            "The message. It is `Some fields are not valid.` when the request does not match the schema, and "
+            "`The record was not saved. Correct the fields listed.` when the hospital's store refuses the record."
+        )
+    )
+    errors: dict[str, str] = Field(
+        description=(
+            "The field to the reason it was refused, such as `\"age\": \"must be between 16 and 110\"`. A "
+            "query parameter or body field is named by its path (`limit`, `records`), a header by its name "
+            "(`Idempotency-Key`), and a body that is not JSON as `body`."
+        )
+    )

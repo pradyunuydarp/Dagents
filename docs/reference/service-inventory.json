@@ -1289,7 +1289,7 @@
           "path": "/api/v1/dagents/status",
           "handler": "dagents_status",
           "status_code": null,
-          "summary": null,
+          "summary": "Call each framework service's health check and report which ones answer.",
           "alias_of": null
         },
         {
@@ -1297,7 +1297,7 @@
           "path": "/api/v1/generate",
           "handler": "generate_sql",
           "status_code": null,
-          "summary": null,
+          "summary": "Turn a question into SQL, after running the framework steps on its schema.",
           "alias_of": null
         },
         {
@@ -1305,7 +1305,7 @@
           "path": "/api/v1/health",
           "handler": "health",
           "status_code": null,
-          "summary": null,
+          "summary": "Liveness. Reads nothing and calls no other service.",
           "alias_of": null
         },
         {
@@ -1313,7 +1313,7 @@
           "path": "/api/v1/models",
           "handler": "models",
           "status_code": null,
-          "summary": null,
+          "summary": "The SQL models this backend can use: one per model zip in `NL2SQL_MODELS_DIR`, then the heuristic.",
           "alias_of": null
         },
         {
@@ -1321,7 +1321,7 @@
           "path": "/api/v1/samples",
           "handler": "samples",
           "status_code": null,
-          "summary": null,
+          "summary": "The sample questions the demo page offers, each with its tables.",
           "alias_of": null
         }
       ]
@@ -1339,7 +1339,7 @@
           "path": "/api/v1/health",
           "handler": "health",
           "status_code": null,
-          "summary": null,
+          "summary": "Report that the pipeline service is running.",
           "alias_of": null
         },
         {
@@ -1347,7 +1347,7 @@
           "path": "/api/v1/pipeline-definitions",
           "handler": "list_pipeline_definitions",
           "status_code": null,
-          "summary": null,
+          "summary": "List every stored pipeline. The same handler as `GET /api/v1/pipelines`.",
           "alias_of": null
         },
         {
@@ -1355,7 +1355,7 @@
           "path": "/api/v1/pipeline-definitions",
           "handler": "register_pipeline_definition",
           "status_code": null,
-          "summary": null,
+          "summary": "Check a pipeline's graph and store it. The same handler as `POST /api/v1/pipelines`.",
           "alias_of": null
         },
         {
@@ -1363,7 +1363,7 @@
           "path": "/api/v1/pipeline-definitions/{pipeline_id}",
           "handler": "get_pipeline_definition",
           "status_code": null,
-          "summary": null,
+          "summary": "Fetch one stored pipeline by `pipeline_id`.",
           "alias_of": null
         },
         {
@@ -1371,7 +1371,7 @@
           "path": "/api/v1/pipeline-definitions/{pipeline_id}:validate",
           "handler": "validate_pipeline_definition",
           "status_code": null,
-          "summary": null,
+          "summary": "Check a stored pipeline's graph again and return the pipeline.",
           "alias_of": null
         },
         {
@@ -1379,7 +1379,7 @@
           "path": "/api/v1/pipeline-runs",
           "handler": "list_pipeline_runs",
           "status_code": null,
-          "summary": null,
+          "summary": "List the stored runs, newest first. The same handler as `GET /api/v1/runs`.",
           "alias_of": null
         },
         {
@@ -1387,7 +1387,7 @@
           "path": "/api/v1/pipeline-runs",
           "handler": "submit_pipeline_run",
           "status_code": 202,
-          "summary": null,
+          "summary": "Queue a run of a stored pipeline and answer at once.",
           "alias_of": null
         },
         {
@@ -1395,7 +1395,7 @@
           "path": "/api/v1/pipeline-runs/{run_id}",
           "handler": "get_pipeline_run",
           "status_code": null,
-          "summary": null,
+          "summary": "Fetch one stored run by `run_id`. The same handler as `GET /api/v1/runs/{run_id}`.",
           "alias_of": null
         },
         {
@@ -1403,7 +1403,7 @@
           "path": "/api/v1/pipelines",
           "handler": "list_pipelines",
           "status_code": null,
-          "summary": null,
+          "summary": "List every stored pipeline, sorted by `pipeline_id`.",
           "alias_of": null
         },
         {
@@ -1411,7 +1411,7 @@
           "path": "/api/v1/pipelines",
           "handler": "register_pipeline",
           "status_code": null,
-          "summary": null,
+          "summary": "Check a pipeline's graph and store it.",
           "alias_of": null
         },
         {
@@ -1419,7 +1419,7 @@
           "path": "/api/v1/pipelines/{pipeline_id}/runs",
           "handler": "run_pipeline",
           "status_code": null,
-          "summary": null,
+          "summary": "Run a stored pipeline on a payload and wait for it to finish.",
           "alias_of": null
         },
         {
@@ -1427,7 +1427,7 @@
           "path": "/api/v1/runs",
           "handler": "list_runs",
           "status_code": null,
-          "summary": null,
+          "summary": "List the stored runs, newest first.",
           "alias_of": null
         },
         {
@@ -1435,7 +1435,7 @@
           "path": "/api/v1/runs/{run_id}",
           "handler": "get_run",
           "status_code": null,
-          "summary": null,
+          "summary": "Fetch one stored run by `run_id`, in its current state.",
           "alias_of": null
         },
         {
@@ -1443,7 +1443,7 @@
           "path": "/api/v1/sources",
           "handler": "list_sources",
           "status_code": null,
-          "summary": null,
+          "summary": "List every stored source definition, sorted by `source_id`.",
           "alias_of": null
         },
         {
@@ -1451,7 +1451,7 @@
           "path": "/api/v1/sources",
           "handler": "register_source",
           "status_code": null,
-          "summary": null,
+          "summary": "Store a source definition in the pipeline service's catalog.",
           "alias_of": null
         },
         {
@@ -1459,7 +1459,7 @@
           "path": "/api/v1/sources/{source_id}",
           "handler": "get_source",
           "status_code": null,
-          "summary": null,
+          "summary": "Fetch one stored source definition by `source_id`.",
           "alias_of": null
         },
         {
@@ -1467,7 +1467,7 @@
           "path": "/api/v1/sources/{source_id}:validate",
           "handler": "validate_source",
           "status_code": null,
-          "summary": null,
+          "summary": "Run the source adapter's checks on a stored source definition.",
           "alias_of": null
         }
       ]

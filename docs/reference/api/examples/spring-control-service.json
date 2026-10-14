@@ -1,0 +1,922 @@
+{
+ "service": "spring-control-service",
+ "generated_by": "scripts/capture_api_examples.py",
+ "note": "Captured over HTTP from the built jar, started by the runner below. Build it first: mvn -f services/spring-services/pom.xml package -DskipTests",
+ "examples": [
+  {
+   "id": "health",
+   "endpoint": "GET /api/v1/health",
+   "title": "Check that the service answers",
+   "request": {
+    "method": "GET",
+    "path": "/api/v1/health"
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "status": "ok",
+     "service": "dagents-spring-control-service",
+     "environment": "development",
+     "transport": "http"
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "register",
+   "endpoint": "PUT /api/v1/agents/{agentId}/registration",
+   "title": "Register an agent",
+   "request": {
+    "method": "PUT",
+    "path": "/api/v1/agents/lma-store-north/registration",
+    "json": {
+     "agent": {
+      "agentId": "lma-store-north",
+      "workspaceId": "retail",
+      "name": "Store north",
+      "agentType": "LMA"
+     },
+     "scope": {
+      "store": "north",
+      "region": "eu-west"
+     },
+     "version": "0.1.0",
+     "capabilities": [
+      "profile",
+      "model-run"
+     ]
+    }
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "accepted": true,
+     "deploymentPlanId": null,
+     "capabilities": [
+      "profile",
+      "model-run"
+     ]
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "register-id-mismatch",
+   "endpoint": "PUT /api/v1/agents/{agentId}/registration",
+   "title": "A path id that differs from the body",
+   "request": {
+    "method": "PUT",
+    "path": "/api/v1/agents/lma-store-south/registration",
+    "json": {
+     "agent": {
+      "agentId": "lma-store-north",
+      "workspaceId": "retail",
+      "name": "Store north",
+      "agentType": "LMA"
+     },
+     "version": "0.1.0"
+    }
+   },
+   "response": {
+    "status": 422,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "code": "validation_error",
+     "message": "Path agentId must match body agent.agentId"
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "register-blank-field",
+   "endpoint": "PUT /api/v1/agents/{agentId}/registration",
+   "title": "A blank required field",
+   "description": "The message is Spring's description of the failed check, cut here to 400 characters.",
+   "trim": {
+    "chars": 400
+   },
+   "request": {
+    "method": "PUT",
+    "path": "/api/v1/agents/lma-store-north/registration",
+    "json": {
+     "agent": {
+      "agentId": "lma-store-north",
+      "workspaceId": "",
+      "name": "Store north",
+      "agentType": "LMA"
+     },
+     "version": "0.1.0"
+    }
+   },
+   "response": {
+    "status": 422,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "code": "validation_error",
+     "message": "Validation failed for argument [1] in public io.dagents.spring.common.contracts.RegisterResponse io.dagents.spring.control.api.AgentControlController.register(java.lang.String,io.dagents.spring.common.contracts.AgentRegistrationRequest): [Field error in object 'agentRegistrationRequest' on field 'agent.workspaceId': rejected value []; codes [NotBlank.agentRegistrationRequest.agent.workspaceId,NotB…"
+    },
+    "trimmed": [
+     {
+      "pointer": "/message",
+      "note": "719 characters, cut to 400"
+     }
+    ]
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "register-without-agent",
+   "endpoint": "PUT /api/v1/agents/{agentId}/registration",
+   "title": "A body without an agent",
+   "description": "The controller reads agent.agentId before anything checks that agent is present, so the answer is Spring's own 500 body.",
+   "volatile": [
+    "/timestamp"
+   ],
+   "request": {
+    "method": "PUT",
+    "path": "/api/v1/agents/lma-store-north/registration",
+    "json": {
+     "version": "0.1.0"
+    }
+   },
+   "response": {
+    "status": 500,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "timestamp": "2026-10-14T10:03:20.454+00:00",
+     "status": 500,
+     "error": "Internal Server Error",
+     "path": "/api/v1/agents/lma-store-north/registration"
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "heartbeat",
+   "endpoint": "POST /api/v1/agents/{agentId}/heartbeats",
+   "title": "Send a heartbeat",
+   "request": {
+    "method": "POST",
+    "path": "/api/v1/agents/lma-store-north/heartbeats",
+    "json": {
+     "agent": {
+      "agentId": "lma-store-north",
+      "workspaceId": "retail",
+      "name": "Store north",
+      "agentType": "LMA"
+     },
+     "status": "ACTIVE",
+     "timestamp": 1791900000
+    }
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "ack": true,
+     "desiredState": "ACTIVE"
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "heartbeat-blank-status",
+   "endpoint": "POST /api/v1/agents/{agentId}/heartbeats",
+   "title": "A heartbeat with a blank status",
+   "trim": {
+    "chars": 400
+   },
+   "request": {
+    "method": "POST",
+    "path": "/api/v1/agents/lma-store-north/heartbeats",
+    "json": {
+     "agent": {
+      "agentId": "lma-store-north",
+      "workspaceId": "retail",
+      "name": "Store north",
+      "agentType": "LMA"
+     },
+     "status": "",
+     "timestamp": 1791900000
+    }
+   },
+   "response": {
+    "status": 422,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "code": "validation_error",
+     "message": "Validation failed for argument [1] in public io.dagents.spring.common.contracts.HeartbeatResponse io.dagents.spring.control.api.AgentControlController.heartbeat(java.lang.String,io.dagents.spring.common.contracts.HeartbeatRequest): [Field error in object 'heartbeatRequest' on field 'status': rejected value []; codes [NotBlank.heartbeatRequest.status,NotBlank.status,NotBlank.java.lang.String,NotBla…"
+    },
+    "trimmed": [
+     {
+      "pointer": "/message",
+      "note": "602 characters, cut to 400"
+     }
+    ]
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "telemetry",
+   "endpoint": "POST /api/v1/agents/{agentId}/telemetry",
+   "title": "Send a batch of metrics",
+   "request": {
+    "method": "POST",
+    "path": "/api/v1/agents/lma-store-north/telemetry",
+    "json": {
+     "agent": {
+      "agentId": "lma-store-north",
+      "workspaceId": "retail",
+      "name": "Store north",
+      "agentType": "LMA"
+     },
+     "metrics": [
+      {
+       "key": "orders_per_minute",
+       "value": 42.5,
+       "labels": {
+        "store": "north"
+       },
+       "observedAt": 1791900000
+      },
+      {
+       "key": "returns_per_minute",
+       "value": 3.0,
+       "labels": {
+        "store": "north"
+       },
+       "observedAt": 1791900000
+      }
+     ],
+     "pointers": {
+      "dashboard": "store-north-orders"
+     }
+    }
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "ack": true,
+     "ingestionId": "telemetry-1"
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "desired-deployment",
+   "endpoint": "PUT /api/v1/agents/{agentId}/desired-deployment",
+   "title": "Set the bundle the agent should run",
+   "description": "createdAt comes from the clock. planToken and configDigest come from the request, so they repeat.",
+   "volatile": [
+    "/createdAt"
+   ],
+   "request": {
+    "method": "PUT",
+    "path": "/api/v1/agents/lma-store-north/desired-deployment",
+    "json": {
+     "agentId": "lma-store-north",
+     "bundleId": "orders-monitor",
+     "bundleVersion": "1.2.0",
+     "bundleUri": "oci://registry.example/orders-monitor:1.2.0",
+     "config": {
+      "alert_threshold": "0.8"
+     }
+    }
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "agentId": "lma-store-north",
+     "bundleId": "orders-monitor",
+     "bundleVersion": "1.2.0",
+     "bundleUri": "oci://registry.example/orders-monitor:1.2.0",
+     "config": {
+      "alert_threshold": "0.8"
+     },
+     "planToken": "plan-893f53b7cd5e",
+     "configDigest": "893f53b7cd5ef54605f3277734378ca8157ce4a2e15bca6d86d5438df755cbc6",
+     "createdAt": 1791972200
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "desired-deployment-id-mismatch",
+   "endpoint": "PUT /api/v1/agents/{agentId}/desired-deployment",
+   "title": "A path id that differs from the body",
+   "request": {
+    "method": "PUT",
+    "path": "/api/v1/agents/lma-store-south/desired-deployment",
+    "json": {
+     "agentId": "lma-store-north",
+     "bundleId": "orders-monitor",
+     "bundleVersion": "1.2.0"
+    }
+   },
+   "response": {
+    "status": 422,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "code": "validation_error",
+     "message": "Path agentId must match body agentId"
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "heartbeat-sync-required",
+   "endpoint": "POST /api/v1/agents/{agentId}/heartbeats",
+   "title": "A heartbeat after a new bundle was set",
+   "description": "The agent has not yet reported running orders-monitor 1.2.0, so it must sync.",
+   "request": {
+    "method": "POST",
+    "path": "/api/v1/agents/lma-store-north/heartbeats",
+    "json": {
+     "agent": {
+      "agentId": "lma-store-north",
+      "workspaceId": "retail",
+      "name": "Store north",
+      "agentType": "LMA"
+     },
+     "status": "ACTIVE",
+     "timestamp": 1791900060
+    }
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "ack": true,
+     "desiredState": "SYNC_REQUIRED"
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "sync-behind",
+   "endpoint": "POST /api/v1/agents/{agentId}/deployment-sync",
+   "title": "Report an older bundle",
+   "request": {
+    "method": "POST",
+    "path": "/api/v1/agents/lma-store-north/deployment-sync",
+    "json": {
+     "agent": {
+      "agentId": "lma-store-north",
+      "workspaceId": "retail",
+      "name": "Store north",
+      "agentType": "LMA"
+     },
+     "bundleId": "orders-monitor",
+     "bundleVersion": "1.1.0"
+    }
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "upToDate": false,
+     "planToken": "plan-893f53b7cd5e",
+     "configDigest": "893f53b7cd5ef54605f3277734378ca8157ce4a2e15bca6d86d5438df755cbc6",
+     "desiredBundleId": "orders-monitor",
+     "desiredBundleVersion": "1.2.0",
+     "desiredBundleUri": "oci://registry.example/orders-monitor:1.2.0"
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "sync-up-to-date",
+   "endpoint": "POST /api/v1/agents/{agentId}/deployment-sync",
+   "title": "Report the desired bundle",
+   "request": {
+    "method": "POST",
+    "path": "/api/v1/agents/lma-store-north/deployment-sync",
+    "json": {
+     "agent": {
+      "agentId": "lma-store-north",
+      "workspaceId": "retail",
+      "name": "Store north",
+      "agentType": "LMA"
+     },
+     "bundleId": "orders-monitor",
+     "bundleVersion": "1.2.0"
+    }
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "upToDate": true,
+     "planToken": "plan-893f53b7cd5e",
+     "configDigest": "893f53b7cd5ef54605f3277734378ca8157ce4a2e15bca6d86d5438df755cbc6",
+     "desiredBundleId": "orders-monitor",
+     "desiredBundleVersion": "1.2.0",
+     "desiredBundleUri": "oci://registry.example/orders-monitor:1.2.0"
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "sync-without-plan",
+   "endpoint": "POST /api/v1/agents/{agentId}/deployment-sync",
+   "title": "Report from an agent with no plan",
+   "description": "lma-store-east never registered and has no desired deployment. The report stores it, with version unknown.",
+   "request": {
+    "method": "POST",
+    "path": "/api/v1/agents/lma-store-east/deployment-sync",
+    "json": {
+     "agent": {
+      "agentId": "lma-store-east",
+      "workspaceId": "retail",
+      "name": "Store east",
+      "agentType": "LMA"
+     },
+     "bundleId": "orders-monitor",
+     "bundleVersion": "1.0.0"
+    }
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "upToDate": true,
+     "planToken": "",
+     "configDigest": "",
+     "desiredBundleId": null,
+     "desiredBundleVersion": null,
+     "desiredBundleUri": null
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "list-agents",
+   "endpoint": "GET /api/v1/agents",
+   "title": "List the agents",
+   "request": {
+    "method": "GET",
+    "path": "/api/v1/agents"
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": [
+     {
+      "agent": {
+       "agentId": "lma-store-east",
+       "workspaceId": "retail",
+       "name": "Store east",
+       "agentType": "LMA"
+      },
+      "scope": {},
+      "version": "unknown",
+      "capabilities": [],
+      "status": "REGISTERED",
+      "lastSeenAt": null,
+      "lastHeartbeatStatus": null,
+      "lastIngestionId": null,
+      "desiredBundleId": null,
+      "desiredBundleVersion": null,
+      "currentBundleId": "orders-monitor",
+      "currentBundleVersion": "1.0.0"
+     },
+     {
+      "agent": {
+       "agentId": "lma-store-north",
+       "workspaceId": "retail",
+       "name": "Store north",
+       "agentType": "LMA"
+      },
+      "scope": {
+       "store": "north",
+       "region": "eu-west"
+      },
+      "version": "0.1.0",
+      "capabilities": [
+       "profile",
+       "model-run"
+      ],
+      "status": "ACTIVE",
+      "lastSeenAt": 1791900060,
+      "lastHeartbeatStatus": "ACTIVE",
+      "lastIngestionId": "telemetry-1",
+      "desiredBundleId": "orders-monitor",
+      "desiredBundleVersion": "1.2.0",
+      "currentBundleId": "orders-monitor",
+      "currentBundleVersion": "1.2.0"
+     }
+    ],
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "get-agent",
+   "endpoint": "GET /api/v1/agents/{agentId}",
+   "title": "Fetch one agent",
+   "request": {
+    "method": "GET",
+    "path": "/api/v1/agents/lma-store-north"
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "agent": {
+      "agentId": "lma-store-north",
+      "workspaceId": "retail",
+      "name": "Store north",
+      "agentType": "LMA"
+     },
+     "scope": {
+      "store": "north",
+      "region": "eu-west"
+     },
+     "version": "0.1.0",
+     "capabilities": [
+      "profile",
+      "model-run"
+     ],
+     "status": "ACTIVE",
+     "lastSeenAt": 1791900060,
+     "lastHeartbeatStatus": "ACTIVE",
+     "lastIngestionId": "telemetry-1",
+     "desiredBundleId": "orders-monitor",
+     "desiredBundleVersion": "1.2.0",
+     "currentBundleId": "orders-monitor",
+     "currentBundleVersion": "1.2.0"
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "get-unknown-agent",
+   "endpoint": "GET /api/v1/agents/{agentId}",
+   "title": "Fetch an agent that does not exist",
+   "description": "An unknown id answers 200 with an empty body, not 404.",
+   "request": {
+    "method": "GET",
+    "path": "/api/v1/agents/lma-store-south"
+   },
+   "response": {
+    "status": 200,
+    "headers": {},
+    "body": "",
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "register-inline-source",
+   "endpoint": "POST /api/v1/sources",
+   "title": "Register an inline source",
+   "request": {
+    "method": "POST",
+    "path": "/api/v1/sources",
+    "json": {
+     "sourceId": "orders-week-41",
+     "kind": "inline",
+     "selection": {
+      "records": [
+       {
+        "orderId": "W41-01",
+        "amount": 42.5
+       },
+       {
+        "orderId": "W41-02",
+        "amount": 180.0
+       }
+      ]
+     },
+     "batching": {
+      "batchSize": 500
+     }
+    }
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "sourceId": "orders-week-41",
+     "kind": "inline",
+     "connectionRef": null,
+     "selection": {
+      "records": [
+       {
+        "orderId": "W41-01",
+        "amount": 42.5
+       },
+       {
+        "orderId": "W41-02",
+        "amount": 180.0
+       }
+      ]
+     },
+     "format": null,
+     "schemaHint": null,
+     "batching": {
+      "batchSize": 500,
+      "maxRecords": null
+     },
+     "checkpoint": null,
+     "options": null
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "register-postgres-source",
+   "endpoint": "POST /api/v1/sources",
+   "title": "Register a Postgres table without a connection",
+   "description": "Registration checks only that sourceId and kind are not blank. Validation finds the missing connection.",
+   "request": {
+    "method": "POST",
+    "path": "/api/v1/sources",
+    "json": {
+     "sourceId": "orders-db",
+     "kind": "postgres",
+     "selection": {
+      "table": "orders"
+     }
+    }
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "sourceId": "orders-db",
+     "kind": "postgres",
+     "connectionRef": null,
+     "selection": {
+      "table": "orders"
+     },
+     "format": null,
+     "schemaHint": null,
+     "batching": null,
+     "checkpoint": null,
+     "options": null
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "register-source-blank-id",
+   "endpoint": "POST /api/v1/sources",
+   "title": "A source with a blank id",
+   "trim": {
+    "chars": 400
+   },
+   "request": {
+    "method": "POST",
+    "path": "/api/v1/sources",
+    "json": {
+     "sourceId": "",
+     "kind": "inline"
+    }
+   },
+   "response": {
+    "status": 422,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "code": "validation_error",
+     "message": "Validation failed for argument [0] in public io.dagents.spring.common.contracts.SourceSpec io.dagents.spring.control.api.SourceController.register(io.dagents.spring.common.contracts.SourceSpec): [Field error in object 'sourceSpec' on field 'sourceId': rejected value []; codes [NotBlank.sourceSpec.sourceId,NotBlank.sourceId,NotBlank.java.lang.String,NotBlank]; arguments [org.springframework.context…"
+    },
+    "trimmed": [
+     {
+      "pointer": "/message",
+      "note": "559 characters, cut to 400"
+     }
+    ]
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "list-sources",
+   "endpoint": "GET /api/v1/sources",
+   "title": "List the sources",
+   "request": {
+    "method": "GET",
+    "path": "/api/v1/sources"
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": [
+     {
+      "sourceId": "orders-db",
+      "kind": "postgres",
+      "connectionRef": null,
+      "selection": {
+       "table": "orders"
+      },
+      "format": null,
+      "schemaHint": null,
+      "batching": null,
+      "checkpoint": null,
+      "options": null
+     },
+     {
+      "sourceId": "orders-week-41",
+      "kind": "inline",
+      "connectionRef": null,
+      "selection": {
+       "records": [
+        {
+         "orderId": "W41-01",
+         "amount": 42.5
+        },
+        {
+         "orderId": "W41-02",
+         "amount": 180.0
+        }
+       ]
+      },
+      "format": null,
+      "schemaHint": null,
+      "batching": {
+       "batchSize": 500,
+       "maxRecords": null
+      },
+      "checkpoint": null,
+      "options": null
+     }
+    ],
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "get-source",
+   "endpoint": "GET /api/v1/sources/{sourceId}",
+   "title": "Fetch one source",
+   "request": {
+    "method": "GET",
+    "path": "/api/v1/sources/orders-db"
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "sourceId": "orders-db",
+     "kind": "postgres",
+     "connectionRef": null,
+     "selection": {
+      "table": "orders"
+     },
+     "format": null,
+     "schemaHint": null,
+     "batching": null,
+     "checkpoint": null,
+     "options": null
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "get-unknown-source",
+   "endpoint": "GET /api/v1/sources/{sourceId}",
+   "title": "Fetch a source that does not exist",
+   "description": "An unknown id answers 200 with an empty body, not 404.",
+   "request": {
+    "method": "GET",
+    "path": "/api/v1/sources/no-such-source"
+   },
+   "response": {
+    "status": 200,
+    "headers": {},
+    "body": "",
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "validate-inline-source",
+   "endpoint": "POST /api/v1/sources/{sourceId}:validate",
+   "title": "Validate the inline source",
+   "request": {
+    "method": "POST",
+    "path": "/api/v1/sources/orders-week-41:validate"
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "valid": true,
+     "errors": [],
+     "warnings": []
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "validate-postgres-source",
+   "endpoint": "POST /api/v1/sources/{sourceId}:validate",
+   "title": "Validate the source without a connection",
+   "request": {
+    "method": "POST",
+    "path": "/api/v1/sources/orders-db:validate"
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "valid": false,
+     "errors": [
+      "connectionRef is required for non-inline sources"
+     ],
+     "warnings": []
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "validate-unknown-source",
+   "endpoint": "POST /api/v1/sources/{sourceId}:validate",
+   "title": "Validate a source that does not exist",
+   "request": {
+    "method": "POST",
+    "path": "/api/v1/sources/no-such-source:validate"
+   },
+   "response": {
+    "status": 422,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "code": "validation_error",
+     "message": "Unknown source: no-such-source"
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  }
+ ]
+}

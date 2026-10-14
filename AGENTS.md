@@ -374,6 +374,11 @@ This keeps failure isolation, upgrade independence, explicit contracts, and simp
 - Write in easy, professional English: short sentences, plain words, facts and numbers instead of
   adjectives, and no slogans or dramatic phrasing. This applies to UI text, docs, comments and
   commit messages. The full rules are in `.claude/skills/writing/SKILL.md`.
+- Change the docs with the code, in the same commit. The framework site publishes on every push to
+  `main`, so a change is not done while a page describes the old behaviour. The `docs-sync` skill
+  (`.claude/skills/docs-sync/SKILL.md`) maps each code area to its docs and gives the regenerate
+  commands. CI's `docs-impact` job fails a change to a code area that changes none of its docs,
+  unless a commit message says `Docs-Impact: none [area] (reason)` for that area.
 
 ## Learning Guide
 
@@ -381,6 +386,12 @@ New contributors should start with [`docs/learn/`](docs/learn/README.md). It cov
 learning, data governance, the architecture and the APIs, with diagrams, videos, papers and
 exercises. The framework site renders the same pages:
 <https://pradyunuydarp.github.io/Dagents/#/learn>.
+
+Developers who build an application on Dagents follow [`docs/guide/`](docs/guide/README.md)
+(<https://pradyunuydarp.github.io/Dagents/#/guide>). Its code is copied from
+`examples/getting-started/`, and `tests/test_getting_started_example.py` fails when the two
+differ. A change to code that the guide shows updates the guide in the same commit; the
+`docs-sync` skill (`.claude/skills/docs-sync/SKILL.md`) lists what each kind of change must update.
 
 ## First Consumers
 

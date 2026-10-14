@@ -1,0 +1,674 @@
+{
+ "service": "nl2sql-demo-backend",
+ "generated_by": "scripts/capture_api_examples.py",
+ "note": "Captured in process with the planner available, no model zip files and no framework service running. So the heuristic writes every query, the planner steps of the trace answer, and every step that calls a framework service over HTTP is a warning. The framework service addresses point at port 9, where nothing listens, so the answers are the same on a machine that runs the services.",
+ "examples": [
+  {
+   "id": "health",
+   "endpoint": "GET /api/v1/health",
+   "title": "Check that the backend answers",
+   "request": {
+    "method": "GET",
+    "path": "/api/v1/health"
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "status": "ok",
+     "service": "dagents-nl2sql-demo",
+     "environment": "development",
+     "transport": "http"
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "samples",
+   "endpoint": "GET /api/v1/samples",
+   "title": "List the sample questions",
+   "request": {
+    "method": "GET",
+    "path": "/api/v1/samples"
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": [
+     {
+      "sample_id": "orders-by-tenant",
+      "title": "Orders by tenant",
+      "question": "List the order ids and amounts for paid orders from tenant alpha.",
+      "tables": [
+       {
+        "name": "orders",
+        "columns": [
+         {
+          "name": "order_id",
+          "dtype": "TEXT",
+          "description": null
+         },
+         {
+          "name": "tenant_id",
+          "dtype": "TEXT",
+          "description": null
+         },
+         {
+          "name": "amount",
+          "dtype": "NUMBER",
+          "description": null
+         },
+         {
+          "name": "status",
+          "dtype": "TEXT",
+          "description": null
+         },
+         {
+          "name": "created_at",
+          "dtype": "TEXT",
+          "description": null
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "sample_id": "incident-count",
+      "title": "Incident count",
+      "question": "How many critical incidents are open?",
+      "tables": [
+       {
+        "name": "incidents",
+        "columns": [
+         {
+          "name": "incident_id",
+          "dtype": "TEXT",
+          "description": null
+         },
+         {
+          "name": "severity",
+          "dtype": "TEXT",
+          "description": null
+         },
+         {
+          "name": "status",
+          "dtype": "TEXT",
+          "description": null
+         },
+         {
+          "name": "service_name",
+          "dtype": "TEXT",
+          "description": null
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "sample_id": "customers-with-invoices",
+      "title": "Join customers and invoices",
+      "question": "Show customer names and invoice totals for unpaid invoices.",
+      "tables": [
+       {
+        "name": "customers",
+        "columns": [
+         {
+          "name": "customer_id",
+          "dtype": "NUMBER",
+          "description": null
+         },
+         {
+          "name": "name",
+          "dtype": "TEXT",
+          "description": null
+         },
+         {
+          "name": "region",
+          "dtype": "TEXT",
+          "description": null
+         }
+        ]
+       },
+       {
+        "name": "invoices",
+        "columns": [
+         {
+          "name": "invoice_id",
+          "dtype": "NUMBER",
+          "description": null
+         },
+         {
+          "name": "customer_id",
+          "dtype": "NUMBER",
+          "description": null
+         },
+         {
+          "name": "total",
+          "dtype": "NUMBER",
+          "description": null
+         },
+         {
+          "name": "status",
+          "dtype": "TEXT",
+          "description": null
+         }
+        ]
+       }
+      ]
+     }
+    ],
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "models",
+   "endpoint": "GET /api/v1/models",
+   "title": "List the SQL models when no model zip is present",
+   "request": {
+    "method": "GET",
+    "path": "/api/v1/models"
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": [
+     {
+      "model_id": "heuristic_demo",
+      "label": "Dagents heuristic fallback",
+      "artifact_path": null,
+      "adapter_kind": "heuristic",
+      "prompt_format": "question: {question} context: {ddl}",
+      "available": true,
+      "notes": "A rule-based SQL writer that needs no GPU and no model download."
+     }
+    ],
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "status",
+   "endpoint": "GET /api/v1/dagents/status",
+   "title": "Check which framework services answer, with none running",
+   "request": {
+    "method": "GET",
+    "path": "/api/v1/dagents/status"
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "services": [
+      {
+       "name": "core-service",
+       "url": "http://127.0.0.1:9/api/v1/health",
+       "status": "unavailable",
+       "detail": "[Errno 111] Connection refused"
+      },
+      {
+       "name": "pipeline-service",
+       "url": "http://127.0.0.1:9/api/v1/health",
+       "status": "unavailable",
+       "detail": "[Errno 111] Connection refused"
+      },
+      {
+       "name": "model-service",
+       "url": "http://127.0.0.1:9/api/v1/health",
+       "status": "unavailable",
+       "detail": "[Errno 111] Connection refused"
+      },
+      {
+       "name": "lma",
+       "url": "http://127.0.0.1:9/health",
+       "status": "unavailable",
+       "detail": "[Errno 111] Connection refused"
+      },
+      {
+       "name": "gma",
+       "url": "http://127.0.0.1:9/health",
+       "status": "unavailable",
+       "detail": "[Errno 111] Connection refused"
+      }
+     ]
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "generate",
+   "endpoint": "POST /api/v1/generate",
+   "title": "Generate SQL for a sample question, with the framework steps",
+   "trim": {
+    "items": 25,
+    "chars": 300
+   },
+   "request": {
+    "method": "POST",
+    "path": "/api/v1/generate",
+    "json": {
+     "question": "List the order ids and amounts for paid orders from tenant alpha.",
+     "tables": [
+      {
+       "name": "orders",
+       "columns": [
+        {
+         "name": "order_id",
+         "dtype": "TEXT"
+        },
+        {
+         "name": "tenant_id",
+         "dtype": "TEXT"
+        },
+        {
+         "name": "amount",
+         "dtype": "NUMBER"
+        },
+        {
+         "name": "status",
+         "dtype": "TEXT"
+        },
+        {
+         "name": "created_at",
+         "dtype": "TEXT"
+        }
+       ]
+      }
+     ]
+    }
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "sql": "SELECT order_id, tenant_id, amount FROM orders WHERE status = 'paid' AND tenant_id = 'alpha'",
+     "model_id": "heuristic_demo",
+     "model_label": "Dagents heuristic fallback",
+     "prompt": "question: List the order ids and amounts for paid orders from tenant alpha. context: CREATE TABLE orders (order_id TEXT, tenant_id TEXT, amount NUMBER, status TEXT, created_at TEXT)",
+     "schema_ddl": "CREATE TABLE orders (order_id TEXT, tenant_id TEXT, amount NUMBER, status TEXT, created_at TEXT)",
+     "adapter_kind": "heuristic",
+     "used_fallback": true,
+     "fallback_detail": "The deterministic heuristic adapter was selected.",
+     "dagents_trace": [
+      {
+       "name": "Dagents SourceSpec validation",
+       "status": "ok",
+       "detail": "completed",
+       "payload": {
+        "valid": true,
+        "errors": [],
+        "warnings": []
+       }
+      },
+      {
+       "name": "Dagents extraction planning",
+       "status": "ok",
+       "detail": "completed",
+       "payload": {
+        "source_id": "nl2sql-schema-source",
+        "kind": "inline",
+        "format": "rows",
+        "selected_fields": [
+         "column_name",
+         "dtype",
+         "table_name"
+        ],
+        "predicates": [],
+        "ordering": [],
+        "partition_strategy": "fixed_size:1000",
+        "batch_size": 1000,
+        "max_records": 5,
+        "checkpoint": null
+       }
+      },
+      {
+       "name": "Dagents schema contract validation",
+       "status": "ok",
+       "detail": "completed",
+       "payload": {
+        "valid": true,
+        "missing_fields": [],
+        "type_mismatches": [],
+        "extra_fields": [],
+        "warnings": []
+       }
+      },
+      {
+       "name": "Dagents quality rules",
+       "status": "ok",
+       "detail": "completed",
+       "payload": {
+        "results": [
+         {
+          "rule_id": "table_present",
+          "severity": "error",
+          "passed": true,
+          "violations": 0,
+          "message": "passed"
+         },
+         {
+          "rule_id": "column_present",
+          "severity": "error",
+          "passed": true,
+          "violations": 0,
+          "message": "passed"
+         },
+         {
+          "rule_id": "dtype_present",
+          "severity": "warning",
+          "passed": true,
+          "violations": 0,
+          "message": "passed"
+         }
+        ],
+        "blocking": false,
+        "warning_count": 0,
+        "error_count": 0,
+        "total_violations": 0
+       }
+      },
+      {
+       "name": "Dagents pipeline DAG planning",
+       "status": "ok",
+       "detail": "completed",
+       "payload": {
+        "pipeline_id": "nl2sql-generation",
+        "steps": [
+         {
+          "step_id": "validate_schema",
+          "kind": "profile_dataset",
+          "depends_on": [],
+          "execution_target": "local_process",
+          "config": null
+         },
+         {
+          "step_id": "generate_sql",
+          "kind": "run_model_job",
+          "depends_on": [
+           "validate_schema"
+          ],
+          "execution_target": "python_service",
+          "config": null
+         },
+         {
+          "step_id": "render_result",
+          "kind": "project_fields",
+          "depends_on": [
+           "generate_sql"
+          ],
+          "execution_target": "local_process",
+          "config": null
+         }
+        ]
+       }
+      },
+      {
+       "name": "Dagents model route planning",
+       "status": "ok",
+       "detail": "completed",
+       "payload": {
+        "selected_model": "transformer",
+        "candidates": [
+         "transformer",
+         "custom"
+        ],
+        "packaging_mode": "inline_service_call"
+       }
+      },
+      {
+       "name": "core-service catalog and topology",
+       "status": "warning",
+       "detail": "[Errno 111] Connection refused",
+       "payload": null
+      },
+      {
+       "name": "core-service workload compile",
+       "status": "warning",
+       "detail": "[Errno 111] Connection refused",
+       "payload": null
+      },
+      {
+       "name": "pipeline-service register and run",
+       "status": "warning",
+       "detail": "[Errno 111] Connection refused",
+       "payload": null
+      },
+      {
+       "name": "model-service catalog",
+       "status": "warning",
+       "detail": "[Errno 111] Connection refused",
+       "payload": null
+      },
+      {
+       "name": "GMA register NL2SQL LMA",
+       "status": "warning",
+       "detail": "[Errno 111] Connection refused",
+       "payload": null
+      },
+      {
+       "name": "GMA LMA heartbeat",
+       "status": "warning",
+       "detail": "[Errno 111] Connection refused",
+       "payload": null
+      },
+      {
+       "name": "LMA source registration and validation",
+       "status": "warning",
+       "detail": "[Errno 111] Connection refused",
+       "payload": null
+      },
+      {
+       "name": "GMA source registration and validation",
+       "status": "warning",
+       "detail": "[Errno 111] Connection refused",
+       "payload": null
+      },
+      {
+       "name": "LMA source profile",
+       "status": "warning",
+       "detail": "[Errno 111] Connection refused",
+       "payload": null
+      },
+      {
+       "name": "LMA source model job",
+       "status": "warning",
+       "detail": "[Errno 111] Connection refused",
+       "payload": null
+      },
+      {
+       "name": "GMA assimilated profile",
+       "status": "warning",
+       "detail": "[Errno 111] Connection refused",
+       "payload": null
+      },
+      {
+       "name": "GMA aggregate model job",
+       "status": "warning",
+       "detail": "[Errno 111] Connection refused",
+       "payload": null
+      },
+      {
+       "name": "GMA desired deployment and sync",
+       "status": "warning",
+       "detail": "[Errno 111] Connection refused",
+       "payload": null
+      },
+      {
+       "name": "GMA aggregate run dispatch",
+       "status": "warning",
+       "detail": "[Errno 111] Connection refused",
+       "payload": null
+      },
+      {
+       "name": "GMA fleet overview",
+       "status": "warning",
+       "detail": "[Errno 111] Connection refused",
+       "payload": null
+      },
+      {
+       "name": "Dagents service status",
+       "status": "ok",
+       "detail": "completed",
+       "payload": {
+        "services": [
+         {
+          "name": "core-service",
+          "url": "http://127.0.0.1:9/api/v1/health",
+          "status": "unavailable",
+          "detail": "[Errno 111] Connection refused"
+         },
+         {
+          "name": "pipeline-service",
+          "url": "http://127.0.0.1:9/api/v1/health",
+          "status": "unavailable",
+          "detail": "[Errno 111] Connection refused"
+         },
+         {
+          "name": "model-service",
+          "url": "http://127.0.0.1:9/api/v1/health",
+          "status": "unavailable",
+          "detail": "[Errno 111] Connection refused"
+         },
+         {
+          "name": "lma",
+          "url": "http://127.0.0.1:9/health",
+          "status": "unavailable",
+          "detail": "[Errno 111] Connection refused"
+         },
+         {
+          "name": "gma",
+          "url": "http://127.0.0.1:9/health",
+          "status": "unavailable",
+          "detail": "[Errno 111] Connection refused"
+         }
+        ]
+       }
+      }
+     ]
+    },
+    "trimmed": []
+   },
+   "planner_calls": [
+    "dataset source validate",
+    "dataset source extract",
+    "dataset schema validate",
+    "dataset quality evaluate",
+    "pipeline compile",
+    "model route"
+   ]
+  },
+  {
+   "id": "generate-without-framework",
+   "endpoint": "POST /api/v1/generate",
+   "title": "Generate SQL without the framework steps",
+   "request": {
+    "method": "POST",
+    "path": "/api/v1/generate",
+    "json": {
+     "question": "How many critical incidents are open?",
+     "tables": [
+      {
+       "name": "incidents",
+       "columns": [
+        {
+         "name": "incident_id",
+         "dtype": "TEXT"
+        },
+        {
+         "name": "severity",
+         "dtype": "TEXT"
+        },
+        {
+         "name": "status",
+         "dtype": "TEXT"
+        }
+       ]
+      }
+     ],
+     "model_id": "heuristic_demo",
+     "use_dagents_services": false
+    }
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "sql": "SELECT COUNT(*) FROM incidents WHERE status = 'open' AND severity = 'critical'",
+     "model_id": "heuristic_demo",
+     "model_label": "Dagents heuristic fallback",
+     "prompt": "question: How many critical incidents are open? context: CREATE TABLE incidents (incident_id TEXT, severity TEXT, status TEXT)",
+     "schema_ddl": "CREATE TABLE incidents (incident_id TEXT, severity TEXT, status TEXT)",
+     "adapter_kind": "heuristic",
+     "used_fallback": true,
+     "fallback_detail": "The deterministic heuristic adapter was selected.",
+     "dagents_trace": []
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "generate-invalid",
+   "endpoint": "POST /api/v1/generate",
+   "title": "A request without tables and with too few tokens",
+   "request": {
+    "method": "POST",
+    "path": "/api/v1/generate",
+    "json": {
+     "question": "How many orders are there?",
+     "max_new_tokens": 8
+    }
+   },
+   "response": {
+    "status": 422,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "detail": [
+      {
+       "type": "missing",
+       "loc": [
+        "body",
+        "tables"
+       ],
+       "msg": "Field required",
+       "input": {
+        "question": "How many orders are there?",
+        "max_new_tokens": 8
+       }
+      },
+      {
+       "type": "greater_than_equal",
+       "loc": [
+        "body",
+        "max_new_tokens"
+       ],
+       "msg": "Input should be greater than or equal to 16",
+       "input": 8,
+       "ctx": {
+        "ge": 16
+       }
+      }
+     ]
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  }
+ ]
+}

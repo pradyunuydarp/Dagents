@@ -144,6 +144,25 @@ jobs:
             --require-ran agents.tests.test_charts.RenderTests \
             agents-suite.log
 
+      - name: Run the getting-started example and check the guide
+        # examples/getting-started is the worked example of docs/guide. The
+        # test runs each of its steps against the real planner and checks that
+        # every code and output block in the guide matches the example. The
+        # contracts job also runs this file with the planner; this step adds
+        # the skip guard that requires ExampleRunTests to have run.
+        env:
+          DAGENTSC_BIN: ${{ env.PLANNER_DIR }}/dagentsc.exe
+        run: |
+          set -o pipefail
+          python -m unittest tests.test_getting_started_example -v 2>&1 | tee example-suite.log
+
+      - name: Fail if the example's planner tests skipped
+        run: |
+          python scripts/ci_no_skipped_tests.py \
+            --forbid planner \
+            --require-ran tests.test_getting_started_example.ExampleRunTests \
+            example-suite.log
+
   # ---------------------------------------------------------------------------
   # core / pipeline / model. core-service runs twice on purpose.
   # ---------------------------------------------------------------------------
@@ -225,6 +244,8 @@ jobs:
   contracts:
     name: Service inventory and API conventions
     runs-on: ubuntu-latest
+    # The API reference's examples are replayed with the planner.
+    needs: planners
     steps:
       - uses: actions/checkout@v4
 
@@ -237,6 +258,27 @@ jobs:
             services/*/requirements.txt
             services/nl2sql-demo/backend/requirements.txt
             apps/healthcare-demo/requirements.txt
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: dagentsc
+          path: ${{ env.PLANNER_DIR }}
+
+      - name: Make the planner executable
+        run: chmod +x "${PLANNER_DIR}/dagentsc.exe"
+
+      # The replay starts spring-control-service from its jar to make its API
+      # examples again (the `runner` in its examples request file).
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+
+      - name: Build the spring-control-service jar
+        run: >-
+          mvn --batch-mode --no-transfer-progress -f services/spring-services/pom.xml
+          -pl spring-control-service -am package -DskipTests
 
       - name: Install every service's dependencies
         # The inventory is extracted by importing each FastAPI app, so this job
@@ -251,12 +293,30 @@ jobs:
                                 -r services/model-service/requirements.txt \
                                 -r services/nl2sql-demo/backend/requirements.txt \
                                 -r apps/healthcare-demo/requirements.txt
+          # tests/test_site_resources.py reads the text of each published PDF.
+          python -m pip install pymupdf==1.28.2
 
       - name: The committed inventory matches the code
         run: python scripts/service_inventory.py --check
 
+      - name: The API reference data matches the code
+        run: python scripts/api_reference.py --check
+
       - name: Cross-service contract tests
-        run: python -m unittest discover -s tests -t . -v
+        # tests/test_api_examples.py makes every captured API example request
+        # again with the planner and compares the answers.
+        env:
+          DAGENTSC_BIN: ${{ env.PLANNER_DIR }}/dagentsc.exe
+        run: |
+          set -o pipefail
+          python -m unittest discover -s tests -t . -v 2>&1 | tee contracts-suite.log
+
+      - name: Fail if the API example replay skipped
+        run: |
+          python scripts/ci_no_skipped_tests.py \
+            --forbid planner \
+            --require-ran tests.test_api_examples.ApiExampleReplayTests \
+            contracts-suite.log
 
   # ---------------------------------------------------------------------------
   # The JVM control and core services.
@@ -480,9 +540,13 @@ jobs:
 
       - name: Check the framework site in a browser
         # Visits every guide page, draws every Mermaid diagram, loads every
-        # image, follows the links between pages and searches the API list. A
-        # diagram with a syntax error only fails in a browser, so the build
-        # above cannot catch it. Exit 2 (no browser) fails this step.
+        # image, follows the links between pages, and checks that every API
+        # reference page shows each endpoint where docs/reference/api places
+        # it, that its anchors resolve, and that its code tabs switch. It
+        # also fetches every deck and PDF on the Resources page and checks each
+        # file's first bytes. A diagram with a syntax error only fails in a
+        # browser, so the build above cannot catch it. Exit 2 (no browser)
+        # fails this step.
         working-directory: site
         run: npm run check
 
@@ -513,6 +577,47 @@ jobs:
           }
 
   # ---------------------------------------------------------------------------
+  # The framework site publishes docs/ from main, so a code change and the docs
+  # it feeds land together. This fails when a change touches a code area that
+  # scripts/check_docs_impact.py maps and none of that area's docs, unless a
+  # commit message says `Docs-Impact: none [area] (reason)` for that area. The
+  # docs-sync skill has the map and the commands that regenerate each doc.
+  # ---------------------------------------------------------------------------
+  docs-impact:
+    name: Docs change with the code
+    runs-on: ubuntu-latest
+    # A manual run has no change range to compare.
+    if: github.event_name != 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The check diffs the change against its base and reads every commit
+          # message in between, so it needs the whole history, not one commit.
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Check that the docs changed with the code
+        # The commits are passed through env and quoted, never pasted into the
+        # script. On a push, `before` is all zeros for a new branch, and after a
+        # force push it may be missing from the clone; the script then checks
+        # the head commit alone and says so.
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          PUSH_AFTER: ${{ github.sha }}
+        run: |
+          if [ "${EVENT_NAME}" = "pull_request" ]; then
+            python scripts/check_docs_impact.py --base "${PR_BASE}" --head "${PR_HEAD}"
+          else
+            python scripts/check_docs_impact.py --base "${PUSH_BEFORE}" --head "${PUSH_AFTER}"
+          fi
+
+  # ---------------------------------------------------------------------------
   # One check to require on the branch, so adding a job above does not mean
   # editing branch protection.
   # ---------------------------------------------------------------------------
@@ -528,8 +633,13 @@ jobs:
       - spring
       - demo-apps
       - frontends
+      - docs-impact
     steps:
       - name: Report the outcome
+        # docs-impact is skipped on a manual run; a skipped job does not fail
+        # the gate.
+        env:
+          DOCS_IMPACT: ${{ needs.docs-impact.result }}
         run: |
           echo "planners:           ${{ needs.planners.result }}"
           echo "agents:             ${{ needs.agents.result }}"
@@ -538,6 +648,7 @@ jobs:
           echo "spring:             ${{ needs.spring.result }}"
           echo "demo-apps:          ${{ needs.demo-apps.result }}"
           echo "frontends:          ${{ needs.frontends.result }}"
+          echo "docs-impact:        ${DOCS_IMPACT}"
           if [ "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}" = "true" ]; then
             echo "::error::At least one CI job did not succeed."
             exit 1

@@ -2,6 +2,7 @@ import { useLayoutEffect } from "react";
 
 import { Diagram } from "../Mermaid";
 import { DEMOS, REPO_URL, demoHref } from "../config";
+import { BUILD_GUIDE } from "../guide";
 import { GUIDE, firstDiagram } from "../learn";
 import { href } from "../router";
 
@@ -44,6 +45,7 @@ export function Home({ anchor }: { anchor: string | null }) {
 
   const layers = firstDiagram("03-architecture.md");
   const steps = GUIDE.filter((page) => page.slug !== "" && page.slug !== "references");
+  const buildSteps = BUILD_GUIDE.filter((page) => page.slug !== "");
 
   return (
     <>
@@ -59,7 +61,10 @@ export function Home({ anchor }: { anchor: string | null }) {
         </p>
         <div className="actions">
           <a className="ds-btn ds-btn--primary" href={href("learn")}>
-            Start the guide
+            Start learning
+          </a>
+          <a className="ds-btn" href={href("guide")}>
+            Build an application
           </a>
           <a className="ds-btn" href={demoHref("healthcare-demo")}>
             Try the stroke demo
@@ -134,6 +139,28 @@ export function Home({ anchor }: { anchor: string | null }) {
         </ol>
         <p>
           <a href={href("learn/references")}>All references</a>
+        </p>
+        <p>
+          <a href={href("resources")}>Slide decks and reports</a> we used to teach the framework, as
+          PowerPoint files and PDFs.
+        </p>
+      </section>
+
+      <section id="build" className="block">
+        <h2>Build an application</h2>
+        <p className="ds-note ds-measure">
+          A step-by-step method for using Dagents in your own application, with a small worked
+          example of two stores. Each step has the code, the command to run and the output to expect.
+        </p>
+        <ol className="guide-list">
+          {buildSteps.map((page) => (
+            <li key={page.slug}>
+              <a href={href(`guide/${page.slug}`)}>{page.title}</a>
+            </li>
+          ))}
+        </ol>
+        <p>
+          <a href={href("guide")}>Choose one of the three ways to build on Dagents</a>
         </p>
       </section>
 

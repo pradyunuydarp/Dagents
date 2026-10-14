@@ -6,13 +6,14 @@ description: Strict rules for the Dagents frontends — the framework site in si
 # Dagents frontend
 
 These rules are binding. A change that breaks a **never** rule is wrong even if
-the page renders. Text on every page follows the `writing` skill.
+the page renders. Text on every page follows the `writing` skill. Which docs a
+code change must update, and how to regenerate them, is in the `docs-sync` skill.
 
 ## 1. The three frontends
 
 | App | Path | Port | Owns | Shows |
 |---|---|---|---|---|
-| Framework site | `site/` | 5175 | Home page, the learning guide, the API reference | How Dagents works and how to use it |
+| Framework site | `site/` | 5175 | Home page, the learning guide, the guide to building an application, the API reference, the Resources page | How Dagents works and how to use it |
 | Healthcare demo | `apps/healthcare-demo/frontend/` | 5174 | The consortium view (guard controls, pilot, consortium charts), one view per hospital, data entry | Governance, federated training and per-site storage work, and their cost can be measured |
 | NL2SQL demo | `services/nl2sql-demo/frontend/` | 5173 | Prompt UI, schema editor, SQL display | An app can use the framework's validation, planning and checks |
 
@@ -56,13 +57,26 @@ The healthcare demo and the site use `playwright-core` for browser checks.
   files, so the guide reads the same on GitHub and on the site. Edit the
   Markdown, never a copy in `site/`. The page order is `ORDER` in
   `site/src/learn.ts`.
+- **The guide to building an application is written once, in
+  `docs/guide/*.md`** (`#/guide`, page order in `site/src/guide.ts`). Both
+  guides use one page layout, `site/src/pages/DocPages.tsx`. Its code blocks
+  are copied from `examples/getting-started/`, and the `docs-sync` skill says
+  how to keep them in step.
 - Links between guide pages use relative `.md` paths. The renderer turns them
   into site routes and turns other repository paths into GitHub links. Heading
   ids match GitHub's, so anchors work in both places.
 - Diagrams are Mermaid code blocks. Images under `docs/presentation/puml/` are
   bundled with the site.
-- The API reference reads `docs/reference/service-inventory.json`. Never copy
-  that file into `site/`.
+- The API reference (`#/api`, `site/src/api/`) reads
+  `docs/reference/api-reference.json`, the module pages in `docs/reference/api/`
+  and the captured examples in `docs/reference/api/examples/`. The JSON loads
+  only on API pages. Never copy these files into `site/`; the format is in
+  `docs/reference/api/README.md`.
+- The Resources page (`#/resources`) reads `docs/presentation/resources.json`.
+  `site/resources-plugin.ts` copies each listed deck, PDF and preview into
+  `dist/resources/` at build time. **Never copy a deck or a PDF into `site/`.**
+  After a deck changes, run `scripts/export_presentations.py --write`, look at
+  the new PDF and commit it; `tests/test_site_resources.py` fails until then.
 
 ## 4. Published demos replay a real run or call a real API
 
@@ -226,6 +240,16 @@ The site's `check.mjs` serves `dist/`, visits every guide page, and fails if a
 Mermaid diagram does not draw, an image does not load, an internal link or
 anchor is missing, raw Markdown shows on a page, or the console has an error.
 Mermaid syntax errors only appear in a browser, so the build cannot catch them.
+On the Resources page it fetches every download and preview and checks each
+file's first bytes (`PK` for a .pptx, `%PDF` for a PDF), because the check's
+server answers a missing file with the index page and status 200.
+On the API reference it opens every module page and fails unless each endpoint
+in the inventory, and each dagentsc command, appears once in the interface
+`docs/reference/api/` places it in; it also follows every link on those pages,
+switches the code tabs, runs the search and checks the width at 375 px. It
+fails when a success response shows only "A JSON object." with no field table,
+and when a code sample reads an SVG, a `304` or a refused command as JSON.
+Every page of both guides must fit a 375 px screen.
 
 Both scripts use the same exit codes:
 

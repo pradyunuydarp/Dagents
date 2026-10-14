@@ -12,9 +12,15 @@
 | Spring control and core | 8050, 8060 | The same control and core APIs for JVM consumers |
 | Stroke demo backend | 8080 | The demo's own API: hospitals, data entry, the Guard probe, the pilot, charts |
 
-The full list of endpoints is generated from the code:
-[`docs/reference/service-inventory.md`](../reference/service-inventory.md). The
-[framework site](https://pradyunuydarp.github.io/Dagents/#/api) has the same list with a search box.
+The [API reference](../reference/api/overview.md) describes every endpoint: its
+parameters, its request and response fields, its errors, and examples captured
+from real calls. It is generated from the code, grouped by module:
+[Agents](../reference/api/agents.md),
+[Framework services](../reference/api/framework-services.md),
+[Spring Boot services](../reference/api/spring-services.md),
+[Demo apps](../reference/api/demo-apps.md) and the planner,
+[dagentsc](../reference/api/dagentsc.md). The plain list of endpoints is
+[`docs/reference/service-inventory.md`](../reference/service-inventory.md).
 
 ## Conventions
 
@@ -25,6 +31,10 @@ The full list of endpoints is generated from the code:
 - Every Python service serves interactive documentation at `/docs` and its
   OpenAPI schema at `/openapi.json`. Once the stroke demo API is running (below),
   open <http://127.0.0.1:8080/docs>.
+- No service checks who is calling: there are no accounts, tokens or API keys.
+  The [API reference overview](../reference/api/overview.md#authentication)
+  says what that means, and lists the error shapes, status codes and the stroke
+  demo's rate limits.
 
 ## Walkthrough 1: the stroke demo API on your machine
 
@@ -375,11 +385,13 @@ sequenceDiagram
 ```
 
 Each path also works under `/api/v1/`. The request schemas are on the GMA's
-`/docs` page.
+`/docs` page and in the [federated rounds](../reference/api/agents.md#federated-rounds)
+section of the API reference.
 
 ## Read
 
-- [`docs/reference/service-inventory.md`](../reference/service-inventory.md) — every endpoint, generated from the code.
+- [The API reference](../reference/api/overview.md) — every endpoint, its fields, errors and examples, generated from the code.
+- [`docs/reference/service-inventory.md`](../reference/service-inventory.md) — the plain list of endpoints.
 - [FastAPI tutorial](https://fastapi.tiangolo.com/tutorial/) — how the Python services define their endpoints and the `/docs` page.
 
 Next: [Step 5 — Run it yourself](05-hands-on.md)

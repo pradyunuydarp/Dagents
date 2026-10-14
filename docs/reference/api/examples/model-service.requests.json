@@ -1,0 +1,770 @@
+{
+  "service": "model-service",
+  "note": "Captured in process. MODEL_ARTIFACT_DIR points at a temporary folder, so the saved models stay out of the repository.",
+  "env": {
+    "MODEL_ARTIFACT_DIR": "/tmp/dagents-api-examples/artifacts"
+  },
+  "examples": [
+    {
+      "id": "health",
+      "endpoint": "GET /api/v1/health",
+      "title": "Check that the service answers",
+      "request": {
+        "path": "/api/v1/health"
+      },
+      "status": 200
+    },
+    {
+      "id": "datasets",
+      "endpoint": "GET /api/v1/datasets",
+      "title": "List the benchmark datasets",
+      "request": {
+        "path": "/api/v1/datasets"
+      },
+      "status": 200
+    },
+    {
+      "id": "model-families",
+      "endpoint": "GET /api/v1/model-families",
+      "title": "List what this deployment can run",
+      "request": {
+        "path": "/api/v1/model-families"
+      },
+      "status": 200,
+      "trim": {
+        "items": 10,
+        "chars": 400
+      }
+    },
+    {
+      "id": "register-source",
+      "endpoint": "POST /api/v1/sources",
+      "title": "Register an inline source of 20 orders",
+      "description": "The checks and the training examples below read these records by source_id.",
+      "request": {
+        "path": "/api/v1/sources",
+        "json": {
+          "source_id": "orders-week-41",
+          "kind": "inline",
+          "selection": {
+            "records": [
+              {
+                "order_id": "W41-01",
+                "amount": 22.8,
+                "items": 2,
+                "hour": 14,
+                "is_fraud": 0
+              },
+              {
+                "order_id": "W41-02",
+                "amount": 40.8,
+                "items": 1,
+                "hour": 16,
+                "is_fraud": 0
+              },
+              {
+                "order_id": "W41-03",
+                "amount": 10.2,
+                "items": 1,
+                "hour": 16,
+                "is_fraud": 0
+              },
+              {
+                "order_id": "W41-04",
+                "amount": 16.8,
+                "items": 1,
+                "hour": 14,
+                "is_fraud": 0
+              },
+              {
+                "order_id": "W41-05",
+                "amount": 28.0,
+                "items": 2,
+                "hour": 9,
+                "is_fraud": 0
+              },
+              {
+                "order_id": "W41-06",
+                "amount": 675.5,
+                "items": 8,
+                "hour": 4,
+                "is_fraud": 1
+              },
+              {
+                "order_id": "W41-07",
+                "amount": 11.8,
+                "items": 2,
+                "hour": 18,
+                "is_fraud": 0
+              },
+              {
+                "order_id": "W41-08",
+                "amount": 39.5,
+                "items": 1,
+                "hour": 17,
+                "is_fraud": 0
+              },
+              {
+                "order_id": "W41-09",
+                "amount": 37.2,
+                "items": 1,
+                "hour": 11,
+                "is_fraud": 0
+              },
+              {
+                "order_id": "W41-10",
+                "amount": 7.6,
+                "items": 2,
+                "hour": 12,
+                "is_fraud": 0
+              },
+              {
+                "order_id": "W41-11",
+                "amount": 554.2,
+                "items": 10,
+                "hour": 0,
+                "is_fraud": 1
+              },
+              {
+                "order_id": "W41-12",
+                "amount": 37.0,
+                "items": 2,
+                "hour": 13,
+                "is_fraud": 0
+              },
+              {
+                "order_id": "W41-13",
+                "amount": 10.4,
+                "items": 1,
+                "hour": 17,
+                "is_fraud": 0
+              },
+              {
+                "order_id": "W41-14",
+                "amount": 8.3,
+                "items": 2,
+                "hour": 15,
+                "is_fraud": 0
+              },
+              {
+                "order_id": "W41-15",
+                "amount": 42.4,
+                "items": 4,
+                "hour": 20,
+                "is_fraud": 0
+              },
+              {
+                "order_id": "W41-16",
+                "amount": 549.9,
+                "items": 10,
+                "hour": 1,
+                "is_fraud": 1
+              },
+              {
+                "order_id": "W41-17",
+                "amount": 22.3,
+                "items": 4,
+                "hour": 13,
+                "is_fraud": 0
+              },
+              {
+                "order_id": "W41-18",
+                "amount": 9.5,
+                "items": 3,
+                "hour": 16,
+                "is_fraud": 0
+              },
+              {
+                "order_id": "W41-19",
+                "amount": 32.2,
+                "items": 3,
+                "hour": 19,
+                "is_fraud": 0
+              },
+              {
+                "order_id": "W41-20",
+                "amount": 419.6,
+                "items": 9,
+                "hour": 4,
+                "is_fraud": 1
+              }
+            ]
+          }
+        }
+      },
+      "status": 200,
+      "trim": {
+        "items": 3
+      }
+    },
+    {
+      "id": "register-source-422",
+      "endpoint": "POST /api/v1/sources",
+      "title": "A body that is not a JSON object",
+      "request": {
+        "path": "/api/v1/sources",
+        "json": [
+          "orders-week-41"
+        ]
+      },
+      "status": 422
+    },
+    {
+      "id": "list-sources",
+      "endpoint": "GET /api/v1/sources",
+      "title": "List the registered sources",
+      "request": {
+        "path": "/api/v1/sources"
+      },
+      "status": 200,
+      "trim": {
+        "items": 3
+      }
+    },
+    {
+      "id": "get-source",
+      "endpoint": "GET /api/v1/sources/{source_id}",
+      "title": "Fetch one source",
+      "request": {
+        "path": "/api/v1/sources/orders-week-41"
+      },
+      "status": 200,
+      "trim": {
+        "items": 3
+      }
+    },
+    {
+      "id": "get-missing-source",
+      "endpoint": "GET /api/v1/sources/{source_id}",
+      "title": "Fetch a source that does not exist",
+      "request": {
+        "path": "/api/v1/sources/no-such-source"
+      },
+      "status": 404
+    },
+    {
+      "id": "validate-source",
+      "endpoint": "POST /api/v1/sources/{source_id}:validate",
+      "title": "Validate the inline source",
+      "request": {
+        "path": "/api/v1/sources/orders-week-41:validate"
+      },
+      "status": 200
+    },
+    {
+      "id": "validate-missing-source",
+      "endpoint": "POST /api/v1/sources/{source_id}:validate",
+      "title": "Validate a source that does not exist",
+      "request": {
+        "path": "/api/v1/sources/no-such-source:validate"
+      },
+      "status": 404
+    },
+    {
+      "id": "classification-check",
+      "endpoint": "POST /api/v1/checks/classification",
+      "title": "Check a random forest that flags fraud",
+      "request": {
+        "path": "/api/v1/checks/classification",
+        "json": {
+          "dataset": {
+            "source_id": "orders-week-41"
+          },
+          "feature_fields": [
+            "amount",
+            "items",
+            "hour"
+          ],
+          "label_field": "is_fraud"
+        }
+      },
+      "status": 200
+    },
+    {
+      "id": "classification-planned-family",
+      "endpoint": "POST /api/v1/checks/classification",
+      "title": "A family the planner knows but this service cannot run",
+      "request": {
+        "path": "/api/v1/checks/classification",
+        "json": {
+          "dataset": {
+            "source_id": "orders-week-41"
+          },
+          "label_field": "is_fraud",
+          "model_family": "xgboost"
+        }
+      },
+      "status": 400
+    },
+    {
+      "id": "classification-no-data",
+      "endpoint": "POST /api/v1/checks/classification",
+      "title": "A request with no data",
+      "request": {
+        "path": "/api/v1/checks/classification",
+        "json": {
+          "label_field": "is_fraud"
+        }
+      },
+      "status": 422
+    },
+    {
+      "id": "regression-check",
+      "endpoint": "POST /api/v1/checks/regression",
+      "title": "Check how well items and hour predict the amount",
+      "description": "Metric values from a fitted model can differ in the last digits between machines, so the replay check ignores them.",
+      "request": {
+        "path": "/api/v1/checks/regression",
+        "json": {
+          "dataset": {
+            "source_id": "orders-week-41"
+          },
+          "feature_fields": [
+            "items",
+            "hour"
+          ],
+          "label_field": "amount"
+        }
+      },
+      "status": 200,
+      "volatile": [
+        "/metrics/*"
+      ]
+    },
+    {
+      "id": "regression-wrong-task",
+      "endpoint": "POST /api/v1/checks/regression",
+      "title": "A family that serves another task",
+      "request": {
+        "path": "/api/v1/checks/regression",
+        "json": {
+          "dataset": {
+            "source_id": "orders-week-41"
+          },
+          "label_field": "amount",
+          "model_family": "naive_bayes"
+        }
+      },
+      "status": 400
+    },
+    {
+      "id": "train",
+      "endpoint": "POST /api/v1/train",
+      "title": "Train an autoencoder with one candidate",
+      "description": "search narrows the default 8 candidates to 1. The threshold comes from a trained network, so the replay check ignores it.",
+      "request": {
+        "path": "/api/v1/train",
+        "json": {
+          "dataset": {
+            "source_id": "orders-week-41"
+          },
+          "feature_fields": [
+            "amount",
+            "items",
+            "hour"
+          ],
+          "label_field": "is_fraud",
+          "artifact_name": "orders-autoencoder.pt",
+          "search": {
+            "values": {
+              "hidden_dims": [
+                [
+                  16,
+                  8
+                ]
+              ],
+              "dropout": [
+                0.0
+              ],
+              "pca_components": [
+                null
+              ]
+            }
+          }
+        }
+      },
+      "status": 200,
+      "volatile": [
+        "/metrics/threshold"
+      ]
+    },
+    {
+      "id": "train-planned-family",
+      "endpoint": "POST /api/v1/train",
+      "title": "A family that is planned for anomaly detection",
+      "request": {
+        "path": "/api/v1/train",
+        "json": {
+          "dataset": {
+            "source_id": "orders-week-41"
+          },
+          "label_field": "is_fraud",
+          "model_family": "random_forest"
+        }
+      },
+      "status": 400
+    },
+    {
+      "id": "train-422",
+      "endpoint": "POST /api/v1/train",
+      "title": "A max_rows below the minimum",
+      "request": {
+        "path": "/api/v1/train",
+        "json": {
+          "dataset": {
+            "source_id": "orders-week-41"
+          },
+          "max_rows": 50
+        }
+      },
+      "status": 422
+    },
+    {
+      "id": "submit-job",
+      "endpoint": "POST /api/v1/model-jobs",
+      "title": "Submit the same training as a background job",
+      "description": "job_id and submitted_at come from the clock.",
+      "request": {
+        "path": "/api/v1/model-jobs",
+        "json": {
+          "dataset": {
+            "source_id": "orders-week-41"
+          },
+          "feature_fields": [
+            "amount",
+            "items",
+            "hour"
+          ],
+          "label_field": "is_fraud",
+          "artifact_name": "orders-autoencoder-job.pt",
+          "search": {
+            "values": {
+              "hidden_dims": [
+                [
+                  16,
+                  8
+                ]
+              ],
+              "dropout": [
+                0.0
+              ],
+              "pca_components": [
+                null
+              ]
+            }
+          }
+        }
+      },
+      "status": 202,
+      "volatile": [
+        "/job_id",
+        "/submitted_at"
+      ]
+    },
+    {
+      "id": "forecasting-check",
+      "endpoint": "POST /api/v1/checks/forecasting",
+      "title": "Check a GRU that forecasts daily orders",
+      "description": "The records are sent inline. Metric values come from a trained network, so the replay check ignores them.",
+      "request": {
+        "path": "/api/v1/checks/forecasting",
+        "json": {
+          "dataset": {
+            "inline_records": [
+              {
+                "day": 1,
+                "visits": 310,
+                "orders": 31
+              },
+              {
+                "day": 2,
+                "visits": 295,
+                "orders": 29
+              },
+              {
+                "day": 3,
+                "visits": 330,
+                "orders": 34
+              },
+              {
+                "day": 4,
+                "visits": 352,
+                "orders": 36
+              },
+              {
+                "day": 5,
+                "visits": 401,
+                "orders": 41
+              },
+              {
+                "day": 6,
+                "visits": 455,
+                "orders": 47
+              },
+              {
+                "day": 7,
+                "visits": 430,
+                "orders": 44
+              },
+              {
+                "day": 8,
+                "visits": 322,
+                "orders": 33
+              },
+              {
+                "day": 9,
+                "visits": 318,
+                "orders": 32
+              },
+              {
+                "day": 10,
+                "visits": 341,
+                "orders": 35
+              },
+              {
+                "day": 11,
+                "visits": 365,
+                "orders": 37
+              },
+              {
+                "day": 12,
+                "visits": 410,
+                "orders": 42
+              },
+              {
+                "day": 13,
+                "visits": 470,
+                "orders": 49
+              },
+              {
+                "day": 14,
+                "visits": 446,
+                "orders": 46
+              },
+              {
+                "day": 15,
+                "visits": 330,
+                "orders": 34
+              },
+              {
+                "day": 16,
+                "visits": 327,
+                "orders": 33
+              },
+              {
+                "day": 17,
+                "visits": 350,
+                "orders": 36
+              },
+              {
+                "day": 18,
+                "visits": 372,
+                "orders": 38
+              },
+              {
+                "day": 19,
+                "visits": 420,
+                "orders": 43
+              },
+              {
+                "day": 20,
+                "visits": 480,
+                "orders": 50
+              }
+            ]
+          },
+          "feature_fields": [
+            "visits",
+            "orders"
+          ],
+          "label_field": "orders",
+          "model_family": "gru",
+          "sequence_length": 3
+        }
+      },
+      "status": 200,
+      "volatile": [
+        "/metrics/*"
+      ]
+    },
+    {
+      "id": "forecasting-default-family",
+      "endpoint": "POST /api/v1/checks/forecasting",
+      "title": "A forecasting check without a model family",
+      "description": "The default family, random_forest, does not serve forecasting.",
+      "request": {
+        "path": "/api/v1/checks/forecasting",
+        "json": {
+          "dataset": {
+            "inline_records": [
+              {
+                "day": 1,
+                "visits": 310,
+                "orders": 31
+              },
+              {
+                "day": 2,
+                "visits": 295,
+                "orders": 29
+              },
+              {
+                "day": 3,
+                "visits": 330,
+                "orders": 34
+              },
+              {
+                "day": 4,
+                "visits": 352,
+                "orders": 36
+              },
+              {
+                "day": 5,
+                "visits": 401,
+                "orders": 41
+              },
+              {
+                "day": 6,
+                "visits": 455,
+                "orders": 47
+              },
+              {
+                "day": 7,
+                "visits": 430,
+                "orders": 44
+              },
+              {
+                "day": 8,
+                "visits": 322,
+                "orders": 33
+              },
+              {
+                "day": 9,
+                "visits": 318,
+                "orders": 32
+              },
+              {
+                "day": 10,
+                "visits": 341,
+                "orders": 35
+              },
+              {
+                "day": 11,
+                "visits": 365,
+                "orders": 37
+              },
+              {
+                "day": 12,
+                "visits": 410,
+                "orders": 42
+              },
+              {
+                "day": 13,
+                "visits": 470,
+                "orders": 49
+              },
+              {
+                "day": 14,
+                "visits": 446,
+                "orders": 46
+              },
+              {
+                "day": 15,
+                "visits": 330,
+                "orders": 34
+              },
+              {
+                "day": 16,
+                "visits": 327,
+                "orders": 33
+              },
+              {
+                "day": 17,
+                "visits": 350,
+                "orders": 36
+              },
+              {
+                "day": 18,
+                "visits": 372,
+                "orders": 38
+              },
+              {
+                "day": 19,
+                "visits": 420,
+                "orders": 43
+              },
+              {
+                "day": 20,
+                "visits": 480,
+                "orders": 50
+              }
+            ]
+          },
+          "label_field": "orders"
+        }
+      },
+      "status": 400
+    },
+    {
+      "id": "list-jobs",
+      "endpoint": "GET /api/v1/model-jobs",
+      "title": "List the jobs",
+      "description": "The job runs while other requests are answered, so its state at this moment varies. The replay check ignores it.",
+      "request": {
+        "path": "/api/v1/model-jobs",
+        "query": {
+          "limit": 5
+        }
+      },
+      "status": 200,
+      "volatile": [
+        "/jobs/*/job_id",
+        "/jobs/*/status",
+        "/jobs/*/submitted_at",
+        "/jobs/*/started_at",
+        "/jobs/*/completed_at",
+        "/jobs/*/result",
+        "/jobs/*/error"
+      ]
+    },
+    {
+      "id": "list-jobs-422",
+      "endpoint": "GET /api/v1/model-jobs",
+      "title": "A limit that is not a number",
+      "request": {
+        "path": "/api/v1/model-jobs",
+        "query": {
+          "limit": "five"
+        }
+      },
+      "status": 422
+    },
+    {
+      "id": "get-job",
+      "endpoint": "GET /api/v1/model-jobs/{job_id}",
+      "title": "Fetch the job the submit example started",
+      "description": "The job_id in the path is the one the submit example returned. The job runs while other requests are answered, so its state at this moment varies, and the replay check ignores it.",
+      "request": {
+        "path": "/api/v1/model-jobs/{from:submit-job:/job_id}"
+      },
+      "status": 200,
+      "volatile": [
+        "/job_id",
+        "/status",
+        "/submitted_at",
+        "/started_at",
+        "/completed_at",
+        "/result",
+        "/error"
+      ]
+    },
+    {
+      "id": "get-missing-job",
+      "endpoint": "GET /api/v1/model-jobs/{job_id}",
+      "title": "Fetch a job that does not exist",
+      "request": {
+        "path": "/api/v1/model-jobs/model-job-0"
+      },
+      "status": 404
+    }
+  ]
+}

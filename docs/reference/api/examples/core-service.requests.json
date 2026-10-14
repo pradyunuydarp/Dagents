@@ -1,0 +1,198 @@
+{
+  "service": "core-service",
+  "note": "Captured in process with the planner available, so the YAML comes from dagentsc manifest compile.",
+  "examples": [
+    {
+      "id": "health",
+      "endpoint": "GET /api/v1/health",
+      "title": "Check that the service answers",
+      "request": {
+        "path": "/api/v1/health"
+      },
+      "status": 200
+    },
+    {
+      "id": "services",
+      "endpoint": "GET /api/v1/services",
+      "title": "List the configured services",
+      "request": {
+        "path": "/api/v1/services"
+      },
+      "status": 200
+    },
+    {
+      "id": "topology",
+      "endpoint": "GET /api/v1/topology",
+      "title": "Read the topology",
+      "request": {
+        "path": "/api/v1/topology"
+      },
+      "status": 200
+    },
+    {
+      "id": "compile-a-deployment",
+      "endpoint": "POST /api/v1/workloads:compile",
+      "title": "Compile an LMA Deployment with a Service and a ConfigMap",
+      "request": {
+        "path": "/api/v1/workloads:compile",
+        "json": {
+          "plan_id": "plan-hospital-a",
+          "namespace": "dagents",
+          "components": [
+            {
+              "name": "lma-hospital-a",
+              "image": "ghcr.io/example/dagents-lma:0.1.0",
+              "kind": "Deployment",
+              "replicas": 1,
+              "ports": [
+                {
+                  "name": "http",
+                  "container_port": 8010
+                }
+              ],
+              "env": [
+                {
+                  "name": "LMA_SITE_ID",
+                  "value": "hospital-a"
+                }
+              ],
+              "generated_resources": [
+                "ConfigMap"
+              ],
+              "config_map_data": {
+                "site_id": "hospital-a"
+              }
+            }
+          ]
+        }
+      },
+      "status": 200
+    },
+    {
+      "id": "compile-scheduled-jobs",
+      "endpoint": "POST /api/v1/workloads:compile",
+      "title": "Compile a CronJob and a Job, with a generated plan id",
+      "description": "Without a plan_id the service makes one from the clock, so plan_id differs on every call.",
+      "request": {
+        "path": "/api/v1/workloads:compile",
+        "json": {
+          "namespace": "dagents-batch",
+          "include_config_maps": true,
+          "components": [
+            {
+              "name": "aggregate-rollup",
+              "image": "ghcr.io/example/dagents-gma:0.1.0",
+              "kind": "CronJob",
+              "schedule": "*/30 * * * *",
+              "args": [
+                "--run-mode",
+                "aggregate"
+              ]
+            },
+            {
+              "name": "source-backfill",
+              "image": "ghcr.io/example/dagents-lma:0.1.0",
+              "kind": "Job",
+              "args": [
+                "--trigger",
+                "backfill"
+              ]
+            }
+          ]
+        }
+      },
+      "status": 200,
+      "volatile": [
+        "/plan_id"
+      ]
+    },
+    {
+      "id": "compile-invalid-kind",
+      "endpoint": "POST /api/v1/workloads:compile",
+      "title": "A component kind the service does not render",
+      "request": {
+        "path": "/api/v1/workloads:compile",
+        "json": {
+          "components": [
+            {
+              "name": "store",
+              "image": "postgres:16",
+              "kind": "StatefulSet",
+              "replicas": 0
+            }
+          ]
+        }
+      },
+      "status": 422
+    },
+    {
+      "id": "get-plan",
+      "endpoint": "GET /api/v1/workload-plans/{plan_id}",
+      "title": "Fetch the plan compiled above",
+      "request": {
+        "path": "/api/v1/workload-plans/plan-hospital-a"
+      },
+      "status": 200
+    },
+    {
+      "id": "get-unknown-plan",
+      "endpoint": "GET /api/v1/workload-plans/{plan_id}",
+      "title": "A plan id that was never compiled",
+      "request": {
+        "path": "/api/v1/workload-plans/plan-missing"
+      },
+      "status": 404
+    },
+    {
+      "id": "render-pods",
+      "endpoint": "POST /api/v1/manifests/pods",
+      "title": "Render a Deployment without keeping a plan id",
+      "request": {
+        "path": "/api/v1/manifests/pods",
+        "json": {
+          "namespace": "dagents",
+          "components": [
+            {
+              "name": "gma",
+              "image": "ghcr.io/example/dagents-gma:0.1.0",
+              "ports": [
+                {
+                  "name": "http",
+                  "container_port": 8020
+                }
+              ],
+              "resources": {
+                "cpu_request": "500m",
+                "memory_limit": "2Gi"
+              }
+            }
+          ]
+        }
+      },
+      "status": 200
+    },
+    {
+      "id": "render-pods-invalid-service-type",
+      "endpoint": "POST /api/v1/manifests/pods",
+      "title": "A Service type the service does not render",
+      "request": {
+        "path": "/api/v1/manifests/pods",
+        "json": {
+          "components": [
+            {
+              "name": "gma",
+              "image": "ghcr.io/example/dagents-gma:0.1.0",
+              "ports": [
+                {
+                  "container_port": 8020
+                }
+              ],
+              "service_type": "ExternalName"
+            }
+          ]
+        }
+      },
+      "status": 422
+    }
+  ]
+}

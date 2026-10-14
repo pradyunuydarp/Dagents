@@ -9,6 +9,13 @@
 
 export const REPO_URL = "https://github.com/pradyunuydarp/Dagents";
 
+/**
+ * The published framework site. A Markdown page that links to one of its hash
+ * routes (`<SITE_URL>#/resources`) works on GitHub, and on this site the link
+ * opens the route here instead of the production copy.
+ */
+export const SITE_URL = "https://pradyunuydarp.github.io/Dagents/";
+
 /** Raw files on the main branch, for images in the guide. */
 export const RAW_URL = "https://raw.githubusercontent.com/pradyunuydarp/Dagents/main";
 

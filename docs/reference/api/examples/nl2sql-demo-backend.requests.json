@@ -1,0 +1,144 @@
+{
+  "service": "nl2sql-demo-backend",
+  "note": "Captured in process with the planner available, no model zip files and no framework service running. So the heuristic writes every query, the planner steps of the trace answer, and every step that calls a framework service over HTTP is a warning. The framework service addresses point at port 9, where nothing listens, so the answers are the same on a machine that runs the services.",
+  "env": {
+    "NL2SQL_MODELS_DIR": "services/nl2sql-demo/backend/no-models",
+    "NL2SQL_DEFAULT_MODEL_ID": "codet5p_spider_model",
+    "NL2SQL_ALLOW_FALLBACK": "true",
+    "NL2SQL_REQUEST_TIMEOUT_SECONDS": "2.0",
+    "CORE_SERVICE_PUBLIC_URL": "http://127.0.0.1:9",
+    "PIPELINE_SERVICE_PUBLIC_URL": "http://127.0.0.1:9",
+    "MODEL_SERVICE_PUBLIC_URL": "http://127.0.0.1:9",
+    "LMA_PUBLIC_URL": "http://127.0.0.1:9",
+    "GMA_PUBLIC_URL": "http://127.0.0.1:9",
+    "NO_PROXY": "127.0.0.1,localhost",
+    "no_proxy": "127.0.0.1,localhost"
+  },
+  "examples": [
+    {
+      "id": "health",
+      "endpoint": "GET /api/v1/health",
+      "title": "Check that the backend answers",
+      "request": {
+        "path": "/api/v1/health"
+      },
+      "status": 200
+    },
+    {
+      "id": "samples",
+      "endpoint": "GET /api/v1/samples",
+      "title": "List the sample questions",
+      "request": {
+        "path": "/api/v1/samples"
+      },
+      "status": 200
+    },
+    {
+      "id": "models",
+      "endpoint": "GET /api/v1/models",
+      "title": "List the SQL models when no model zip is present",
+      "request": {
+        "path": "/api/v1/models"
+      },
+      "status": 200
+    },
+    {
+      "id": "status",
+      "endpoint": "GET /api/v1/dagents/status",
+      "title": "Check which framework services answer, with none running",
+      "request": {
+        "path": "/api/v1/dagents/status"
+      },
+      "status": 200
+    },
+    {
+      "id": "generate",
+      "endpoint": "POST /api/v1/generate",
+      "title": "Generate SQL for a sample question, with the framework steps",
+      "request": {
+        "path": "/api/v1/generate",
+        "json": {
+          "question": "List the order ids and amounts for paid orders from tenant alpha.",
+          "tables": [
+            {
+              "name": "orders",
+              "columns": [
+                {
+                  "name": "order_id",
+                  "dtype": "TEXT"
+                },
+                {
+                  "name": "tenant_id",
+                  "dtype": "TEXT"
+                },
+                {
+                  "name": "amount",
+                  "dtype": "NUMBER"
+                },
+                {
+                  "name": "status",
+                  "dtype": "TEXT"
+                },
+                {
+                  "name": "created_at",
+                  "dtype": "TEXT"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "status": 200,
+      "trim": {
+        "items": 25,
+        "chars": 300
+      }
+    },
+    {
+      "id": "generate-without-framework",
+      "endpoint": "POST /api/v1/generate",
+      "title": "Generate SQL without the framework steps",
+      "request": {
+        "path": "/api/v1/generate",
+        "json": {
+          "question": "How many critical incidents are open?",
+          "tables": [
+            {
+              "name": "incidents",
+              "columns": [
+                {
+                  "name": "incident_id",
+                  "dtype": "TEXT"
+                },
+                {
+                  "name": "severity",
+                  "dtype": "TEXT"
+                },
+                {
+                  "name": "status",
+                  "dtype": "TEXT"
+                }
+              ]
+            }
+          ],
+          "model_id": "heuristic_demo",
+          "use_dagents_services": false
+        }
+      },
+      "status": 200
+    },
+    {
+      "id": "generate-invalid",
+      "endpoint": "POST /api/v1/generate",
+      "title": "A request without tables and with too few tokens",
+      "request": {
+        "path": "/api/v1/generate",
+        "json": {
+          "question": "How many orders are there?",
+          "max_new_tokens": 8
+        }
+      },
+      "status": 422
+    }
+  ]
+}

@@ -104,7 +104,7 @@ flowchart LR
 | `before_train` | LMA | Whether the site may train on the requested fields for this round. Checked when the job is offered. |
 | `before_read` | LMA | Which records and fields the job may read. The job runs on this governed data, not the raw records. |
 | `before_send` | LMA | What may leave the site: a round's result, with its counts, metrics and bounded model update, leaves only when this boundary permits the contribution for the number of records the round used. It bounds the update; it does not inspect each metric. |
-| `before_release` | GMA | Whether a candidate model may be released |
+| `before_release` | GMA | Whether a candidate model may be released. The coordinator sends this Guard request itself. The GMA's release evaluation endpoint runs only the gates, not the Guard. |
 
 ## A federated round in Dagents
 
@@ -123,7 +123,8 @@ sequenceDiagram
     L-->>G: Result, after before_send
     G->>G: Check whether aggregation may run
     G->>G: Aggregate into a candidate
-    G->>G: Evaluate release gates (before_release)
+    G->>G: before_release: a separate Guard request about the candidate
+    G->>G: Evaluate the release gates
     G-->>G: Decision: release, another round, or reject
 ```
 

@@ -1,0 +1,1654 @@
+{
+ "service": "model-service",
+ "generated_by": "scripts/capture_api_examples.py",
+ "note": "Captured in process. MODEL_ARTIFACT_DIR points at a temporary folder, so the saved models stay out of the repository.",
+ "examples": [
+  {
+   "id": "health",
+   "endpoint": "GET /api/v1/health",
+   "title": "Check that the service answers",
+   "request": {
+    "method": "GET",
+    "path": "/api/v1/health"
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "status": "ok",
+     "service": "dagents-model-service",
+     "environment": "development",
+     "transport": "http"
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "datasets",
+   "endpoint": "GET /api/v1/datasets",
+   "title": "List the benchmark datasets",
+   "request": {
+    "method": "GET",
+    "path": "/api/v1/datasets"
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "datasets": [
+      {
+       "name": "creditcard_openml",
+       "source": "OpenML",
+       "source_url": "https://www.openml.org/d/42397",
+       "description": "Credit card fraud anomaly detection benchmark hosted on OpenML.",
+       "anomaly_label": "True",
+       "rows": null,
+       "features": null
+      },
+      {
+       "name": "kddcup99_http",
+       "source": "scikit-learn",
+       "source_url": "https://scikit-learn.org/stable/modules/generated/sklearn.datasets.fetch_kddcup99.html",
+       "description": "KDD Cup 1999 HTTP subset for network intrusion anomaly detection.",
+       "anomaly_label": "not normal.",
+       "rows": null,
+       "features": null
+      },
+      {
+       "name": "mammography_openml",
+       "source": "OpenML",
+       "source_url": "https://www.openml.org/d/310",
+       "description": "Mammography anomaly detection benchmark hosted on OpenML.",
+       "anomaly_label": "1",
+       "rows": null,
+       "features": null
+      }
+     ]
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "model-families",
+   "endpoint": "GET /api/v1/model-families",
+   "title": "List what this deployment can run",
+   "trim": {
+    "items": 10,
+    "chars": 400
+   },
+   "request": {
+    "method": "GET",
+    "path": "/api/v1/model-families"
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "tasks": [
+      "anomaly_detection",
+      "classification",
+      "embedding",
+      "forecasting",
+      "regression"
+     ],
+     "providers": [
+      "pytorch",
+      "scikit_learn",
+      "huggingface",
+      "extension"
+     ],
+     "families": [
+      "autoencoder",
+      "custom",
+      "gru",
+      "linear",
+      "lstm",
+      "naive_bayes",
+      "random_forest",
+      "transformer",
+      "variational_autoencoder",
+      "xgboost"
+     ],
+     "implemented": {
+      "anomaly_detection": [
+       "autoencoder",
+       "variational_autoencoder"
+      ],
+      "classification": [
+       "linear",
+       "naive_bayes",
+       "random_forest"
+      ],
+      "embedding": [
+       "transformer"
+      ],
+      "forecasting": [
+       "gru",
+       "lstm"
+      ],
+      "regression": [
+       "linear",
+       "random_forest"
+      ]
+     },
+     "capabilities": [
+      {
+       "family": "autoencoder",
+       "task": "anomaly_detection",
+       "provider": "pytorch",
+       "status": "implemented",
+       "entrypoint": "app.ml.providers.torch_provider:build_anomaly_adapter",
+       "default_checkpoint": null,
+       "extra_requirements": [],
+       "requires_download": false,
+       "notes": "Feed-forward reconstruction autoencoder from app.ml.modules."
+      },
+      {
+       "family": "custom",
+       "task": "anomaly_detection",
+       "provider": "extension",
+       "status": "planned",
+       "entrypoint": null,
+       "default_checkpoint": null,
+       "extra_requirements": [],
+       "requires_download": false,
+       "notes": "`custom` is the planner's escape hatch: a consumer app registers a named model adapter through agents.common.extensions, so the framework has nothing to implement here."
+      },
+      {
+       "family": "custom",
+       "task": "classification",
+       "provider": "extension",
+       "status": "planned",
+       "entrypoint": null,
+       "default_checkpoint": null,
+       "extra_requirements": [],
+       "requires_download": false,
+       "notes": "`custom` is the planner's escape hatch: a consumer app registers a named model adapter through agents.common.extensions, so the framework has nothing to implement here."
+      },
+      {
+       "family": "custom",
+       "task": "embedding",
+       "provider": "extension",
+       "status": "planned",
+       "entrypoint": null,
+       "default_checkpoint": null,
+       "extra_requirements": [],
+       "requires_download": false,
+       "notes": "`custom` is the planner's escape hatch: a consumer app registers a named model adapter through agents.common.extensions, so the framework has nothing to implement here."
+      },
+      {
+       "family": "custom",
+       "task": "forecasting",
+       "provider": "extension",
+       "status": "planned",
+       "entrypoint": null,
+       "default_checkpoint": null,
+       "extra_requirements": [],
+       "requires_download": false,
+       "notes": "`custom` is the planner's escape hatch: a consumer app registers a named model adapter through agents.common.extensions, so the framework has nothing to implement here."
+      },
+      {
+       "family": "custom",
+       "task": "regression",
+       "provider": "extension",
+       "status": "planned",
+       "entrypoint": null,
+       "default_checkpoint": null,
+       "extra_requirements": [],
+       "requires_download": false,
+       "notes": "`custom` is the planner's escape hatch: a consumer app registers a named model adapter through agents.common.extensions, so the framework has nothing to implement here."
+      },
+      {
+       "family": "gru",
+       "task": "forecasting",
+       "provider": "pytorch",
+       "status": "implemented",
+       "entrypoint": "app.ml.providers.torch_provider:build_forecasting_adapter",
+       "default_checkpoint": null,
+       "extra_requirements": [],
+       "requires_download": false,
+       "notes": "Recurrent regressor from app.ml.checks using an GRU cell."
+      },
+      {
+       "family": "linear",
+       "task": "classification",
+       "provider": "scikit_learn",
+       "status": "implemented",
+       "entrypoint": "app.ml.providers.sklearn_provider:build_classifier_adapter",
+       "default_checkpoint": null,
+       "extra_requirements": [],
+       "requires_download": false,
+       "notes": "Supervised classifier used by the classification check."
+      },
+      {
+       "family": "linear",
+       "task": "regression",
+       "provider": "scikit_learn",
+       "status": "implemented",
+       "entrypoint": "app.ml.providers.sklearn_provider:build_regressor_adapter",
+       "default_checkpoint": null,
+       "extra_requirements": [],
+       "requires_download": false,
+       "notes": "Supervised regressor used by the regression check."
+      },
+      {
+       "family": "lstm",
+       "task": "forecasting",
+       "provider": "pytorch",
+       "status": "implemented",
+       "entrypoint": "app.ml.providers.torch_provider:build_forecasting_adapter",
+       "default_checkpoint": null,
+       "extra_requirements": [],
+       "requires_download": false,
+       "notes": "Recurrent regressor from app.ml.checks using an LSTM cell."
+      }
+     ],
+     "gaps": [
+      {
+       "family": "custom",
+       "task": "anomaly_detection",
+       "provider": "extension",
+       "status": "planned",
+       "entrypoint": null,
+       "default_checkpoint": null,
+       "extra_requirements": [],
+       "requires_download": false,
+       "notes": "`custom` is the planner's escape hatch: a consumer app registers a named model adapter through agents.common.extensions, so the framework has nothing to implement here."
+      },
+      {
+       "family": "custom",
+       "task": "classification",
+       "provider": "extension",
+       "status": "planned",
+       "entrypoint": null,
+       "default_checkpoint": null,
+       "extra_requirements": [],
+       "requires_download": false,
+       "notes": "`custom` is the planner's escape hatch: a consumer app registers a named model adapter through agents.common.extensions, so the framework has nothing to implement here."
+      },
+      {
+       "family": "custom",
+       "task": "embedding",
+       "provider": "extension",
+       "status": "planned",
+       "entrypoint": null,
+       "default_checkpoint": null,
+       "extra_requirements": [],
+       "requires_download": false,
+       "notes": "`custom` is the planner's escape hatch: a consumer app registers a named model adapter through agents.common.extensions, so the framework has nothing to implement here."
+      },
+      {
+       "family": "custom",
+       "task": "forecasting",
+       "provider": "extension",
+       "status": "planned",
+       "entrypoint": null,
+       "default_checkpoint": null,
+       "extra_requirements": [],
+       "requires_download": false,
+       "notes": "`custom` is the planner's escape hatch: a consumer app registers a named model adapter through agents.common.extensions, so the framework has nothing to implement here."
+      },
+      {
+       "family": "custom",
+       "task": "regression",
+       "provider": "extension",
+       "status": "planned",
+       "entrypoint": null,
+       "default_checkpoint": null,
+       "extra_requirements": [],
+       "requires_download": false,
+       "notes": "`custom` is the planner's escape hatch: a consumer app registers a named model adapter through agents.common.extensions, so the framework has nothing to implement here."
+      },
+      {
+       "family": "random_forest",
+       "task": "anomaly_detection",
+       "provider": "scikit_learn",
+       "status": "planned",
+       "entrypoint": null,
+       "default_checkpoint": null,
+       "extra_requirements": [],
+       "requires_download": false,
+       "notes": "The router falls back to `random_forest` for anomaly detection when the dataset profile suggests nothing; serving it means an unsupervised estimator such as IsolationForest, not the supervised classifier."
+      },
+      {
+       "family": "transformer",
+       "task": "forecasting",
+       "provider": "huggingface",
+       "status": "planned",
+       "entrypoint": null,
+       "default_checkpoint": "huggingface/time-series-transformer-tourism-monthly",
+       "extra_requirements": [
+        "transformers>=4.45,<5",
+        "safetensors>=0.5,<1"
+       ],
+       "requires_download": true,
+       "notes": "The router lists `transformer` as a forecasting candidate; a time-series transformer would need windowing and scaling the recurrent path does not do."
+      },
+      {
+       "family": "xgboost",
+       "task": "classification",
+       "provider": "scikit_learn",
+       "status": "planned",
+       "entrypoint": null,
+       "default_checkpoint": null,
+       "extra_requirements": [
+        "xgboost>=2.1,<4"
+       ],
+       "requires_download": false,
+       "notes": "The router lists `xgboost` as a classification candidate, but the package is not a model-service dependency."
+      },
+      {
+       "family": "xgboost",
+       "task": "regression",
+       "provider": "scikit_learn",
+       "status": "planned",
+       "entrypoint": null,
+       "default_checkpoint": null,
+       "extra_requirements": [
+        "xgboost>=2.1,<4"
+       ],
+       "requires_download": false,
+       "notes": "The router lists `xgboost` as a regression candidate, but the package is not a model-service dependency."
+      }
+     ]
+    },
+    "trimmed": [
+     {
+      "pointer": "/capabilities",
+      "note": "19 items, cut to 10"
+     }
+    ]
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "register-source",
+   "endpoint": "POST /api/v1/sources",
+   "title": "Register an inline source of 20 orders",
+   "description": "The checks and the training examples below read these records by source_id.",
+   "trim": {
+    "items": 3
+   },
+   "request": {
+    "method": "POST",
+    "path": "/api/v1/sources",
+    "json": {
+     "source_id": "orders-week-41",
+     "kind": "inline",
+     "selection": {
+      "records": [
+       {
+        "order_id": "W41-01",
+        "amount": 22.8,
+        "items": 2,
+        "hour": 14,
+        "is_fraud": 0
+       },
+       {
+        "order_id": "W41-02",
+        "amount": 40.8,
+        "items": 1,
+        "hour": 16,
+        "is_fraud": 0
+       },
+       {
+        "order_id": "W41-03",
+        "amount": 10.2,
+        "items": 1,
+        "hour": 16,
+        "is_fraud": 0
+       },
+       {
+        "order_id": "W41-04",
+        "amount": 16.8,
+        "items": 1,
+        "hour": 14,
+        "is_fraud": 0
+       },
+       {
+        "order_id": "W41-05",
+        "amount": 28.0,
+        "items": 2,
+        "hour": 9,
+        "is_fraud": 0
+       },
+       {
+        "order_id": "W41-06",
+        "amount": 675.5,
+        "items": 8,
+        "hour": 4,
+        "is_fraud": 1
+       },
+       {
+        "order_id": "W41-07",
+        "amount": 11.8,
+        "items": 2,
+        "hour": 18,
+        "is_fraud": 0
+       },
+       {
+        "order_id": "W41-08",
+        "amount": 39.5,
+        "items": 1,
+        "hour": 17,
+        "is_fraud": 0
+       },
+       {
+        "order_id": "W41-09",
+        "amount": 37.2,
+        "items": 1,
+        "hour": 11,
+        "is_fraud": 0
+       },
+       {
+        "order_id": "W41-10",
+        "amount": 7.6,
+        "items": 2,
+        "hour": 12,
+        "is_fraud": 0
+       },
+       {
+        "order_id": "W41-11",
+        "amount": 554.2,
+        "items": 10,
+        "hour": 0,
+        "is_fraud": 1
+       },
+       {
+        "order_id": "W41-12",
+        "amount": 37.0,
+        "items": 2,
+        "hour": 13,
+        "is_fraud": 0
+       },
+       {
+        "order_id": "W41-13",
+        "amount": 10.4,
+        "items": 1,
+        "hour": 17,
+        "is_fraud": 0
+       },
+       {
+        "order_id": "W41-14",
+        "amount": 8.3,
+        "items": 2,
+        "hour": 15,
+        "is_fraud": 0
+       },
+       {
+        "order_id": "W41-15",
+        "amount": 42.4,
+        "items": 4,
+        "hour": 20,
+        "is_fraud": 0
+       },
+       {
+        "order_id": "W41-16",
+        "amount": 549.9,
+        "items": 10,
+        "hour": 1,
+        "is_fraud": 1
+       },
+       {
+        "order_id": "W41-17",
+        "amount": 22.3,
+        "items": 4,
+        "hour": 13,
+        "is_fraud": 0
+       },
+       {
+        "order_id": "W41-18",
+        "amount": 9.5,
+        "items": 3,
+        "hour": 16,
+        "is_fraud": 0
+       },
+       {
+        "order_id": "W41-19",
+        "amount": 32.2,
+        "items": 3,
+        "hour": 19,
+        "is_fraud": 0
+       },
+       {
+        "order_id": "W41-20",
+        "amount": 419.6,
+        "items": 9,
+        "hour": 4,
+        "is_fraud": 1
+       }
+      ]
+     }
+    }
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "source_id": "orders-week-41",
+     "kind": "inline",
+     "connection_ref": null,
+     "selection": {
+      "records": [
+       {
+        "order_id": "W41-01",
+        "amount": 22.8,
+        "items": 2,
+        "hour": 14,
+        "is_fraud": 0
+       },
+       {
+        "order_id": "W41-02",
+        "amount": 40.8,
+        "items": 1,
+        "hour": 16,
+        "is_fraud": 0
+       },
+       {
+        "order_id": "W41-03",
+        "amount": 10.2,
+        "items": 1,
+        "hour": 16,
+        "is_fraud": 0
+       }
+      ]
+     },
+     "format": "rows",
+     "schema_hint": {},
+     "batching": {
+      "batch_size": 1000,
+      "max_records": null
+     },
+     "checkpoint": {},
+     "options": {}
+    },
+    "trimmed": [
+     {
+      "pointer": "/selection/records",
+      "note": "20 items, cut to 3"
+     }
+    ]
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "register-source-422",
+   "endpoint": "POST /api/v1/sources",
+   "title": "A body that is not a JSON object",
+   "request": {
+    "method": "POST",
+    "path": "/api/v1/sources",
+    "json": [
+     "orders-week-41"
+    ]
+   },
+   "response": {
+    "status": 422,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "detail": [
+      {
+       "type": "dict_type",
+       "loc": [
+        "body"
+       ],
+       "msg": "Input should be a valid dictionary",
+       "input": [
+        "orders-week-41"
+       ]
+      }
+     ]
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "list-sources",
+   "endpoint": "GET /api/v1/sources",
+   "title": "List the registered sources",
+   "trim": {
+    "items": 3
+   },
+   "request": {
+    "method": "GET",
+    "path": "/api/v1/sources"
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": [
+     {
+      "source_id": "orders-week-41",
+      "kind": "inline",
+      "connection_ref": null,
+      "selection": {
+       "records": [
+        {
+         "order_id": "W41-01",
+         "amount": 22.8,
+         "items": 2,
+         "hour": 14,
+         "is_fraud": 0
+        },
+        {
+         "order_id": "W41-02",
+         "amount": 40.8,
+         "items": 1,
+         "hour": 16,
+         "is_fraud": 0
+        },
+        {
+         "order_id": "W41-03",
+         "amount": 10.2,
+         "items": 1,
+         "hour": 16,
+         "is_fraud": 0
+        }
+       ]
+      },
+      "format": "rows",
+      "schema_hint": {},
+      "batching": {
+       "batch_size": 1000,
+       "max_records": null
+      },
+      "checkpoint": {},
+      "options": {}
+     }
+    ],
+    "trimmed": [
+     {
+      "pointer": "/0/selection/records",
+      "note": "20 items, cut to 3"
+     }
+    ]
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "get-source",
+   "endpoint": "GET /api/v1/sources/{source_id}",
+   "title": "Fetch one source",
+   "trim": {
+    "items": 3
+   },
+   "request": {
+    "method": "GET",
+    "path": "/api/v1/sources/orders-week-41"
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "source_id": "orders-week-41",
+     "kind": "inline",
+     "connection_ref": null,
+     "selection": {
+      "records": [
+       {
+        "order_id": "W41-01",
+        "amount": 22.8,
+        "items": 2,
+        "hour": 14,
+        "is_fraud": 0
+       },
+       {
+        "order_id": "W41-02",
+        "amount": 40.8,
+        "items": 1,
+        "hour": 16,
+        "is_fraud": 0
+       },
+       {
+        "order_id": "W41-03",
+        "amount": 10.2,
+        "items": 1,
+        "hour": 16,
+        "is_fraud": 0
+       }
+      ]
+     },
+     "format": "rows",
+     "schema_hint": {},
+     "batching": {
+      "batch_size": 1000,
+      "max_records": null
+     },
+     "checkpoint": {},
+     "options": {}
+    },
+    "trimmed": [
+     {
+      "pointer": "/selection/records",
+      "note": "20 items, cut to 3"
+     }
+    ]
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "get-missing-source",
+   "endpoint": "GET /api/v1/sources/{source_id}",
+   "title": "Fetch a source that does not exist",
+   "request": {
+    "method": "GET",
+    "path": "/api/v1/sources/no-such-source"
+   },
+   "response": {
+    "status": 404,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "detail": "Unknown source: no-such-source"
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "validate-source",
+   "endpoint": "POST /api/v1/sources/{source_id}:validate",
+   "title": "Validate the inline source",
+   "request": {
+    "method": "POST",
+    "path": "/api/v1/sources/orders-week-41:validate"
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "valid": true,
+     "errors": [],
+     "warnings": []
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "validate-missing-source",
+   "endpoint": "POST /api/v1/sources/{source_id}:validate",
+   "title": "Validate a source that does not exist",
+   "request": {
+    "method": "POST",
+    "path": "/api/v1/sources/no-such-source:validate"
+   },
+   "response": {
+    "status": 404,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "detail": "Unknown source: no-such-source"
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "classification-check",
+   "endpoint": "POST /api/v1/checks/classification",
+   "title": "Check a random forest that flags fraud",
+   "request": {
+    "method": "POST",
+    "path": "/api/v1/checks/classification",
+    "json": {
+     "dataset": {
+      "source_id": "orders-week-41"
+     },
+     "feature_fields": [
+      "amount",
+      "items",
+      "hour"
+     ],
+     "label_field": "is_fraud"
+    }
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "dataset_name": "source-backed",
+     "model_family": "random_forest",
+     "feature_fields": [
+      "amount",
+      "items",
+      "hour"
+     ],
+     "label_field": "is_fraud",
+     "train_rows": 16,
+     "test_rows": 4,
+     "metrics": {
+      "accuracy": 1.0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0,
+      "balanced_accuracy": 1.0,
+      "matthews_corrcoef": 1.0,
+      "roc_auc": 1.0,
+      "average_precision": 1.0
+     }
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "classification-planned-family",
+   "endpoint": "POST /api/v1/checks/classification",
+   "title": "A family the planner knows but this service cannot run",
+   "request": {
+    "method": "POST",
+    "path": "/api/v1/checks/classification",
+    "json": {
+     "dataset": {
+      "source_id": "orders-week-41"
+     },
+     "label_field": "is_fraud",
+     "model_family": "xgboost"
+    }
+   },
+   "response": {
+    "status": 400,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "detail": "Model family 'xgboost' for task 'classification' is planned, not implemented: The router lists `xgboost` as a classification candidate, but the package is not a model-service dependency. Implementing it means a scikit_learn adapter and installing ['xgboost>=2.1,<4'].",
+     "model_family": "xgboost",
+     "task": "classification"
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "classification-no-data",
+   "endpoint": "POST /api/v1/checks/classification",
+   "title": "A request with no data",
+   "request": {
+    "method": "POST",
+    "path": "/api/v1/checks/classification",
+    "json": {
+     "label_field": "is_fraud"
+    }
+   },
+   "response": {
+    "status": 422,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "detail": [
+      {
+       "type": "value_error",
+       "loc": [
+        "body"
+       ],
+       "msg": "Value error, MLCheckRequest requires dataset_name or dataset",
+       "input": {
+        "label_field": "is_fraud"
+       },
+       "ctx": {
+        "error": {}
+       }
+      }
+     ]
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "regression-check",
+   "endpoint": "POST /api/v1/checks/regression",
+   "title": "Check how well items and hour predict the amount",
+   "description": "Metric values from a fitted model can differ in the last digits between machines, so the replay check ignores them.",
+   "volatile": [
+    "/metrics/*"
+   ],
+   "request": {
+    "method": "POST",
+    "path": "/api/v1/checks/regression",
+    "json": {
+     "dataset": {
+      "source_id": "orders-week-41"
+     },
+     "feature_fields": [
+      "items",
+      "hour"
+     ],
+     "label_field": "amount"
+    }
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "dataset_name": "source-backed",
+     "model_family": "random_forest",
+     "feature_fields": [
+      "items",
+      "hour"
+     ],
+     "label_field": "amount",
+     "train_rows": 16,
+     "test_rows": 4,
+     "metrics": {
+      "mae": 17.30211250000015,
+      "mse": 507.5611815881351,
+      "rmse": 22.529118526656454,
+      "r2": 0.9902219314214623
+     }
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "regression-wrong-task",
+   "endpoint": "POST /api/v1/checks/regression",
+   "title": "A family that serves another task",
+   "request": {
+    "method": "POST",
+    "path": "/api/v1/checks/regression",
+    "json": {
+     "dataset": {
+      "source_id": "orders-week-41"
+     },
+     "label_field": "amount",
+     "model_family": "naive_bayes"
+    }
+   },
+   "response": {
+    "status": 400,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "detail": "Model family 'naive_bayes' is not available for task 'regression' (it serves ['classification']). Available for 'regression': ['custom', 'linear', 'random_forest', 'xgboost']",
+     "model_family": "naive_bayes",
+     "task": "regression"
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "train",
+   "endpoint": "POST /api/v1/train",
+   "title": "Train an autoencoder with one candidate",
+   "description": "search narrows the default 8 candidates to 1. The threshold comes from a trained network, so the replay check ignores it.",
+   "volatile": [
+    "/metrics/threshold"
+   ],
+   "request": {
+    "method": "POST",
+    "path": "/api/v1/train",
+    "json": {
+     "dataset": {
+      "source_id": "orders-week-41"
+     },
+     "feature_fields": [
+      "amount",
+      "items",
+      "hour"
+     ],
+     "label_field": "is_fraud",
+     "artifact_name": "orders-autoencoder.pt",
+     "search": {
+      "values": {
+       "hidden_dims": [
+        [
+         16,
+         8
+        ]
+       ],
+       "dropout": [
+        0.0
+       ],
+       "pca_components": [
+        null
+       ]
+      }
+     }
+    }
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "dataset_name": "source-backed",
+     "model_family": "autoencoder",
+     "artifact_path": "/tmp/dagents-api-examples/artifacts/orders-autoencoder.pt",
+     "model_version": "source-backed-autoencoder-v1",
+     "input_dim": 3,
+     "train_rows": 16,
+     "test_rows": 4,
+     "best_params": {
+      "hidden_dims": [
+       16,
+       8
+      ],
+      "latent_dim": 8,
+      "dropout": 0.0,
+      "learning_rate": 0.001,
+      "weight_decay": 0.0,
+      "batch_size": 256,
+      "epochs": 15,
+      "patience": 4,
+      "input_noise_std": 0.0,
+      "pca_components": null,
+      "beta": 1.0
+     },
+     "cross_validation": {
+      "strategy": "stratified_kfold",
+      "folds": 3,
+      "metric_mean": 1.0,
+      "metric_std": 0.0,
+      "best_params": {
+       "hidden_dims": [
+        16,
+        8
+       ],
+       "latent_dim": 8,
+       "dropout": 0.0,
+       "learning_rate": 0.001,
+       "weight_decay": 0.0,
+       "batch_size": 256,
+       "epochs": 15,
+       "patience": 4,
+       "input_noise_std": 0.0,
+       "pca_components": null,
+       "beta": 1.0
+      }
+     },
+     "metrics": {
+      "roc_auc": 1.0,
+      "average_precision": 1.0,
+      "f1": 1.0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "balanced_accuracy": 1.0,
+      "matthews_corrcoef": 1.0,
+      "precision_at_k": 1.0,
+      "recall_at_k": 1.0,
+      "threshold": 264.75405520913245
+     }
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "train-planned-family",
+   "endpoint": "POST /api/v1/train",
+   "title": "A family that is planned for anomaly detection",
+   "request": {
+    "method": "POST",
+    "path": "/api/v1/train",
+    "json": {
+     "dataset": {
+      "source_id": "orders-week-41"
+     },
+     "label_field": "is_fraud",
+     "model_family": "random_forest"
+    }
+   },
+   "response": {
+    "status": 400,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "detail": "Model family 'random_forest' for task 'anomaly_detection' is planned, not implemented: The router falls back to `random_forest` for anomaly detection when the dataset profile suggests nothing; serving it means an unsupervised estimator such as IsolationForest, not the supervised classifier. Implementing it means a scikit_learn adapter.",
+     "model_family": "random_forest",
+     "task": "anomaly_detection"
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "train-422",
+   "endpoint": "POST /api/v1/train",
+   "title": "A max_rows below the minimum",
+   "request": {
+    "method": "POST",
+    "path": "/api/v1/train",
+    "json": {
+     "dataset": {
+      "source_id": "orders-week-41"
+     },
+     "max_rows": 50
+    }
+   },
+   "response": {
+    "status": 422,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "detail": [
+      {
+       "type": "greater_than_equal",
+       "loc": [
+        "body",
+        "max_rows"
+       ],
+       "msg": "Input should be greater than or equal to 100",
+       "input": 50,
+       "ctx": {
+        "ge": 100
+       }
+      }
+     ]
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "submit-job",
+   "endpoint": "POST /api/v1/model-jobs",
+   "title": "Submit the same training as a background job",
+   "description": "job_id and submitted_at come from the clock.",
+   "volatile": [
+    "/job_id",
+    "/submitted_at"
+   ],
+   "request": {
+    "method": "POST",
+    "path": "/api/v1/model-jobs",
+    "json": {
+     "dataset": {
+      "source_id": "orders-week-41"
+     },
+     "feature_fields": [
+      "amount",
+      "items",
+      "hour"
+     ],
+     "label_field": "is_fraud",
+     "artifact_name": "orders-autoencoder-job.pt",
+     "search": {
+      "values": {
+       "hidden_dims": [
+        [
+         16,
+         8
+        ]
+       ],
+       "dropout": [
+        0.0
+       ],
+       "pca_components": [
+        null
+       ]
+      }
+     }
+    }
+   },
+   "response": {
+    "status": 202,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "job_id": "model-job-1791979711334",
+     "status": "queued",
+     "submitted_at": 1791979711,
+     "started_at": null,
+     "completed_at": null,
+     "result": null,
+     "error": null
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "forecasting-check",
+   "endpoint": "POST /api/v1/checks/forecasting",
+   "title": "Check a GRU that forecasts daily orders",
+   "description": "The records are sent inline. Metric values come from a trained network, so the replay check ignores them.",
+   "volatile": [
+    "/metrics/*"
+   ],
+   "request": {
+    "method": "POST",
+    "path": "/api/v1/checks/forecasting",
+    "json": {
+     "dataset": {
+      "inline_records": [
+       {
+        "day": 1,
+        "visits": 310,
+        "orders": 31
+       },
+       {
+        "day": 2,
+        "visits": 295,
+        "orders": 29
+       },
+       {
+        "day": 3,
+        "visits": 330,
+        "orders": 34
+       },
+       {
+        "day": 4,
+        "visits": 352,
+        "orders": 36
+       },
+       {
+        "day": 5,
+        "visits": 401,
+        "orders": 41
+       },
+       {
+        "day": 6,
+        "visits": 455,
+        "orders": 47
+       },
+       {
+        "day": 7,
+        "visits": 430,
+        "orders": 44
+       },
+       {
+        "day": 8,
+        "visits": 322,
+        "orders": 33
+       },
+       {
+        "day": 9,
+        "visits": 318,
+        "orders": 32
+       },
+       {
+        "day": 10,
+        "visits": 341,
+        "orders": 35
+       },
+       {
+        "day": 11,
+        "visits": 365,
+        "orders": 37
+       },
+       {
+        "day": 12,
+        "visits": 410,
+        "orders": 42
+       },
+       {
+        "day": 13,
+        "visits": 470,
+        "orders": 49
+       },
+       {
+        "day": 14,
+        "visits": 446,
+        "orders": 46
+       },
+       {
+        "day": 15,
+        "visits": 330,
+        "orders": 34
+       },
+       {
+        "day": 16,
+        "visits": 327,
+        "orders": 33
+       },
+       {
+        "day": 17,
+        "visits": 350,
+        "orders": 36
+       },
+       {
+        "day": 18,
+        "visits": 372,
+        "orders": 38
+       },
+       {
+        "day": 19,
+        "visits": 420,
+        "orders": 43
+       },
+       {
+        "day": 20,
+        "visits": 480,
+        "orders": 50
+       }
+      ]
+     },
+     "feature_fields": [
+      "visits",
+      "orders"
+     ],
+     "label_field": "orders",
+     "model_family": "gru",
+     "sequence_length": 3
+    }
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "dataset_name": "source-backed",
+     "model_family": "gru",
+     "feature_fields": [
+      "visits",
+      "orders"
+     ],
+     "label_field": "orders",
+     "sequence_length": 3,
+     "train_rows": 13,
+     "test_rows": 4,
+     "metrics": {
+      "mae": 39.47056198120117,
+      "mse": 1587.1126708984375,
+      "rmse": 39.8385826918885,
+      "r2": -53.37644958496094
+     }
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "forecasting-default-family",
+   "endpoint": "POST /api/v1/checks/forecasting",
+   "title": "A forecasting check without a model family",
+   "description": "The default family, random_forest, does not serve forecasting.",
+   "request": {
+    "method": "POST",
+    "path": "/api/v1/checks/forecasting",
+    "json": {
+     "dataset": {
+      "inline_records": [
+       {
+        "day": 1,
+        "visits": 310,
+        "orders": 31
+       },
+       {
+        "day": 2,
+        "visits": 295,
+        "orders": 29
+       },
+       {
+        "day": 3,
+        "visits": 330,
+        "orders": 34
+       },
+       {
+        "day": 4,
+        "visits": 352,
+        "orders": 36
+       },
+       {
+        "day": 5,
+        "visits": 401,
+        "orders": 41
+       },
+       {
+        "day": 6,
+        "visits": 455,
+        "orders": 47
+       },
+       {
+        "day": 7,
+        "visits": 430,
+        "orders": 44
+       },
+       {
+        "day": 8,
+        "visits": 322,
+        "orders": 33
+       },
+       {
+        "day": 9,
+        "visits": 318,
+        "orders": 32
+       },
+       {
+        "day": 10,
+        "visits": 341,
+        "orders": 35
+       },
+       {
+        "day": 11,
+        "visits": 365,
+        "orders": 37
+       },
+       {
+        "day": 12,
+        "visits": 410,
+        "orders": 42
+       },
+       {
+        "day": 13,
+        "visits": 470,
+        "orders": 49
+       },
+       {
+        "day": 14,
+        "visits": 446,
+        "orders": 46
+       },
+       {
+        "day": 15,
+        "visits": 330,
+        "orders": 34
+       },
+       {
+        "day": 16,
+        "visits": 327,
+        "orders": 33
+       },
+       {
+        "day": 17,
+        "visits": 350,
+        "orders": 36
+       },
+       {
+        "day": 18,
+        "visits": 372,
+        "orders": 38
+       },
+       {
+        "day": 19,
+        "visits": 420,
+        "orders": 43
+       },
+       {
+        "day": 20,
+        "visits": 480,
+        "orders": 50
+       }
+      ]
+     },
+     "label_field": "orders"
+    }
+   },
+   "response": {
+    "status": 400,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "detail": "Model family 'random_forest' is not available for task 'forecasting' (it serves ['anomaly_detection', 'classification', 'regression']). Available for 'forecasting': ['custom', 'gru', 'lstm', 'transformer']",
+     "model_family": "random_forest",
+     "task": "forecasting"
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "list-jobs",
+   "endpoint": "GET /api/v1/model-jobs",
+   "title": "List the jobs",
+   "description": "The job runs while other requests are answered, so its state at this moment varies. The replay check ignores it.",
+   "volatile": [
+    "/jobs/*/job_id",
+    "/jobs/*/status",
+    "/jobs/*/submitted_at",
+    "/jobs/*/started_at",
+    "/jobs/*/completed_at",
+    "/jobs/*/result",
+    "/jobs/*/error"
+   ],
+   "request": {
+    "method": "GET",
+    "path": "/api/v1/model-jobs",
+    "query": {
+     "limit": 5
+    }
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "jobs": [
+      {
+       "job_id": "model-job-1791979711334",
+       "status": "running",
+       "submitted_at": 1791979711,
+       "started_at": 1791979711,
+       "completed_at": null,
+       "result": null,
+       "error": null
+      }
+     ]
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "list-jobs-422",
+   "endpoint": "GET /api/v1/model-jobs",
+   "title": "A limit that is not a number",
+   "request": {
+    "method": "GET",
+    "path": "/api/v1/model-jobs",
+    "query": {
+     "limit": "five"
+    }
+   },
+   "response": {
+    "status": 422,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "detail": [
+      {
+       "type": "int_parsing",
+       "loc": [
+        "query",
+        "limit"
+       ],
+       "msg": "Input should be a valid integer, unable to parse string as an integer",
+       "input": "five"
+      }
+     ]
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "get-job",
+   "endpoint": "GET /api/v1/model-jobs/{job_id}",
+   "title": "Fetch the job the submit example started",
+   "description": "The job_id in the path is the one the submit example returned. The job runs while other requests are answered, so its state at this moment varies, and the replay check ignores it.",
+   "volatile": [
+    "/job_id",
+    "/status",
+    "/submitted_at",
+    "/started_at",
+    "/completed_at",
+    "/result",
+    "/error"
+   ],
+   "request": {
+    "method": "GET",
+    "path": "/api/v1/model-jobs/model-job-1791979711334"
+   },
+   "request_template": {
+    "path": "/api/v1/model-jobs/{from:submit-job:/job_id}"
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "job_id": "model-job-1791979711334",
+     "status": "running",
+     "submitted_at": 1791979711,
+     "started_at": 1791979711,
+     "completed_at": null,
+     "result": null,
+     "error": null
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "get-missing-job",
+   "endpoint": "GET /api/v1/model-jobs/{job_id}",
+   "title": "Fetch a job that does not exist",
+   "request": {
+    "method": "GET",
+    "path": "/api/v1/model-jobs/model-job-0"
+   },
+   "response": {
+    "status": 404,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "detail": "Unknown job: model-job-0"
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  }
+ ]
+}

@@ -38,6 +38,10 @@
 
 .masthead .theme-toggle { margin-left: auto; }
 
+@media (max-width: 479px) {
+  .masthead nav .nav-wide { display: none; }
+}
+
 @media (min-width: 760px) {
   .masthead nav { order: 0; flex: 1; flex-basis: auto; }
   .masthead .theme-toggle { margin-left: 0; }
@@ -218,19 +222,22 @@
   font-size: var(--ds-step--1);
 }
 
+/* A diagram is drawn at its natural size up to the column width, and at no less
+ * than MIN_SCALE in Mermaid.tsx; a wider one scrolls inside its own box. */
 .mermaid {
-  display: flex;
-  justify-content: center;
+  display: block;
   min-height: 2rem;
+  overflow-x: auto;
 }
 
 .mermaid svg {
+  display: block;
+  margin-inline: auto;
   max-width: 100%;
   height: auto;
 }
 
 .mermaid.is-error {
-  justify-content: flex-start;
   color: var(--ds-deny);
   font-family: var(--ds-font-mono);
   font-size: var(--ds-step--1);
@@ -368,6 +375,12 @@
   background: var(--ds-inset);
 }
 
+/* Long paths and variable names break at the column edge instead of widening the
+ * page. break-word, unlike anywhere, does not shrink a table column to one
+ * letter: a table with long names scrolls inside .table-scroll instead. */
+.doc :not(pre) > code,
+.doc a { overflow-wrap: break-word; }
+
 .doc pre.code {
   padding: var(--ds-4);
   border: 1px solid var(--ds-line);
@@ -423,32 +436,529 @@
 }
 
 /* ===== API reference ====================================================== */
+/* #/api and #/api/<module> (site/src/pages/Api.tsx, site/src/api/). Method
+ * badges and status codes carry no colour: an HTTP method is not a decision,
+ * so they use mono type, weight and a border. */
 
-.api-filter {
+.api-layout {
+  display: grid;
+  gap: var(--ds-6);
+  align-items: start;
+}
+
+.api-main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-5);
+  min-width: 0;
+}
+
+/* The sidebar on wide screens; the folding menu on narrow ones. */
+.api-nav { display: none; }
+
+@media (min-width: 960px) {
+  .api-layout { grid-template-columns: 16rem minmax(0, 1fr); }
+  .api-nav {
+    display: block;
+    position: sticky;
+    top: 5rem;
+    max-height: calc(100vh - 6rem);
+    overflow-y: auto;
+    padding-right: var(--ds-2);
+  }
+  .api-menu { display: none; }
+}
+
+.api-menu {
+  border: 1px solid var(--ds-line);
+  border-radius: var(--ds-r-2);
+  background: var(--ds-panel);
+}
+
+.api-menu summary {
+  padding: var(--ds-3) var(--ds-4);
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.api-menu nav {
+  padding: 0 var(--ds-4) var(--ds-4);
+  max-height: 70vh;
+  overflow-y: auto;
+}
+
+.api-tree,
+.api-tree ol {
+  list-style: none;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.api-tree ol { padding-left: var(--ds-3); margin-block: var(--ds-1); }
+
+.api-tree a {
+  display: block;
+  padding: 2px var(--ds-2);
+  border-left: 2px solid var(--ds-line);
+  color: var(--ds-ink-2);
+  text-decoration: none;
+  font-size: var(--ds-step--1);
+  overflow-wrap: break-word;
+}
+
+/* Where the reader is on a long module page (set by the scroll position). */
+.api-tree a[aria-current="location"] {
+  color: var(--ds-ink);
+  border-left-color: var(--ds-ink);
+}
+
+.api-tree a:hover { color: var(--ds-ink); }
+
+.api-tree a.is-current {
+  color: var(--ds-ink);
+  font-weight: 600;
+  border-left-color: var(--ds-ink);
+}
+
+.api-tree-endpoints a {
+  font-family: var(--ds-font-mono);
+  font-size: 0.75rem;
+}
+
+.api-tree-endpoints .api-method { font-size: 0.65rem; padding: 0 3px; }
+
+/* Search */
+
+.api-search {
+  position: relative;
+  max-width: 40rem;
+}
+
+.api-results {
+  margin-top: var(--ds-2);
+  border: 1px solid var(--ds-line-strong);
+  border-radius: var(--ds-r-2);
+  background: var(--ds-raised);
+  max-height: 24rem;
+  overflow-y: auto;
+}
+
+.api-results ul { list-style: none; padding: 0; margin: 0; }
+
+.api-result-count { padding: var(--ds-2) var(--ds-3); border-bottom: 1px solid var(--ds-line); }
+
+.api-results a {
   display: flex;
   flex-wrap: wrap;
-  align-items: end;
-  gap: var(--ds-3) var(--ds-5);
+  align-items: baseline;
+  gap: 2px var(--ds-2);
+  padding: var(--ds-2) var(--ds-3);
+  border-bottom: 1px solid var(--ds-line);
+  color: var(--ds-ink);
+  text-decoration: none;
 }
 
-.api-filter .ds-field {
-  flex: 1;
-  min-width: 16rem;
-  max-width: 32rem;
+.api-results a:hover,
+.api-results a:focus-visible { background: var(--ds-inset); }
+
+.api-result-label { font-family: var(--ds-font-mono); font-size: var(--ds-step--1); overflow-wrap: anywhere; }
+.api-result-detail { flex-basis: 100%; }
+
+/* Pages */
+
+.api-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-5);
+  min-width: 0;
 }
 
-.api-count { color: var(--ds-ink-2); }
+.api-page .doc { max-width: 52rem; }
 
-.role {
+.api-index-grid {
+  display: grid;
+  gap: var(--ds-4);
+  grid-template-columns: repeat(auto-fit, minmax(min(15rem, 100%), 1fr));
+}
+
+.api-index-module {
+  padding: var(--ds-4);
+  border: 1px solid var(--ds-line);
+  border-radius: var(--ds-r-2);
+  background: var(--ds-panel);
+}
+
+.api-index-module ul,
+.api-object-index { padding-left: var(--ds-5); }
+
+.api-index h2,
+.api-interface > h2 {
+  font-size: var(--ds-step-3);
+  padding-top: var(--ds-2);
+  border-top: 1px solid var(--ds-line-strong);
+  scroll-margin-top: 5rem;
+}
+
+.api-interface {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-4);
+  scroll-margin-top: 5rem;
+}
+
+.api-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(14rem, 100%), 1fr));
+  gap: var(--ds-2) var(--ds-4);
+  margin: 0;
+}
+
+.api-facts > div { min-width: 0; }
+
+.api-facts dt {
+  font-family: var(--ds-font-mono);
+  font-size: 0.7rem;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--ds-ink-3);
+}
+
+.api-facts dd {
+  margin: 0;
+  font-family: var(--ds-font-mono);
+  font-size: var(--ds-step--1);
+  overflow-wrap: anywhere;
+}
+
+/* Identifiers have underscores; keep the underline below them. */
+.api-facts a,
+.api-tree a,
+.api-toc a,
+.api-type a { text-underline-offset: 0.3em; }
+
+.api-toc {
+  list-style: none;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-1);
+}
+
+.api-toc a { text-decoration: none; overflow-wrap: break-word; }
+.api-toc code { font-size: var(--ds-step--1); }
+
+.api-method {
+  display: inline-block;
+  min-width: 3.4em;
+  padding: 1px 5px;
+  border: 1px solid var(--ds-line-strong);
+  border-radius: 2px;
+  font-family: var(--ds-font-mono);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-align: center;
+  color: var(--ds-ink);
+  background: var(--ds-inset);
+}
+
+.api-status {
+  font-family: var(--ds-font-mono);
+  font-weight: 700;
+}
+
+/* One endpoint, command or object */
+
+.api-endpoint,
+.api-object {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-4);
+  padding: var(--ds-5);
+  border: 1px solid var(--ds-line);
+  border-radius: var(--ds-r-2);
+  background: var(--ds-panel);
+  min-width: 0;
+  scroll-margin-top: 5rem;
+}
+
+.api-endpoint-head { display: flex; flex-direction: column; gap: var(--ds-1); }
+
+.api-endpoint-head h3,
+.api-object > h3 { font-size: var(--ds-step-2); overflow-wrap: anywhere; }
+
+.api-endpoint-head h3 a { color: var(--ds-ink); text-decoration: none; }
+.api-endpoint-head h3 a:hover { text-decoration: underline; }
+
+.api-route { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--ds-2); }
+/* Paths break after a slash (BreakablePath); break-word only splits a segment
+ * that is wider than the card on its own. */
+.api-route code { font-size: var(--ds-step-0); overflow-wrap: break-word; }
+.api-route-twin code { font-size: var(--ds-step--1); }
+
+.api-anchor { display: block; scroll-margin-top: 5rem; }
+
+.api-part { display: flex; flex-direction: column; gap: var(--ds-3); min-width: 0; }
+
+.api-part h4 {
+  font-size: var(--ds-step-0);
+  font-weight: 700;
+  padding-top: var(--ds-3);
+  border-top: 1px solid var(--ds-line);
+}
+
+.api-prose { line-height: 1.6; }
+
+/* Paths and file names are long words; let them break instead of widening the
+ * page (break-word, so table columns keep their words whole and scroll). */
+.api-prose :not(pre) > code,
+.api-prose a { overflow-wrap: break-word; }
+.api-endpoint .doc,
+.api-object .doc { max-width: none; }
+
+.api-table { overflow-x: auto; }
+
+.api-fields {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--ds-step--1);
+}
+
+.api-fields th {
+  text-align: left;
+  padding: var(--ds-2) var(--ds-3) var(--ds-2) 0;
+  border-bottom: 1px solid var(--ds-line-strong);
+  font-family: var(--ds-font-mono);
+  font-size: 0.7rem;
+  font-weight: 500;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--ds-ink-3);
+  white-space: nowrap;
+}
+
+.api-fields td {
+  padding: var(--ds-2) var(--ds-3) var(--ds-2) 0;
+  border-bottom: 1px solid var(--ds-line);
+  vertical-align: top;
+}
+
+.api-field-name { font-weight: 600; white-space: nowrap; }
+/* break-word keeps type names whole when the column can grow (anywhere let the
+ * table squeeze "string" to "stri / ng"); the min-width keeps short types on one line. */
+.api-type { font-family: var(--ds-font-mono); font-size: 0.8rem; overflow-wrap: break-word; }
+td.api-type { min-width: 10ch; }
+
+/* Descriptions and allowed values are prose that can hold a long identifier or
+ * pattern. Letting them break anywhere keeps the table inside its card, so the
+ * name and type columns keep their words whole. */
+.api-fields td[data-label="Description"],
+.api-fields td[data-label="Allowed"],
+.api-fields td[data-label="Meaning"] { overflow-wrap: anywhere; }
+
+.api-nested > td { padding: 0 0 var(--ds-2) var(--ds-4); border-left: 2px solid var(--ds-line); }
+.api-nested summary { cursor: pointer; padding: var(--ds-1) 0; color: var(--ds-ink-2); font-size: var(--ds-step--1); }
+.api-nested summary:hover { color: var(--ds-ink); }
+
+.api-error-body { font-size: 0.75rem; overflow-wrap: anywhere; }
+
+/* Narrow screens: each row of a field table becomes a short block. */
+@media (max-width: 720px) {
+  .api-fields thead { display: none; }
+  .api-fields,
+  .api-fields tbody,
+  .api-fields tr,
+  .api-fields td { display: block; width: 100%; }
+  .api-fields tr { padding-block: var(--ds-2); border-bottom: 1px solid var(--ds-line); }
+  .api-fields td { border: 0; padding: 1px 0; }
+  .api-fields td[data-empty] { display: none; }
+  .api-fields td[data-label]:not([data-label="Field"]):not([data-label="Name"]):not([data-label="Flag"])::before {
+    content: attr(data-label) ": ";
+    font-family: var(--ds-font-mono);
+    font-size: 0.7rem;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--ds-ink-3);
+  }
+  .api-nested > td { padding-left: var(--ds-3); }
+  .api-endpoint,
+  .api-object { padding: var(--ds-4) var(--ds-3); }
+}
+
+.api-response p { margin-bottom: var(--ds-2); }
+
+/* Examples */
+
+.api-example {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-2);
+  padding-top: var(--ds-3);
+  border-top: 1px dashed var(--ds-line);
+  min-width: 0;
+  scroll-margin-top: 5rem;
+}
+
+.api-example h5 { font-size: var(--ds-step-0); font-weight: 600; }
+
+.api-code { min-width: 0; }
+
+.api-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  border: 1px solid var(--ds-line);
+  border-bottom: 0;
+  border-radius: var(--ds-r-1) var(--ds-r-1) 0 0;
+  background: var(--ds-panel);
+}
+
+.api-tabs button {
+  font: inherit;
+  font-size: var(--ds-step--1);
+  padding: var(--ds-1) var(--ds-3);
+  border: 0;
+  border-right: 1px solid var(--ds-line);
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--ds-ink-2);
+  cursor: pointer;
+}
+
+.api-tabs button:hover { color: var(--ds-ink); }
+
+.api-tabs button.is-active {
+  color: var(--ds-ink);
+  font-weight: 600;
+  border-bottom-color: var(--ds-ink);
+}
+
+.api-tabs .api-copy { margin-left: auto; border-right: 0; border-left: 1px solid var(--ds-line); }
+
+.api-code-panel { border-radius: 0 0 var(--ds-r-1) var(--ds-r-1); white-space: pre; }
+
+.api-json { max-height: 28rem; overflow: auto; white-space: pre; }
+
+.api-response-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--ds-1) var(--ds-2); }
+
+/* Below 760 px the masthead takes two lines, so anchors stop lower. */
+@media (max-width: 759px) {
+  .api-interface,
+  .api-endpoint,
+  .api-object,
+  .api-anchor,
+  .api-example,
+  .api-page .doc h2,
+  .api-page .doc h3 { scroll-margin-top: 9rem; }
+}
+
+/* ===== Resources ========================================================== */
+/* The teaching decks, notes and reports (#/resources). Slide previews are
+ * pictures of slides, so they keep the slides' own colours inside a thin
+ * border; nothing around them adds colour. */
+
+.resource-toc {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ds-2) var(--ds-5);
+}
+
+.resource-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-4);
+  margin-top: var(--ds-4);
+  padding-top: var(--ds-5);
+  border-top: 1px solid var(--ds-line);
+  scroll-margin-top: 5rem;
+}
+
+.resource-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.resource {
+  display: grid;
+  gap: var(--ds-4);
+  padding: var(--ds-4);
+  border: 1px solid var(--ds-line);
+  border-radius: var(--ds-r-2);
+  background: var(--ds-panel);
+  min-width: 0;
+  scroll-margin-top: 5rem;
+}
+
+@media (min-width: 760px) {
+  .resource.has-preview { grid-template-columns: 16rem minmax(0, 1fr); }
+}
+
+.resource-preview {
+  display: block;
+  width: 100%;
+  max-width: 30rem;
+  height: auto;
+  border: 1px solid var(--ds-line);
+  border-radius: var(--ds-r-1);
+}
+
+.resource-body {
   display: flex;
   flex-direction: column;
   gap: var(--ds-3);
-  margin-top: var(--ds-5);
+  min-width: 0;
 }
 
-.service-meta { gap: var(--ds-2); }
-.service-meta .count { color: var(--ds-ink-2); font-size: var(--ds-step--1); }
-.ds-table td.method { white-space: nowrap; }
+.resource-body > p { max-width: var(--ds-measure); }
+
+.resource-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ds-2) var(--ds-5);
+  margin: 0;
+}
+
+.resource-facts > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.resource-facts dt {
+  font-family: var(--ds-font-mono);
+  font-size: 0.72rem;
+  font-weight: 500;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--ds-ink-3);
+}
+
+.resource-facts dd { margin: 0; }
+
+/* The underline marks the action; the file size beside it is not underlined.
+ * A flex item inherits its parent's underline, so the link drops it and the
+ * label draws its own. */
+.resource .actions .ds-btn { text-decoration: none; }
+
+.resource-action {
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+}
+
+.resource .actions .ds-btn:hover .resource-action { text-decoration-thickness: 2px; }
+
+.resource-size {
+  font-family: var(--ds-font-mono);
+  font-weight: 400;
+  color: var(--ds-ink-2);
+}
 
 /* ===== Footer ============================================================= */
 
@@ -469,3 +979,6 @@
   flex-wrap: wrap;
   gap: var(--ds-4);
 }
+
+/* JSON pointers in example notes are long single words. */
+.api-example .ds-note code { overflow-wrap: anywhere; }

@@ -1,0 +1,2098 @@
+{
+  "service": "gma",
+  "note": "Captured in process with the planner available. The requests run in this order against one new GMA, so later requests see what earlier ones stored. The round digest in the site results was computed by dagentsc from the round 1 manifest: fnv1a:767d1ad0c4595843.",
+  "examples": [
+    {
+      "id": "health",
+      "endpoint": "GET /api/v1/health",
+      "title": "Check that the GMA answers",
+      "request": {
+        "path": "/api/v1/health"
+      },
+      "status": 200
+    },
+    {
+      "id": "register",
+      "endpoint": "PUT /api/v1/agents/{agent_id}/registration",
+      "title": "Register the LMA of store north",
+      "request": {
+        "path": "/api/v1/agents/lma-store-north/registration",
+        "json": {
+          "agent": {
+            "agent_id": "lma-store-north",
+            "workspace_id": "retail-hq",
+            "name": "Store North LMA",
+            "agent_type": "LMA"
+          },
+          "scope": {
+            "tenant": "retail-hq",
+            "source": "store-north-orders"
+          },
+          "version": "0.1.0",
+          "capabilities": [
+            "profile",
+            "evaluate",
+            "guard"
+          ]
+        }
+      },
+      "status": 200
+    },
+    {
+      "id": "register-short",
+      "endpoint": "POST /register",
+      "title": "Register the LMA of store south on the short path",
+      "request": {
+        "path": "/register",
+        "json": {
+          "agent": {
+            "agent_id": "lma-store-south",
+            "workspace_id": "retail-hq",
+            "name": "Store South LMA",
+            "agent_type": "LMA"
+          },
+          "scope": {
+            "tenant": "retail-hq",
+            "source": "store-south-orders"
+          },
+          "version": "0.1.0",
+          "capabilities": [
+            "profile",
+            "evaluate",
+            "guard"
+          ]
+        }
+      },
+      "status": 200
+    },
+    {
+      "id": "register-path-wins",
+      "endpoint": "PUT /api/v1/agents/{agent_id}/registration",
+      "title": "A body id that differs from the path id",
+      "description": "The agent is stored as lma-store-east, the id in the path. See the agent list below.",
+      "request": {
+        "path": "/api/v1/agents/lma-store-east/registration",
+        "json": {
+          "agent": {
+            "agent_id": "lma-east-typo",
+            "workspace_id": "retail-hq",
+            "name": "Store East LMA",
+            "agent_type": "LMA"
+          },
+          "scope": {
+            "tenant": "retail-hq",
+            "source": "store-east-orders"
+          },
+          "version": "0.1.0",
+          "capabilities": [
+            "profile",
+            "evaluate"
+          ]
+        }
+      },
+      "status": 200
+    },
+    {
+      "id": "register-422",
+      "endpoint": "PUT /api/v1/agents/{agent_id}/registration",
+      "title": "A registration without a version",
+      "request": {
+        "path": "/api/v1/agents/lma-store-north/registration",
+        "json": {
+          "agent": {
+            "agent_id": "lma-store-north",
+            "workspace_id": "retail-hq",
+            "name": "Store North LMA",
+            "agent_type": "LMA"
+          }
+        }
+      },
+      "status": 422
+    },
+    {
+      "id": "heartbeat",
+      "endpoint": "POST /api/v1/agents/{agent_id}/heartbeats",
+      "title": "Send a heartbeat before any deployment is planned",
+      "request": {
+        "path": "/api/v1/agents/lma-store-north/heartbeats",
+        "json": {
+          "agent": {
+            "agent_id": "lma-store-north",
+            "workspace_id": "retail-hq",
+            "name": "Store North LMA",
+            "agent_type": "LMA"
+          },
+          "status": "ACTIVE",
+          "timestamp": 1760000000
+        }
+      },
+      "status": 200
+    },
+    {
+      "id": "heartbeat-unregistered",
+      "endpoint": "POST /heartbeat",
+      "title": "A heartbeat from an agent that never registered",
+      "description": "The GMA adds the agent with version unknown.",
+      "request": {
+        "path": "/heartbeat",
+        "json": {
+          "agent": {
+            "agent_id": "lma-store-west",
+            "workspace_id": "retail-hq",
+            "name": "Store West LMA",
+            "agent_type": "LMA"
+          },
+          "status": "ACTIVE",
+          "timestamp": 1760000005
+        }
+      },
+      "status": 200
+    },
+    {
+      "id": "heartbeat-422",
+      "endpoint": "POST /api/v1/agents/{agent_id}/heartbeats",
+      "title": "A timestamp that is not a number",
+      "request": {
+        "path": "/api/v1/agents/lma-store-north/heartbeats",
+        "json": {
+          "agent": {
+            "agent_id": "lma-store-north",
+            "workspace_id": "retail-hq",
+            "name": "Store North LMA",
+            "agent_type": "LMA"
+          },
+          "status": "ACTIVE",
+          "timestamp": "today"
+        }
+      },
+      "status": 422
+    },
+    {
+      "id": "telemetry",
+      "endpoint": "POST /api/v1/agents/{agent_id}/telemetry",
+      "title": "Send telemetry from store north",
+      "request": {
+        "path": "/api/v1/agents/lma-store-north/telemetry",
+        "json": {
+          "agent": {
+            "agent_id": "lma-store-north",
+            "workspace_id": "retail-hq",
+            "name": "Store North LMA",
+            "agent_type": "LMA"
+          },
+          "metrics": [
+            {
+              "key": "local_checks_total",
+              "value": 3,
+              "labels": {
+                "bundle_id": "returns-monitor"
+              },
+              "observed_at": 1760000010
+            },
+            {
+              "key": "guard_denials_total",
+              "value": 1,
+              "labels": {
+                "boundary": "before_read"
+              },
+              "observed_at": 1760000010
+            }
+          ],
+          "pointers": {
+            "run": "run-returns-001"
+          }
+        }
+      },
+      "status": 200
+    },
+    {
+      "id": "telemetry-short",
+      "endpoint": "POST /telemetry",
+      "title": "Send telemetry from store south on the short path",
+      "request": {
+        "path": "/telemetry",
+        "json": {
+          "agent": {
+            "agent_id": "lma-store-south",
+            "workspace_id": "retail-hq",
+            "name": "Store South LMA",
+            "agent_type": "LMA"
+          },
+          "metrics": [
+            {
+              "key": "local_checks_total",
+              "value": 2,
+              "labels": {
+                "bundle_id": "returns-monitor"
+              },
+              "observed_at": 1760000020
+            }
+          ]
+        }
+      },
+      "status": 200
+    },
+    {
+      "id": "telemetry-422",
+      "endpoint": "POST /api/v1/agents/{agent_id}/telemetry",
+      "title": "A metric value that is not a number",
+      "request": {
+        "path": "/api/v1/agents/lma-store-north/telemetry",
+        "json": {
+          "agent": {
+            "agent_id": "lma-store-north",
+            "workspace_id": "retail-hq",
+            "name": "Store North LMA",
+            "agent_type": "LMA"
+          },
+          "metrics": [
+            {
+              "key": "local_checks_total",
+              "value": "three",
+              "observed_at": 1760000030
+            }
+          ]
+        }
+      },
+      "status": 422
+    },
+    {
+      "id": "telemetry-recent",
+      "endpoint": "GET /telemetry/recent",
+      "title": "List the two newest envelopes",
+      "request": {
+        "path": "/telemetry/recent",
+        "query": {
+          "limit": 2
+        }
+      },
+      "status": 200
+    },
+    {
+      "id": "telemetry-summary",
+      "endpoint": "GET /telemetry/summary",
+      "title": "Add up the telemetry per agent",
+      "request": {
+        "path": "/telemetry/summary"
+      },
+      "status": 200
+    },
+    {
+      "id": "plan-deployment",
+      "endpoint": "PUT /api/v1/agents/{agent_id}/desired-deployment",
+      "title": "Plan bundle 1.2.0 for store north",
+      "request": {
+        "path": "/api/v1/agents/lma-store-north/desired-deployment",
+        "json": {
+          "agent_id": "lma-store-north",
+          "bundle_id": "returns-monitor",
+          "bundle_version": "1.2.0",
+          "bundle_uri": "oci://registry.example/dagents/returns-monitor:1.2.0",
+          "config": {
+            "schedule": "hourly"
+          }
+        }
+      },
+      "status": 200,
+      "volatile": [
+        "/created_at"
+      ]
+    },
+    {
+      "id": "plan-deployment-short",
+      "endpoint": "POST /deployments/plan",
+      "title": "Plan the same bundle for store south on the short path",
+      "request": {
+        "path": "/deployments/plan",
+        "json": {
+          "agent_id": "lma-store-south",
+          "bundle_id": "returns-monitor",
+          "bundle_version": "1.2.0",
+          "bundle_uri": "oci://registry.example/dagents/returns-monitor:1.2.0",
+          "config": {
+            "schedule": "hourly"
+          }
+        }
+      },
+      "status": 200,
+      "volatile": [
+        "/created_at"
+      ]
+    },
+    {
+      "id": "plan-deployment-422",
+      "endpoint": "PUT /api/v1/agents/{agent_id}/desired-deployment",
+      "title": "A deployment without a bundle version",
+      "request": {
+        "path": "/api/v1/agents/lma-store-north/desired-deployment",
+        "json": {
+          "agent_id": "lma-store-north",
+          "bundle_id": "returns-monitor"
+        }
+      },
+      "status": 422
+    },
+    {
+      "id": "heartbeat-sync-required",
+      "endpoint": "POST /api/v1/agents/{agent_id}/heartbeats",
+      "title": "A heartbeat after the plan",
+      "description": "Store north has a desired bundle it has not reported running, so the answer is SYNC_REQUIRED.",
+      "request": {
+        "path": "/api/v1/agents/lma-store-north/heartbeats",
+        "json": {
+          "agent": {
+            "agent_id": "lma-store-north",
+            "workspace_id": "retail-hq",
+            "name": "Store North LMA",
+            "agent_type": "LMA"
+          },
+          "status": "ACTIVE",
+          "timestamp": 1760000060
+        }
+      },
+      "status": 200
+    },
+    {
+      "id": "sync-behind",
+      "endpoint": "POST /api/v1/agents/{agent_id}/deployment-sync",
+      "title": "Store north reports an older bundle",
+      "request": {
+        "path": "/api/v1/agents/lma-store-north/deployment-sync",
+        "json": {
+          "agent": {
+            "agent_id": "lma-store-north",
+            "workspace_id": "retail-hq",
+            "name": "Store North LMA",
+            "agent_type": "LMA"
+          },
+          "bundle_id": "returns-monitor",
+          "bundle_version": "1.1.0"
+        }
+      },
+      "status": 200
+    },
+    {
+      "id": "sync-current",
+      "endpoint": "POST /deployments/sync",
+      "title": "Store south reports the desired bundle",
+      "request": {
+        "path": "/deployments/sync",
+        "json": {
+          "agent": {
+            "agent_id": "lma-store-south",
+            "workspace_id": "retail-hq",
+            "name": "Store South LMA",
+            "agent_type": "LMA"
+          },
+          "bundle_id": "returns-monitor",
+          "bundle_version": "1.2.0"
+        }
+      },
+      "status": 200
+    },
+    {
+      "id": "sync-no-plan",
+      "endpoint": "POST /api/v1/agents/{agent_id}/deployment-sync",
+      "title": "An agent with no planned deployment",
+      "request": {
+        "path": "/api/v1/agents/lma-store-east/deployment-sync",
+        "json": {
+          "agent": {
+            "agent_id": "lma-store-east",
+            "workspace_id": "retail-hq",
+            "name": "Store East LMA",
+            "agent_type": "LMA"
+          },
+          "bundle_id": "returns-monitor",
+          "bundle_version": "1.0.0"
+        }
+      },
+      "status": 200
+    },
+    {
+      "id": "sync-422",
+      "endpoint": "POST /api/v1/agents/{agent_id}/deployment-sync",
+      "title": "A sync without a bundle id",
+      "request": {
+        "path": "/api/v1/agents/lma-store-north/deployment-sync",
+        "json": {
+          "agent": {
+            "agent_id": "lma-store-north",
+            "workspace_id": "retail-hq",
+            "name": "Store North LMA",
+            "agent_type": "LMA"
+          },
+          "bundle_version": "1.1.0"
+        }
+      },
+      "status": 422
+    },
+    {
+      "id": "list-deployments",
+      "endpoint": "GET /deployments",
+      "title": "List the desired deployments",
+      "request": {
+        "path": "/deployments"
+      },
+      "status": 200,
+      "volatile": [
+        "/*/created_at"
+      ]
+    },
+    {
+      "id": "dispatch-run",
+      "endpoint": "POST /runs/dispatch",
+      "title": "Dispatch a run to store north",
+      "request": {
+        "path": "/runs/dispatch",
+        "json": {
+          "agent_id": "lma-store-north",
+          "correlation_id": "returns-check-001",
+          "bundle_id": "returns-monitor",
+          "bundle_version": "1.2.0",
+          "scope": {
+            "table": "orders"
+          }
+        }
+      },
+      "status": 200
+    },
+    {
+      "id": "dispatch-unregistered",
+      "endpoint": "POST /runs/dispatch",
+      "title": "Dispatch a run to an agent the GMA does not know",
+      "description": "The dispatch is refused with accepted false, and the status is still 200.",
+      "request": {
+        "path": "/runs/dispatch",
+        "json": {
+          "agent_id": "lma-store-central",
+          "correlation_id": "returns-check-002",
+          "bundle_id": "returns-monitor",
+          "bundle_version": "1.2.0"
+        }
+      },
+      "status": 200
+    },
+    {
+      "id": "dispatch-422",
+      "endpoint": "POST /runs/dispatch",
+      "title": "A dispatch without a correlation id",
+      "request": {
+        "path": "/runs/dispatch",
+        "json": {
+          "agent_id": "lma-store-north",
+          "bundle_id": "returns-monitor",
+          "bundle_version": "1.2.0"
+        }
+      },
+      "status": 422
+    },
+    {
+      "id": "list-dispatches",
+      "endpoint": "GET /runs/dispatch",
+      "title": "List the recorded dispatches",
+      "request": {
+        "path": "/runs/dispatch",
+        "query": {
+          "limit": 5
+        }
+      },
+      "status": 200,
+      "volatile": [
+        "/*/dispatched_at"
+      ]
+    },
+    {
+      "id": "list-dispatches-422",
+      "endpoint": "GET /runs/dispatch",
+      "title": "A limit that is not a number",
+      "request": {
+        "path": "/runs/dispatch",
+        "query": {
+          "limit": "all"
+        }
+      },
+      "status": 422
+    },
+    {
+      "id": "list-agents",
+      "endpoint": "GET /api/v1/agents",
+      "title": "List every agent the GMA knows",
+      "request": {
+        "path": "/api/v1/agents"
+      },
+      "status": 200
+    },
+    {
+      "id": "get-agent",
+      "endpoint": "GET /api/v1/agents/{agent_id}",
+      "title": "Read store north's record",
+      "request": {
+        "path": "/api/v1/agents/lma-store-north"
+      },
+      "status": 200
+    },
+    {
+      "id": "get-missing-agent",
+      "endpoint": "GET /api/v1/agents/{agent_id}",
+      "title": "An agent id the GMA does not know",
+      "description": "The answer is null with status 200, not a 404.",
+      "request": {
+        "path": "/api/v1/agents/lma-store-central"
+      },
+      "status": 200
+    },
+    {
+      "id": "overview",
+      "endpoint": "GET /overview",
+      "title": "Count what the GMA holds",
+      "request": {
+        "path": "/overview"
+      },
+      "status": 200
+    },
+    {
+      "id": "register-source",
+      "endpoint": "POST /api/v1/sources",
+      "title": "Register an inline source with orders from three stores",
+      "request": {
+        "path": "/api/v1/sources",
+        "json": {
+          "source_id": "returns-all-stores",
+          "kind": "inline",
+          "selection": {
+            "records": [
+              {
+                "store": "north",
+                "order_value": 53.57,
+                "items": 1,
+                "category": "shoes",
+                "returned": false
+              },
+              {
+                "store": "north",
+                "order_value": 109.36,
+                "items": 5,
+                "category": "clothing",
+                "returned": true
+              },
+              {
+                "store": "south",
+                "order_value": 74.1,
+                "items": 2,
+                "category": "electronics",
+                "returned": false
+              },
+              {
+                "store": "south",
+                "order_value": 142.17,
+                "items": 3,
+                "category": "clothing",
+                "returned": true
+              },
+              {
+                "store": "east",
+                "order_value": 38.9,
+                "items": 1,
+                "category": "shoes",
+                "returned": false
+              },
+              {
+                "store": "east",
+                "order_value": 127.73,
+                "items": 4,
+                "category": "clothing",
+                "returned": true
+              }
+            ]
+          },
+          "batching": {
+            "batch_size": 500
+          }
+        }
+      },
+      "status": 200
+    },
+    {
+      "id": "register-source-422",
+      "endpoint": "POST /api/v1/sources",
+      "title": "A body that is not a JSON object",
+      "request": {
+        "path": "/api/v1/sources",
+        "json": [
+          {
+            "source_id": "returns-all-stores"
+          }
+        ]
+      },
+      "status": 422
+    },
+    {
+      "id": "list-sources",
+      "endpoint": "GET /api/v1/sources",
+      "title": "List the sources",
+      "request": {
+        "path": "/api/v1/sources"
+      },
+      "status": 200
+    },
+    {
+      "id": "get-source",
+      "endpoint": "GET /api/v1/sources/{source_id}",
+      "title": "Read one source",
+      "request": {
+        "path": "/api/v1/sources/returns-all-stores"
+      },
+      "status": 200
+    },
+    {
+      "id": "get-missing-source",
+      "endpoint": "GET /api/v1/sources/{source_id}",
+      "title": "A source id that was never registered",
+      "description": "The answer is null with status 200, not a 404.",
+      "request": {
+        "path": "/api/v1/sources/returns-west"
+      },
+      "status": 200
+    },
+    {
+      "id": "validate-source",
+      "endpoint": "POST /api/v1/sources/{source_id}:validate",
+      "title": "Validate the inline source",
+      "request": {
+        "path": "/api/v1/sources/returns-all-stores:validate"
+      },
+      "status": 200
+    },
+    {
+      "id": "profile-source",
+      "endpoint": "POST /api/v1/datasets:profile",
+      "title": "Profile the combined orders",
+      "request": {
+        "path": "/api/v1/datasets:profile",
+        "json": {
+          "scope_id": "returns-all-stores",
+          "dataset": {
+            "source_id": "returns-all-stores"
+          },
+          "feature_fields": [
+            "order_value",
+            "items",
+            "category"
+          ],
+          "label_field": "returned",
+          "batch_size": 4
+        }
+      },
+      "status": 200
+    },
+    {
+      "id": "profile-records",
+      "endpoint": "POST /datasets/profile",
+      "title": "Profile records sent in the request",
+      "description": "The request asks for source, but the GMA always profiles assimilated data, so scope_kind comes back as assimilated.",
+      "request": {
+        "path": "/datasets/profile",
+        "json": {
+          "scope_id": "returns-sample",
+          "scope_kind": "source",
+          "records": [
+            {
+              "order_value": 53.57,
+              "items": 1
+            },
+            {
+              "order_value": 74.1,
+              "items": 2
+            },
+            {
+              "order_value": 142.17,
+              "items": 3
+            }
+          ]
+        }
+      },
+      "status": 200
+    },
+    {
+      "id": "profile-422",
+      "endpoint": "POST /api/v1/datasets:profile",
+      "title": "A batch size of zero",
+      "request": {
+        "path": "/api/v1/datasets:profile",
+        "json": {
+          "scope_id": "returns-all-stores",
+          "dataset": {
+            "source_id": "returns-all-stores"
+          },
+          "batch_size": 0
+        }
+      },
+      "status": 422
+    },
+    {
+      "id": "run-model-job",
+      "endpoint": "POST /api/v1/model-jobs",
+      "title": "Run a classification model on the combined orders",
+      "request": {
+        "path": "/api/v1/model-jobs",
+        "json": {
+          "scope_id": "returns-all-stores",
+          "task_type": "classification",
+          "model_family": "random_forest",
+          "dataset": {
+            "source_id": "returns-all-stores"
+          },
+          "feature_fields": [
+            "order_value",
+            "items",
+            "category"
+          ],
+          "label_field": "returned",
+          "hyperparameters": {
+            "batch_size": 4
+          },
+          "model_version": "v2"
+        }
+      },
+      "status": 202,
+      "volatile": [
+        "/run/run_id",
+        "/run/started_at",
+        "/run/completed_at"
+      ]
+    },
+    {
+      "id": "run-model",
+      "endpoint": "POST /models/run",
+      "title": "Run an anomaly model on records sent in the request",
+      "description": "The short path runs the same handler and answers 200 instead of 202.",
+      "request": {
+        "path": "/models/run",
+        "json": {
+          "scope_id": "returns-sample",
+          "dataset": {
+            "inline_records": [
+              {
+                "order_value": 53.57,
+                "items": 1
+              },
+              {
+                "order_value": 74.1,
+                "items": 2
+              },
+              {
+                "order_value": 142.17,
+                "items": 3
+              }
+            ]
+          }
+        }
+      },
+      "status": 200,
+      "volatile": [
+        "/run/run_id",
+        "/run/started_at",
+        "/run/completed_at"
+      ]
+    },
+    {
+      "id": "run-model-422",
+      "endpoint": "POST /api/v1/model-jobs",
+      "title": "A model family the GMA does not know",
+      "request": {
+        "path": "/api/v1/model-jobs",
+        "json": {
+          "scope_id": "returns-all-stores",
+          "model_family": "gradient_boosting",
+          "dataset": {
+            "source_id": "returns-all-stores"
+          }
+        }
+      },
+      "status": 422
+    },
+    {
+      "id": "list-model-jobs",
+      "endpoint": "GET /api/v1/model-jobs",
+      "title": "List the newest model runs",
+      "request": {
+        "path": "/api/v1/model-jobs",
+        "query": {
+          "limit": 5
+        }
+      },
+      "status": 200,
+      "volatile": [
+        "/*/run_id",
+        "/*/started_at",
+        "/*/completed_at"
+      ]
+    },
+    {
+      "id": "register-classification",
+      "endpoint": "PUT /api/v1/governance/classifications/{classification_id}",
+      "title": "Register the retail-orders classification",
+      "request": {
+        "path": "/api/v1/governance/classifications/retail-orders",
+        "json": {
+          "classification_id": "retail-orders",
+          "field_sensitivity": {
+            "order_value": "high",
+            "customer_age_band": "medium",
+            "loyalty_member": "medium",
+            "returned": "medium",
+            "items": "low",
+            "category": "low",
+            "model_update": "high"
+          },
+          "default_sensitivity": "high",
+          "regulations": [
+            "GDPR"
+          ],
+          "minimum_cohort": 20
+        }
+      },
+      "status": 200
+    },
+    {
+      "id": "register-classification-400",
+      "endpoint": "PUT /api/v1/governance/classifications/{classification_id}",
+      "title": "A path id that differs from the body id",
+      "request": {
+        "path": "/api/v1/governance/classifications/retail-orders-v2",
+        "json": {
+          "classification_id": "retail-orders",
+          "field_sensitivity": {
+            "order_value": "high",
+            "customer_age_band": "medium",
+            "loyalty_member": "medium",
+            "returned": "medium",
+            "items": "low",
+            "category": "low",
+            "model_update": "high"
+          },
+          "default_sensitivity": "high",
+          "regulations": [
+            "GDPR"
+          ],
+          "minimum_cohort": 20
+        }
+      },
+      "status": 400
+    },
+    {
+      "id": "register-classification-422",
+      "endpoint": "PUT /api/v1/governance/classifications/{classification_id}",
+      "title": "A minimum cohort below zero",
+      "request": {
+        "path": "/api/v1/governance/classifications/retail-orders",
+        "json": {
+          "classification_id": "retail-orders",
+          "field_sensitivity": {
+            "order_value": "high",
+            "customer_age_band": "medium",
+            "loyalty_member": "medium",
+            "returned": "medium",
+            "items": "low",
+            "category": "low",
+            "model_update": "high"
+          },
+          "default_sensitivity": "high",
+          "regulations": [
+            "GDPR"
+          ],
+          "minimum_cohort": -1
+        }
+      },
+      "status": 422
+    },
+    {
+      "id": "list-classifications",
+      "endpoint": "GET /api/v1/governance/classifications",
+      "title": "List the classifications",
+      "request": {
+        "path": "/api/v1/governance/classifications"
+      },
+      "status": 200
+    },
+    {
+      "id": "plan-release",
+      "endpoint": "POST /api/v1/governance/restrictions:plan",
+      "title": "Plan a release check for the committee",
+      "request": {
+        "path": "/api/v1/governance/restrictions:plan",
+        "json": {
+          "request_id": "returns-round-1:release",
+          "boundary": "before_release",
+          "requester": {
+            "requester_id": "returns-release-committee",
+            "requester_kind": "human",
+            "affiliation": "returns-team",
+            "stated_purpose": "order_returns",
+            "attributes": [
+              {
+                "attribute_id": "verified_identity",
+                "weight": 1.0,
+                "verified": true
+              },
+              {
+                "attribute_id": "signed_study_protocol",
+                "weight": 1.0,
+                "verified": true
+              }
+            ],
+            "compliance_history": 0.9
+          },
+          "classification": {
+            "classification_id": "retail-orders",
+            "field_sensitivity": {
+              "order_value": "high",
+              "customer_age_band": "medium",
+              "loyalty_member": "medium",
+              "returned": "medium",
+              "items": "low",
+              "category": "low",
+              "model_update": "high"
+            },
+            "default_sensitivity": "high",
+            "regulations": [
+              "GDPR"
+            ],
+            "minimum_cohort": 20
+          },
+          "requested_fields": [
+            "model_update"
+          ],
+          "granularity": "model_update",
+          "cohort_size": 120,
+          "declared_purpose": "order_returns",
+          "approved_purposes": [
+            "order_returns",
+            "returns_quality_review"
+          ]
+        }
+      },
+      "status": 200,
+      "trim": {
+        "items": 6
+      }
+    },
+    {
+      "id": "plan-release-small-cohort",
+      "endpoint": "POST /governance/restrictions:plan",
+      "title": "Plan a release check for too few examples",
+      "description": "The candidate rests on 12 examples and the classification's minimum is 20, so the plan denies it.",
+      "request": {
+        "path": "/governance/restrictions:plan",
+        "json": {
+          "request_id": "returns-round-0:release",
+          "boundary": "before_release",
+          "requester": {
+            "requester_id": "returns-release-committee",
+            "requester_kind": "human",
+            "affiliation": "returns-team",
+            "stated_purpose": "order_returns",
+            "attributes": [
+              {
+                "attribute_id": "verified_identity",
+                "weight": 1.0,
+                "verified": true
+              },
+              {
+                "attribute_id": "signed_study_protocol",
+                "weight": 1.0,
+                "verified": true
+              }
+            ],
+            "compliance_history": 0.9
+          },
+          "classification": {
+            "classification_id": "retail-orders",
+            "field_sensitivity": {
+              "order_value": "high",
+              "customer_age_band": "medium",
+              "loyalty_member": "medium",
+              "returned": "medium",
+              "items": "low",
+              "category": "low",
+              "model_update": "high"
+            },
+            "default_sensitivity": "high",
+            "regulations": [
+              "GDPR"
+            ],
+            "minimum_cohort": 20
+          },
+          "requested_fields": [
+            "model_update"
+          ],
+          "granularity": "model_update",
+          "cohort_size": 12,
+          "declared_purpose": "order_returns",
+          "approved_purposes": [
+            "order_returns",
+            "returns_quality_review"
+          ]
+        }
+      },
+      "status": 200,
+      "trim": {
+        "items": 6
+      }
+    },
+    {
+      "id": "plan-422",
+      "endpoint": "POST /api/v1/governance/restrictions:plan",
+      "title": "A boundary that does not exist",
+      "request": {
+        "path": "/api/v1/governance/restrictions:plan",
+        "json": {
+          "request_id": "returns-round-1:release",
+          "boundary": "after_release",
+          "requester": {
+            "requester_id": "returns-release-committee",
+            "requester_kind": "human",
+            "affiliation": "returns-team",
+            "stated_purpose": "order_returns",
+            "attributes": [
+              {
+                "attribute_id": "verified_identity",
+                "weight": 1.0,
+                "verified": true
+              },
+              {
+                "attribute_id": "signed_study_protocol",
+                "weight": 1.0,
+                "verified": true
+              }
+            ],
+            "compliance_history": 0.9
+          },
+          "classification": {
+            "classification_id": "retail-orders",
+            "field_sensitivity": {
+              "order_value": "high",
+              "customer_age_band": "medium",
+              "loyalty_member": "medium",
+              "returned": "medium",
+              "items": "low",
+              "category": "low",
+              "model_update": "high"
+            },
+            "default_sensitivity": "high",
+            "regulations": [
+              "GDPR"
+            ],
+            "minimum_cohort": 20
+          },
+          "requested_fields": [
+            "model_update"
+          ],
+          "granularity": "model_update",
+          "cohort_size": 120,
+          "declared_purpose": "order_returns",
+          "approved_purposes": [
+            "order_returns",
+            "returns_quality_review"
+          ]
+        }
+      },
+      "status": 422
+    },
+    {
+      "id": "enforce-release",
+      "endpoint": "POST /api/v1/governance/restrictions:enforce",
+      "title": "Ask the Guard whether the committee may release",
+      "description": "An empty payload asks for a decision only. The decision is written to the audit log.",
+      "request": {
+        "path": "/api/v1/governance/restrictions:enforce",
+        "json": {
+          "request": {
+            "request_id": "returns-round-1:release",
+            "boundary": "before_release",
+            "requester": {
+              "requester_id": "returns-release-committee",
+              "requester_kind": "human",
+              "affiliation": "returns-team",
+              "stated_purpose": "order_returns",
+              "attributes": [
+                {
+                  "attribute_id": "verified_identity",
+                  "weight": 1.0,
+                  "verified": true
+                },
+                {
+                  "attribute_id": "signed_study_protocol",
+                  "weight": 1.0,
+                  "verified": true
+                }
+              ],
+              "compliance_history": 0.9
+            },
+            "classification": {
+              "classification_id": "retail-orders",
+              "field_sensitivity": {
+                "order_value": "high",
+                "customer_age_band": "medium",
+                "loyalty_member": "medium",
+                "returned": "medium",
+                "items": "low",
+                "category": "low",
+                "model_update": "high"
+              },
+              "default_sensitivity": "high",
+              "regulations": [
+                "GDPR"
+              ],
+              "minimum_cohort": 20
+            },
+            "requested_fields": [
+              "model_update"
+            ],
+            "granularity": "model_update",
+            "cohort_size": 120,
+            "declared_purpose": "order_returns",
+            "approved_purposes": [
+              "order_returns",
+              "returns_quality_review"
+            ]
+          },
+          "payload": [],
+          "correlation_id": "returns-round-1"
+        }
+      },
+      "status": 200,
+      "volatile": [
+        "/audit_id"
+      ],
+      "trim": {
+        "items": 6
+      }
+    },
+    {
+      "id": "enforce-unapproved-purpose",
+      "endpoint": "POST /governance/restrictions:enforce",
+      "title": "A release request with a purpose nobody approved",
+      "description": "A denial is a normal answer with status 200 and permitted false.",
+      "request": {
+        "path": "/governance/restrictions:enforce",
+        "json": {
+          "request": {
+            "request_id": "returns-round-1:release-2",
+            "boundary": "before_release",
+            "requester": {
+              "requester_id": "returns-release-committee",
+              "requester_kind": "human",
+              "affiliation": "returns-team",
+              "stated_purpose": "order_returns",
+              "attributes": [
+                {
+                  "attribute_id": "verified_identity",
+                  "weight": 1.0,
+                  "verified": true
+                },
+                {
+                  "attribute_id": "signed_study_protocol",
+                  "weight": 1.0,
+                  "verified": true
+                }
+              ],
+              "compliance_history": 0.9
+            },
+            "classification": {
+              "classification_id": "retail-orders",
+              "field_sensitivity": {
+                "order_value": "high",
+                "customer_age_band": "medium",
+                "loyalty_member": "medium",
+                "returned": "medium",
+                "items": "low",
+                "category": "low",
+                "model_update": "high"
+              },
+              "default_sensitivity": "high",
+              "regulations": [
+                "GDPR"
+              ],
+              "minimum_cohort": 20
+            },
+            "requested_fields": [
+              "model_update"
+            ],
+            "granularity": "model_update",
+            "cohort_size": 120,
+            "declared_purpose": "marketing",
+            "approved_purposes": [
+              "order_returns",
+              "returns_quality_review"
+            ]
+          },
+          "payload": [],
+          "correlation_id": "returns-round-1"
+        }
+      },
+      "status": 200,
+      "volatile": [
+        "/audit_id"
+      ],
+      "trim": {
+        "items": 6
+      }
+    },
+    {
+      "id": "enforce-422",
+      "endpoint": "POST /api/v1/governance/restrictions:enforce",
+      "title": "An enforcement request without its request",
+      "request": {
+        "path": "/api/v1/governance/restrictions:enforce",
+        "json": {
+          "payload": [],
+          "correlation_id": "returns-round-1"
+        }
+      },
+      "status": 422
+    },
+    {
+      "id": "audit-log",
+      "endpoint": "GET /api/v1/governance/audit",
+      "title": "Read the audit log",
+      "description": "Two records, one per enforcement above, newest first. Planning wrote none.",
+      "request": {
+        "path": "/api/v1/governance/audit",
+        "query": {
+          "limit": 5
+        }
+      },
+      "status": 200,
+      "volatile": [
+        "/records/*/audit_id",
+        "/records/*/recorded_at",
+        "/records/*/previous_digest",
+        "/records/*/digest"
+      ]
+    },
+    {
+      "id": "enrol-north",
+      "endpoint": "PUT /api/v1/federation/sites/{site_id}",
+      "title": "Enrol store north",
+      "request": {
+        "path": "/api/v1/federation/sites/store-north",
+        "json": {
+          "site_id": "store-north",
+          "capabilities": [
+            "evaluate",
+            "train"
+          ],
+          "feature_contract_version": "retail-orders-v1",
+          "approved_conditions": [
+            "order_returns"
+          ],
+          "policy_version": "retail-policy-3",
+          "cohort_size": 60,
+          "enrolled": true
+        }
+      },
+      "status": 200
+    },
+    {
+      "id": "enrol-south",
+      "endpoint": "PUT /federation/sites/{site_id}",
+      "title": "Enrol store south on the short path",
+      "request": {
+        "path": "/federation/sites/store-south",
+        "json": {
+          "site_id": "store-south",
+          "capabilities": [
+            "evaluate",
+            "train"
+          ],
+          "feature_contract_version": "retail-orders-v1",
+          "approved_conditions": [
+            "order_returns"
+          ],
+          "policy_version": "retail-policy-3",
+          "cohort_size": 40,
+          "enrolled": true
+        }
+      },
+      "status": 200
+    },
+    {
+      "id": "enrol-east",
+      "endpoint": "PUT /api/v1/federation/sites/{site_id}",
+      "title": "Enrol store east",
+      "request": {
+        "path": "/api/v1/federation/sites/store-east",
+        "json": {
+          "site_id": "store-east",
+          "capabilities": [
+            "evaluate",
+            "train"
+          ],
+          "feature_contract_version": "retail-orders-v1",
+          "approved_conditions": [
+            "order_returns"
+          ],
+          "policy_version": "retail-policy-3",
+          "cohort_size": 50,
+          "enrolled": true
+        }
+      },
+      "status": 200,
+      "show": false
+    },
+    {
+      "id": "enrol-west-not-enrolled",
+      "endpoint": "PUT /api/v1/federation/sites/{site_id}",
+      "title": "Store west, which has not agreed to take part",
+      "description": "The body leaves out enrolled, so it is false and the planner will not select the site.",
+      "request": {
+        "path": "/api/v1/federation/sites/store-west",
+        "json": {
+          "site_id": "store-west",
+          "capabilities": [
+            "evaluate"
+          ],
+          "feature_contract_version": "retail-orders-v1",
+          "approved_conditions": [
+            "order_returns"
+          ],
+          "cohort_size": 80
+        }
+      },
+      "status": 200
+    },
+    {
+      "id": "enrol-400",
+      "endpoint": "PUT /api/v1/federation/sites/{site_id}",
+      "title": "A path id that differs from the body id",
+      "request": {
+        "path": "/api/v1/federation/sites/store-north-2",
+        "json": {
+          "site_id": "store-north",
+          "capabilities": [
+            "evaluate",
+            "train"
+          ],
+          "feature_contract_version": "retail-orders-v1",
+          "approved_conditions": [
+            "order_returns"
+          ],
+          "policy_version": "retail-policy-3",
+          "cohort_size": 60,
+          "enrolled": true
+        }
+      },
+      "status": 400
+    },
+    {
+      "id": "enrol-422",
+      "endpoint": "PUT /api/v1/federation/sites/{site_id}",
+      "title": "A cohort size below zero",
+      "request": {
+        "path": "/api/v1/federation/sites/store-north",
+        "json": {
+          "site_id": "store-north",
+          "capabilities": [
+            "evaluate",
+            "train"
+          ],
+          "feature_contract_version": "retail-orders-v1",
+          "approved_conditions": [
+            "order_returns"
+          ],
+          "policy_version": "retail-policy-3",
+          "cohort_size": -5,
+          "enrolled": true
+        }
+      },
+      "status": 422
+    },
+    {
+      "id": "list-sites",
+      "endpoint": "GET /api/v1/federation/sites",
+      "title": "List the stored sites",
+      "request": {
+        "path": "/api/v1/federation/sites"
+      },
+      "status": 200
+    },
+    {
+      "id": "plan-round",
+      "endpoint": "POST /api/v1/federation/rounds:plan",
+      "title": "Plan round 1 of the returns pilot",
+      "description": "Five stores are invited. Store west has not agreed to take part and store central has no enrolment.",
+      "request": {
+        "path": "/api/v1/federation/rounds:plan",
+        "json": {
+          "round_id": "returns-round-1",
+          "study_id": "returns-pilot",
+          "condition_id": "order_returns",
+          "phase": "evaluation",
+          "model_version": "returns-rule-1.0",
+          "model_artifact_digest": "sha256:4f1c0e9a",
+          "training_code_digest": "sha256:9b27d3e1",
+          "feature_contract_version": "retail-orders-v1",
+          "privacy_profile": "guarded-rows",
+          "aggregation": {
+            "kind": "fedavg"
+          },
+          "minimum_participants": 2,
+          "minimum_cohort_per_site": 20,
+          "required_capabilities": [
+            "evaluate"
+          ],
+          "stop_conditions": [
+            "schema_failure",
+            "quorum_not_met"
+          ],
+          "invited_sites": [
+            "store-central",
+            "store-east",
+            "store-north",
+            "store-south",
+            "store-west"
+          ]
+        }
+      },
+      "status": 200
+    },
+    {
+      "id": "plan-round-no-quorum",
+      "endpoint": "POST /federation/rounds:plan",
+      "title": "Plan a round that asks for more sites than can join",
+      "request": {
+        "path": "/federation/rounds:plan",
+        "json": {
+          "round_id": "returns-round-0",
+          "study_id": "returns-pilot",
+          "condition_id": "order_returns",
+          "phase": "evaluation",
+          "model_version": "returns-rule-1.0",
+          "model_artifact_digest": "sha256:4f1c0e9a",
+          "training_code_digest": "sha256:9b27d3e1",
+          "feature_contract_version": "retail-orders-v1",
+          "privacy_profile": "guarded-rows",
+          "aggregation": {
+            "kind": "fedavg"
+          },
+          "minimum_participants": 5,
+          "minimum_cohort_per_site": 20,
+          "required_capabilities": [
+            "evaluate"
+          ],
+          "stop_conditions": [
+            "schema_failure",
+            "quorum_not_met"
+          ],
+          "invited_sites": [
+            "store-central",
+            "store-east",
+            "store-north",
+            "store-south",
+            "store-west"
+          ]
+        }
+      },
+      "status": 200
+    },
+    {
+      "id": "plan-round-422",
+      "endpoint": "POST /api/v1/federation/rounds:plan",
+      "title": "A minimum of zero participants",
+      "request": {
+        "path": "/api/v1/federation/rounds:plan",
+        "json": {
+          "round_id": "returns-round-1",
+          "study_id": "returns-pilot",
+          "condition_id": "order_returns",
+          "phase": "evaluation",
+          "model_version": "returns-rule-1.0",
+          "model_artifact_digest": "sha256:4f1c0e9a",
+          "training_code_digest": "sha256:9b27d3e1",
+          "feature_contract_version": "retail-orders-v1",
+          "privacy_profile": "guarded-rows",
+          "aggregation": {
+            "kind": "fedavg"
+          },
+          "minimum_participants": 0,
+          "minimum_cohort_per_site": 20,
+          "required_capabilities": [
+            "evaluate"
+          ],
+          "stop_conditions": [
+            "schema_failure",
+            "quorum_not_met"
+          ],
+          "invited_sites": [
+            "store-central",
+            "store-east",
+            "store-north",
+            "store-south",
+            "store-west"
+          ]
+        }
+      },
+      "status": 422
+    },
+    {
+      "id": "dispatch-round-no-quorum",
+      "endpoint": "POST /federation/rounds",
+      "title": "Dispatch the round without quorum",
+      "description": "The round is stored as closed and offered to no site.",
+      "request": {
+        "path": "/federation/rounds",
+        "json": {
+          "round_id": "returns-round-0",
+          "study_id": "returns-pilot",
+          "condition_id": "order_returns",
+          "phase": "evaluation",
+          "model_version": "returns-rule-1.0",
+          "model_artifact_digest": "sha256:4f1c0e9a",
+          "training_code_digest": "sha256:9b27d3e1",
+          "feature_contract_version": "retail-orders-v1",
+          "privacy_profile": "guarded-rows",
+          "aggregation": {
+            "kind": "fedavg"
+          },
+          "minimum_participants": 5,
+          "minimum_cohort_per_site": 20,
+          "required_capabilities": [
+            "evaluate"
+          ],
+          "stop_conditions": [
+            "schema_failure",
+            "quorum_not_met"
+          ],
+          "invited_sites": [
+            "store-central",
+            "store-east",
+            "store-north",
+            "store-south",
+            "store-west"
+          ]
+        }
+      },
+      "status": 200,
+      "volatile": [
+        "/created_at",
+        "/updated_at"
+      ]
+    },
+    {
+      "id": "dispatch-round",
+      "endpoint": "POST /api/v1/federation/rounds",
+      "title": "Dispatch round 1",
+      "description": "The in-process engine has no worker for any store in a plain GMA, so each selected site gets a failed result. The sites then send their own results.",
+      "request": {
+        "path": "/api/v1/federation/rounds",
+        "json": {
+          "round_id": "returns-round-1",
+          "study_id": "returns-pilot",
+          "condition_id": "order_returns",
+          "phase": "evaluation",
+          "model_version": "returns-rule-1.0",
+          "model_artifact_digest": "sha256:4f1c0e9a",
+          "training_code_digest": "sha256:9b27d3e1",
+          "feature_contract_version": "retail-orders-v1",
+          "privacy_profile": "guarded-rows",
+          "aggregation": {
+            "kind": "fedavg"
+          },
+          "minimum_participants": 2,
+          "minimum_cohort_per_site": 20,
+          "required_capabilities": [
+            "evaluate"
+          ],
+          "stop_conditions": [
+            "schema_failure",
+            "quorum_not_met"
+          ],
+          "invited_sites": [
+            "store-central",
+            "store-east",
+            "store-north",
+            "store-south",
+            "store-west"
+          ]
+        }
+      },
+      "status": 202,
+      "volatile": [
+        "/created_at",
+        "/updated_at"
+      ]
+    },
+    {
+      "id": "dispatch-round-422",
+      "endpoint": "POST /api/v1/federation/rounds",
+      "title": "A stop condition that does not exist",
+      "request": {
+        "path": "/api/v1/federation/rounds",
+        "json": {
+          "round_id": "returns-round-1",
+          "study_id": "returns-pilot",
+          "condition_id": "order_returns",
+          "phase": "evaluation",
+          "model_version": "returns-rule-1.0",
+          "model_artifact_digest": "sha256:4f1c0e9a",
+          "training_code_digest": "sha256:9b27d3e1",
+          "feature_contract_version": "retail-orders-v1",
+          "privacy_profile": "guarded-rows",
+          "aggregation": {
+            "kind": "fedavg"
+          },
+          "minimum_participants": 2,
+          "minimum_cohort_per_site": 20,
+          "required_capabilities": [
+            "evaluate"
+          ],
+          "stop_conditions": [
+            "budget_spent"
+          ],
+          "invited_sites": [
+            "store-central",
+            "store-east",
+            "store-north",
+            "store-south",
+            "store-west"
+          ]
+        }
+      },
+      "status": 422
+    },
+    {
+      "id": "submit-north",
+      "endpoint": "POST /api/v1/federation/rounds/{round_id}/results",
+      "title": "Store north sends its result",
+      "request": {
+        "path": "/api/v1/federation/rounds/returns-round-1/results",
+        "json": {
+          "round_id": "returns-round-1",
+          "site_id": "store-north",
+          "job_digest": "fnv1a:767d1ad0c4595843",
+          "participation": "completed",
+          "code_verified": true,
+          "privacy_checks_passed": true,
+          "contributed_examples": 60,
+          "metrics": {
+            "accuracy": 0.86,
+            "recall": 0.74
+          },
+          "local_evidence_pointer": "lma://store-north/rounds/returns-round-1"
+        }
+      },
+      "status": 202,
+      "volatile": [
+        "/created_at",
+        "/updated_at"
+      ]
+    },
+    {
+      "id": "submit-south",
+      "endpoint": "POST /federation/rounds/{round_id}/results",
+      "title": "Store south sends its result on the short path",
+      "request": {
+        "path": "/federation/rounds/returns-round-1/results",
+        "json": {
+          "round_id": "returns-round-1",
+          "site_id": "store-south",
+          "job_digest": "fnv1a:767d1ad0c4595843",
+          "participation": "completed",
+          "code_verified": true,
+          "privacy_checks_passed": true,
+          "contributed_examples": 40,
+          "metrics": {
+            "accuracy": 0.82,
+            "recall": 0.71
+          },
+          "local_evidence_pointer": "lma://store-south/rounds/returns-round-1"
+        }
+      },
+      "status": 200,
+      "volatile": [
+        "/created_at",
+        "/updated_at"
+      ],
+      "show": false
+    },
+    {
+      "id": "submit-east-unverified",
+      "endpoint": "POST /api/v1/federation/rounds/{round_id}/results",
+      "title": "Store east sends a result without checking the code digest",
+      "description": "The result is stored. The readiness check below rejects it.",
+      "request": {
+        "path": "/api/v1/federation/rounds/returns-round-1/results",
+        "json": {
+          "round_id": "returns-round-1",
+          "site_id": "store-east",
+          "job_digest": "fnv1a:767d1ad0c4595843",
+          "participation": "completed",
+          "code_verified": false,
+          "privacy_checks_passed": true,
+          "contributed_examples": 50,
+          "metrics": {
+            "accuracy": 0.9,
+            "recall": 0.8
+          },
+          "local_evidence_pointer": "lma://store-east/rounds/returns-round-1"
+        }
+      },
+      "status": 202,
+      "volatile": [
+        "/created_at",
+        "/updated_at"
+      ],
+      "trim": {
+        "items": 3
+      }
+    },
+    {
+      "id": "submit-400",
+      "endpoint": "POST /api/v1/federation/rounds/{round_id}/results",
+      "title": "A body round that differs from the path round",
+      "request": {
+        "path": "/api/v1/federation/rounds/returns-round-1/results",
+        "json": {
+          "round_id": "returns-round-2",
+          "site_id": "store-north",
+          "job_digest": "fnv1a:767d1ad0c4595843",
+          "participation": "completed",
+          "code_verified": true,
+          "privacy_checks_passed": true,
+          "contributed_examples": 60,
+          "metrics": {
+            "accuracy": 0.86,
+            "recall": 0.74
+          },
+          "local_evidence_pointer": "lma://store-north/rounds/returns-round-1"
+        }
+      },
+      "status": 400
+    },
+    {
+      "id": "submit-404",
+      "endpoint": "POST /api/v1/federation/rounds/{round_id}/results",
+      "title": "A round that was never dispatched",
+      "request": {
+        "path": "/api/v1/federation/rounds/returns-round-9/results",
+        "json": {
+          "round_id": "returns-round-9",
+          "site_id": "store-north",
+          "job_digest": "fnv1a:767d1ad0c4595843",
+          "participation": "completed",
+          "code_verified": true,
+          "privacy_checks_passed": true,
+          "contributed_examples": 60,
+          "metrics": {
+            "accuracy": 0.86,
+            "recall": 0.74
+          },
+          "local_evidence_pointer": "lma://store-north/rounds/returns-round-1"
+        }
+      },
+      "status": 404
+    },
+    {
+      "id": "submit-422",
+      "endpoint": "POST /api/v1/federation/rounds/{round_id}/results",
+      "title": "A participation value that does not exist",
+      "request": {
+        "path": "/api/v1/federation/rounds/returns-round-1/results",
+        "json": {
+          "round_id": "returns-round-1",
+          "site_id": "store-north",
+          "job_digest": "fnv1a:767d1ad0c4595843",
+          "participation": "finished",
+          "code_verified": true,
+          "privacy_checks_passed": true,
+          "contributed_examples": 60,
+          "metrics": {
+            "accuracy": 0.86,
+            "recall": 0.74
+          },
+          "local_evidence_pointer": "lma://store-north/rounds/returns-round-1"
+        }
+      },
+      "status": 422
+    },
+    {
+      "id": "readiness",
+      "endpoint": "GET /api/v1/federation/rounds/{round_id}/readiness",
+      "title": "Check whether round 1 may be aggregated",
+      "request": {
+        "path": "/api/v1/federation/rounds/returns-round-1/readiness"
+      },
+      "status": 200
+    },
+    {
+      "id": "readiness-no-results",
+      "endpoint": "GET /federation/rounds/{round_id}/readiness",
+      "title": "Check the round that had no quorum",
+      "request": {
+        "path": "/federation/rounds/returns-round-0/readiness"
+      },
+      "status": 200
+    },
+    {
+      "id": "readiness-404",
+      "endpoint": "GET /api/v1/federation/rounds/{round_id}/readiness",
+      "title": "A round that was never dispatched",
+      "request": {
+        "path": "/api/v1/federation/rounds/returns-round-9/readiness"
+      },
+      "status": 404
+    },
+    {
+      "id": "aggregate",
+      "endpoint": "POST /api/v1/federation/rounds/{round_id}:aggregate",
+      "title": "Aggregate round 1 into a candidate",
+      "description": "Store north used 60 of the 100 accepted examples and store south 40, so accuracy is 0.6 x 0.86 + 0.4 x 0.82 = 0.844, shown in floating point as 0.8440000000000001.",
+      "request": {
+        "path": "/api/v1/federation/rounds/returns-round-1:aggregate"
+      },
+      "status": 200,
+      "volatile": [
+        "/produced_at"
+      ]
+    },
+    {
+      "id": "aggregate-409",
+      "endpoint": "POST /federation/rounds/{round_id}:aggregate",
+      "title": "Aggregate the round that had no quorum",
+      "request": {
+        "path": "/federation/rounds/returns-round-0:aggregate"
+      },
+      "status": 409
+    },
+    {
+      "id": "aggregate-404",
+      "endpoint": "POST /api/v1/federation/rounds/{round_id}:aggregate",
+      "title": "A round that was never dispatched",
+      "request": {
+        "path": "/api/v1/federation/rounds/returns-round-9:aggregate"
+      },
+      "status": 404
+    },
+    {
+      "id": "evaluate-release-missing-metric",
+      "endpoint": "POST /federation/rounds/{round_id}:evaluate-release",
+      "title": "A blocking gate on a metric the candidate does not report",
+      "description": "A gate whose metric is missing is not evaluated, and a blocking gate that is not evaluated rejects the candidate.",
+      "request": {
+        "path": "/federation/rounds/returns-round-1:evaluate-release",
+        "json": {
+          "gates": [
+            {
+              "gate_id": "accuracy-floor",
+              "metric": "accuracy",
+              "comparison": {
+                "kind": "at_least",
+                "value": 0.8
+              },
+              "blocking": true
+            },
+            {
+              "gate_id": "recall-gain",
+              "metric": "recall",
+              "comparison": {
+                "kind": "improves_on_baseline",
+                "margin": 0.02
+              },
+              "blocking": false
+            },
+            {
+              "gate_id": "false-alert-cap",
+              "metric": "false_alert_rate",
+              "comparison": {
+                "kind": "at_most",
+                "value": 0.1
+              },
+              "blocking": true
+            }
+          ],
+          "candidate_version": "returns-rule-1.0+returns-round-1",
+          "candidate_metrics": {
+            "accuracy": 0.844,
+            "recall": 0.728
+          },
+          "baseline_metrics": {
+            "accuracy": 0.81,
+            "recall": 0.7
+          }
+        }
+      },
+      "status": 200
+    },
+    {
+      "id": "evaluate-release",
+      "endpoint": "POST /api/v1/federation/rounds/{round_id}:evaluate-release",
+      "title": "Evaluate the release gates for round 1",
+      "description": "The candidate metrics are the ones the aggregate call returned, rounded to three places. Both gates pass, so the action is release: a recommendation, not a deployment.",
+      "request": {
+        "path": "/api/v1/federation/rounds/returns-round-1:evaluate-release",
+        "json": {
+          "gates": [
+            {
+              "gate_id": "accuracy-floor",
+              "metric": "accuracy",
+              "comparison": {
+                "kind": "at_least",
+                "value": 0.8
+              },
+              "blocking": true
+            },
+            {
+              "gate_id": "recall-gain",
+              "metric": "recall",
+              "comparison": {
+                "kind": "improves_on_baseline",
+                "margin": 0.02
+              },
+              "blocking": false
+            }
+          ],
+          "candidate_version": "returns-rule-1.0+returns-round-1",
+          "candidate_metrics": {
+            "accuracy": 0.844,
+            "recall": 0.728
+          },
+          "baseline_metrics": {
+            "accuracy": 0.81,
+            "recall": 0.7
+          },
+          "rollback_version": "returns-rule-1.0"
+        }
+      },
+      "status": 200
+    },
+    {
+      "id": "evaluate-release-404",
+      "endpoint": "POST /api/v1/federation/rounds/{round_id}:evaluate-release",
+      "title": "A round that was never dispatched",
+      "request": {
+        "path": "/api/v1/federation/rounds/returns-round-9:evaluate-release",
+        "json": {
+          "gates": [
+            {
+              "gate_id": "accuracy-floor",
+              "metric": "accuracy",
+              "comparison": {
+                "kind": "at_least",
+                "value": 0.8
+              },
+              "blocking": true
+            },
+            {
+              "gate_id": "recall-gain",
+              "metric": "recall",
+              "comparison": {
+                "kind": "improves_on_baseline",
+                "margin": 0.02
+              },
+              "blocking": false
+            }
+          ],
+          "candidate_version": "returns-rule-1.0+returns-round-9"
+        }
+      },
+      "status": 404
+    },
+    {
+      "id": "evaluate-release-422",
+      "endpoint": "POST /api/v1/federation/rounds/{round_id}:evaluate-release",
+      "title": "A request without a candidate version",
+      "request": {
+        "path": "/api/v1/federation/rounds/returns-round-1:evaluate-release",
+        "json": {
+          "gates": [
+            {
+              "gate_id": "accuracy-floor",
+              "metric": "accuracy",
+              "comparison": {
+                "kind": "at_least",
+                "value": 0.8
+              },
+              "blocking": true
+            },
+            {
+              "gate_id": "recall-gain",
+              "metric": "recall",
+              "comparison": {
+                "kind": "improves_on_baseline",
+                "margin": 0.02
+              },
+              "blocking": false
+            }
+          ]
+        }
+      },
+      "status": 422
+    },
+    {
+      "id": "get-round",
+      "endpoint": "GET /api/v1/federation/rounds/{round_id}",
+      "title": "Read round 1's full record",
+      "request": {
+        "path": "/api/v1/federation/rounds/returns-round-1"
+      },
+      "status": 200,
+      "volatile": [
+        "/created_at",
+        "/updated_at"
+      ]
+    },
+    {
+      "id": "get-round-404",
+      "endpoint": "GET /api/v1/federation/rounds/{round_id}",
+      "title": "A round that was never dispatched",
+      "request": {
+        "path": "/api/v1/federation/rounds/returns-round-9"
+      },
+      "status": 404
+    },
+    {
+      "id": "list-rounds",
+      "endpoint": "GET /api/v1/federation/rounds",
+      "title": "List the rounds, newest first",
+      "request": {
+        "path": "/api/v1/federation/rounds",
+        "query": {
+          "limit": 5
+        }
+      },
+      "status": 200,
+      "volatile": [
+        "/*/created_at",
+        "/*/updated_at"
+      ],
+      "trim": {
+        "items": 3,
+        "chars": 400
+      }
+    },
+    {
+      "id": "list-rounds-422",
+      "endpoint": "GET /api/v1/federation/rounds",
+      "title": "A limit that is not a number",
+      "request": {
+        "path": "/api/v1/federation/rounds",
+        "query": {
+          "limit": "all"
+        }
+      },
+      "status": 422
+    },
+    {
+      "id": "extensions",
+      "endpoint": "GET /api/v1/extensions",
+      "title": "List what extensions contribute",
+      "description": "A plain GMA has no extension registered, so every list is empty.",
+      "request": {
+        "path": "/api/v1/extensions"
+      },
+      "status": 200
+    }
+  ]
+}

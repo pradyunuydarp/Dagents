@@ -18,9 +18,9 @@ from __future__ import annotations
 
 import logging
 from contextlib import asynccontextmanager
-from typing import Any, AsyncIterator, Literal
+from typing import Annotated, Any, AsyncIterator, Literal
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Response
+from fastapi import Depends, FastAPI, Header, HTTPException, Path, Query, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -50,12 +50,14 @@ from app.models import (
     IDEMPOTENCY_KEY_MAX_LENGTH,
     IDEMPOTENCY_KEY_PATTERN,
     EncounterEntry,
+    ErrorResponse,
     FhirIngestRequest,
     GuardProbeRequest,
     GuardProbeResponse,
     OutcomeRequest,
     PilotRequest,
     TriageRequest,
+    ValidationErrorResponse,
     WorklistRequest,
     entry_form_fields,
 )
@@ -371,6 +373,56 @@ def _idempotency_key(
     return key
 
 
+# --- Parameters and error responses, for the OpenAPI document ------------------------------
+# These add descriptions only. Validation and the handlers' answers do not change.
+
+SiteId = Annotated[
+    str, Path(description="The hospital's id, as `GET /api/v1/hospitals` lists it, such as `uk-134`.")
+]
+ChartTheme = Annotated[
+    Literal["light", "dark"],
+    Query(description="The colours to draw the chart in: `light` or `dark`. The data is the same."),
+]
+
+
+def _errors(*statuses: tuple[int, str]) -> dict[int | str, dict[str, Any]]:
+    """Error responses for the OpenAPI document, as ``(status, meaning)`` pairs.
+
+    The exception handlers above write these bodies: a 422 names each field,
+    every other error is one message. Declaring 422 also replaces FastAPI's
+    default 422 schema, which is not the shape this app sends.
+    """
+    return {
+        status: {"model": ValidationErrorResponse if status == 422 else ErrorResponse, "description": meaning}
+        for status, meaning in statuses
+    }
+
+
+NOT_A_HOSPITAL = (404, "No hospital has this id.")
+NOT_VALID = (422, "A parameter or a body field is not valid. The errors field names each one.")
+TOO_MANY = (429, "Too many requests from this client. Wait for the seconds in the Retry-After header.")
+STORE_DOWN = (
+    503,
+    "Only with a database: a hospital's store cannot be reached, or the database is not set up for this "
+    "version of the app.",
+)
+SVG_RESPONSES: dict[int | str, dict[str, Any]] = {
+    200: {"description": "The chart, as an SVG document.", "content": {"image/svg+xml": {}}},
+    304: {"description": "The chart has not changed since the ETag sent in If-None-Match. No body."},
+}
+IF_NONE_MATCH = {
+    "parameters": [
+        {
+            "name": "If-None-Match",
+            "in": "header",
+            "required": False,
+            "description": "The `ETag` of a copy you hold. If the chart has not changed, the answer is 304 with no body.",
+            "schema": {"type": "string"},
+        }
+    ]
+}
+
+
 # --- Health and descriptions ----------------------------------------------------------------
 
 
@@ -386,7 +438,7 @@ def health_v1() -> dict[str, str]:
     return health()
 
 
-@app.get("/api/v1/overview")
+@app.get("/api/v1/overview", responses=_errors(STORE_DOWN))
 def overview() -> dict[str, Any]:
     """The consortium, the numbers each hospital reports, and the release gates."""
     return consortium.overview()
@@ -433,19 +485,19 @@ def extension() -> dict[str, Any]:
 # --- Scoring without a store ---------------------------------------------------------------
 
 
-@app.post("/api/v1/triage:assess")
+@app.post("/api/v1/triage:assess", responses=_errors(NOT_VALID))
 def assess(request: TriageRequest) -> dict[str, Any]:
     """Score one record with the seed rule, with the basis for the score."""
     return stroke_rule.assess(request.record).as_dict()
 
 
-@app.post("/api/v1/triage:worklist")
+@app.post("/api/v1/triage:worklist", responses=_errors(NOT_VALID))
 def worklist(request: WorklistRequest) -> dict[str, Any]:
     """Rank records by the seed rule's score. Nothing is removed from the list."""
     return {"worklist": stroke_rule.rank_worklist(request.records)}
 
 
-@app.post("/api/v1/ingest:fhir")
+@app.post("/api/v1/ingest:fhir", responses=_errors(NOT_VALID))
 def ingest_fhir(request: FhirIngestRequest) -> dict[str, Any]:
     """Map a FHIR-shaped bundle into the stroke feature contract, reporting codes it does not know."""
     results = map_bundle(request.bundle)
@@ -459,41 +511,50 @@ def ingest_fhir(request: FhirIngestRequest) -> dict[str, Any]:
 # --- Hospitals ----------------------------------------------------------------------------
 
 
-@app.get("/api/v1/hospitals")
+@app.get("/api/v1/hospitals", responses=_errors(STORE_DOWN))
 def hospitals() -> list[dict[str, Any]]:
     """What each hospital reports about its records: counts and an outcome rate."""
     return [consortium.hospitals[site.site_id].summary() for site in consortium.sites]
 
 
-@app.get("/api/v1/hospitals/{site_id}")
-def hospital_dashboard(site_id: str) -> dict[str, Any]:
+@app.get("/api/v1/hospitals/{site_id}", responses=_errors(NOT_A_HOSPITAL, NOT_VALID, STORE_DOWN))
+def hospital_dashboard(site_id: SiteId) -> dict[str, Any]:
     """One hospital's own view: its store, statistics, local metrics and what it sent."""
     return _hospital(site_id).dashboard()
 
 
-@app.get("/api/v1/hospitals/{site_id}/worklist")
-def hospital_worklist(site_id: str, limit: int = Query(default=12, ge=1, le=200)) -> dict[str, Any]:
+@app.get("/api/v1/hospitals/{site_id}/worklist", responses=_errors(NOT_A_HOSPITAL, NOT_VALID, STORE_DOWN))
+def hospital_worklist(
+    site_id: SiteId,
+    limit: int = Query(default=12, ge=1, le=200, description="How many records to return, highest risk first."),
+) -> dict[str, Any]:
     """One hospital's records ranked by the model in use. The list stays at the hospital."""
     return {"site_id": site_id, "worklist": _hospital(site_id).worklist(limit)}
 
 
-@app.get("/api/v1/hospitals/{site_id}/thresholds")
-def hospital_thresholds(site_id: str) -> dict[str, Any]:
+@app.get("/api/v1/hospitals/{site_id}/thresholds", responses=_errors(NOT_A_HOSPITAL, NOT_VALID, STORE_DOWN))
+def hospital_thresholds(site_id: SiteId) -> dict[str, Any]:
     """Sensitivity, specificity and alerts at a range of alert thresholds, at one hospital."""
     return {"site_id": site_id, "sweep": _hospital(site_id).threshold_sweep()}
 
 
-@app.get("/api/v1/hospitals/{site_id}/audit")
-def hospital_audit(site_id: str, limit: int = Query(default=50, ge=1, le=500)) -> dict[str, Any]:
+@app.get("/api/v1/hospitals/{site_id}/audit", responses=_errors(NOT_A_HOSPITAL, NOT_VALID, STORE_DOWN))
+def hospital_audit(
+    site_id: SiteId,
+    limit: int = Query(default=50, ge=1, le=500, description="How many audit records to return, newest first."),
+) -> dict[str, Any]:
     """One hospital's Guard decisions, newest first, and whether its audit chain verifies."""
     return _hospital(site_id).audit_trail(limit)
 
 
-@app.get("/api/v1/hospitals/{site_id}/encounters")
+@app.get("/api/v1/hospitals/{site_id}/encounters", responses=_errors(NOT_A_HOSPITAL, NOT_VALID, STORE_DOWN))
 def hospital_encounters(
-    site_id: str,
-    origin: Literal["entered"] = "entered",
-    limit: int = Query(default=20, ge=1, le=300),
+    site_id: SiteId,
+    origin: Literal["entered"] = Query(
+        default="entered",
+        description="Which records to list. Only `entered`, the records entered through the data-entry form.",
+    ),
+    limit: int = Query(default=20, ge=1, le=300, description="How many records to return, newest first."),
 ) -> dict[str, Any]:
     """Records entered at one hospital, newest first, each with its assessment."""
     hospital = _hospital(site_id)
@@ -506,8 +567,8 @@ def hospital_encounters(
     }
 
 
-@app.get("/api/v1/hospitals/{site_id}/entry-form")
-def hospital_entry_form(site_id: str) -> dict[str, Any]:
+@app.get("/api/v1/hospitals/{site_id}/entry-form", responses=_errors(NOT_A_HOSPITAL, NOT_VALID, STORE_DOWN))
+def hospital_entry_form(site_id: SiteId) -> dict[str, Any]:
     """The data-entry form, built from the field domains. The browser only renders it."""
     hospital = _hospital(site_id)
     counts = hospital.counts()
@@ -531,9 +592,20 @@ def hospital_entry_form(site_id: str) -> dict[str, Any]:
     "/api/v1/hospitals/{site_id}/encounters",
     status_code=201,
     dependencies=[Depends(rate_limits.dependency("entries"))],
+    responses=_errors(
+        NOT_A_HOSPITAL,
+        (
+            409,
+            "The Idempotency-Key was already used for a different record, or the hospital already holds the "
+            "most entered records the demo accepts.",
+        ),
+        NOT_VALID,
+        TOO_MANY,
+        STORE_DOWN,
+    ),
 )
 def hospital_enter(
-    site_id: str,
+    site_id: SiteId,
     entry: EncounterEntry,  # type: ignore[valid-type]
     idempotency_key: str | None = Depends(_idempotency_key),
 ) -> dict[str, Any]:
@@ -548,8 +620,22 @@ def hospital_enter(
 @app.post(
     "/api/v1/hospitals/{site_id}/encounters/{encounter_id}/outcome",
     dependencies=[Depends(rate_limits.dependency("entries"))],
+    responses=_errors(
+        (404, "No hospital has this id, or the hospital has no record with this id."),
+        (409, "The record already has a different outcome. An outcome is recorded once."),
+        (422, "The body is not valid, or the record came from the dataset: only entered records take an outcome."),
+        TOO_MANY,
+        STORE_DOWN,
+    ),
 )
-def hospital_outcome(site_id: str, encounter_id: str, request: OutcomeRequest) -> dict[str, Any]:
+def hospital_outcome(
+    site_id: SiteId,
+    encounter_id: Annotated[
+        str,
+        Path(description="The id of a record entered at this hospital, such as `ch-245-e1`, from the entry's answer."),
+    ],
+    request: OutcomeRequest,
+) -> dict[str, Any]:
     """Record the six-month outcome of a record entered at this hospital.
 
     Returns ``{record, counts, profile}``. The next pilot trains and evaluates
@@ -589,29 +675,63 @@ def _draw(request: Request, draw: Any, theme: str) -> Response:
     return _svg_response(request, rendered.svg, rendered.etag(theme))
 
 
-@app.get("/api/v1/charts")
+@app.get("/api/v1/charts", responses=_errors(STORE_DOWN))
 def consortium_charts() -> dict[str, Any]:
     """The consortium charts, from site summaries and the last pilot. Never a 4xx."""
     return {"charts": chart_service.consortium_list(consortium)}
 
 
-@app.get("/api/v1/charts/{chart_id}.svg")
+@app.get(
+    "/api/v1/charts/{chart_id}.svg",
+    response_class=Response,
+    responses={
+        **SVG_RESPONSES,
+        **_errors(
+            (404, "No chart has this id, or the chart needs a pilot that has not run yet."),
+            NOT_VALID,
+            (503, "Charts cannot be drawn on this server (matplotlib is missing), or a store cannot be reached."),
+        ),
+    },
+    openapi_extra=IF_NONE_MATCH,
+)
 def consortium_chart_svg(
-    request: Request, chart_id: str, theme: Literal["light", "dark"] = "light"
+    request: Request,
+    chart_id: Annotated[
+        str, Path(description="The chart's id, as `GET /api/v1/charts` lists it, such as `hospital-records`.")
+    ],
+    theme: ChartTheme = "light",
 ) -> Response:
     """One consortium chart as SVG. 404 for a chart that needs a pilot that has not run."""
     return _draw(request, lambda: chart_service.consortium_svg(consortium, chart_id, theme), theme)
 
 
-@app.get("/api/v1/hospitals/{site_id}/charts")
-def hospital_charts(site_id: str) -> dict[str, Any]:
+@app.get("/api/v1/hospitals/{site_id}/charts", responses=_errors(NOT_A_HOSPITAL, NOT_VALID, STORE_DOWN))
+def hospital_charts(site_id: SiteId) -> dict[str, Any]:
     """One hospital's charts, from its own records. Shown only in that hospital's view."""
     return {"site_id": site_id, "charts": chart_service.site_list(_hospital(site_id))}
 
 
-@app.get("/api/v1/hospitals/{site_id}/charts/{chart_id}.svg")
+@app.get(
+    "/api/v1/hospitals/{site_id}/charts/{chart_id}.svg",
+    response_class=Response,
+    responses={
+        **SVG_RESPONSES,
+        **_errors(
+            (404, "No hospital has this id, no chart has this id, or the hospital's store holds no records."),
+            NOT_VALID,
+            (503, "Charts cannot be drawn on this server (matplotlib is missing), or the store cannot be reached."),
+        ),
+    },
+    openapi_extra=IF_NONE_MATCH,
+)
 def hospital_chart_svg(
-    request: Request, site_id: str, chart_id: str, theme: Literal["light", "dark"] = "light"
+    request: Request,
+    site_id: SiteId,
+    chart_id: Annotated[
+        str,
+        Path(description="The chart's id, as `GET /api/v1/hospitals/{site_id}/charts` lists it, such as `systolic-bp`."),
+    ],
+    theme: ChartTheme = "light",
 ) -> Response:
     """One hospital chart as SVG."""
     hospital = _hospital(site_id)
@@ -625,6 +745,16 @@ def hospital_chart_svg(
     "/api/v1/governance:probe",
     response_model=GuardProbeResponse,
     dependencies=[Depends(rate_limits.dependency("probes"))],
+    responses=_errors(
+        NOT_A_HOSPITAL,
+        NOT_VALID,
+        (
+            429,
+            "Too many probes from this client, or the hourly cap on probes at this hospital is reached. Wait for "
+            "the seconds in the Retry-After header.",
+        ),
+        STORE_DOWN,
+    ),
 )
 def governance_probe(request: GuardProbeRequest) -> dict[str, Any]:
     """Run one request through a hospital's Guard and report what it would release.
@@ -670,7 +800,20 @@ def governance_probe(request: GuardProbeRequest) -> dict[str, Any]:
     return {"site_id": hospital.site_id, **decision}
 
 
-@app.post("/api/v1/pilot:run", dependencies=[Depends(rate_limits.dependency("pilots"))])
+@app.post(
+    "/api/v1/pilot:run",
+    dependencies=[Depends(rate_limits.dependency("pilots"))],
+    responses=_errors(
+        (409, "A pilot is already running. One pilot runs at a time."),
+        NOT_VALID,
+        (
+            429,
+            "Too many pilots from this client, or the hourly cap on pilots is reached. Wait for the seconds in "
+            "the Retry-After header.",
+        ),
+        (503, "The planner cannot be run, or, with a database, a store cannot be reached."),
+    ),
+)
 def run_pilot(request: PilotRequest) -> Any:
     """Run the federated pilot across every hospital and return its evidence.
 
@@ -691,14 +834,32 @@ def run_pilot(request: PilotRequest) -> Any:
         pilot_flight.leave()
 
 
-@app.get("/api/v1/models")
+@app.get("/api/v1/models", responses=_errors(STORE_DOWN))
 def models() -> dict[str, Any]:
     """The model the hospitals use, and the 20 newest registered versions, oldest first."""
     return {"model_in_use": consortium.model_in_use(), "models": consortium.models(limit=MODELS_LISTED)}
 
 
-@app.post("/api/v1/models/{version}:approve", dependencies=[Depends(rate_limits.dependency("approvals"))])
-def approve_model(version: str) -> dict[str, Any]:
+@app.post(
+    "/api/v1/models/{version}:approve",
+    dependencies=[Depends(rate_limits.dependency("approvals"))],
+    responses=_errors(
+        (404, "There is no model version with this name."),
+        (
+            409,
+            "The version cannot be approved: it has no release decision, the gates or the release Guard did not "
+            "allow it, it is no longer a candidate, or another model is now in use.",
+        ),
+        NOT_VALID,
+        TOO_MANY,
+        STORE_DOWN,
+    ),
+)
+def approve_model(
+    version: Annotated[
+        str, Path(description="The candidate's version, as the pilot's `candidate.candidate_version` gives it.")
+    ],
+) -> dict[str, Any]:
     """Release a candidate whose last release decision was ``release``.
 
     Returns ``{released, previous}``. 409 when the gates or the release Guard
@@ -738,10 +899,14 @@ def framework_status(request: Request) -> dict[str, Any]:
     }
 
 
-@app.get("/api/v1/framework/trace")
+@app.get("/api/v1/framework/trace", responses=_errors(NOT_A_HOSPITAL, NOT_VALID, STORE_DOWN))
 def framework_trace(
-    site_id: str | None = Query(default=None, max_length=64),
-    limit: int = Query(default=50, ge=1, le=1000),
+    site_id: str | None = Query(
+        default=None,
+        max_length=64,
+        description="The hospital whose records are traced, such as `it-002`. Without it, the first hospital.",
+    ),
+    limit: int = Query(default=50, ge=1, le=1000, description="How many of the hospital's first records to trace."),
 ) -> dict[str, Any]:
     """Run one hospital's records through the framework's planners, at that hospital.
 

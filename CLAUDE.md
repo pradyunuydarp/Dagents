@@ -75,15 +75,22 @@ apps/
                       records from three hospitals, one store per hospital, with its own
                       README, tests and compose file; scripts/extract_repo.sh turns it into
                       its own repository
-site/            the framework site: home page, the learning guide, the API reference
+examples/
+  getting-started/    the worked example of docs/guide: two stores check a rule together;
+                      every Python block in the guide is copied from it
+site/            the framework site: home page, the learning guide, the guide to
+                 building an application, the API reference, the Resources page
 design/          the design system source, copied into each frontend by a script
 tests/           checks that span more than one service
 docs/
   learn/          the learning guide, rendered by the site (Markdown + Mermaid)
+  guide/          the guide to building an application on Dagents, rendered at #/guide
   agents/         LMA/GMA architecture
   architecture/   OCaml adoption plan, Python-vs-OCaml comparison
   demo/           demo scripts + recorded inputs and expected outputs
-  presentation/   the project deck (.pptx), outline, talk track, PlantUML sources
+  presentation/   teaching decks (.pptx) and their notes, resources.json (the list
+                  behind the Resources page), exports/ (PDFs and previews made by
+                  scripts/export_presentations.py), PlantUML sources
   reports/        LaTeX reports and PDFs
 env/             committed per-service env files (no secrets)
 ```
@@ -178,8 +185,19 @@ both store implementations are tested.
 `.github/workflows/ci.yml` runs the same commands, one job per layer: `planners`
 (builds OCaml, runs `dune test`, and uploads `dagentsc` for the other jobs),
 `agents`, `framework-services` (core-service twice, with and without
-`DAGENTSC_BIN`), `contracts`, `spring`, `demo-apps`, `frontends`, and a `ci`
-gate job that is the single required check.
+`DAGENTSC_BIN`), `contracts`, `spring`, `demo-apps`, `frontends`,
+`docs-impact`, and a `ci` gate job that is the single required check.
+
+`docs-impact` runs `scripts/check_docs_impact.py` on pull requests and pushes
+to `main`. It fails when a change touches a code area (`agents/`, `services/`,
+`bindings/ocaml/`, `apps/`, `contracts/`, `scripts/`, `examples/`, `env/`, the
+compose file, a workflow, or a deck) and none of the docs that area feeds,
+unless a commit message has a line `Docs-Impact: none [area] (reason)` that
+names the area. Run it before pushing:
+
+```bash
+.venv/bin/python scripts/check_docs_impact.py --base origin/main
+```
 
 Two guard scripts catch runs that look green but are not:
 
@@ -240,6 +258,37 @@ are gitignored; the workflow makes them.
 The site's learning guide is `docs/learn/*.md`. `npm run check` visits every
 guide page in Chromium and fails if a Mermaid diagram does not draw, an image
 does not load, or a link between pages is broken.
+
+The guide to building an application is `docs/guide/*.md` (`#/guide`; page
+order in `site/src/guide.ts`). Its code blocks come from
+`examples/getting-started/`. `tests/test_getting_started_example.py` fails when
+a block marked `<!-- source: PATH -->` differs from its file, when a Python
+block has no marker, or when a block marked `<!-- output: PATH -->` differs from
+what the script prints with the real planner. Its example tests skip without
+`dagentsc`; the `agents` CI job runs them with the planner and forbids that
+skip. A code change that the guide or the example shows changes them in the
+same commit (the `docs-sync` skill):
+
+```bash
+DAGENTSC_BIN=$PWD/bindings/ocaml/_build/default/bin/dagentsc.exe \
+  .venv/bin/python -m unittest tests.test_getting_started_example -v
+```
+
+The site's Resources page (`#/resources`) offers the teaching decks and reports.
+Its list is `docs/presentation/resources.json`, and the build copies each file
+into `dist/resources/`. The PDFs and preview images in
+`docs/presentation/exports/` are made by a person, not by CI, because the
+conversion needs LibreOffice Impress and someone has to look at the pages. After
+changing, adding or removing a deck:
+
+```bash
+.venv/bin/python scripts/export_presentations.py --write   # needs soffice, pymupdf, pillow
+```
+
+Look at the new PDF, then commit it with `resources.json`.
+`tests/test_site_resources.py` fails when a listed file changes without this
+step, or when a deck or note under `docs/presentation/` is neither listed nor
+excluded with a reason.
 
 ### Full stack
 
@@ -307,6 +356,15 @@ hardcode URLs or ports. Each service has a `*_PUBLIC_URL` (host) and a
 
 ## Conventions
 
+### Docs change with the code
+
+A code change and the docs it affects land in the same commit, and a change is
+not done while the framework site describes the old behaviour. The site
+publishes on every push to `main`. The `docs-sync` skill maps each code area to
+the docs it feeds (the API reference, the guide and its example, the learning
+guide, the Resources page, the inventory and the READMEs), with the command
+that regenerates each generated doc. Never edit a generated doc by hand.
+
 ### Agent layout
 
 `agents/lma/` and `agents/gma/` use the same layout, and new agents should too:
@@ -363,6 +421,27 @@ and the Spring controllers), so any route change means regenerating it:
 checks the conventions above: the framework services use only versioned paths,
 the LMA/GMA pairs exist and return the same result, and the Spring services
 mirror their Python counterparts.
+
+### The API reference
+
+The site's API reference (`#/api`) has three sources:
+`docs/reference/api-reference.json`, generated from each FastAPI app's OpenAPI
+document, the Spring sources and `dagentsc.ml`; the Markdown in
+`docs/reference/api/`, which places every endpoint in one interface and holds
+the prose; and examples captured from real calls in
+`docs/reference/api/examples/`. A route, model, docstring or field description
+change means:
+
+```bash
+.venv/bin/python scripts/api_reference.py --write
+DAGENTSC_BIN=... .venv/bin/python scripts/capture_api_examples.py   # needs the planner
+```
+
+`tests/test_api_reference.py` and `tests/test_api_examples.py` fail when either
+is stale, when an endpoint is not placed in exactly one interface, or when an
+example no longer matches the app. Write field descriptions in the code
+(`Field(description=...)`), not in the Markdown. `docs/reference/api/README.md`
+has the format and the rules.
 
 ### The model inventory
 
@@ -574,7 +653,7 @@ the whole stack.
 
 ## Repository skills
 
-`.claude/skills/` holds four repository skills. They are binding where they say
+`.claude/skills/` holds five repository skills. They are binding where they say
 **never**:
 
 - `backend`: the layer rule, where each kind of decision may live, the
@@ -584,6 +663,10 @@ the whole stack.
 - `ci`: the pipeline's shape, the false greens it defends against, and the rules
   for changing a workflow.
 - `writing`: plain-language rules for every text in the repository.
+- `docs-sync`: which docs each code area feeds, so a code change updates them
+  in the same commit; the commands that regenerate the generated docs; the
+  tests that catch drift; what only reading can check; and the docs-impact
+  check in CI.
 
 They are first-party repository skills; no third-party marketplace plugin is
 installed.
@@ -592,9 +675,11 @@ installed.
 
 - `docs/learn/` — the learning guide: federated learning, governance, the
   architecture, the APIs, and running Dagents yourself
+- `docs/guide/` — the guide to building an application on Dagents, step by step,
+  with the worked example in `examples/getting-started/`
 - `AGENTS.md` — the long contributor guide, with the most detail on boundaries
 - `docs/reference/service-inventory.md` — every endpoint the Java and Python services expose
-- `.claude/skills/{backend,frontend,ci,writing}/SKILL.md` — the rules for each area
+- `.claude/skills/{backend,frontend,ci,writing,docs-sync}/SKILL.md` — the rules for each area
 - `docs/agents/lma-gma-architecture.md` — agent responsibilities and run flow
 - `docs/architecture/ocaml-adoption-plan.md` — why OCaml, where it is used, what stays out
 - `bindings/ocaml/README.md` — module map, CLI commands, contract examples
