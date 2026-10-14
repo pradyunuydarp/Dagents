@@ -9,9 +9,9 @@ the guard fails on them. They also run two real suites in the condition that
 makes them skip.
 
 The last part checks the workflows: every step that pipes into `tee` sets
-`pipefail`, the jobs call the guard with the categories they must check, and
-every test class that needs a database is in a `--require-ran` list whose step
-runs its module.
+`pipefail`, the jobs call the guard with the categories they must check, every
+test class that needs a database is in a `--require-ran` list whose step runs
+its module, and the Spring job gives its tests the planner.
 """
 
 from __future__ import annotations
@@ -40,6 +40,11 @@ AGENT_TESTS = REPO_ROOT / "agents" / "tests"
 HEALTHCARE_TESTS = REPO_ROOT / "apps" / "healthcare-demo" / "tests"
 WORKFLOWS = REPO_ROOT / ".github" / "workflows"
 CI_WORKFLOW = WORKFLOWS / "ci.yml"
+#: How the spring-core-service tests find the planner.
+SPRING_PLANNER_LOOKUP = (
+    REPO_ROOT / "services" / "spring-services" / "spring-core-service" / "src" / "test" / "java"
+    / "io" / "dagents" / "spring" / "core" / "compiler" / "PlannerBinary.java"
+)
 #: Where a module named in `--require-ran` can live: the suites run from the
 #: repository root, except the healthcare suite, which runs from its app.
 TEST_ROOTS = (REPO_ROOT, REPO_ROOT / "apps" / "healthcare-demo")
@@ -575,6 +580,20 @@ class WorkflowGuardTests(unittest.TestCase):
 
     def test_the_demo_apps_job_forbids_planner_and_database_skips(self) -> None:
         self.assertLessEqual({"planner", "database"}, self.forbidden_in("demo-apps"))
+
+    def test_the_spring_job_runs_the_planner_tests_with_the_planner(self) -> None:
+        """spring-core-service's planner tests fail instead of skipping when DAGENTSC_BIN is set.
+
+        Maven's log is not one the guard reads, so this checks the setting instead:
+        the job downloads the planner and passes DAGENTSC_BIN to the Maven step, and
+        the Java tests read that variable.
+        """
+        job = jobs(self.CI)["spring"]
+        self.assertRegex(job, r"(?m)^    needs:.*\bplanners\b", "the spring job does not wait for the planner build")
+        self.assertRegex(job, r"(?m)^\s+name: dagentsc$", "the spring job does not download the planner")
+        [maven] = [step for step in re.split(r"(?m)^      - ", job) if "mvn " in step]
+        self.assertIn("DAGENTSC_BIN:", maven)
+        self.assertIn('System.getenv("DAGENTSC_BIN")', SPRING_PLANNER_LOOKUP.read_text(encoding="utf-8"))
 
     def test_the_agents_job_installs_the_app_chart_requirements(self) -> None:
         """The same ranges as the healthcare app, which draws the charts in production."""

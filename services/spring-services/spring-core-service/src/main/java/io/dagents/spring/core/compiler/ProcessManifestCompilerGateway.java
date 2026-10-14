@@ -5,13 +5,16 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.dagents.spring.common.contracts.WorkloadCompileRequest;
 import io.dagents.spring.common.contracts.WorkloadManifest;
 import io.dagents.spring.common.contracts.WorkloadPlanResponse;
-import java.io.BufferedWriter;
-import java.io.OutputStreamWriter;
+import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class ProcessManifestCompilerGateway implements ManifestCompilerGateway {
+  private static final Logger log = LoggerFactory.getLogger(ProcessManifestCompilerGateway.class);
+
   private final ManifestCompilerGateway fallback;
   private final String command;
   private final ObjectMapper objectMapper = new ObjectMapper();
@@ -28,10 +31,10 @@ public class ProcessManifestCompilerGateway implements ManifestCompilerGateway {
     }
     try {
       Process process = new ProcessBuilder(command, "manifest", "compile", "--input", "-", "--output", "json").start();
-      try (BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(process.getOutputStream(), StandardCharsets.UTF_8))) {
-        objectMapper.writeValue(writer, request);
-        writer.flush();
-        writer.close();
+      // Write the request as bytes and close stdin once. ObjectMapper.writeValue(Writer, ...)
+      // closes its target, so a flush after it threw and the planner's answer was discarded.
+      try (OutputStream stdin = process.getOutputStream()) {
+        stdin.write(objectMapper.writeValueAsBytes(request));
       }
       byte[] stdout = process.getInputStream().readAllBytes();
       byte[] stderr = process.getErrorStream().readAllBytes();
@@ -52,7 +55,10 @@ public class ProcessManifestCompilerGateway implements ManifestCompilerGateway {
         String namespace = payload.path("namespace").asText(request.namespace());
         return new WorkloadPlanResponse(planId, namespace, manifests, payload.path("combinedYaml").asText());
       }
-    } catch (Exception ignored) {
+      log.warn("{} exited with code {} and no plan; using the Java renderer. stderr: {}",
+          command, exitCode, new String(stderr, StandardCharsets.UTF_8).strip());
+    } catch (Exception error) {
+      log.warn("{} could not compile the plan; using the Java renderer", command, error);
       return fallback.compile(request);
     }
     return fallback.compile(request);
