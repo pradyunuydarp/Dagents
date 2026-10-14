@@ -7,8 +7,16 @@ import time
 from typing import Protocol
 
 from agents.common.infrastructure.sources import DefaultSourceResolver
-from app.models import PipelineCatalogResponse, PipelineDefinition, PipelineRunRequest, PipelineRunResponse
+from app.models import PipelineCatalogResponse, PipelineDefinition, PipelineRunRequest, PipelineRunResponse, PipelineStep
 from app.pipeline.engine import PipelineExecutionEngine
+
+
+class PipelineNotFoundError(LookupError):
+    """No pipeline is registered under the requested id."""
+
+    def __init__(self, pipeline_id: str) -> None:
+        super().__init__(f"Unknown pipeline: {pipeline_id}")
+        self.pipeline_id = pipeline_id
 
 
 class PipelineDefinitionRepository(Protocol):
@@ -132,21 +140,42 @@ class PipelineService:
         - `definition`: pipeline graph containing steps and dependencies.
 
         What it does:
-        - Runs structural validation through the execution engine.
+        - Asks the planner, through the execution engine, whether the graph is
+          valid. Nothing is stored when it is not.
         - Stamps the definition with a registration timestamp.
 
         Returns:
         - The stored `PipelineDefinition`.
+
+        Raises:
+        - `PlannerRejectedError` for an invalid graph, and
+          `PlannerUnavailableError` when the planner cannot be run.
         """
         self._engine.validate(definition)
         stored = definition.model_copy(update={"registered_at": int(time.time())})
         return self._definitions.save(stored)
 
-    def run_pipeline(self, pipeline_id: str, request: PipelineRunRequest) -> PipelineRunResponse:
-        """Execute one pipeline synchronously and persist the completed run."""
+    def _require(self, pipeline_id: str) -> PipelineDefinition:
+        """Return a registered definition, or raise `PipelineNotFoundError`."""
         definition = self._definitions.get(pipeline_id)
         if definition is None:
-            raise ValueError(f"Unknown pipeline: {pipeline_id}")
+            raise PipelineNotFoundError(pipeline_id)
+        return definition
+
+    def validate_pipeline(self, pipeline_id: str) -> PipelineDefinition:
+        """Check a registered pipeline with the planner again, and return it."""
+        definition = self._require(pipeline_id)
+        self._engine.validate(definition)
+        return definition
+
+    def run_pipeline(self, pipeline_id: str, request: PipelineRunRequest) -> PipelineRunResponse:
+        """Execute one pipeline synchronously and persist the completed run.
+
+        Raises `PipelineNotFoundError`, the planner errors `register_pipeline`
+        raises, and `PipelineStepError` when a step fails. A failed run is not
+        stored.
+        """
+        definition = self._require(pipeline_id)
         # The engine owns all step execution semantics; the service only manages
         # lookup and persistence around that execution.
         run = self._engine.execute(definition, request.payload, source_resolver=self._source_resolver)
@@ -160,18 +189,24 @@ class PipelineService:
         - `request`: run request containing `pipeline_id` and initial payload.
 
         What it does:
-        - Creates a queued run record immediately.
-        - Schedules `_run_async` on the thread pool.
+        - Asks the planner for the step order before queueing, so a planner
+          that cannot be run fails the request instead of the queued run.
+        - Creates a queued run record.
+        - Schedules `_run_async` on the thread pool. A step that fails there
+          marks the run `failed` with the step's error.
 
         Returns:
         - Initial `PipelineRunResponse` with status `queued`.
+
+        Raises:
+        - `ValueError` when `pipeline_id` is missing, `PipelineNotFoundError`,
+          and the planner errors `register_pipeline` raises.
         """
         pipeline_id = request.pipeline_id
         if not pipeline_id:
             raise ValueError("pipeline_id is required")
-        definition = self._definitions.get(pipeline_id)
-        if definition is None:
-            raise ValueError(f"Unknown pipeline: {pipeline_id}")
+        definition = self._require(pipeline_id)
+        steps = self._engine.plan(definition)
 
         run_id = f"{pipeline_id}-run-{int(time.time() * 1000)}"
         queued = PipelineRunResponse(
@@ -184,20 +219,28 @@ class PipelineService:
             step_results=[],
         )
         self._runs.save(queued)
-        self._executor.submit(self._run_async, definition, request, run_id)
+        self._executor.submit(self._run_async, definition, steps, request, run_id)
         return queued
 
-    def _run_async(self, definition: PipelineDefinition, request: PipelineRunRequest, run_id: str) -> None:
+    def _run_async(
+        self,
+        definition: PipelineDefinition,
+        steps: list[PipelineStep],
+        request: PipelineRunRequest,
+        run_id: str,
+    ) -> None:
         """Execute a queued pipeline and update its persisted lifecycle state."""
         running = self._runs.get(run_id)
         if running is None:
             return
         self._runs.update(running.model_copy(update={"status": "running", "started_at": int(time.time())}))
         try:
-            completed = self._engine.execute(definition, request.payload, source_resolver=self._source_resolver)
+            completed = self._engine.execute_steps(
+                definition, steps, request.payload, source_resolver=self._source_resolver
+            )
             stored = completed.model_copy(update={"run_id": run_id})
             self._runs.update(stored)
-        except Exception as exc:  # pragma: no cover - defensive path
+        except Exception as exc:
             failed = self._runs.get(run_id)
             if failed is None:
                 return

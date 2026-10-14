@@ -66,6 +66,8 @@ val records_of_yojson : Yojson.Safe.t -> record list
 val pipeline_definition_of_yojson : Yojson.Safe.t -> pipeline_definition
 (** Serialize a compiled pipeline with execution targets. *)
 val yojson_of_pipeline : compiled_pipeline -> Yojson.Safe.t
+(** Serialize a pipeline graph error as [{code, message, stepIds}]. *)
+val yojson_of_pipeline_graph_error : pipeline_graph_error -> Yojson.Safe.t
 
 (** Serialize a dataset profile. *)
 val dataset_profile_to_yojson : dataset_profile -> Yojson.Safe.t

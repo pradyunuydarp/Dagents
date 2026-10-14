@@ -7,7 +7,17 @@
 
     The CLI is intentionally thin: it parses arguments/JSON, delegates planning
     to library modules, and prints text or JSON output. It does not perform
-    cluster deployment, database I/O, or model execution. *)
+    cluster deployment, database I/O, or model execution.
+
+    Exit status:
+    - 0: the command succeeded and printed its output.
+    - 1: the command line was not recognized ([usage]).
+    - 2: the planner failed, for example on input JSON it cannot parse. OCaml
+      exits with 2 on an uncaught exception.
+    - 3 ([rejected_exit_code]): the input is well formed, but the planner
+      rejects it. With [--output json], stdout holds a JSON report with at
+      least [code] and [message]. Callers treat this as the planner's answer
+      about the request, not as a planner failure. *)
 
 open Dagents_common_ir
 
@@ -113,6 +123,21 @@ let output_json json =
   Yojson.Safe.pretty_to_channel stdout json;
   print_newline ()
 
+(** Exit status for input the planner rejects. See the module comment. *)
+let rejected_exit_code = 3
+
+(** Report a rejected input and exit with [rejected_exit_code].
+
+    Inputs:
+    - [args]: command arguments, read for [--output].
+    - [report]: JSON object with at least [code] and [message].
+    - [message]: the same message, printed to stderr for text output.
+
+    Output: does not return. *)
+let reject args report message =
+  if arg_value "--output" args "text" = "json" then output_json report else prerr_endline message;
+  exit rejected_exit_code
+
 (** Handle [dagentsc manifest compile].
 
     Inputs: CLI args, optionally including [--input] JSON. Without [--input],
@@ -162,7 +187,9 @@ let manifest_compile args =
 (** Handle [dagentsc pipeline compile].
 
     Inputs: pipeline JSON via [--input] or repeated compact [--step] flags.
-    Output: text step listing by default, JSON when requested. *)
+    Output: text step listing by default, JSON when requested. A graph with a
+    duplicate step id, an unknown dependency or a cycle exits with
+    [rejected_exit_code] and a report from [yojson_of_pipeline_graph_error]. *)
 let pipeline_compile args =
   let definition =
     if List.mem "--input" args then Json_codec.pipeline_definition_of_yojson (read_json_input args)
@@ -177,10 +204,17 @@ let pipeline_compile args =
       in
       { pipeline_id; steps = collect_steps [] args }
   in
-  let pipeline = Dagents_pipeline_compiler.compile definition in
-  if arg_value "--output" args "text" = "json" then
-    output_json (Json_codec.yojson_of_pipeline pipeline)
-  else List.iter (fun step -> print_endline (step.step_id ^ ":" ^ string_of_step_kind step.kind)) pipeline.steps
+  match Dagents_pipeline_compiler.compile_result definition with
+  | Error error ->
+      reject args (Json_codec.yojson_of_pipeline_graph_error error) (describe_pipeline_graph_error error)
+  | Ok pipeline ->
+      if arg_value "--output" args "text" = "json" then
+        output_json (Json_codec.yojson_of_pipeline pipeline)
+      else
+        List.iter
+          (fun (step : compiled_pipeline_step) ->
+            print_endline (step.step_id ^ ":" ^ string_of_step_kind step.kind))
+          pipeline.steps
 
 (** Handle [dagentsc model route].
 

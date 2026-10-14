@@ -1355,7 +1355,7 @@
           "path": "/api/v1/pipeline-definitions",
           "handler": "register_pipeline_definition",
           "status_code": null,
-          "summary": "Check a pipeline's graph and store it. The same handler as `POST /api/v1/pipelines`.",
+          "summary": "Check a pipeline's graph with the planner and store it. The same handler as `POST /api/v1/pipelines`.",
           "alias_of": null
         },
         {
@@ -1371,7 +1371,7 @@
           "path": "/api/v1/pipeline-definitions/{pipeline_id}:validate",
           "handler": "validate_pipeline_definition",
           "status_code": null,
-          "summary": "Check a stored pipeline's graph again and return the pipeline.",
+          "summary": "Check a stored pipeline's graph with the planner again and return the pipeline.",
           "alias_of": null
         },
         {
@@ -1411,7 +1411,7 @@
           "path": "/api/v1/pipelines",
           "handler": "register_pipeline",
           "status_code": null,
-          "summary": "Check a pipeline's graph and store it.",
+          "summary": "Check a pipeline's graph with the planner and store it.",
           "alias_of": null
         },
         {

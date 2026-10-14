@@ -175,7 +175,7 @@
       "id": "pipeline-cycle",
       "endpoint": "dagentsc pipeline compile",
       "title": "A pipeline whose steps depend on each other",
-      "description": "The input is docs/demo/inputs/pipeline-cyclic.json. The planner stops with an exception, which is exit code 2.",
+      "description": "The input is docs/demo/inputs/pipeline-cyclic.json. The planner rejects the graph with exit code 3 and prints a report that lists the cycle in dependency order.",
       "request": {
         "args": [
           "pipeline",
@@ -205,7 +205,7 @@
           ]
         }
       },
-      "status": 2
+      "status": 3
     },
     {
       "id": "route-classification",

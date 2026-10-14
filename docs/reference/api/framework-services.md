@@ -14,8 +14,8 @@ How they relate to the rest of Dagents:
 
 - The core service and the pipeline service call the planner, `dagentsc`: the
   core service to render manifests (`manifest compile`), the pipeline service
-  when it registers or checks a pipeline (`pipeline compile`, whose answer it
-  does not use; see [Pipeline definitions](#pipeline-definitions)). See
+  to decide whether a pipeline's graph is valid and in what order its steps run
+  (`pipeline compile`; see [Pipeline definitions](#pipeline-definitions)). See
   [dagentsc](dagentsc.md). The model service does not call the planner.
 - The pipeline service and the model service each keep their own catalog of
   data sources at `/api/v1/sources`. It takes the same source definitions and
@@ -295,19 +295,24 @@ their `POST` handlers. Fetching and checking one pipeline exist only under
 `/api/v1/pipeline-definitions/{pipeline_id}`, and running one only under
 `/api/v1/pipelines/{pipeline_id}/runs` ([Pipeline runs](#pipeline-runs)).
 
-**How a graph is checked.** `PipelineExecutionEngine.validate` runs when a
-pipeline is registered and when it is checked again:
+**How a graph is checked.** `PipelineExecutionEngine.plan` sends each step's
+`step_id`, `kind` and `depends_on` to `dagentsc pipeline compile` as JSON. It
+runs when a pipeline is registered, when it is checked again, and before every
+run. The planner decides; the service keeps no ordering rule of its own:
 
-1. It sends the pipeline to `dagentsc pipeline compile` as JSON. The service
-   does not use the answer, and when the planner rejects the graph or cannot be
-   run, the error is ignored.
-2. It orders the steps in Python (`_resolve_step_order`). Two steps with one
-   `step_id`, a `depends_on` entry that names no step, or a cycle raises an
-   error, and the request fails with `500`.
+- The planner accepts the graph and returns the steps in the order they run.
+  The engine checks that the answer lists each step exactly once.
+- The planner rejects the graph (exit status 3): two steps share a `step_id`,
+  a `depends_on` entry names no step, or the steps depend on each other in a
+  cycle. The request fails with `422`, and `detail` is the planner's sentence.
+  Nothing is stored.
+- The planner cannot be run, or its answer has the wrong shape. The request
+  fails with `503`, and the planner's own error goes to the service's log, not
+  to the caller. The service has no other way to check a graph, so it refuses
+  the request.
 
-So the Python check decides whether a pipeline is accepted, and the planner's
-answer has no effect. Neither check reads a step's `config`: a wrong `config`
-is found only when the pipeline runs.
+The check does not read a step's `config`: a wrong `config` is found only when
+the pipeline runs.
 
 ```mermaid
 flowchart TB
@@ -332,11 +337,17 @@ sequenceDiagram
     participant Repo as definition repository
     Client->>Service: POST /api/v1/pipelines
     Service->>Engine: validate(definition)
-    Engine->>Planner: pipeline compile, definition as JSON
-    Planner-->>Engine: an ordered plan, or an error that is ignored
-    Engine->>Engine: order the steps in Python, fail on a bad graph
-    Service->>Repo: save, with registered_at from the clock
-    Service-->>Client: 200 with the stored pipeline
+    Engine->>Planner: pipeline compile, the steps as JSON
+    alt the planner accepts the graph
+        Planner-->>Engine: the steps in the order they run
+        Service->>Repo: save, with registered_at from the clock
+        Service-->>Client: 200 with the stored pipeline
+    else the planner rejects the graph
+        Planner-->>Engine: exit 3 and a report
+        Service-->>Client: 422 with the planner's sentence
+    else the planner cannot be run
+        Service-->>Client: 503
+    end
 ```
 
 ### List the pipelines
@@ -380,9 +391,11 @@ stored pipeline with every default filled in. It reads no data source and
 passes no Guard boundary.
 
 **Errors.** `422` when a field fails validation, for example a `kind` that is
-not one of the six. `500` with the plain-text body `Internal Server Error` when
-the graph is not valid: two steps share a `step_id`, a step depends on a step
-that does not exist, or the steps depend on each other in a cycle.
+not one of the six; `detail` is a list of field errors. `422` when the planner
+rejects the graph: two steps share a `step_id`, a step depends on a step that
+does not exist, or the steps depend on each other in a cycle; `detail` is the
+planner's sentence. `503` when the planner cannot be run. Nothing is stored in
+any of these cases.
 
 **Related.** [The PipelineDefinition object](#the-pipelinedefinition-object),
 [the PipelineStep object](#the-pipelinestep-object),
@@ -401,7 +414,8 @@ registers a pipeline whose steps read a source from
 [the pipeline service's catalog](#pipeline-service-sources).
 
 **Errors.** As for [registering a pipeline](#pipeline-service-post-api-v1-pipelines):
-`422` for a field that fails validation, `500` for a graph that is not valid.
+`422` for a field that fails validation or a graph the planner rejects, `503`
+when the planner cannot be run.
 
 **Related.** [Register a pipeline](#pipeline-service-post-api-v1-pipelines),
 [register a source](#pipeline-service-post-api-v1-sources).
@@ -429,10 +443,12 @@ POST /api/v1/pipeline-definitions/{pipeline_id}:validate
 Runs the same check as registering on the stored pipeline, including
 `dagentsc pipeline compile`, and returns the pipeline unchanged. Nothing is
 stored and `registered_at` keeps its value. A stored pipeline passed this check
-when it was registered, so the answer is `200` unless the checking code has
-changed since.
+when it was registered, so the answer is `200` unless the planner has changed
+since.
 
-**Errors.** `404` when no pipeline has this id.
+**Errors.** `404` when no pipeline has this id. `422` when the planner now
+rejects the graph, with the planner's sentence in `detail`. `503` when the
+planner cannot be run.
 
 **Related.** [Register a pipeline](#pipeline-service-post-api-v1-pipelines),
 [`dagentsc pipeline compile`](dagentsc.md#dagentsc-pipeline-compile).
@@ -459,9 +475,10 @@ endpoints:
 A **run** executes a stored pipeline's steps, one at a time, on a JSON object
 called the **payload**. Each step reads from the payload and writes its result
 back into it at a dotted path, such as `summary` or `context.batch`. The engine
-works on a deep copy of the payload you send. A step runs after the steps it
-depends on; steps that do not depend on each other run in the order they are
-listed.
+works on a deep copy of the payload you send. The steps run in the order
+`dagentsc pipeline compile` returns, which puts every step after the steps it
+depends on. The planner orders a run's steps before the run starts, so a
+planner that cannot be run fails the request with `503`, not the run.
 
 There are two ways to start a run:
 
@@ -469,7 +486,7 @@ There are two ways to start a run:
 |---|---|---|
 | Answers | `200` when the run has finished | `202` at once, with `status` `queued` |
 | Pipeline | the id in the path | `pipeline_id` in the body |
-| A step fails | `404` or `500`, and nothing is stored | the run is stored as `failed`, with the message in `error` |
+| A step fails | `422` naming the step (or `500` for a fault in the step's code), and nothing is stored | the run is stored as `failed`, with the message in `error` |
 | Stored | the finished run | the queued run, updated as it runs |
 
 `InMemoryPipelineRunRepository` keeps runs in memory, in the order they were
@@ -496,11 +513,13 @@ sequenceDiagram
     participant Engine as PipelineExecutionEngine
     participant Repo as run repository
     Client->>Service: POST /api/v1/pipeline-runs
+    Service->>Engine: plan(definition)
+    Engine-->>Service: the steps in the order dagentsc returned
     Service->>Repo: save the run as queued
     Service->>Pool: submit the run
     Service-->>Client: 202 with the queued run
     Pool->>Repo: update to running
-    Pool->>Engine: execute(definition, payload)
+    Pool->>Engine: execute_steps(definition, steps, payload)
     Engine-->>Pool: final payload and step results
     Pool->>Repo: update to completed, or to failed with the error
     Client->>Service: GET /api/v1/pipeline-runs/{run_id}
@@ -516,16 +535,19 @@ POST /api/v1/pipelines/{pipeline_id}/runs
 Runs every step of the stored pipeline on `payload`, stores the finished run
 and returns it. A `pipeline_id` in the body is ignored. The returned `status`
 is always `completed`, because a step that fails stops the run and nothing is
-stored. No planner command runs; the graph was checked when the pipeline was
-registered. The second example reads a registered source, so its payload is
-empty.
+stored. It runs `dagentsc pipeline compile` once, for the step order. The
+second example reads a registered source, so its payload is empty.
 
-**Errors.** `404` when no pipeline has this id. Also `404` when a step raises a
-`ValueError`: its `config` is not valid (the last example has a sum with no
-field), it names a source that is not registered, or a condition has an unknown
-operator. The `detail` is the error's message. `500` with the plain-text body
-`Internal Server Error` when a step raises another error, for example a
-condition that compares a number with a string.
+**Errors.** `404` when no pipeline has this id. `422` when a step raises a
+`ValueError`, `TypeError` or `LookupError`: its `config` is not valid (the last
+example has a sum with no field), it names a source that is not registered, a
+condition has an unknown operator, or a condition compares a number with a
+string. The `detail` names the step, its kind and the reason, for example
+`Step totals (summarize_items) failed: Aggregation sum requires a field`. `422`
+also when the planner rejects the stored graph, which happens only if the
+planner has changed since the pipeline was registered. `500` with the
+plain-text body `Internal Server Error` when a step raises any other error,
+which is a fault in the step's code. `503` when the planner cannot be run.
 
 **Related.** [The PipelineRunResponse object](#the-pipelinerunresponse-object),
 [the StepRunResult object](#the-steprunresult-object),
@@ -538,15 +560,18 @@ condition that compares a number with a string.
 POST /api/v1/pipeline-runs
 ```
 
-Stores the run as `queued`, with `completed_at` `0` and the payload as it was
-sent, hands it to the thread pool and answers `202` without waiting. The run
+Asks `dagentsc pipeline compile` for the step order, stores the run as
+`queued`, with `completed_at` `0` and the payload as it was sent, hands it to
+the thread pool and answers `202` without waiting. The run
 then becomes `running`, and then `completed`, or `failed` with the error
 message in `error`. A failed run keeps the payload as it was sent and has no
 step results. Read its state with
 [`GET /api/v1/pipeline-runs/{run_id}`](#pipeline-service-get-api-v1-pipeline-runs-run-id).
 
-**Errors.** `404` when `pipeline_id` is missing (`pipeline_id is required`) or
-names no pipeline. A missing `pipeline_id` is a `404`, not a `422`.
+**Errors.** `422` when `pipeline_id` is missing or empty; `detail` is a list of
+field errors. `404` when `pipeline_id` names no pipeline. `422` when the
+planner rejects the stored graph, and `503` when the planner cannot be run. In
+each case no run is stored.
 
 **Related.** [Run a pipeline and wait](#pipeline-service-post-api-v1-pipelines-pipeline-id-runs),
 [the PipelineRunResponse object](#the-pipelinerunresponse-object).
@@ -1252,7 +1277,7 @@ brackets. Paths such as `items_field` are dotted paths into the payload.
 
 | Kind | Reads from `config` | Writes into the payload | `output` in the step result |
 |---|---|---|---|
-| `enrich_context` | `target_field` (`context`), `values` (`{}`) | Merges `values` into the object at `target_field`, creating it. The run fails with `404` when that path holds something that is not an object. | `target_field`, `merged_keys` |
+| `enrich_context` | `target_field` (`context`), `values` (`{}`) | Merges `values` into the object at `target_field`, creating it. The run fails with `422` when that path holds something that is not an object. | `target_field`, `merged_keys` |
 | `filter_items` | `items_field` (`items`), `conditions` (`[]`, a list of [PipelineCondition](#the-pipelinecondition-object)) | Keeps the items at `items_field` that pass every condition. A missing `items_field` is read as an empty list, and an empty list is written there. | `items_field`, `input_count`, `output_count` |
 | `summarize_items` | `items_field` (`items`), `target_field` (`summary`), `aggregations` (`[]`, a list of [AggregationSpec](#the-aggregationspec-object)) | An object with one value per aggregation | `target_field`, `summary_keys` |
 | `project_fields` | `target_field` (`projection`), `fields` (`[]`) | An object whose keys are the dotted paths as written, such as `"summary.total_amount"`, for the paths that exist | `target_field`, `projected_fields` |
@@ -1271,7 +1296,7 @@ example: pipeline-service register-pipeline /request/json/steps/0/config/conditi
 ```
 
 An item is kept only when it passes every condition in `conditions`. The step reads conditions when the pipeline runs, so a
-condition that is not valid fails the run with `404`, not the registration.
+condition that is not valid fails the run with `422`, not the registration.
 
 ### The AggregationSpec object
 
@@ -1282,7 +1307,7 @@ example: pipeline-service register-pipeline /request/json/steps/2/config/aggrega
 ```
 
 The result is stored in the step's `target_field` object under `alias`.
-`count` needs no `field`; `sum`, `avg`, `min` and `max` fail the run with `404`
+`count` needs no `field`; `sum`, `avg`, `min` and `max` fail the run with `422`
 without one.
 
 ### The PipelineRunResponse object

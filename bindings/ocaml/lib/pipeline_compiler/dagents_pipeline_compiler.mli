@@ -24,6 +24,27 @@ open Dagents_common_ir
     ]} *)
 val validate : pipeline_definition -> unit
 
+(** Return pipeline steps in dependency-safe execution order, or the reason
+    the graph has none.
+
+    Inputs:
+    - [pipeline_definition]: possibly unordered step DAG.
+
+    Output:
+    - [Ok steps]: topologically ordered steps where every dependency appears
+      before the dependent step. The order comes from a depth-first walk over
+      the steps in the order they were declared, so it is deterministic.
+    - [Error error]: the first duplicate id, unknown dependency or cycle,
+      found by walking the steps in the order they were declared.
+
+    Example test case:
+    {[
+      match ordered_steps_result definition with
+      | Error (CyclicDependency cycle) -> assert (List.hd cycle = List.nth cycle (List.length cycle - 1))
+      | _ -> ()
+    ]} *)
+val ordered_steps_result : pipeline_definition -> (pipeline_step list, pipeline_graph_error) result
+
 (** Return pipeline steps in dependency-safe execution order.
 
     Inputs:
@@ -32,6 +53,10 @@ val validate : pipeline_definition -> unit
     Output:
     - [pipeline_step list]: topologically ordered steps where every dependency
       appears before the dependent step.
+
+    Raises:
+    - [Invalid_argument] with the [describe_pipeline_graph_error] message when
+      [ordered_steps_result] returns an error.
 
     Example test case:
     {[
@@ -51,3 +76,9 @@ val ordered_steps : pipeline_definition -> pipeline_step list
     Raises:
     - [Invalid_argument] with the same graph errors as [validate]. *)
 val compile : pipeline_definition -> compiled_pipeline
+
+(** Compile a pipeline, or report why its graph has no valid order.
+
+    The CLI uses this function. It prints the error as a JSON report, so a
+    service can tell its caller what is wrong with the pipeline. *)
+val compile_result : pipeline_definition -> (compiled_pipeline, pipeline_graph_error) result

@@ -223,14 +223,14 @@ Ports come from `env/`; never hardcode them — each service has distinct
 |---|---|---|---|
 | GET | `/api/v1/health` | `health` | Report that the pipeline service is running |
 | GET | `/api/v1/pipeline-definitions` | `list_pipeline_definitions` | List every stored pipeline. The same handler as `GET /api/v1/pipelines` |
-| POST | `/api/v1/pipeline-definitions` | `register_pipeline_definition` | Check a pipeline's graph and store it. The same handler as `POST /api/v1/pipelines` |
+| POST | `/api/v1/pipeline-definitions` | `register_pipeline_definition` | Check a pipeline's graph with the planner and store it. The same handler as `POST /api/v1/pipelines` |
 | GET | `/api/v1/pipeline-definitions/{pipeline_id}` | `get_pipeline_definition` | Fetch one stored pipeline by `pipeline_id` |
-| POST | `/api/v1/pipeline-definitions/{pipeline_id}:validate` | `validate_pipeline_definition` | Check a stored pipeline's graph again and return the pipeline |
+| POST | `/api/v1/pipeline-definitions/{pipeline_id}:validate` | `validate_pipeline_definition` | Check a stored pipeline's graph with the planner again and return the pipeline |
 | GET | `/api/v1/pipeline-runs` | `list_pipeline_runs` | List the stored runs, newest first. The same handler as `GET /api/v1/runs` |
 | POST | `/api/v1/pipeline-runs` | `submit_pipeline_run` | returns `202`; Queue a run of a stored pipeline and answer at once |
 | GET | `/api/v1/pipeline-runs/{run_id}` | `get_pipeline_run` | Fetch one stored run by `run_id`. The same handler as `GET /api/v1/runs/{run_id}` |
 | GET | `/api/v1/pipelines` | `list_pipelines` | List every stored pipeline, sorted by `pipeline_id` |
-| POST | `/api/v1/pipelines` | `register_pipeline` | Check a pipeline's graph and store it |
+| POST | `/api/v1/pipelines` | `register_pipeline` | Check a pipeline's graph with the planner and store it |
 | POST | `/api/v1/pipelines/{pipeline_id}/runs` | `run_pipeline` | Run a stored pipeline on a payload and wait for it to finish |
 | GET | `/api/v1/runs` | `list_runs` | List the stored runs, newest first |
 | GET | `/api/v1/runs/{run_id}` | `get_run` | Fetch one stored run by `run_id`, in its current state |

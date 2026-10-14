@@ -4,14 +4,14 @@ Dagents uses both Python and OCaml because they solve different parts of the sys
 
 ## Pipeline Validation
 
-Python pipeline service has a fallback topological sort for local execution. OCaml provides the shared planner used through `dagentsc pipeline compile`.
+The OCaml planner decides whether a pipeline graph is valid and in what order its steps run. The Python pipeline service calls it through `dagentsc pipeline compile` and runs the steps in the order it returns. The service once kept its own topological sort as a fallback. That copy made every decision and the planner's answer was ignored, so the copy was removed.
 
-| Concern | Python fallback | OCaml planner |
+| Concern | Python pipeline service | OCaml planner |
 | --- | --- | --- |
-| Runtime fit | Close to FastAPI service and request models | Isolated pure planner |
-| Type safety | Pydantic at boundaries | Algebraic data types inside planner |
-| Failure modes | Exceptions in service code | Deterministic invalid-plan failures |
-| Testability | Good service tests | Small pure unit tests |
+| Owns | Storing pipelines, running steps, run history | Graph validation and step order |
+| Invalid graph | Returns `422` with the planner's message | Exits with status 3 and a JSON report |
+| Planner cannot be run | Returns `503` | — |
+| Type safety | Pydantic at the API boundary | The `pipeline_graph_error` type inside the planner |
 
 ## Dataset Planning
 

@@ -8,6 +8,7 @@ import unittest
 from unittest.mock import patch
 
 from agents.common.infrastructure import dagents_runner
+from agents.tests.test_governance import dagentsc_available
 
 
 class DagentsRunnerTests(unittest.TestCase):
@@ -104,6 +105,80 @@ class PlannerUnavailableTests(unittest.TestCase):
             dagents_runner.round_digest({"round_id": "r"})
         with self.assertRaises(dagents_runner.PlannerUnavailableError):
             dagents_runner.evaluate_dataset_quality([{"id": "a"}], [])
+
+
+class PlannerRejectedTests(unittest.TestCase):
+    """Exit status 3 is the planner's answer that the input is wrong, not a failure."""
+
+    def rejected(self, stdout: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(
+            args=["dagentsc"], returncode=dagents_runner.REJECTED_EXIT_CODE, stdout=stdout, stderr=""
+        )
+
+    def test_the_error_is_a_value_error_and_not_planner_unavailable(self) -> None:
+        # A service maps PlannerUnavailableError (a RuntimeError) to 503. A
+        # rejection must not be mistaken for that.
+        self.assertTrue(issubclass(dagents_runner.PlannerRejectedError, ValueError))
+        self.assertFalse(issubclass(dagents_runner.PlannerRejectedError, RuntimeError))
+
+    @patch("agents.common.infrastructure.dagents_runner.subprocess.run")
+    def test_a_report_on_exit_3_raises_planner_rejected(self, run) -> None:
+        run.return_value = self.rejected(
+            json.dumps({"code": "cyclic_dependency", "message": "Cyclic dependency: a -> a", "stepIds": ["a", "a"]})
+        )
+        with self.assertRaises(dagents_runner.PlannerRejectedError) as caught:
+            dagents_runner.run_dagentsc(["pipeline", "compile", "--input", "-", "--output", "json"], {})
+        self.assertEqual("cyclic_dependency", caught.exception.code)
+        self.assertEqual("Cyclic dependency: a -> a", caught.exception.message)
+        self.assertEqual("Cyclic dependency: a -> a", str(caught.exception))
+        self.assertEqual({"step_ids": ["a", "a"]}, caught.exception.details)
+
+    @patch("agents.common.infrastructure.dagents_runner.subprocess.run")
+    def test_exit_3_without_a_usable_report_raises_planner_unavailable(self, run) -> None:
+        for stdout in ("", "{not json", json.dumps(["a"]), json.dumps({"code": "x"})):
+            with self.subTest(stdout=stdout):
+                run.return_value = self.rejected(stdout)
+                with self.assertRaises(dagents_runner.PlannerUnavailableError):
+                    dagents_runner.run_dagentsc(["pipeline", "compile", "--input", "-", "--output", "json"], {})
+
+
+@unittest.skipUnless(dagentsc_available(), "dagentsc binary is not available")
+class PlannerRejectionContractTests(unittest.TestCase):
+    """The real planner rejects a bad pipeline graph with exit status 3 and a report."""
+
+    def compile(self, steps: list[dict[str, object]]) -> object:
+        return dagents_runner.run_dagentsc(
+            ["pipeline", "compile", "--input", "-", "--output", "json"],
+            {"pipeline_id": "p", "steps": steps},
+        )
+
+    def test_each_graph_error_is_a_rejection_with_its_code(self) -> None:
+        cases = {
+            "cyclic_dependency": [
+                {"step_id": "a", "kind": "enrich_context", "depends_on": ["b"]},
+                {"step_id": "b", "kind": "enrich_context", "depends_on": ["a"]},
+            ],
+            "duplicate_step_id": [
+                {"step_id": "a", "kind": "enrich_context"},
+                {"step_id": "a", "kind": "enrich_context"},
+            ],
+            "unknown_dependency": [{"step_id": "a", "kind": "enrich_context", "depends_on": ["missing"]}],
+        }
+        for code, steps in cases.items():
+            with self.subTest(code=code):
+                with self.assertRaises(dagents_runner.PlannerRejectedError) as caught:
+                    self.compile(steps)
+                self.assertEqual(code, caught.exception.code)
+                self.assertTrue(caught.exception.message)
+
+    def test_a_valid_graph_compiles_in_dependency_order(self) -> None:
+        plan = self.compile(
+            [
+                {"step_id": "b", "kind": "enrich_context", "depends_on": ["a"]},
+                {"step_id": "a", "kind": "enrich_context"},
+            ]
+        )
+        self.assertEqual(["a", "b"], [step["step_id"] for step in plan["steps"]])
 
 
 class KeyConversionTests(unittest.TestCase):

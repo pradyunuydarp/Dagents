@@ -127,6 +127,35 @@
       "status": 422
     },
     {
+      "id": "register-cyclic-pipeline",
+      "endpoint": "POST /api/v1/pipelines",
+      "title": "A graph whose steps depend on each other in a cycle",
+      "description": "The planner rejects the graph, and detail is its sentence. Nothing is stored.",
+      "request": {
+        "path": "/api/v1/pipelines",
+        "json": {
+          "pipeline_id": "circular-orders",
+          "steps": [
+            {
+              "step_id": "filter",
+              "kind": "filter_items",
+              "depends_on": [
+                "summarize"
+              ]
+            },
+            {
+              "step_id": "summarize",
+              "kind": "summarize_items",
+              "depends_on": [
+                "filter"
+              ]
+            }
+          ]
+        }
+      },
+      "status": 422
+    },
+    {
       "id": "register-source",
       "endpoint": "POST /api/v1/sources",
       "title": "Register an inline source",
@@ -644,7 +673,7 @@
       "id": "run-broken-summary",
       "endpoint": "POST /api/v1/pipelines/{pipeline_id}/runs",
       "title": "A step whose config is wrong",
-      "description": "The graph is valid, so registration succeeded; the sum has no field, so the run fails. Nothing is stored.",
+      "description": "The graph is valid, so registration succeeded; the sum has no field, so the run fails and the answer names the step. Nothing is stored.",
       "request": {
         "path": "/api/v1/pipelines/broken-summary/runs",
         "json": {
@@ -702,7 +731,7 @@
           }
         }
       },
-      "status": 404
+      "status": 422
     },
     {
       "id": "submit-run",
@@ -835,6 +864,19 @@
               }
             ]
           }
+        }
+      },
+      "status": 422
+    },
+    {
+      "id": "submit-run-missing-pipeline",
+      "endpoint": "POST /api/v1/pipeline-runs",
+      "title": "Queue a run of a pipeline that does not exist",
+      "request": {
+        "path": "/api/v1/pipeline-runs",
+        "json": {
+          "pipeline_id": "no-such-pipeline",
+          "payload": {}
         }
       },
       "status": 404

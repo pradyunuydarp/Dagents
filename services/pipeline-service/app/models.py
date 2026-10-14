@@ -139,8 +139,8 @@ class PipelineRunRequest(BaseModel):
     pipeline_id: str | None = Field(
         default=None,
         description=(
-            "The pipeline to run. Required by `POST /api/v1/pipeline-runs`. "
-            "`POST /api/v1/pipelines/{pipeline_id}/runs` ignores it and uses the id in the path."
+            "Ignored: `POST /api/v1/pipelines/{pipeline_id}/runs` uses the id in the path. "
+            "`POST /api/v1/pipeline-runs` takes a body that requires it."
         ),
     )
     payload: dict[str, Any] = Field(
@@ -149,6 +149,15 @@ class PipelineRunRequest(BaseModel):
             "The JSON object the steps read and change, for example `{\"items\": [...]}`. The steps work on a "
             "copy of it."
         ),
+    )
+
+
+class PipelineRunSubmission(PipelineRunRequest):
+    """A request to queue a run of a stored pipeline. The pipeline is named in the body, so its id is required."""
+
+    pipeline_id: str = Field(
+        min_length=1,
+        description="The pipeline to run. A body without it, or with an empty string, is answered with a 422.",
     )
 
 

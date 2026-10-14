@@ -18190,7 +18190,7 @@
      "id": "pipeline-service-post-api-v1-pipeline-definitions",
      "method": "POST",
      "path": "/api/v1/pipeline-definitions",
-     "summary": "Check a pipeline's graph and store it. The same handler as `POST /api/v1/pipelines`.",
+     "summary": "Check a pipeline's graph with the planner and store it. The same handler as `POST /api/v1/pipelines`.",
      "description": null,
      "status_code": 200,
      "deprecated": false,
@@ -18227,19 +18227,26 @@
        }
       },
       {
-       "status": "500",
-       "description": "The graph is not valid: two steps share a `step_id`, a step depends on a step that does not exist, or the steps depend on each other in a cycle.",
-       "content_type": "text/plain",
+       "status": "422",
+       "description": "The body does not match the schema (`detail` is a list of field errors), or the planner rejected the graph: two steps share a `step_id`, a step depends on a step that does not exist, or the steps depend on each other in a cycle (`detail` is the planner's sentence). Nothing is stored.",
+       "content_type": "application/json",
        "schema": {
-        "type": "string"
+        "anyOf": [
+         {
+          "$ref": "#/components/schemas/ErrorResponse"
+         },
+         {
+          "$ref": "#/components/schemas/HTTPValidationError"
+         }
+        ]
        }
       },
       {
-       "status": "422",
-       "description": "Validation Error",
+       "status": "503",
+       "description": "The planner (`dagentsc`) cannot be run, or its answer has the wrong shape. The service has no other way to check or order a pipeline, so it refuses the request and stores nothing. Try again later.",
        "content_type": "application/json",
        "schema": {
-        "$ref": "#/components/schemas/HTTPValidationError"
+        "$ref": "#/components/schemas/ErrorResponse"
        }
       }
      ],
@@ -18305,15 +18312,23 @@
      "id": "pipeline-service-post-api-v1-pipeline-definitions-pipeline-id-validate",
      "method": "POST",
      "path": "/api/v1/pipeline-definitions/{pipeline_id}:validate",
-     "summary": "Check a stored pipeline's graph again and return the pipeline.",
-     "description": "It runs the same checks as registering, including `dagentsc pipeline compile`,\nand stores nothing.",
+     "summary": "Check a stored pipeline's graph with the planner again and return the pipeline.",
+     "description": "It runs the same check as registering, `dagentsc pipeline compile`, and\nstores nothing.",
      "status_code": 200,
      "deprecated": false,
      "handler": {
       "function": "validate_pipeline_definition",
       "module": "app.api.routes",
       "file": "services/pipeline-service/app/api/routes.py",
-      "calls": []
+      "calls": [
+       {
+        "kind": "method",
+        "class": "PipelineService",
+        "module": "app.services.pipeline_service",
+        "file": "services/pipeline-service/app/services/pipeline_service.py",
+        "name": "validate_pipeline"
+       }
+      ]
      },
      "parameters": [
       {
@@ -18347,19 +18362,26 @@
        }
       },
       {
-       "status": "500",
-       "description": "The graph is not valid: two steps share a `step_id`, a step depends on a step that does not exist, or the steps depend on each other in a cycle.",
-       "content_type": "text/plain",
+       "status": "422",
+       "description": "The body does not match the schema (`detail` is a list of field errors), or the planner rejected the graph: two steps share a `step_id`, a step depends on a step that does not exist, or the steps depend on each other in a cycle (`detail` is the planner's sentence). Nothing is stored.",
+       "content_type": "application/json",
        "schema": {
-        "type": "string"
+        "anyOf": [
+         {
+          "$ref": "#/components/schemas/ErrorResponse"
+         },
+         {
+          "$ref": "#/components/schemas/HTTPValidationError"
+         }
+        ]
        }
       },
       {
-       "status": "422",
-       "description": "Validation Error",
+       "status": "503",
+       "description": "The planner (`dagentsc`) cannot be run, or its answer has the wrong shape. The service has no other way to check or order a pipeline, so it refuses the request and stores nothing. Try again later.",
        "content_type": "application/json",
        "schema": {
-        "$ref": "#/components/schemas/HTTPValidationError"
+        "$ref": "#/components/schemas/ErrorResponse"
        }
       }
      ],
@@ -18428,7 +18450,7 @@
      "method": "POST",
      "path": "/api/v1/pipeline-runs",
      "summary": "Queue a run of a stored pipeline and answer at once.",
-     "description": "The run executes on a background thread. Read its state with\n`GET /api/v1/pipeline-runs/{run_id}`.",
+     "description": "The planner orders the steps before the run is queued, so a planner that\ncannot be run fails the request, not the run. The run executes on a\nbackground thread; a step that fails there marks the run `failed` with the\nstep's error. Read its state with `GET /api/v1/pipeline-runs/{run_id}`.",
      "status_code": 202,
      "deprecated": false,
      "handler": {
@@ -18450,7 +18472,7 @@
       "required": true,
       "content_type": "application/json",
       "schema": {
-       "$ref": "#/components/schemas/PipelineRunRequest"
+       "$ref": "#/components/schemas/PipelineRunSubmission"
       }
      },
      "responses": [
@@ -18464,7 +18486,7 @@
       },
       {
        "status": "404",
-       "description": "`pipeline_id` is missing, or no pipeline is stored under it.",
+       "description": "No pipeline is stored under `pipeline_id`.",
        "content_type": "application/json",
        "schema": {
         "$ref": "#/components/schemas/ErrorResponse"
@@ -18472,10 +18494,25 @@
       },
       {
        "status": "422",
-       "description": "Validation Error",
+       "description": "The body does not match the schema (`detail` is a list of field errors), or the planner rejected the graph: two steps share a `step_id`, a step depends on a step that does not exist, or the steps depend on each other in a cycle (`detail` is the planner's sentence). Nothing is stored.",
        "content_type": "application/json",
        "schema": {
-        "$ref": "#/components/schemas/HTTPValidationError"
+        "anyOf": [
+         {
+          "$ref": "#/components/schemas/ErrorResponse"
+         },
+         {
+          "$ref": "#/components/schemas/HTTPValidationError"
+         }
+        ]
+       }
+      },
+      {
+       "status": "503",
+       "description": "The planner (`dagentsc`) cannot be run, or its answer has the wrong shape. The service has no other way to check or order a pipeline, so it refuses the request and stores nothing. Try again later.",
+       "content_type": "application/json",
+       "schema": {
+        "$ref": "#/components/schemas/ErrorResponse"
        }
       }
      ],
@@ -18586,8 +18623,8 @@
      "id": "pipeline-service-post-api-v1-pipelines",
      "method": "POST",
      "path": "/api/v1/pipelines",
-     "summary": "Check a pipeline's graph and store it.",
-     "description": "The graph is sent to `dagentsc pipeline compile` and then ordered in Python.\nA pipeline with the same `pipeline_id` is replaced.",
+     "summary": "Check a pipeline's graph with the planner and store it.",
+     "description": "`dagentsc pipeline compile` decides whether the graph is valid. A pipeline\nwith the same `pipeline_id` is replaced.",
      "status_code": 200,
      "deprecated": false,
      "handler": {
@@ -18622,19 +18659,26 @@
        }
       },
       {
-       "status": "500",
-       "description": "The graph is not valid: two steps share a `step_id`, a step depends on a step that does not exist, or the steps depend on each other in a cycle.",
-       "content_type": "text/plain",
+       "status": "422",
+       "description": "The body does not match the schema (`detail` is a list of field errors), or the planner rejected the graph: two steps share a `step_id`, a step depends on a step that does not exist, or the steps depend on each other in a cycle (`detail` is the planner's sentence). Nothing is stored.",
+       "content_type": "application/json",
        "schema": {
-        "type": "string"
+        "anyOf": [
+         {
+          "$ref": "#/components/schemas/ErrorResponse"
+         },
+         {
+          "$ref": "#/components/schemas/HTTPValidationError"
+         }
+        ]
        }
       },
       {
-       "status": "422",
-       "description": "Validation Error",
+       "status": "503",
+       "description": "The planner (`dagentsc`) cannot be run, or its answer has the wrong shape. The service has no other way to check or order a pipeline, so it refuses the request and stores nothing. Try again later.",
        "content_type": "application/json",
        "schema": {
-        "$ref": "#/components/schemas/HTTPValidationError"
+        "$ref": "#/components/schemas/ErrorResponse"
        }
       }
      ],
@@ -18645,7 +18689,7 @@
      "method": "POST",
      "path": "/api/v1/pipelines/{pipeline_id}/runs",
      "summary": "Run a stored pipeline on a payload and wait for it to finish.",
-     "description": "The finished run is stored, so `GET /api/v1/runs` lists it.",
+     "description": "The steps run in the order `dagentsc pipeline compile` returns. The\nfinished run is stored, so `GET /api/v1/runs` lists it.",
      "status_code": 200,
      "deprecated": false,
      "handler": {
@@ -18693,26 +18737,41 @@
       },
       {
        "status": "404",
-       "description": "No pipeline is stored under this id, or a step raised a `ValueError`: for example its `config` is not valid, or it names a source that is not registered. Nothing is stored.",
+       "description": "No pipeline is stored under this id.",
        "content_type": "application/json",
        "schema": {
         "$ref": "#/components/schemas/ErrorResponse"
        }
       },
       {
+       "status": "422",
+       "description": "The body does not match the schema (`detail` is a list of field errors), or a step raised a `ValueError`, `TypeError` or `LookupError` because of its `config` or the payload: for example a sum with no `field`, a source that is not registered, or a condition that compares a number with a string (`detail` names the step and the reason). Nothing is stored.",
+       "content_type": "application/json",
+       "schema": {
+        "anyOf": [
+         {
+          "$ref": "#/components/schemas/ErrorResponse"
+         },
+         {
+          "$ref": "#/components/schemas/HTTPValidationError"
+         }
+        ]
+       }
+      },
+      {
        "status": "500",
-       "description": "A step raised an error other than a `ValueError`, for example a `filter_items` condition that compares a number with a string. Nothing is stored.",
+       "description": "A step raised any other error, which is a fault in the step's code. Nothing is stored.",
        "content_type": "text/plain",
        "schema": {
         "type": "string"
        }
       },
       {
-       "status": "422",
-       "description": "Validation Error",
+       "status": "503",
+       "description": "The planner (`dagentsc`) cannot be run, or its answer has the wrong shape. The service has no other way to check or order a pipeline, so it refuses the request and stores nothing. Try again later.",
        "content_type": "application/json",
        "schema": {
-        "$ref": "#/components/schemas/HTTPValidationError"
+        "$ref": "#/components/schemas/ErrorResponse"
        }
       }
      ],
@@ -19614,7 +19673,7 @@
         }
        ],
        "title": "Pipeline Id",
-       "description": "The pipeline to run. Required by `POST /api/v1/pipeline-runs`. `POST /api/v1/pipelines/{pipeline_id}/runs` ignores it and uses the id in the path."
+       "description": "Ignored: `POST /api/v1/pipelines/{pipeline_id}/runs` uses the id in the path. `POST /api/v1/pipeline-runs` takes a body that requires it."
       },
       "payload": {
        "additionalProperties": true,
@@ -19691,6 +19750,28 @@
      ],
      "title": "PipelineRunResponse",
      "description": "One run of a pipeline, finished or still in progress."
+    },
+    "PipelineRunSubmission": {
+     "properties": {
+      "pipeline_id": {
+       "type": "string",
+       "minLength": 1,
+       "title": "Pipeline Id",
+       "description": "The pipeline to run. A body without it, or with an empty string, is answered with a 422."
+      },
+      "payload": {
+       "additionalProperties": true,
+       "type": "object",
+       "title": "Payload",
+       "description": "The JSON object the steps read and change, for example `{\"items\": [...]}`. The steps work on a copy of it."
+      }
+     },
+     "type": "object",
+     "required": [
+      "pipeline_id"
+     ],
+     "title": "PipelineRunSubmission",
+     "description": "A request to queue a run of a stored pipeline. The pipeline is named in the body, so its id is required."
     },
     "PipelineStep": {
      "properties": {
@@ -34624,11 +34705,11 @@
      "function": "pipeline_compile",
      "file": "bindings/ocaml/bin/dagentsc.ml"
     },
-    "doc": "Handle `dagentsc pipeline compile`.\n\nInputs: pipeline JSON via `--input` or repeated compact `--step` flags. Output: text step listing by default, JSON when requested.",
+    "doc": "Handle `dagentsc pipeline compile`.\n\nInputs: pipeline JSON via `--input` or repeated compact `--step` flags. Output: text step listing by default, JSON when requested. A graph with a duplicate step id, an unknown dependency or a cycle exits with `rejected_exit_code` and a report from `yojson_of_pipeline_graph_error`.",
     "calls": [
      {
       "module": "Dagents_pipeline_compiler",
-      "function": "compile",
+      "function": "compile_result",
       "folder": "bindings/ocaml/lib/pipeline_compiler"
      }
     ],
@@ -34636,6 +34717,7 @@
      "pipeline_definition"
     ],
     "writes": [
+     "pipeline_graph_error",
      "pipeline"
     ]
    }

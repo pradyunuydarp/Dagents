@@ -52,6 +52,53 @@ class PlannerUnavailableError(RuntimeError):
     """
 
 
+#: The exit status ``dagentsc`` uses when it rejects well-formed input, such as
+#: a pipeline graph with a cycle. Its stdout then holds a JSON report with at
+#: least ``code`` and ``message``.
+REJECTED_EXIT_CODE = 3
+
+
+class PlannerRejectedError(ValueError):
+    """The planner ran and rejected the input.
+
+    This is the planner's answer about the request, so a service maps it to a
+    4xx response with :attr:`message`. It is a ValueError, not a RuntimeError,
+    so code that treats RuntimeError as "planner unavailable" does not mistake
+    it for an outage.
+
+    Attributes:
+    - ``code``: stable machine-readable reason, such as ``cyclic_dependency``.
+    - ``message``: one sentence for the caller.
+    - ``details``: the rest of the report, with snake_case keys.
+    """
+
+    def __init__(self, code: str, message: str, details: dict[str, Any] | None = None) -> None:
+        super().__init__(message)
+        self.code = code
+        self.message = message
+        self.details = details or {}
+
+
+def _rejection(stdout: str) -> Exception:
+    """Build the error for an exit with :data:`REJECTED_EXIT_CODE`.
+
+    Returns :class:`PlannerUnavailableError` when the report is missing or has
+    the wrong shape, because then the planner's answer cannot be used.
+    """
+    try:
+        report = json.loads(stdout)
+    except json.JSONDecodeError as error:
+        return PlannerUnavailableError(f"dagentsc rejected the input without a JSON report: {error}")
+    if not (
+        isinstance(report, dict)
+        and isinstance(report.get("code"), str)
+        and isinstance(report.get("message"), str)
+    ):
+        return PlannerUnavailableError("dagentsc rejected the input, but its report has no code and message")
+    details = {key: value for key, value in report.items() if key not in ("code", "message")}
+    return PlannerRejectedError(report["code"], report["message"], convert_keys(details, to_snake_case))
+
+
 def to_camel_case(snake_str: str) -> str:
     components = snake_str.split('_')
     return components[0] + ''.join(x.title() for x in components[1:])
@@ -92,7 +139,8 @@ def dagentsc_binary() -> str:
 def _execute(full_cmd: list[str], input_str: str | None = None) -> Any:
     """Run the planner once and return its output with snake_case keys.
 
-    Raises :class:`PlannerUnavailableError` when the binary cannot be started,
+    Raises :class:`PlannerRejectedError` when the planner rejects the input,
+    and :class:`PlannerUnavailableError` when the binary cannot be started,
     exits with an error or prints output that is not JSON.
     """
     try:
@@ -104,6 +152,8 @@ def _execute(full_cmd: list[str], input_str: str | None = None) -> Any:
         # FileNotFoundError, PermissionError and the like: the binary is missing
         # or cannot be run.
         raise PlannerUnavailableError(f"dagentsc could not be started: {error}") from error
+    if result.returncode == REJECTED_EXIT_CODE:
+        raise _rejection(result.stdout)
     if result.returncode != 0:
         raise PlannerUnavailableError(
             f"dagentsc execution failed: {result.stderr.strip() or result.stdout.strip()}"
@@ -118,8 +168,9 @@ def _execute(full_cmd: list[str], input_str: str | None = None) -> Any:
 def run_dagentsc(command: list[str], payload: dict[str, Any]) -> Any:
     """Execute the dagentsc binary with the given command and JSON payload.
 
-    Raises :class:`PlannerUnavailableError` when the planner cannot be run or
-    its output is not JSON.
+    Raises :class:`PlannerRejectedError` when the planner rejects the payload,
+    and :class:`PlannerUnavailableError` when the planner cannot be run or its
+    output is not JSON.
     """
     camel_payload = convert_keys(payload, to_camel_case)
     input_str = json.dumps(camel_payload)

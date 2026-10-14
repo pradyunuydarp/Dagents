@@ -185,8 +185,9 @@ both store implementations are tested.
 `.github/workflows/ci.yml` runs the same commands, one job per layer: `planners`
 (builds OCaml, runs `dune test`, and uploads `dagentsc` for the other jobs),
 `agents`, `framework-services` (core-service twice, with and without
-`DAGENTSC_BIN`), `contracts`, `spring`, `demo-apps`, `frontends`,
-`docs-impact`, and a `ci` gate job that is the single required check.
+`DAGENTSC_BIN`, and pipeline-service with the planner, forbidding planner
+skips), `contracts`, `spring`, `demo-apps`, `frontends`, `docs-impact`, and a
+`ci` gate job that is the single required check.
 
 `docs-impact` runs `scripts/check_docs_impact.py` on pull requests and pushes
 to `main`. It fails when a change touches a code area (`agents/`, `services/`,

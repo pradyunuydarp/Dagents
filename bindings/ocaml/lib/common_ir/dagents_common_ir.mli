@@ -450,6 +450,16 @@ module Pipeline_types : sig
     pipeline_id : string;
     steps : compiled_pipeline_step list;
   }
+
+  (** Why a pipeline graph has no valid step order. The compiler reports the
+      first problem it finds, in the order the steps are declared. *)
+  type pipeline_graph_error =
+    | DuplicateStepId of string  (** Two steps declare this id. *)
+    | UnknownDependency of { step_id : string; dependency : string }
+        (** [step_id] depends on [dependency], and no step has that id. *)
+    | CyclicDependency of string list
+        (** The step ids on a cycle, in dependency order. The list starts and
+            ends with the same id, and each step depends on the next one. *)
 end
 
 include module type of Pipeline_types
@@ -867,6 +877,10 @@ val string_of_packaging_mode : packaging_mode -> string
 val string_of_source_kind : source_kind -> string
 (** Convert a pipeline execution target to its stable JSON/API string. *)
 val string_of_execution_target : pipeline_execution_target -> string
+(** Stable code for a pipeline graph error, such as ["cyclic_dependency"]. *)
+val pipeline_graph_error_code : pipeline_graph_error -> string
+(** One-sentence description of a pipeline graph error, for API responses. *)
+val describe_pipeline_graph_error : pipeline_graph_error -> string
 (** Convert quality severity to its stable JSON/API string. *)
 val string_of_quality_severity : quality_severity -> string
 (** Convert a quality operator to a display/API string. *)

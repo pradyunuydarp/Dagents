@@ -214,9 +214,26 @@ jobs:
         run: python -m unittest discover -s services/core-service/tests -t services/core-service/tests
 
       - name: pipeline-service
+        # The service asks the planner whether a pipeline graph is valid and in
+        # what order its steps run, so most of its tests need dagentsc.
         env:
+          DAGENTSC_BIN: ${{ env.PLANNER_DIR }}/dagentsc.exe
           PYTHONPATH: .:services/pipeline-service
-        run: python -m unittest discover -s services/pipeline-service/tests -t services/pipeline-service/tests
+        run: |
+          set -o pipefail
+          python -m unittest discover -s services/pipeline-service/tests \
+            -t services/pipeline-service/tests -v 2>&1 | tee pipeline-service.log
+
+      - name: Fail if the pipeline planner tests skipped
+        # The pagila tests in test_postgres_api.py skip here, because CI has no
+        # pagila database. The guard allows that skip.
+        run: |
+          python scripts/ci_no_skipped_tests.py \
+            --forbid planner \
+            --require-ran test_pipeline_api.PlannerDecidesTheGraphTests \
+            --require-ran test_pipeline_api.RunErrorTests \
+            --require-ran test_pipeline_service.PipelineServiceTests \
+            pipeline-service.log
 
       - name: model-service
         env:

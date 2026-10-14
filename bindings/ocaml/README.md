@@ -65,7 +65,13 @@ This module deliberately plans connector work instead of opening database connec
 - topologically orders steps
 - assigns execution targets such as local process or Python service
 
-The pipeline service can execute the compiled plan without rebuilding DAG rules in Python.
+`compile_result` returns the first problem it finds as a `pipeline_graph_error`:
+`DuplicateStepId`, `UnknownDependency` (the step and the missing id) or
+`CyclicDependency` (the step ids on the cycle, each depending on the next). The
+CLI prints it as a report and exits with status 3 (see [Exit status](#exit-status)).
+
+The pipeline service asks this module whether a graph is valid and runs the
+steps in the order it returns. The service has no ordering rule of its own.
 
 ### `model_router`
 
@@ -162,6 +168,34 @@ dagentsc federation release evaluate --input '{"gates": [...], "candidateMetrics
 ```
 
 Use `--input -`, `--records -`, or similar flags to read JSON from stdin.
+
+### Exit status
+
+| Status | Meaning |
+|---|---|
+| 0 | The command succeeded. |
+| 1 | The command line was not recognized. `dagentsc` prints its usage. |
+| 2 | The planner failed, for example on JSON it cannot parse. OCaml exits with 2 on an uncaught exception. |
+| 3 | The input is well formed, but the planner rejects it. With `--output json`, stdout holds a report with `code` and `message`. With text output, the message goes to stderr. |
+
+Only `pipeline compile` uses status 3. Its codes are `duplicate_step_id`,
+`unknown_dependency` and `cyclic_dependency`:
+
+```sh
+$ dagentsc pipeline compile --input pipeline-cyclic.json --output json
+{
+  "code": "cyclic_dependency",
+  "message": "Cyclic dependency: a -> b -> a (each step depends on the next)",
+  "stepIds": [ "a", "b", "a" ]
+}
+$ echo $?
+3
+```
+
+`agents/common/infrastructure/dagents_runner.py` raises `PlannerRejectedError`
+(a `ValueError`) for status 3, and `PlannerUnavailableError` (a `RuntimeError`)
+for every other failure. A service answers the first with a 4xx response and the
+second with a 503.
 
 ## Data-Engineering API Shape
 

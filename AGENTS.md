@@ -369,7 +369,7 @@ This keeps failure isolation, upgrade independence, explicit contracts, and simp
 - Keep `domain/` pure and push infrastructure concerns behind adapters and interfaces.
 - Treat `services/model-service` as Python-first ML execution infrastructure.
 - Treat `services/core-service` as the external orchestration façade, even if manifest synthesis moves into OCaml later.
-- Treat `services/pipeline-service` as the execution surface for registered workflows, with planning logic eligible for extraction into typed compiler layers.
+- Treat `services/pipeline-service` as the execution surface for registered workflows. The OCaml `pipeline_compiler` decides whether a graph is valid and the order of its steps; the service runs the steps in that order and returns `503` when the planner cannot be run.
 - Introduce new infrastructure through replaceable interfaces so the repo can evolve from in-memory delivery to broker-backed and persisted deployments without a structural rewrite.
 - Write in easy, professional English: short sentences, plain words, facts and numbers instead of
   adjectives, and no slogans or dramatic phrasing. This applies to UI text, docs, comments and

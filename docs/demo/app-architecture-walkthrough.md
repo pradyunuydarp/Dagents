@@ -37,7 +37,7 @@ Core service is the framework facade for service catalog, topology, and workload
 
 ### `services/pipeline-service`
 
-Pipeline service registers JSON workflows and executes them over payloads. Its validation path can call `dagentsc pipeline compile`, which means the service can reuse the OCaml DAG planner instead of duplicating all dependency logic.
+Pipeline service registers JSON workflows and executes them over payloads. It calls `dagentsc pipeline compile` to check each pipeline graph and to order its steps, so the dependency rules exist only in the OCaml planner. A graph the planner rejects returns `422` with the planner's message, and the service returns `503` when the planner cannot be run.
 
 ### `services/model-service`
 

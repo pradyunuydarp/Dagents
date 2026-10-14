@@ -634,6 +634,24 @@ let yojson_of_pipeline pipeline =
       ("steps", `List (List.map yojson_of_pipeline_step pipeline.steps));
     ]
 
+(** Serialize the report the CLI prints when it rejects a pipeline graph.
+
+    [stepIds] lists the steps involved: the duplicate id, the step and the
+    missing dependency, or the cycle. *)
+let yojson_of_pipeline_graph_error error =
+  let step_ids =
+    match error with
+    | DuplicateStepId step_id -> [ step_id ]
+    | UnknownDependency { step_id; dependency } -> [ step_id; dependency ]
+    | CyclicDependency cycle -> cycle
+  in
+  `Assoc
+    [
+      ("code", `String (pipeline_graph_error_code error));
+      ("message", `String (describe_pipeline_graph_error error));
+      ("stepIds", `List (List.map (fun value -> `String value) step_ids));
+    ]
+
 (** Serialize a model-family variant as a stable string. *)
 let yojson_of_model_family model = `String (string_of_model_family model)
 

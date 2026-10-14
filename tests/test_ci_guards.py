@@ -40,9 +40,11 @@ AGENT_TESTS = REPO_ROOT / "agents" / "tests"
 HEALTHCARE_TESTS = REPO_ROOT / "apps" / "healthcare-demo" / "tests"
 WORKFLOWS = REPO_ROOT / ".github" / "workflows"
 CI_WORKFLOW = WORKFLOWS / "ci.yml"
+PIPELINE_SERVICE_TESTS = REPO_ROOT / "services" / "pipeline-service" / "tests"
 #: Where a module named in `--require-ran` can live: the suites run from the
-#: repository root, except the healthcare suite, which runs from its app.
-TEST_ROOTS = (REPO_ROOT, REPO_ROOT / "apps" / "healthcare-demo")
+#: repository root, except the healthcare suite, which runs from its app, and
+#: the pipeline-service suite, whose top-level directory is its tests folder.
+TEST_ROOTS = (REPO_ROOT, REPO_ROOT / "apps" / "healthcare-demo", PIPELINE_SERVICE_TESTS)
 
 
 # ---------------------------------------------------------------------------
@@ -90,7 +92,11 @@ def decorator_reasons(paths: list[Path], condition: str | None = None) -> set[st
 
 
 def planner_reasons() -> set[str]:
-    files = sorted(AGENT_TESTS.glob("test_*.py")) + sorted(HEALTHCARE_TESTS.glob("test_*.py"))
+    files = [
+        path
+        for directory in (AGENT_TESTS, HEALTHCARE_TESTS, PIPELINE_SERVICE_TESTS)
+        for path in sorted(directory.glob("test_*.py"))
+    ]
     reasons = decorator_reasons(files, condition="dagentsc_available")
     if not reasons:
         raise AssertionError("no test skips on dagentsc_available() any more; update this test")
@@ -575,6 +581,10 @@ class WorkflowGuardTests(unittest.TestCase):
 
     def test_the_demo_apps_job_forbids_planner_and_database_skips(self) -> None:
         self.assertLessEqual({"planner", "database"}, self.forbidden_in("demo-apps"))
+
+    def test_the_framework_services_job_forbids_planner_skips(self) -> None:
+        """pipeline-service asks the planner for every graph decision."""
+        self.assertIn("planner", self.forbidden_in("framework-services"))
 
     def test_the_agents_job_installs_the_app_chart_requirements(self) -> None:
         """The same ranges as the healthcare app, which draws the charts in production."""

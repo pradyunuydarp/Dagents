@@ -48,7 +48,7 @@ treats a log without verbose output as a failure.
 
 | `--forbid` | Fails on | Where CI forbids it |
 |---|---|---|
-| `planner` | a skip because `dagentsc` is missing | `agents`, `demo-apps` |
+| `planner` | a skip because `dagentsc` is missing | `agents`, `framework-services` (pipeline-service), `demo-apps` |
 | `database` | a skip whose reason starts `database test skipped` | `demo-apps` (it has a Postgres 16 service) |
 | `charts` | a skip because matplotlib is not installed | `agents` |
 
@@ -83,6 +83,11 @@ apart because the suite only tested the fallback.
 Defence: the `framework-services` job runs the core-service suite **twice**,
 with and without `DAGENTSC_BIN`. Every behaviour with two implementations gets
 the same assertions run against both. If they cannot be kept in step, delete one.
+
+The pipeline service had a Python copy of the planner's graph rules, and that
+copy decided every request while the planner's answer was ignored. It was
+deleted. The service now needs the planner, so the `framework-services` job runs
+its suite with `DAGENTSC_BIN` and forbids planner skips.
 
 ### c. A convention written down but not checked
 

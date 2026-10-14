@@ -1,10 +1,16 @@
-"""Unit tests for the pipeline service."""
+"""Unit tests for the pipeline service.
+
+Registering or running a pipeline asks the OCaml planner for its step order,
+so these tests run against the real `dagentsc` binary and skip without it.
+"""
 
 from __future__ import annotations
 
 import time
 import unittest
 
+from agents.common.infrastructure.dagents_runner import PlannerRejectedError
+from agents.tests.test_governance import dagentsc_available
 from app.models import PipelineDefinition, PipelineRunRequest, PipelineStep
 from app.pipeline.engine import PipelineExecutionEngine
 from app.services.pipeline_service import (
@@ -14,6 +20,7 @@ from app.services.pipeline_service import (
 )
 
 
+@unittest.skipUnless(dagentsc_available(), "dagentsc binary is not available")
 class PipelineServiceTests(unittest.TestCase):
     def setUp(self) -> None:
         self.service = PipelineService(
@@ -117,8 +124,10 @@ class PipelineServiceTests(unittest.TestCase):
             ],
         )
 
-        with self.assertRaises(ValueError):
+        with self.assertRaises(PlannerRejectedError) as caught:
             self.service.register_pipeline(pipeline)
+        self.assertEqual("unknown_dependency", caught.exception.code)
+        self.assertEqual([], self.service.list_pipelines().pipelines)
 
     def test_submits_async_pipeline_run(self) -> None:
         self.service.register_pipeline(

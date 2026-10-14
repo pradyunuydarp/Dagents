@@ -1,1 +1,5 @@
-Fatal error: exception Invalid_argument("Cyclic dependency detected at a")
+{
+  "code": "cyclic_dependency",
+  "message": "Cyclic dependency: a -> b -> a (each step depends on the next)",
+  "stepIds": [ "a", "b", "a" ]
+}

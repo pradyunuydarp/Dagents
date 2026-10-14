@@ -305,6 +305,76 @@ let test_pipeline_compiler_rejects_duplicates_and_unknown_dependencies () =
             [ { step_id = "a"; kind = FilterItems; depends_on = [ "missing" ]; config_json = None } ];
         } )
 
+(** Shorthand for a step with no config, used by the graph-error tests. *)
+let graph_step step_id depends_on =
+  { step_id; kind = EnrichContext; depends_on; config_json = None }
+
+(** Verifies that [compile_result] names the graph error as a typed value, so
+    the CLI can report it and a service can answer with it. *)
+let test_pipeline_compiler_reports_typed_graph_errors () =
+  let result steps = Dagents_pipeline_compiler.compile_result { pipeline_id = "p"; steps } in
+  let expect_error message expected steps =
+    match result steps with
+    | Error error -> assert_true message (error = expected)
+    | Ok _ -> failwith (message ^ ": the graph was accepted")
+  in
+  expect_error "a two-step cycle should list the cycle in dependency order"
+    (CyclicDependency [ "a"; "b"; "a" ])
+    [ graph_step "a" [ "b" ]; graph_step "b" [ "a" ] ];
+  expect_error "a step that depends on itself is a cycle of one"
+    (CyclicDependency [ "a"; "a" ])
+    [ graph_step "a" [ "a" ] ];
+  expect_error "a cycle should not include the steps that lead into it"
+    (CyclicDependency [ "a"; "b"; "c"; "a" ])
+    [ graph_step "x" [ "a" ]; graph_step "a" [ "b" ]; graph_step "b" [ "c" ]; graph_step "c" [ "a" ] ];
+  expect_error "a duplicate id should be named"
+    (DuplicateStepId "a")
+    [ graph_step "a" []; graph_step "a" [] ];
+  expect_error "an unknown dependency should name the step that declares it"
+    (UnknownDependency { step_id = "b"; dependency = "missing" })
+    [ graph_step "a" []; graph_step "b" [ "a"; "missing" ] ];
+  (match result [ graph_step "b" [ "a" ]; graph_step "a" [] ] with
+  | Ok compiled ->
+      assert_true "a valid graph should compile in dependency order"
+        (List.map (fun (step : compiled_pipeline_step) -> step.step_id) compiled.steps = [ "a"; "b" ])
+  | Error error -> failwith ("a valid graph was rejected: " ^ describe_pipeline_graph_error error));
+  assert_true "the cycle message should show the path"
+    (describe_pipeline_graph_error (CyclicDependency [ "a"; "b"; "a" ])
+    = "Cyclic dependency: a -> b -> a (each step depends on the next)");
+  assert_true "the unknown dependency message should name both steps"
+    (describe_pipeline_graph_error (UnknownDependency { step_id = "b"; dependency = "missing" })
+    = "Step b depends on missing, which is not a step of this pipeline");
+  assert_true "the duplicate message should name the id"
+    (describe_pipeline_graph_error (DuplicateStepId "a") = "Duplicate step id: a");
+  expect_invalid_argument "compile should still raise for callers that expect it" (fun () ->
+      Dagents_pipeline_compiler.compile
+        { pipeline_id = "p"; steps = [ graph_step "a" [ "a" ] ] })
+
+(** Verifies the JSON report the CLI prints when it rejects a pipeline. *)
+let test_pipeline_graph_error_json () =
+  let field name = function
+    | `Assoc fields -> List.assoc name fields
+    | _ -> failwith "the report should be a JSON object"
+  in
+  let report = Json_codec.yojson_of_pipeline_graph_error (CyclicDependency [ "a"; "b"; "a" ]) in
+  assert_true "the report should carry a stable code"
+    (field "code" report = `String "cyclic_dependency");
+  assert_true "the report should carry the message"
+    (field "message" report
+    = `String "Cyclic dependency: a -> b -> a (each step depends on the next)");
+  assert_true "the report should list the steps involved"
+    (field "stepIds" report = `List [ `String "a"; `String "b"; `String "a" ]);
+  let unknown =
+    Json_codec.yojson_of_pipeline_graph_error (UnknownDependency { step_id = "b"; dependency = "missing" })
+  in
+  assert_true "an unknown dependency should use its own code"
+    (field "code" unknown = `String "unknown_dependency");
+  assert_true "an unknown dependency should list the step, then the missing id"
+    (field "stepIds" unknown = `List [ `String "b"; `String "missing" ]);
+  assert_true "a duplicate id should use its own code"
+    (field "code" (Json_codec.yojson_of_pipeline_graph_error (DuplicateStepId "a"))
+    = `String "duplicate_step_id")
+
 (** Verifies task-aware model routing and packaging selection. *)
 let test_model_router () =
   let profile =
@@ -1186,6 +1256,8 @@ let () =
       ("pipeline ordering and lowering", test_pipeline_compiler_orders_and_lowers);
       ("pipeline cycle rejection", test_pipeline_compiler_rejects_cycles);
       ("pipeline duplicate and unknown dependency rejection", test_pipeline_compiler_rejects_duplicates_and_unknown_dependencies);
+      ("pipeline graph errors are typed", test_pipeline_compiler_reports_typed_graph_errors);
+      ("pipeline graph error JSON report", test_pipeline_graph_error_json);
       ("model routing", test_model_router);
       ("manifest compiler plan", test_manifest_compiler_plan);
       ("manifest per-component resources", test_manifest_per_component_resources);

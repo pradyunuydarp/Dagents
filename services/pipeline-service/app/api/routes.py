@@ -1,5 +1,8 @@
 """API routes for the pipeline service."""
 
+from collections.abc import Iterator
+from contextlib import contextmanager
+import logging
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query
@@ -7,6 +10,7 @@ from pydantic import TypeAdapter
 
 from agents.common.domain.models import SourceSpec
 from agents.common.domain.sources import SourceValidationResult
+from agents.common.infrastructure.dagents_runner import PlannerRejectedError, PlannerUnavailableError
 from app.core.config import Settings, settings
 from app.models import (
     ErrorResponse,
@@ -16,10 +20,40 @@ from app.models import (
     PipelineRunCatalogResponse,
     PipelineRunRequest,
     PipelineRunResponse,
+    PipelineRunSubmission,
 )
-from app.services.pipeline_service import PipelineService, pipeline_service
+from app.pipeline.engine import PipelineStepError
+from app.services.pipeline_service import PipelineNotFoundError, PipelineService, pipeline_service
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1", tags=["pipeline-service"])
+
+#: The 503 body. The planner's own error can hold a file path, so it goes to
+#: the log, not to the caller.
+PLANNER_UNAVAILABLE_DETAIL = (
+    "The pipeline planner is not available, so the pipeline cannot be checked or run. Try again later."
+)
+
+
+@contextmanager
+def _pipeline_errors() -> Iterator[None]:
+    """Turn the service's errors into HTTP responses.
+
+    - 404: no pipeline with that id.
+    - 422: the planner rejected the graph, or a step failed on its config or payload.
+    - 503: the planner cannot be run. The service has no other way to check or
+      order a pipeline, so it refuses the request.
+    """
+    try:
+        yield
+    except PipelineNotFoundError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except (PlannerRejectedError, PipelineStepError) as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    except PlannerUnavailableError as error:
+        logger.warning("Pipeline planner unavailable: %s", error)
+        raise HTTPException(status_code=503, detail=PLANNER_UNAVAILABLE_DETAIL) from error
 
 
 def get_settings() -> Settings:
@@ -48,6 +82,23 @@ def _not_found(what: str) -> dict[str, Any]:
     return {"model": ErrorResponse, "description": what}
 
 
+def _unprocessable(description: str) -> dict[str, Any]:
+    """A 422 is either FastAPI's list of field errors or a sentence from this service."""
+    return {
+        "description": description,
+        "content": {
+            "application/json": {
+                "schema": {
+                    "anyOf": [
+                        {"$ref": "#/components/schemas/ErrorResponse"},
+                        {"$ref": "#/components/schemas/HTTPValidationError"},
+                    ]
+                }
+            }
+        },
+    }
+
+
 _PIPELINE_ID = Path(description="The `pipeline_id` the pipeline was registered with.")
 _RUN_ID = Path(description="The `run_id` a run request returned.")
 _SOURCE_ID = Path(description="The `source_id` the source was registered with.")
@@ -57,13 +108,21 @@ _LIMIT = Query(
         "number leaves out that many of the oldest runs."
     )
 )
-_INVALID_GRAPH = _server_error(
-    "The graph is not valid: two steps share a `step_id`, a step depends on a step that does not exist, or the "
-    "steps depend on each other in a cycle."
+_GRAPH_REJECTED = _unprocessable(
+    "The body does not match the schema (`detail` is a list of field errors), or the planner rejected the graph: "
+    "two steps share a `step_id`, a step depends on a step that does not exist, or the steps depend on each other "
+    "in a cycle (`detail` is the planner's sentence). Nothing is stored."
 )
-_STEP_FAILED = _server_error(
-    "A step raised an error other than a `ValueError`, for example a `filter_items` condition that compares a "
-    "number with a string. Nothing is stored."
+_STEP_FAILED = _unprocessable(
+    "The body does not match the schema (`detail` is a list of field errors), or a step raised a `ValueError`, "
+    "`TypeError` or `LookupError` because of its `config` or the payload: for example a sum with no `field`, a "
+    "source that is not registered, or a condition that compares a number with a string (`detail` names the step "
+    "and the reason). Nothing is stored."
+)
+_STEP_CRASHED = _server_error("A step raised any other error, which is a fault in the step's code. Nothing is stored.")
+_PLANNER_UNAVAILABLE = _not_found(
+    "The planner (`dagentsc`) cannot be run, or its answer has the wrong shape. The service has no other way to "
+    "check or order a pipeline, so it refuses the request and stores nothing. Try again later."
 )
 _SOURCE_SPEC_SCHEMA = TypeAdapter(SourceSpec).json_schema(ref_template="#/components/schemas/{model}")
 _SOURCE_SPEC_SCHEMA.pop("$defs", None)
@@ -90,25 +149,34 @@ def list_pipeline_definitions(service: PipelineService = Depends(get_pipeline_se
     return list_pipelines(service)
 
 
-@router.post("/pipelines", response_model=PipelineDefinition, responses={500: _INVALID_GRAPH})
+@router.post(
+    "/pipelines",
+    response_model=PipelineDefinition,
+    responses={422: _GRAPH_REJECTED, 503: _PLANNER_UNAVAILABLE},
+)
 def register_pipeline(
     definition: PipelineDefinition,
     service: PipelineService = Depends(get_pipeline_service),
 ) -> PipelineDefinition:
-    """Check a pipeline's graph and store it.
+    """Check a pipeline's graph with the planner and store it.
 
-    The graph is sent to `dagentsc pipeline compile` and then ordered in Python.
-    A pipeline with the same `pipeline_id` is replaced.
+    `dagentsc pipeline compile` decides whether the graph is valid. A pipeline
+    with the same `pipeline_id` is replaced.
     """
-    return service.register_pipeline(definition)
+    with _pipeline_errors():
+        return service.register_pipeline(definition)
 
 
-@router.post("/pipeline-definitions", response_model=PipelineDefinition, responses={500: _INVALID_GRAPH})
+@router.post(
+    "/pipeline-definitions",
+    response_model=PipelineDefinition,
+    responses={422: _GRAPH_REJECTED, 503: _PLANNER_UNAVAILABLE},
+)
 def register_pipeline_definition(
     definition: PipelineDefinition,
     service: PipelineService = Depends(get_pipeline_service),
 ) -> PipelineDefinition:
-    """Check a pipeline's graph and store it. The same handler as `POST /api/v1/pipelines`."""
+    """Check a pipeline's graph with the planner and store it. The same handler as `POST /api/v1/pipelines`."""
     return register_pipeline(definition, service)
 
 
@@ -133,34 +201,31 @@ def get_pipeline_definition(
     response_model=PipelineDefinition,
     responses={
         404: _not_found("No pipeline is stored under this id."),
-        500: _INVALID_GRAPH,
+        422: _GRAPH_REJECTED,
+        503: _PLANNER_UNAVAILABLE,
     },
 )
 def validate_pipeline_definition(
     pipeline_id: Annotated[str, _PIPELINE_ID],
     service: PipelineService = Depends(get_pipeline_service),
 ) -> PipelineDefinition:
-    """Check a stored pipeline's graph again and return the pipeline.
+    """Check a stored pipeline's graph with the planner again and return the pipeline.
 
-    It runs the same checks as registering, including `dagentsc pipeline compile`,
-    and stores nothing.
+    It runs the same check as registering, `dagentsc pipeline compile`, and
+    stores nothing.
     """
-    definition = service._definitions.get(pipeline_id)
-    if definition is None:
-        raise HTTPException(status_code=404, detail=f"Unknown pipeline: {pipeline_id}")
-    service._engine.validate(definition)
-    return definition
+    with _pipeline_errors():
+        return service.validate_pipeline(pipeline_id)
 
 
 @router.post(
     "/pipelines/{pipeline_id}/runs",
     response_model=PipelineRunResponse,
     responses={
-        404: _not_found(
-            "No pipeline is stored under this id, or a step raised a `ValueError`: for example its `config` is "
-            "not valid, or it names a source that is not registered. Nothing is stored."
-        ),
-        500: _STEP_FAILED,
+        404: _not_found("No pipeline is stored under this id."),
+        422: _STEP_FAILED,
+        500: _STEP_CRASHED,
+        503: _PLANNER_UNAVAILABLE,
     },
 )
 def run_pipeline(
@@ -170,33 +235,36 @@ def run_pipeline(
 ) -> PipelineRunResponse:
     """Run a stored pipeline on a payload and wait for it to finish.
 
-    The finished run is stored, so `GET /api/v1/runs` lists it.
+    The steps run in the order `dagentsc pipeline compile` returns. The
+    finished run is stored, so `GET /api/v1/runs` lists it.
     """
-    try:
+    with _pipeline_errors():
         return service.run_pipeline(pipeline_id, request)
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.post(
     "/pipeline-runs",
     response_model=PipelineRunResponse,
     status_code=202,
-    responses={404: _not_found("`pipeline_id` is missing, or no pipeline is stored under it.")},
+    responses={
+        404: _not_found("No pipeline is stored under `pipeline_id`."),
+        422: _GRAPH_REJECTED,
+        503: _PLANNER_UNAVAILABLE,
+    },
 )
 def submit_pipeline_run(
-    request: PipelineRunRequest,
+    request: PipelineRunSubmission,
     service: PipelineService = Depends(get_pipeline_service),
 ) -> PipelineRunResponse:
     """Queue a run of a stored pipeline and answer at once.
 
-    The run executes on a background thread. Read its state with
-    `GET /api/v1/pipeline-runs/{run_id}`.
+    The planner orders the steps before the run is queued, so a planner that
+    cannot be run fails the request, not the run. The run executes on a
+    background thread; a step that fails there marks the run `failed` with the
+    step's error. Read its state with `GET /api/v1/pipeline-runs/{run_id}`.
     """
-    try:
+    with _pipeline_errors():
         return service.submit_pipeline_run(request)
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.get("/runs", response_model=PipelineRunCatalogResponse)

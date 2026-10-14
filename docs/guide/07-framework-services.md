@@ -144,9 +144,10 @@ so they use the planner. Plans are kept in memory: after a restart,
 
 ## 2. Run a pipeline (pipeline-service)
 
-A pipeline is a list of steps that depend on each other. The service checks
-that the steps form a valid graph (no duplicate step, no missing dependency, no
-cycle) and runs them in dependency order. It runs six kinds of step: `enrich_context`, `filter_items`, `summarize_items`, `project_fields`,
+A pipeline is a list of steps that depend on each other. The service asks the
+planner (`dagentsc pipeline compile`) whether the steps form a valid graph (no
+duplicate step, no missing dependency, no cycle) and runs them in the order the
+planner returns, so it needs `dagentsc` on its PATH or in `DAGENTSC_BIN`. It runs six kinds of step: `enrich_context`, `filter_items`, `summarize_items`, `project_fields`,
 `profile_dataset` and `run_model_job`. Save this as `pipeline.json`:
 
 ```json
@@ -247,6 +248,9 @@ you send, so run the model service inside the data's boundary.
 | `422 Unprocessable Entity` | The body does not match the request model; the answer's `detail` names the field | Compare the body with the API reference, or open the service's `/docs` page |
 | `404` with `Unknown workload plan` | The service restarted and lost its plans, or the `plan_id` differs | Compile the plan again |
 | A pipeline step kind is refused | The pipeline service runs only its six built-in kinds | Run your own step in your application, before or after the pipeline |
+| `422` from the pipeline service with a sentence such as `Cyclic dependency: a -> b -> a` | The planner rejected the pipeline's graph; nothing was stored | Fix the step named in `detail` and register the pipeline again |
+| `422` from a pipeline run with `Step <id> (<kind>) failed: ...` | That step's `config` or the payload is wrong; nothing was stored | Fix the step's `config`, or send the field the step reads |
+| `503` from the pipeline service | The service cannot run `dagentsc`, and it has no other way to check or order a pipeline | Build the planner and set `DAGENTSC_BIN`, or use the container image, which has it on its PATH |
 | The manifests differ between your laptop and a container | One used the Python fallback and the other the planner | Set `DAGENTSC_BIN` locally. The test suites run both and expect the same YAML |
 
 Next: [Step 8: Deploy](08-deploy.md).

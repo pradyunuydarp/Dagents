@@ -80,3 +80,33 @@ plus `libyojson-ocaml-dev`, and dune 3.21 built from source, because `dune-proje
 version newer than the packaged 3.14. The normal `opam exec -- dune` path in CLAUDE.md is unchanged;
 this is only relevant if a CI image hits the same gap.
 
+
+## The planner decides pipeline graphs
+
+Before this change, `PipelineExecutionEngine.validate` called `dagentsc pipeline
+compile`, ignored any error it returned, and then ordered the steps with its own
+Python topological sort. The planner's answer was never used. An invalid graph
+returned `500 Internal Server Error`, and a run whose step config was wrong
+returned `404`, as if the pipeline did not exist.
+
+### What changed
+
+- **The planner reports a rejected graph.** `pipeline_compiler` returns a typed
+  `pipeline_graph_error` (`DuplicateStepId`, `UnknownDependency`,
+  `CyclicDependency`) from `compile_result`. `dagentsc pipeline compile` prints
+  it as `{code, message, stepIds}` and exits with status 3. It used to crash
+  with an uncaught `Invalid_argument` and exit 2.
+- **The bridge tells a rejection from an outage.** `dagents_runner.py` raises
+  `PlannerRejectedError` (a `ValueError`) for status 3, and
+  `PlannerUnavailableError` (a `RuntimeError`) for every other failure.
+- **The pipeline service has no ordering rule of its own.** The Python sort is
+  deleted. The engine asks the planner whether a graph is valid and runs the
+  steps in the order it returns.
+- **Status codes.** A rejected graph returns `422` with the planner's message. A
+  step that fails on its config or payload returns `422` naming the step. An
+  unknown pipeline returns `404`. A submission without `pipeline_id` returns
+  `422`. Without the planner the service returns `503`.
+- **CI.** The `framework-services` job runs the pipeline-service suite with
+  `DAGENTSC_BIN` and fails if a planner test skipped.
+
+`services/pipeline-service/README.md` lists each route's responses.

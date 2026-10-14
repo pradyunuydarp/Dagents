@@ -61,12 +61,15 @@ flowchart LR
   |---|---|---|
   | `0` | The command ran. A decision that refuses something, such as a `deny` plan or a source that is not valid, is a normal result | empty |
   | `1` | The command words are not a known command | the usage text, which lists every command |
-  | `2` | The input cannot be read or does not make a plan: JSON that does not parse, a missing required key, an unknown value such as a workload kind, or a pipeline with a cycle | `Fatal error: exception Invalid_argument("Missing JSON field: boundary")`, or a `Yojson` parse error |
+  | `2` | The input cannot be read or does not make a plan: JSON that does not parse, a missing required key, or an unknown value such as a workload kind or a step kind | `Fatal error: exception Invalid_argument("Missing JSON field: boundary")`, or a `Yojson` parse error |
+  | `3` | The input is well formed, but the planner rejects it. Only `pipeline compile` uses it, for a graph that is not valid. With `--output json`, standard output holds a report with `code`, `message` and `stepIds` | the message, with text output; empty with `--output json` |
 
-  `dagents_runner.py` turns a non-zero exit into `PlannerUnavailableError`.
-  What a service does with it depends on the service: the Guard denies the
+  `dagents_runner.py` turns exit `3` into `PlannerRejectedError` (a
+  `ValueError`), and every other non-zero exit into `PlannerUnavailableError`.
+  What a service does with them depends on the service: the Guard denies the
   request and records the denial, the core service renders the YAML in Python
-  instead, and the healthcare demo answers `503`.
+  instead, the pipeline service answers `422` for a rejected graph and `503`
+  when the planner cannot be run, and the healthcare demo answers `503`.
 - **Unknown keys** in the input are ignored. Defaults are the cautious value:
   a site is not enrolled unless `enrolled` is true, a release gate is blocking
   unless `blocking` is false, and a field the classification does not list is
@@ -181,13 +184,20 @@ the other five kinds. A step's `config` is passed through unread.
 | `--step <id:kind[:dep,dep]>` | none | One step, repeatable, used without `--input`. `score:run_model_job:load` is the step `score`, which depends on `load` |
 | `--output text\|json` | `text` | `text` prints one `stepId:kind` line per step, in order |
 
-The pipeline service runs this command when it registers or checks a pipeline,
-but decides acceptance with its own Python check
+The pipeline service runs this command when it registers or checks a pipeline
+and before every run. Its answer decides whether the service accepts the
+pipeline and the order the steps run in
 ([pipeline definitions](framework-services.md#pipeline-definitions)).
 
-**Errors.** Exit `2` when two steps share a `stepId`, a step depends on a step
-that does not exist, the steps form a cycle (`Cyclic dependency detected at a`),
-or a `kind` is not one of the six.
+**Errors.** Exit `3` when the graph is not valid. With `--output json`,
+standard output holds a report: `code` is `duplicate_step_id` (two steps share
+a `stepId`), `unknown_dependency` (a step depends on a step that does not
+exist) or `cyclic_dependency` (the steps form a cycle); `message` is one
+sentence, such as `Cyclic dependency: a -> b -> a (each step depends on the
+next)`; and `stepIds` lists the steps involved, for a cycle in dependency
+order. With text output the message goes to standard error. The command reports
+the first problem it finds. Exit `2` when a `kind` is not one of the six
+(`Unknown step kind: sort`).
 
 **Related.** [Register a pipeline](framework-services.md#pipeline-service-post-api-v1-pipelines).
 

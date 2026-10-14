@@ -418,6 +418,12 @@ module Pipeline_types = struct
     pipeline_id : string;
     steps : compiled_pipeline_step list;
   }
+
+  (** Why a pipeline graph has no valid step order. *)
+  type pipeline_graph_error =
+    | DuplicateStepId of string
+    | UnknownDependency of { step_id : string; dependency : string }
+    | CyclicDependency of string list
 end
 
 include Pipeline_types
@@ -902,6 +908,20 @@ let string_of_execution_target = function
   | LocalProcess -> "local_process"
   | PythonService -> "python_service"
   | KubernetesJobTarget -> "kubernetes_job"
+
+(** Stable API codes for pipeline graph errors. *)
+let pipeline_graph_error_code = function
+  | DuplicateStepId _ -> "duplicate_step_id"
+  | UnknownDependency _ -> "unknown_dependency"
+  | CyclicDependency _ -> "cyclic_dependency"
+
+(** Describe a pipeline graph error in one sentence. *)
+let describe_pipeline_graph_error = function
+  | DuplicateStepId step_id -> "Duplicate step id: " ^ step_id
+  | UnknownDependency { step_id; dependency } ->
+      "Step " ^ step_id ^ " depends on " ^ dependency ^ ", which is not a step of this pipeline"
+  | CyclicDependency cycle ->
+      "Cyclic dependency: " ^ String.concat " -> " cycle ^ " (each step depends on the next)"
 
 (** Parse stable API strings into extraction strategy variants. *)
 let extraction_strategy_of_string = function

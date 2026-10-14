@@ -7,10 +7,43 @@ import math
 import time
 from typing import Any
 
+from pydantic import ValidationError
+
 from agents.common.application.ml_orchestration import build_dataset_profile, execute_model_run
 from agents.common.application.ports import SourceResolver
 from agents.common.domain.models import DatasetInput, DatasetProfileRequest, ModelExecutionRequest
-from app.models import AggregationSpec, PipelineCondition, PipelineDefinition, PipelineRunResponse, StepRunResult
+from agents.common.infrastructure.dagents_runner import PlannerUnavailableError, run_dagentsc
+from app.models import (
+    AggregationSpec,
+    PipelineCondition,
+    PipelineDefinition,
+    PipelineRunResponse,
+    PipelineStep,
+    StepRunResult,
+)
+
+
+class PipelineStepError(ValueError):
+    """A step failed because of its config or the payload it was given.
+
+    The service answers a synchronous run that fails this way with a 422, and
+    records the message on a queued run. The message names the step.
+    """
+
+    def __init__(self, step_id: str, kind: str, reason: str) -> None:
+        super().__init__(f"Step {step_id} ({kind}) failed: {reason}")
+        self.step_id = step_id
+        self.kind = kind
+        self.reason = reason
+
+
+def _describe_step_failure(error: Exception) -> str:
+    """One line for a step failure. Pydantic's own message spans several lines and links to its docs."""
+    if isinstance(error, ValidationError):
+        return "; ".join(
+            f"{'.'.join(str(part) for part in detail['loc'])}: {detail['msg']}" for detail in error.errors()
+        )
+    return str(error)
 
 
 class StepHandler:
@@ -219,6 +252,49 @@ class PipelineExecutionEngine:
         ]
         self._handlers = {handler.kind: handler for handler in registered}
 
+    def plan(self, definition: PipelineDefinition) -> list[PipelineStep]:
+        """Ask the OCaml pipeline compiler whether the graph is valid, and for its step order.
+
+        The planner makes this decision. The engine keeps no ordering rule of
+        its own, so the two cannot disagree.
+
+        Params:
+        - `definition`: pipeline definition to check and order.
+
+        Returns:
+        - The definition's steps, in the order the planner returned them.
+
+        Raises:
+        - `PlannerRejectedError`: the graph has a duplicate step id, an unknown
+          dependency or a cycle. Its message comes from the planner.
+        - `PlannerUnavailableError`: the planner cannot be run, or its answer
+          does not list each step of the definition exactly once.
+        """
+        compiled = run_dagentsc(
+            ["pipeline", "compile", "--input", "-", "--output", "json"],
+            {
+                "pipeline_id": definition.pipeline_id,
+                "steps": [
+                    {"step_id": step.step_id, "kind": step.kind, "depends_on": step.depends_on}
+                    for step in definition.steps
+                ],
+            },
+        )
+        try:
+            ordered_ids = [entry["step_id"] for entry in compiled["steps"]]
+        except (KeyError, TypeError) as error:
+            raise PlannerUnavailableError(f"the planner's pipeline plan has the wrong shape: {error!r}") from error
+        steps_by_id = {step.step_id: step for step in definition.steps}
+        if len(ordered_ids) != len(definition.steps) or set(ordered_ids) != set(steps_by_id):
+            raise PlannerUnavailableError(
+                f"the planner's pipeline plan lists steps {ordered_ids}, not each of {sorted(steps_by_id)} once"
+            )
+        return [steps_by_id[step_id] for step_id in ordered_ids]
+
+    def validate(self, definition: PipelineDefinition) -> None:
+        """Check the pipeline graph with the planner. Raises like `plan`."""
+        self.plan(definition)
+
     def execute(
         self,
         definition: PipelineDefinition,
@@ -226,21 +302,41 @@ class PipelineExecutionEngine:
         *,
         source_resolver: SourceResolver | None = None,
     ) -> PipelineRunResponse:
-        """Execute a pipeline definition from start to finish.
+        """Plan a pipeline with the OCaml compiler, then run its steps in that order.
+
+        Raises like `plan` and `execute_steps`.
+        """
+        return self.execute_steps(definition, self.plan(definition), payload, source_resolver=source_resolver)
+
+    def execute_steps(
+        self,
+        definition: PipelineDefinition,
+        steps: list[PipelineStep],
+        payload: dict[str, Any],
+        *,
+        source_resolver: SourceResolver | None = None,
+    ) -> PipelineRunResponse:
+        """Run steps that `plan` has already ordered.
 
         Params:
-        - `definition`: validated pipeline definition containing ordered steps and
-          dependencies.
+        - `definition`: the pipeline the steps belong to.
+        - `steps`: the steps, in the order `plan` returned.
         - `payload`: initial JSON-like payload provided by the caller.
         - `source_resolver`: optional shared source resolver for source-backed steps.
 
         What it does:
         - Deep-copies the input payload to keep caller-owned data untouched.
-        - Resolves dependency order.
         - Executes each step in sequence while collecting step-level history.
 
         Returns:
         - `PipelineRunResponse` with final payload and per-step results.
+
+        Raises:
+        - `PipelineStepError`: a step raised `ValueError` (including a pydantic
+          `ValidationError` for its config), `TypeError` or `LookupError`.
+          These come from the step's config or the payload.
+        - Any other exception is raised unchanged, and the API answers it
+          with a 500.
         """
         started_at = int(time.time())
         # Handlers mutate the payload in place, so execution starts from a deep
@@ -248,9 +344,12 @@ class PipelineExecutionEngine:
         working_payload = deepcopy(payload)
         step_results: list[StepRunResult] = []
 
-        for step in self._resolve_step_order(definition):
+        for step in steps:
             step_started_at = int(time.time())
-            output = self._execute_step(step.kind, working_payload, step.config, source_resolver=source_resolver)
+            try:
+                output = self._execute_step(step.kind, working_payload, step.config, source_resolver=source_resolver)
+            except (ValueError, TypeError, LookupError) as error:
+                raise PipelineStepError(step.step_id, step.kind, _describe_step_failure(error)) from error
             step_results.append(
                 StepRunResult(
                     step_id=step.step_id,
@@ -272,60 +371,6 @@ class PipelineExecutionEngine:
             final_payload=working_payload,
             step_results=step_results,
         )
-
-    def validate(self, definition: PipelineDefinition) -> None:
-        """Validate structural correctness using the OCaml binding layer and resolve dependency order."""
-        from agents.common.infrastructure.dagents_runner import run_dagentsc
-        try:
-            run_dagentsc(["pipeline", "compile", "--input", "-", "--output", "json"], definition.model_dump(by_alias=False))
-        except (RuntimeError, FileNotFoundError):
-            pass # Fallback to builtin validaton layer
-        self._resolve_step_order(definition)
-
-    def _resolve_step_order(self, definition: PipelineDefinition):
-        """Topologically sort the step graph and detect invalid dependencies.
-
-        Params:
-        - `definition`: pipeline definition to validate and order.
-
-        What it does:
-        - Rejects duplicate step ids.
-        - Rejects missing dependencies.
-        - Rejects cycles through a depth-first traversal.
-
-        Returns:
-        - Ordered list of steps ready for execution.
-        """
-        steps_by_id = {}
-        for step in definition.steps:
-            if step.step_id in steps_by_id:
-                raise ValueError(f"Duplicate step id: {step.step_id}")
-            steps_by_id[step.step_id] = step
-
-        ordered = []
-        visiting: set[str] = set()
-        visited: set[str] = set()
-
-        def visit(step_id: str) -> None:
-            if step_id in visited:
-                return
-            if step_id in visiting:
-                raise ValueError(f"Cyclic dependency detected at step {step_id}")
-            if step_id not in steps_by_id:
-                raise ValueError(f"Unknown dependency step id: {step_id}")
-            visiting.add(step_id)
-            step = steps_by_id[step_id]
-            # Dependencies are visited first so the resulting list is safe for
-            # single-pass execution.
-            for dependency in step.depends_on:
-                visit(dependency)
-            visiting.remove(step_id)
-            visited.add(step_id)
-            ordered.append(step)
-
-        for step in definition.steps:
-            visit(step.step_id)
-        return ordered
 
     def _execute_step(
         self,

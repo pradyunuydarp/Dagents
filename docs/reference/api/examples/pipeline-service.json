@@ -212,7 +212,7 @@
        }
       }
      ],
-     "registered_at": 1791979706
+     "registered_at": 1792064060
     },
     "trimmed": []
    },
@@ -263,6 +263,48 @@
     "trimmed": []
    },
    "planner_calls": []
+  },
+  {
+   "id": "register-cyclic-pipeline",
+   "endpoint": "POST /api/v1/pipelines",
+   "title": "A graph whose steps depend on each other in a cycle",
+   "description": "The planner rejects the graph, and detail is its sentence. Nothing is stored.",
+   "request": {
+    "method": "POST",
+    "path": "/api/v1/pipelines",
+    "json": {
+     "pipeline_id": "circular-orders",
+     "steps": [
+      {
+       "step_id": "filter",
+       "kind": "filter_items",
+       "depends_on": [
+        "summarize"
+       ]
+      },
+      {
+       "step_id": "summarize",
+       "kind": "summarize_items",
+       "depends_on": [
+        "filter"
+       ]
+      }
+     ]
+    }
+   },
+   "response": {
+    "status": 422,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "detail": "Cyclic dependency: filter -> summarize -> filter (each step depends on the next)"
+    },
+    "trimmed": []
+   },
+   "planner_calls": [
+    "pipeline compile"
+   ]
   },
   {
    "id": "register-source",
@@ -782,7 +824,7 @@
        }
       }
      ],
-     "registered_at": 1791979706
+     "registered_at": 1792064060
     },
     "trimmed": []
    },
@@ -851,7 +893,7 @@
          }
         }
        ],
-       "registered_at": 1791979706
+       "registered_at": 1792064060
       },
       {
        "pipeline_id": "paid-large-orders",
@@ -938,7 +980,7 @@
          }
         }
        ],
-       "registered_at": 1791979706
+       "registered_at": 1792064060
       }
      ]
     },
@@ -1008,7 +1050,7 @@
          }
         }
        ],
-       "registered_at": 1791979706
+       "registered_at": 1792064060
       },
       {
        "pipeline_id": "paid-large-orders",
@@ -1095,7 +1137,7 @@
          }
         }
        ],
-       "registered_at": 1791979706
+       "registered_at": 1792064060
       }
      ]
     },
@@ -1162,7 +1204,7 @@
        }
       }
      ],
-     "registered_at": 1791979706
+     "registered_at": 1792064060
     },
     "trimmed": []
    },
@@ -1289,7 +1331,7 @@
        }
       }
      ],
-     "registered_at": 1791979706
+     "registered_at": 1792064060
     },
     "trimmed": []
    },
@@ -1392,11 +1434,11 @@
      "content-type": "application/json"
     },
     "body": {
-     "run_id": "paid-large-orders-run-1791979706756",
+     "run_id": "paid-large-orders-run-1792064060184",
      "pipeline_id": "paid-large-orders",
      "status": "completed",
-     "started_at": 1791979706,
-     "completed_at": 1791979706,
+     "started_at": 1792064060,
+     "completed_at": 1792064060,
      "final_payload": {
       "orders": [
        {
@@ -1450,8 +1492,8 @@
         "input_count": 6,
         "output_count": 3
        },
-       "started_at": 1791979706,
-       "completed_at": 1791979706
+       "started_at": 1792064060,
+       "completed_at": 1792064060
       },
       {
        "step_id": "tag-batch",
@@ -1464,8 +1506,8 @@
          "currency"
         ]
        },
-       "started_at": 1791979706,
-       "completed_at": 1791979706
+       "started_at": 1792064060,
+       "completed_at": 1792064060
       },
       {
        "step_id": "totals",
@@ -1480,8 +1522,8 @@
          "total_amount"
         ]
        },
-       "started_at": 1791979706,
-       "completed_at": 1791979706
+       "started_at": 1792064060,
+       "completed_at": 1792064060
       },
       {
        "step_id": "report",
@@ -1495,15 +1537,17 @@
          "summary.total_amount"
         ]
        },
-       "started_at": 1791979706,
-       "completed_at": 1791979706
+       "started_at": 1792064060,
+       "completed_at": 1792064060
       }
      ],
      "error": null
     },
     "trimmed": []
    },
-   "planner_calls": []
+   "planner_calls": [
+    "pipeline compile"
+   ]
   },
   {
    "id": "run-profile-pipeline",
@@ -1533,11 +1577,11 @@
      "content-type": "application/json"
     },
     "body": {
-     "run_id": "orders-profile-run-1791979706761",
+     "run_id": "orders-profile-run-1792064060189",
      "pipeline_id": "orders-profile",
      "status": "completed",
-     "started_at": 1791979706,
-     "completed_at": 1791979706,
+     "started_at": 1792064060,
+     "completed_at": 1792064060,
      "final_payload": {
       "dataset_profile": {
        "scope_id": "orders-week-41",
@@ -1562,7 +1606,7 @@
        ]
       },
       "model_run": {
-       "run_id": "service-orders-week-41-1791979706",
+       "run_id": "service-orders-week-41-1792064060",
        "agent_role": "SERVICE",
        "scope_id": "orders-week-41",
        "scope_kind": "source",
@@ -1578,8 +1622,8 @@
         "feature_coverage": 1.0
        },
        "artifact_uri": "artifacts/service/orders-week-41/random_forest-v1.json",
-       "started_at": 1791979706,
-       "completed_at": 1791979706
+       "started_at": 1792064060,
+       "completed_at": 1792064060
       }
      },
      "step_results": [
@@ -1592,8 +1636,8 @@
         "record_count": 6,
         "feature_count": 2
        },
-       "started_at": 1791979706,
-       "completed_at": 1791979706
+       "started_at": 1792064060,
+       "completed_at": 1792064060
       },
       {
        "step_id": "score",
@@ -1604,15 +1648,17 @@
         "model_family": "random_forest",
         "record_count": 6
        },
-       "started_at": 1791979706,
-       "completed_at": 1791979706
+       "started_at": 1792064060,
+       "completed_at": 1792064060
       }
      ],
      "error": null
     },
     "trimmed": []
    },
-   "planner_calls": []
+   "planner_calls": [
+    "pipeline compile"
+   ]
   },
   {
    "id": "run-missing-pipeline",
@@ -1669,11 +1715,11 @@
     "body": {
      "runs": [
       {
-       "run_id": "orders-profile-run-1791979706761",
+       "run_id": "orders-profile-run-1792064060189",
        "pipeline_id": "orders-profile",
        "status": "completed",
-       "started_at": 1791979706,
-       "completed_at": 1791979706,
+       "started_at": 1792064060,
+       "completed_at": 1792064060,
        "final_payload": {
         "dataset_profile": {
          "scope_id": "orders-week-41",
@@ -1698,7 +1744,7 @@
          ]
         },
         "model_run": {
-         "run_id": "service-orders-week-41-1791979706",
+         "run_id": "service-orders-week-41-1792064060",
          "agent_role": "SERVICE",
          "scope_id": "orders-week-41",
          "scope_kind": "source",
@@ -1714,8 +1760,8 @@
           "feature_coverage": 1.0
          },
          "artifact_uri": "artifacts/service/orders-week-41/random_forest-v1.json",
-         "started_at": 1791979706,
-         "completed_at": 1791979706
+         "started_at": 1792064060,
+         "completed_at": 1792064060
         }
        },
        "step_results": [
@@ -1728,8 +1774,8 @@
           "record_count": 6,
           "feature_count": 2
          },
-         "started_at": 1791979706,
-         "completed_at": 1791979706
+         "started_at": 1792064060,
+         "completed_at": 1792064060
         },
         {
          "step_id": "score",
@@ -1740,18 +1786,18 @@
           "model_family": "random_forest",
           "record_count": 6
          },
-         "started_at": 1791979706,
-         "completed_at": 1791979706
+         "started_at": 1792064060,
+         "completed_at": 1792064060
         }
        ],
        "error": null
       },
       {
-       "run_id": "paid-large-orders-run-1791979706756",
+       "run_id": "paid-large-orders-run-1792064060184",
        "pipeline_id": "paid-large-orders",
        "status": "completed",
-       "started_at": 1791979706,
-       "completed_at": 1791979706,
+       "started_at": 1792064060,
+       "completed_at": 1792064060,
        "final_payload": {
         "orders": [
          {
@@ -1805,8 +1851,8 @@
           "input_count": 6,
           "output_count": 3
          },
-         "started_at": 1791979706,
-         "completed_at": 1791979706
+         "started_at": 1792064060,
+         "completed_at": 1792064060
         },
         {
          "step_id": "tag-batch",
@@ -1819,8 +1865,8 @@
            "currency"
           ]
          },
-         "started_at": 1791979706,
-         "completed_at": 1791979706
+         "started_at": 1792064060,
+         "completed_at": 1792064060
         },
         {
          "step_id": "totals",
@@ -1835,8 +1881,8 @@
            "total_amount"
           ]
          },
-         "started_at": 1791979706,
-         "completed_at": 1791979706
+         "started_at": 1792064060,
+         "completed_at": 1792064060
         },
         {
          "step_id": "report",
@@ -1850,8 +1896,8 @@
            "summary.total_amount"
           ]
          },
-         "started_at": 1791979706,
-         "completed_at": 1791979706
+         "started_at": 1792064060,
+         "completed_at": 1792064060
         }
        ],
        "error": null
@@ -1892,11 +1938,11 @@
     "body": {
      "runs": [
       {
-       "run_id": "orders-profile-run-1791979706761",
+       "run_id": "orders-profile-run-1792064060189",
        "pipeline_id": "orders-profile",
        "status": "completed",
-       "started_at": 1791979706,
-       "completed_at": 1791979706,
+       "started_at": 1792064060,
+       "completed_at": 1792064060,
        "final_payload": {
         "dataset_profile": {
          "scope_id": "orders-week-41",
@@ -1921,7 +1967,7 @@
          ]
         },
         "model_run": {
-         "run_id": "service-orders-week-41-1791979706",
+         "run_id": "service-orders-week-41-1792064060",
          "agent_role": "SERVICE",
          "scope_id": "orders-week-41",
          "scope_kind": "source",
@@ -1937,8 +1983,8 @@
           "feature_coverage": 1.0
          },
          "artifact_uri": "artifacts/service/orders-week-41/random_forest-v1.json",
-         "started_at": 1791979706,
-         "completed_at": 1791979706
+         "started_at": 1792064060,
+         "completed_at": 1792064060
         }
        },
        "step_results": [
@@ -1951,8 +1997,8 @@
           "record_count": 6,
           "feature_count": 2
          },
-         "started_at": 1791979706,
-         "completed_at": 1791979706
+         "started_at": 1792064060,
+         "completed_at": 1792064060
         },
         {
          "step_id": "score",
@@ -1963,8 +2009,8 @@
           "model_family": "random_forest",
           "record_count": 6
          },
-         "started_at": 1791979706,
-         "completed_at": 1791979706
+         "started_at": 1792064060,
+         "completed_at": 1792064060
         }
        ],
        "error": null
@@ -2022,7 +2068,7 @@
    ],
    "request": {
     "method": "GET",
-    "path": "/api/v1/runs/paid-large-orders-run-1791979706756"
+    "path": "/api/v1/runs/paid-large-orders-run-1792064060184"
    },
    "request_template": {
     "path": "/api/v1/runs/{from:run-pipeline:/run_id}"
@@ -2033,11 +2079,11 @@
      "content-type": "application/json"
     },
     "body": {
-     "run_id": "paid-large-orders-run-1791979706756",
+     "run_id": "paid-large-orders-run-1792064060184",
      "pipeline_id": "paid-large-orders",
      "status": "completed",
-     "started_at": 1791979706,
-     "completed_at": 1791979706,
+     "started_at": 1792064060,
+     "completed_at": 1792064060,
      "final_payload": {
       "orders": [
        {
@@ -2091,8 +2137,8 @@
         "input_count": 6,
         "output_count": 3
        },
-       "started_at": 1791979706,
-       "completed_at": 1791979706
+       "started_at": 1792064060,
+       "completed_at": 1792064060
       },
       {
        "step_id": "tag-batch",
@@ -2105,8 +2151,8 @@
          "currency"
         ]
        },
-       "started_at": 1791979706,
-       "completed_at": 1791979706
+       "started_at": 1792064060,
+       "completed_at": 1792064060
       },
       {
        "step_id": "totals",
@@ -2121,8 +2167,8 @@
          "total_amount"
         ]
        },
-       "started_at": 1791979706,
-       "completed_at": 1791979706
+       "started_at": 1792064060,
+       "completed_at": 1792064060
       },
       {
        "step_id": "report",
@@ -2136,8 +2182,8 @@
          "summary.total_amount"
         ]
        },
-       "started_at": 1791979706,
-       "completed_at": 1791979706
+       "started_at": 1792064060,
+       "completed_at": 1792064060
       }
      ],
      "error": null
@@ -2159,7 +2205,7 @@
    ],
    "request": {
     "method": "GET",
-    "path": "/api/v1/pipeline-runs/paid-large-orders-run-1791979706756"
+    "path": "/api/v1/pipeline-runs/paid-large-orders-run-1792064060184"
    },
    "request_template": {
     "path": "/api/v1/pipeline-runs/{from:run-pipeline:/run_id}"
@@ -2170,11 +2216,11 @@
      "content-type": "application/json"
     },
     "body": {
-     "run_id": "paid-large-orders-run-1791979706756",
+     "run_id": "paid-large-orders-run-1792064060184",
      "pipeline_id": "paid-large-orders",
      "status": "completed",
-     "started_at": 1791979706,
-     "completed_at": 1791979706,
+     "started_at": 1792064060,
+     "completed_at": 1792064060,
      "final_payload": {
       "orders": [
        {
@@ -2228,8 +2274,8 @@
         "input_count": 6,
         "output_count": 3
        },
-       "started_at": 1791979706,
-       "completed_at": 1791979706
+       "started_at": 1792064060,
+       "completed_at": 1792064060
       },
       {
        "step_id": "tag-batch",
@@ -2242,8 +2288,8 @@
          "currency"
         ]
        },
-       "started_at": 1791979706,
-       "completed_at": 1791979706
+       "started_at": 1792064060,
+       "completed_at": 1792064060
       },
       {
        "step_id": "totals",
@@ -2258,8 +2304,8 @@
          "total_amount"
         ]
        },
-       "started_at": 1791979706,
-       "completed_at": 1791979706
+       "started_at": 1792064060,
+       "completed_at": 1792064060
       },
       {
        "step_id": "report",
@@ -2273,8 +2319,8 @@
          "summary.total_amount"
         ]
        },
-       "started_at": 1791979706,
-       "completed_at": 1791979706
+       "started_at": 1792064060,
+       "completed_at": 1792064060
       }
      ],
      "error": null
@@ -2375,7 +2421,7 @@
        }
       }
      ],
-     "registered_at": 1791979706
+     "registered_at": 1792064060
     },
     "trimmed": []
    },
@@ -2387,7 +2433,7 @@
    "id": "run-broken-summary",
    "endpoint": "POST /api/v1/pipelines/{pipeline_id}/runs",
    "title": "A step whose config is wrong",
-   "description": "The graph is valid, so registration succeeded; the sum has no field, so the run fails. Nothing is stored.",
+   "description": "The graph is valid, so registration succeeded; the sum has no field, so the run fails and the answer names the step. Nothing is stored.",
    "request": {
     "method": "POST",
     "path": "/api/v1/pipelines/broken-summary/runs",
@@ -2447,16 +2493,18 @@
     }
    },
    "response": {
-    "status": 404,
+    "status": 422,
     "headers": {
      "content-type": "application/json"
     },
     "body": {
-     "detail": "Aggregation sum requires a field"
+     "detail": "Step totals (summarize_items) failed: Aggregation sum requires a field"
     },
     "trimmed": []
    },
-   "planner_calls": []
+   "planner_calls": [
+    "pipeline compile"
+   ]
   },
   {
    "id": "submit-run",
@@ -2535,10 +2583,10 @@
      "content-type": "application/json"
     },
     "body": {
-     "run_id": "paid-large-orders-run-1791979706786",
+     "run_id": "paid-large-orders-run-1792064060214",
      "pipeline_id": "paid-large-orders",
      "status": "queued",
-     "started_at": 1791979706,
+     "started_at": 1792064060,
      "completed_at": 0,
      "final_payload": {
       "orders": [
@@ -2597,7 +2645,9 @@
     },
     "trimmed": []
    },
-   "planner_calls": []
+   "planner_calls": [
+    "pipeline compile"
+   ]
   },
   {
    "id": "submit-run-without-id",
@@ -2662,12 +2712,96 @@
     }
    },
    "response": {
+    "status": 422,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "detail": [
+      {
+       "type": "missing",
+       "loc": [
+        "body",
+        "pipeline_id"
+       ],
+       "msg": "Field required",
+       "input": {
+        "payload": {
+         "orders": [
+          {
+           "order_id": "A-1001",
+           "amount": 42.5,
+           "status": "paid",
+           "customer": {
+            "country": "DE"
+           }
+          },
+          {
+           "order_id": "A-1002",
+           "amount": 180.0,
+           "status": "paid",
+           "customer": {
+            "country": "FR"
+           }
+          },
+          {
+           "order_id": "A-1003",
+           "amount": 260.0,
+           "status": "refunded",
+           "customer": {
+            "country": "DE"
+           }
+          },
+          {
+           "order_id": "A-1004",
+           "amount": 125.25,
+           "status": "paid",
+           "customer": {
+            "country": "DE"
+           }
+          },
+          {
+           "order_id": "A-1005",
+           "amount": 99.99,
+           "status": "paid",
+           "customer": {
+            "country": "NL"
+           }
+          }
+         ]
+        }
+       }
+      }
+     ]
+    },
+    "trimmed": [
+     {
+      "pointer": "/detail/0/input/payload/orders",
+      "note": "6 items, cut to 5"
+     }
+    ]
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "submit-run-missing-pipeline",
+   "endpoint": "POST /api/v1/pipeline-runs",
+   "title": "Queue a run of a pipeline that does not exist",
+   "request": {
+    "method": "POST",
+    "path": "/api/v1/pipeline-runs",
+    "json": {
+     "pipeline_id": "no-such-pipeline",
+     "payload": {}
+    }
+   },
+   "response": {
     "status": 404,
     "headers": {
      "content-type": "application/json"
     },
     "body": {
-     "detail": "pipeline_id is required"
+     "detail": "Unknown pipeline: no-such-pipeline"
     },
     "trimmed": []
    },
