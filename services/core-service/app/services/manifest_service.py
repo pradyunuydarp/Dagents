@@ -368,8 +368,14 @@ class ManifestService:
         return "ConfigMap" in component.generated_resources or include_config_maps
 
     def _generate_service_account(self, component: WorkloadComponent) -> bool:
-        """Decide whether to generate a companion `ServiceAccount` resource."""
-        return self._service_account_name(component) is not None
+        """Decide whether to generate a companion `ServiceAccount` resource.
+
+        Only a component that lists `ServiceAccount` in `generated_resources`
+        gets one. A `service_account_name` on its own refers to an account that
+        already exists: the pod is bound to it, and nothing is rendered that
+        would replace it. This matches `wants_companion` in the OCaml compiler.
+        """
+        return "ServiceAccount" in component.generated_resources
 
     def _env_lines(self, component: WorkloadComponent) -> list[str]:
         """Render environment variables into container YAML lines."""

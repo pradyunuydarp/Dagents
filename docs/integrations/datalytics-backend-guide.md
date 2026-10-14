@@ -404,7 +404,8 @@ Rules:
 
 - top-level `include_services` and `include_config_maps` still work as defaults
 - `generated_resources` adds resource generation per component even if top-level flags are false
-- `service_account_name` binds the generated or referenced service account into the workload pod spec
+- `service_account_name` sets `serviceAccountName` in the workload pod spec. On its own it refers to an account that already exists, and no `ServiceAccount` object is rendered
+- a `ServiceAccount` object is rendered only when `generated_resources` lists `ServiceAccount`. It takes the name in `service_account_name`, or the component name when that field is empty
 - `config_map_data` is rendered into the generated config map
 - `service_type` controls the generated `Service` object
 

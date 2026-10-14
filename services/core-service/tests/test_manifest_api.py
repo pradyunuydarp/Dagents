@@ -110,6 +110,38 @@ class ManifestApiTests(unittest.TestCase):
         self.assertIn('router_mode: "edge"', payload["combined_yaml"])
         self.assertIn("kind: ServiceAccount", payload["manifests"][0]["service_account_yaml"])
 
+    def test_generates_a_service_account_only_when_the_component_lists_one(self) -> None:
+        # `service_account_name` alone refers to an account that already exists,
+        # so the pod is bound to it and no ServiceAccount object is rendered.
+        response = self.client.post(
+            "/api/v1/workloads:compile",
+            json={
+                "namespace": "dagents-identity",
+                "components": [
+                    {
+                        "name": "existing-identity",
+                        "image": "ghcr.io/example/worker:latest",
+                        "service_account_name": "robot",
+                    },
+                    {
+                        "name": "generated-identity",
+                        "image": "ghcr.io/example/worker:latest",
+                        "generated_resources": ["ServiceAccount"],
+                        "service_account_name": "robot-generated",
+                    },
+                ],
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        existing, generated = payload["manifests"]
+        self.assertIn("serviceAccountName: robot\n", existing["deployment_yaml"])
+        self.assertIsNone(existing["service_account_yaml"])
+        self.assertIn("serviceAccountName: robot-generated", generated["deployment_yaml"])
+        self.assertIn("name: robot-generated", generated["service_account_yaml"])
+        self.assertEqual(payload["combined_yaml"].count("kind: ServiceAccount"), 1)
+
     def test_returns_not_found_for_unknown_plan(self) -> None:
         response = self.client.get("/api/v1/workload-plans/workload-plan-missing")
         self.assertEqual(response.status_code, 404)

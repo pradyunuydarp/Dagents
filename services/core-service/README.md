@@ -37,4 +37,9 @@ Relevant request fields:
 - `service_type`
 - `config_map_data`
 
+`service_account_name` on its own binds the pod to an account that already
+exists, and no `ServiceAccount` object is rendered. List `ServiceAccount` in
+`generated_resources` to render one. It takes the name in
+`service_account_name`, or the component name when that field is empty.
+
 Runtime settings are loaded from `env/.env.shared` and `env/.env.core-service`.
