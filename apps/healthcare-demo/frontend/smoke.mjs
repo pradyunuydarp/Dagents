@@ -937,6 +937,9 @@ try {
       `${roundText.replace(/\s+/g, " ")}; rate: ${hospitalRate}`
     );
   } finally {
+    // The app may still have a request in a rewrite handler when the page
+    // closes. That request fails, and its error is not a finding.
+    await reasonPage.unrouteAll({ behavior: "ignoreErrors" });
     await reasonPage.close();
   }
 
@@ -1013,6 +1016,9 @@ try {
       reasons[0] ?? "no chart listed"
     );
   } finally {
+    // The app may still have a request in a rewrite handler when the page
+    // closes. That request fails, and its error is not a finding.
+    await emptyPage.unrouteAll({ behavior: "ignoreErrors" });
     await emptyPage.close();
   }
 
