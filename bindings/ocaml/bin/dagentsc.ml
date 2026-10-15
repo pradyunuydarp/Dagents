@@ -135,6 +135,7 @@ let manifest_compile args =
         namespace;
         include_services = true;
         include_config_maps = true;
+        target = Kubernetes;
         components =
           [
             {
@@ -144,13 +145,16 @@ let manifest_compile args =
               replicas = 1;
               schedule = None;
               env = [];
-              ports = [ { port_name = "http"; container_port = 8080 } ];
+              ports = [ { port_name = "http"; container_port = 8080; publication = NotPublished } ];
               args = [];
               resources = default_resources;
               generated_resources = [];
               service_account_name = None;
               service_type = "ClusterIP";
               config_map_data = [];
+              env_files = [];
+              health_check = None;
+              service_dependencies = [];
             };
           ];
       }

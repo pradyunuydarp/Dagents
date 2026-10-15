@@ -334,6 +334,7 @@ let three_component_spec =
     namespace = "dagents";
     include_services = true;
     include_config_maps = true;
+    target = Kubernetes;
     components =
       [
         {
@@ -343,13 +344,16 @@ let three_component_spec =
           replicas = 2;
           schedule = None;
           env = [ { name = "APP_ENV"; value = "cloud" } ];
-          ports = [ { port_name = "http"; container_port = 8060 } ];
+          ports = [ { port_name = "http"; container_port = 8060; publication = NotPublished } ];
           args = [ "--server.port=8060" ];
           resources = default_resources;
           generated_resources = [];
           service_account_name = None;
           service_type = "ClusterIP";
           config_map_data = [];
+          env_files = [];
+          health_check = None;
+          service_dependencies = [];
         };
         {
           name = "reconciler";
@@ -365,6 +369,9 @@ let three_component_spec =
           service_account_name = None;
           service_type = "ClusterIP";
           config_map_data = [];
+          env_files = [];
+          health_check = None;
+          service_dependencies = [];
         };
         {
           name = "edge-service";
@@ -373,13 +380,16 @@ let three_component_spec =
           replicas = 1;
           schedule = None;
           env = [];
-          ports = [ { port_name = "grpc"; container_port = 9090 } ];
+          ports = [ { port_name = "grpc"; container_port = 9090; publication = NotPublished } ];
           args = [];
           resources = default_resources;
           generated_resources = [];
           service_account_name = None;
           service_type = "ClusterIP";
           config_map_data = [];
+          env_files = [];
+          health_check = None;
+          service_dependencies = [];
         };
       ];
   }
@@ -1101,13 +1111,16 @@ let test_manifest_per_component_resources () =
       replicas = 1;
       schedule = None;
       env = [];
-      ports = [ { port_name = "http"; container_port = 8080 } ];
+      ports = [ { port_name = "http"; container_port = 8080; publication = NotPublished } ];
       args = [];
       resources = default_resources;
       generated_resources = [ Service; ConfigMap; ServiceAccount ];
       service_account_name = None;
       service_type = "NodePort";
       config_map_data = [ ("router_mode", "edge") ];
+      env_files = [];
+      health_check = None;
+      service_dependencies = [];
     }
   in
   let plan =
@@ -1119,6 +1132,7 @@ let test_manifest_per_component_resources () =
         (* Both spec-wide flags off: everything below comes from the component. *)
         include_services = false;
         include_config_maps = false;
+        target = Kubernetes;
       }
   in
   let manifest = List.hd plan.manifests in
@@ -1150,13 +1164,16 @@ let test_manifest_does_not_duplicate_a_primary_object () =
       replicas = 1;
       schedule = None;
       env = [];
-      ports = [ { port_name = "http"; container_port = 8080 } ];
+      ports = [ { port_name = "http"; container_port = 8080; publication = NotPublished } ];
       args = [];
       resources = default_resources;
       generated_resources = [ Service ];
       service_account_name = None;
       service_type = "ClusterIP";
       config_map_data = [];
+      env_files = [];
+      health_check = None;
+      service_dependencies = [];
     }
   in
   let plan =
@@ -1167,6 +1184,7 @@ let test_manifest_does_not_duplicate_a_primary_object () =
         components = [ component ];
         include_services = true;
         include_config_maps = false;
+        target = Kubernetes;
       }
   in
   let manifest = List.hd plan.manifests in
@@ -1182,6 +1200,7 @@ let job_spec =
     namespace = "batch";
     include_services = false;
     include_config_maps = false;
+    target = Kubernetes;
     components =
       [
         {
@@ -1191,13 +1210,16 @@ let job_spec =
           replicas = 1;
           schedule = None;
           env = [ { name = "SEED_ROWS"; value = "400" } ];
-          ports = [ { port_name = "metrics"; container_port = 9100 } ];
+          ports = [ { port_name = "metrics"; container_port = 9100; publication = NotPublished } ];
           args = [ "--once" ];
           resources = default_resources;
           generated_resources = [ ServiceAccount ];
           service_account_name = None;
           service_type = "ClusterIP";
           config_map_data = [];
+          env_files = [];
+          health_check = None;
+          service_dependencies = [];
         };
       ];
   }

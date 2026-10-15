@@ -294,6 +294,7 @@ let port_of_yojson = function
           | Some (`String value) -> value
           | _ -> "http");
         container_port = int_field_with_default "containerPort" 0 fields;
+        publication = NotPublished;
       }
   | _ -> fail "Expected port object"
 
@@ -368,6 +369,9 @@ let workload_component_of_yojson = function
           | Some value -> value
           | None -> "ClusterIP");
         config_map_data = string_assoc_field "configMapData" fields;
+        env_files = [];
+        health_check = None;
+        service_dependencies = [];
       }
   | _ -> fail "Expected workload component object"
 
@@ -392,6 +396,7 @@ let workload_spec_of_yojson = function
           | _ -> []);
         include_services = bool_field_with_default "includeServices" true fields;
         include_config_maps = bool_field_with_default "includeConfigMaps" false fields;
+        target = Kubernetes;
       }
   | _ -> fail "Expected workload spec object"
 

@@ -472,16 +472,24 @@ include module type of Routing_types
     This module is the manifest compiler's contract surface. It is kept apart
     from pipeline and routing types because it describes deployment artifacts. *)
 module Workload_types : sig
-  (** Kubernetes environment variable. *)
+  (** Container environment variable. *)
   type env_var = {
     name : string;
     value : string;
   }
 
-  (** Kubernetes container port declaration. *)
+  (** Whether a container port is reachable from the host. Only the Compose
+      target reads it: Kubernetes reaches a port through a Service. *)
+  type port_publication =
+    | NotPublished  (** reachable only by services on the same network *)
+    | PublishedOn of { host_ip : string; host_port : int }
+        (** bound to [host_port] on the host address [host_ip] *)
+
+  (** Container port declaration. *)
   type port = {
     port_name : string;
     container_port : int;
+    publication : port_publication;
   }
 
   (** Kubernetes resource requests and limits. *)
@@ -492,7 +500,34 @@ module Workload_types : sig
     memory_limit : string;
   }
 
-  (** One deployable component in a generated workload bundle. *)
+  (** The command a Compose health check runs inside the container. *)
+  type health_test =
+    | ExecTest of string list  (** run without a shell: [["CMD", ...]] *)
+    | ShellTest of string  (** run by the container's shell: [["CMD-SHELL", ...]] *)
+
+  (** A container health check. Only the Compose target reads it. *)
+  type health_check = {
+    health_test : health_test;
+    interval_seconds : int;
+    timeout_seconds : int;
+    retries : int;
+    start_period_seconds : int;
+  }
+
+  (** When a Compose service may start, relative to a service it depends on. *)
+  type dependency_condition =
+    | ServiceStarted  (** once the other service's container has started *)
+    | ServiceHealthy  (** once the other service's health check passes *)
+    | ServiceCompletedSuccessfully  (** once the other service has exited with code 0 *)
+
+  (** One Compose [depends_on] entry. *)
+  type service_dependency = {
+    dependency_service : string;
+    dependency_condition : dependency_condition;
+  }
+
+  (** One deployable component in a generated workload bundle: a Kubernetes
+      object or a Compose service. *)
   type workload_component = {
     name : string;
     image : string;
@@ -507,7 +542,35 @@ module Workload_types : sig
     service_account_name : string option;
     service_type : string;
     config_map_data : (string * string) list;
+    env_files : string list;  (** Compose only: files of [NAME=value] lines read at start *)
+    health_check : health_check option;
+        (** Compose only; [None] keeps the image's own [HEALTHCHECK] *)
+    service_dependencies : service_dependency list;  (** Compose only: [depends_on] *)
   }
+
+  (** The network every service in a Compose file joins. *)
+  type compose_network =
+    | ProjectNetwork of string  (** declared by this file *)
+    | ExternalNetwork of string  (** exists already; this is its real Docker name *)
+
+  (** How a rendered Compose file relates to a project that already runs. *)
+  type compose_placement =
+    | OwnProject  (** the file is a whole project *)
+    | MergedProject
+        (** the file is passed with [-f] after the files of the project that
+            runs [existing_services] *)
+
+  (** Settings of the Docker Compose target. *)
+  type compose_target = {
+    compose_placement : compose_placement;
+    compose_network : compose_network;
+    existing_services : string list;
+        (** services the running project already has; new services may depend
+            on them only when merged, and may not reuse their names *)
+  }
+
+  (** Where the rendered workloads run. *)
+  type deployment_target = Kubernetes | Compose of compose_target
 
   (** Declarative manifest-generation input.
 
@@ -520,6 +583,7 @@ module Workload_types : sig
             components = [];
             include_services = true;
             include_config_maps = true;
+            target = Kubernetes;
           }
         in
         assert (spec.namespace = "default")
@@ -530,6 +594,7 @@ module Workload_types : sig
     components : workload_component list;
     include_services : bool;
     include_config_maps : bool;
+    target : deployment_target;
   }
 
   (** Rendered Kubernetes YAML for one workload component. *)
@@ -550,8 +615,52 @@ module Workload_types : sig
     combined_yaml : string;
   }
 
+  (** Why a spec cannot become a Compose file. *)
+  type compose_issue_reason =
+    | NoServices
+    | InvalidNetworkName of string
+    | InvalidServiceName of string
+    | DuplicateServiceName
+    | ServiceNameInUse
+    | EmptyImage
+    | NoComposeEquivalent of workload_kind
+    | UnsupportedReplicas of int
+    | InvalidEnvironmentName of string
+    | DuplicateEnvironmentName of string
+    | InvalidPort of int
+    | InvalidHostIp of string
+    | HostPortConflict of int
+    | EmptyHealthCheck
+    | InvalidHealthCheckTiming
+    | SelfDependency
+    | DuplicateDependency of string
+    | DependencyOutsideProject of string
+    | UnknownDependency of string
+    | DependencyCycle
+
+  (** One reason a spec cannot become a Compose file. *)
+  type compose_issue = {
+    issue_service : string option;  (** [None]: an issue with the whole spec *)
+    issue_reason : compose_issue_reason;
+  }
+
+  (** A rendered Compose file, or the issues that stopped it. *)
+  type compose_plan = {
+    compose_plan_id : string;
+    compose_service_names : string list;  (** every component name, in request order *)
+    compose_issues : compose_issue list;
+    compose_yaml : string option;  (** [None] exactly when [compose_issues] is not empty *)
+  }
+
+  (** A plan rendered for the target its spec names. *)
+  type target_plan = KubernetesPlan of workload_plan | ComposePlan of compose_plan
+
   (** Default resource requests and limits for generated workload components. *)
   val default_resources : resources
+
+  (** The Compose target a bare ["compose"] means: its own project, on the
+      network [default], with no existing services. *)
+  val default_compose_target : compose_target
 end
 
 include module type of Workload_types
@@ -926,3 +1035,17 @@ val round_phase_of_string : string -> round_phase
 val stop_condition_of_string : string -> stop_condition
 (** Parse a site-participation string; raises [Invalid_argument] on unknown input. *)
 val site_participation_of_string : string -> site_participation
+
+(** Convert a Compose dependency condition to the word Compose uses:
+    ["service_started"], ["service_healthy"] or ["service_completed_successfully"]. *)
+val string_of_dependency_condition : dependency_condition -> string
+(** Parse a Compose dependency condition word; raises [Invalid_argument] on unknown input. *)
+val dependency_condition_of_string : string -> dependency_condition
+
+(** The stable code and value of a Compose issue, as JSON and the CLI print them.
+
+    Example test case:
+    {[
+      assert (compose_issue_code_and_value (InvalidPort 0) = ("invalid_port", Some "0"))
+    ]} *)
+val compose_issue_code_and_value : compose_issue_reason -> string * string option
