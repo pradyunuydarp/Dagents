@@ -52,6 +52,10 @@ with the link preview plugin `design/social/social-meta.mjs` (section 3b), and
   `site/src/highlight.ts` highlights every code block (guide pages, API
   samples and responses) with highlight.js, which registers only the
   languages the site shows. Plain text and unknown languages stay plain.
+- Every code block on the site has a copy icon button in its top right
+  corner (`site/src/codeCopy.ts`). Guide pages write it as HTML and API
+  blocks as React, with the same markup, and one document click handler
+  copies the `<pre>` inside the nearest `data-copy-scope` element.
 - Mermaid diagrams on the site take their colours from the tokens
   (`site/src/Mermaid.tsx`), so they stay grey and follow light and dark mode.
 
