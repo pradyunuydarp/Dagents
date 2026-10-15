@@ -190,8 +190,9 @@ means nothing useful runs, so the scripts check for the binary first.
 ## The UI
 
 The page has two kinds of view. The **consortium view** is what the coordinator
-sees: the numbers each hospital reports, the Ethical Guard, the federated pilot
-and charts of released aggregates. It shows no patient rows. Each **hospital
+sees: the numbers each hospital reports, the Ethical Guard, the federated pilot,
+charts of released aggregates and the panel to add a hospital. It shows no
+patient rows. Each **hospital
 view** is what that hospital's staff see: its own records and the form to add
 one.
 
@@ -309,6 +310,32 @@ hospital whose store holds no records is listed with `available: false` and the
 reason "This hospital's store holds no records yet." The two consortium charts
 of records and outcome rates are listed the same way, with the reason "No
 hospital's store holds records yet.", when every store is empty.
+
+### Add a hospital
+
+The last panel of the consortium page, **Add a hospital**, lists the hospital
+that can join while the demo runs: Hospital 290 in Poland, with its 263
+records from the International Stroke Trial. Only a split run started with
+`--deploy` on your own machine can add it. There, the panel has an **Add
+Hospital 290** button. Everywhere else it shows the server's reason and no
+button: the one-process demo, a split run without `--deploy`, and the
+published replay, which says that adding a hospital starts a process the
+replay cannot start.
+
+Select **Add Hospital 290**. The button is disabled until the app has
+finished, which takes a few seconds. The panel then lists the seven steps of
+[Add a hospital while the demo runs](#add-a-hospital-while-the-demo-runs),
+each with its status in words (Done, Skipped, Failed, Undone or Not run), what
+happened and how many seconds it took. **Compose file from core-service**
+opens the file the OCaml manifest compiler rendered, exactly as the app
+received it. The last line says whether the GMA's planner selects the
+hospital for the next round.
+
+When the hospital has joined, the page reloads the overview: the header and
+the hospitals table list four hospitals, and Hospital 290's page shows its own
+records. Its charts are drawn in neutral ink, because the design system has
+three hospital colours. Run the pilot again, and its rounds include Hospital
+290.
 
 ## How it works
 
@@ -678,7 +705,9 @@ cd frontend && npm run smoke             # against a running stack
 ```
 
 It tries all three guard controls, runs a full pilot, opens a hospital view,
-submits a data entry, and fails on any console error or failed request. Without
+submits a data entry, checks that the panel to add a hospital shows the
+server's reason and no button, and fails on any console error or failed
+request. Without
 a browser it exits 2 and prints `SKIP`. `scripts/run_frontend_demo.sh --split
 --check` runs the same test against the five processes.
 
@@ -743,7 +772,8 @@ backend/app/
 data/ist/                the IST extract, its licence and notice
 supabase/                migrations and the role emulation used by the tests
 frontend/
-  src/                   the UI (Vite + React): consortium view, hospital view, data entry
+  src/                   the UI (Vite + React): consortium view, hospital view, data entry;
+                         components/DeployPanel.tsx is the panel to add a hospital
   public/                the link preview image, the icons and the web manifest, rendered from
                          Dagents' design/social/ and copied here so the app stays extractable;
                          the recording capture also writes recording.json here

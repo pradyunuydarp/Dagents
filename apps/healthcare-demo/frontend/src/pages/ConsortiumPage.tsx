@@ -1,6 +1,7 @@
 import type { Recording } from "../api";
 import { ErrorNote, Loading, Panel } from "../components/Basics";
 import { ChartGrid } from "../components/Chart";
+import { DeployPanel } from "../components/DeployPanel";
 import { GuardProbe } from "../components/GuardProbe";
 import { HospitalsTable } from "../components/HospitalsTable";
 import { PilotPanel } from "../components/PilotPanel";
@@ -20,7 +21,8 @@ export function ConsortiumPage({
   recording,
   pilot,
   onPilot,
-  onApproved
+  onApproved,
+  onJoined
 }: {
   overview: Overview;
   status: FrameworkStatus | null;
@@ -28,6 +30,8 @@ export function ConsortiumPage({
   pilot: Pilot | null;
   onPilot: (pilot: Pilot) => void;
   onApproved: () => void;
+  /** A hospital joined the consortium: the overview and the status change. */
+  onJoined: () => void;
 }) {
   // The pilot changes three of the charts, so the list is fetched again after it.
   const charts = useResource<{ charts: ChartInfo[] }>(`/api/v1/charts`);
@@ -83,6 +87,13 @@ export function ConsortiumPage({
         <ErrorNote error={charts.error} />
         {charts.data ? <ChartGrid charts={gridCharts} /> : !charts.error && <Loading what="the charts" />}
       </Panel>
+
+      <DeployPanel
+        onJoined={() => {
+          onJoined();
+          reloadCharts();
+        }}
+      />
     </div>
   );
 }

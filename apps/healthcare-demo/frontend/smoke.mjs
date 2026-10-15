@@ -6,7 +6,9 @@
  * controls change anything. This test drives the real UI against a live
  * backend, in a real browser:
  *
- *   1. the consortium page lists the hospitals the API reports;
+ *   1. the consortium page lists the hospitals the API reports, and the
+ *      panel to add a hospital lists the one that can join and says why it
+ *      offers no button;
  *   2. each of the guard's three controls changes the systolic_bp strategy,
  *      the cohort minimum denies only column, table and model-update requests,
  *      and the coordinator's page shows what the Guard would release without
@@ -80,8 +82,10 @@ if (!executablePath) {
 
 const failures = [];
 const consoleErrors = [];
+// A passing line reads "ok  <name>", with two spaces: CI greps for some
+// lines exactly, such as "ok  deploy: hospital pl-290 joined".
 const check = (name, ok, detail = "") => {
-  console.log(`  ${ok ? "ok  " : "FAIL"}  ${name}${detail ? ` — ${detail}` : ""}`);
+  console.log(`  ${ok ? "ok" : "FAIL"}  ${name}${detail ? ` — ${detail}` : ""}`);
   if (!ok) failures.push(name);
 };
 
@@ -203,6 +207,20 @@ try {
   check("the header links to every hospital", navLinks === overview.hospitals.length + 1, `${navLinks} links`);
   const notReady = await page.locator('[data-banner="not-ready"]').count();
   check("no not-loaded banner while every store holds records", notReady === 0, `${notReady} banners`);
+
+  //    The panel to add a hospital lists the hospitals that can join. A run
+  //    that cannot add one (any run but --deploy) shows the backend's reason
+  //    and no button.
+  const deployPanel = page.locator('[data-panel="deploy"]');
+  await deployPanel.locator('[data-role="reason"], [data-action="deploy"]').first().waitFor({ timeout: 30000 });
+  const deployReason = ((await deployPanel.locator('[data-role="reason"]').textContent().catch(() => "")) ?? "").trim();
+  const deployButtons = await deployPanel.locator('[data-action="deploy"]').count();
+  const joinable = await deployPanel.locator("tr[data-joinable]").count();
+  check(
+    "deploy panel shows why adding a hospital is not offered",
+    deployReason.length > 0 && deployButtons === 0 && joinable > 0,
+    `${deployButtons} buttons, ${joinable} hospitals listed; ${deployReason || "no reason shown"}`
+  );
   if (shotDir) {
     await staticHeader();
     await page.screenshot({

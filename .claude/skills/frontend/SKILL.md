@@ -239,6 +239,16 @@ backend and replays.
   each field. It does not restate a range or an option list. Each submission
   sends a new `Idempotency-Key`. The form tells people not to enter real patient
   information.
+- **The panel to add a hospital shows what the backend reports.**
+  `DeployPanel` reads `GET /api/v1/deployments` and offers the button
+  (`data-action="deploy"`) only when the answer says `available`, outside a
+  replay. Otherwise it shows the backend's `reason`, or the replay's note, and
+  no button; a 404 means the server does not offer the action. The steps
+  (`data-step`, `data-status`) show their status as words, never as colours:
+  a step is not a permit, narrow or deny decision. The page never decides
+  whether a hospital can join or whether the next round selects it; it shows
+  the planner's answer. After a hospital joins, it fetches the overview and
+  the status again, so the header and the table list the new hospital.
 - **Charts are drawn by the backend** as SVG and fetched through the transport,
   so a cold start and a replay work for them too. Fetch them again when the
   theme changes. Every chart has its table view next to it, and the page never
@@ -303,7 +313,8 @@ cd site && npm install && npm run build && npm run check
 
 The healthcare `smoke.mjs` drives the real UI against a live backend. It checks
 that **each of the guard's three controls changes the `systolic_bp`
-strategy**, runs a full pilot and checks that a decision is shown, opens a
+strategy**, checks that the panel to add a hospital shows the backend's
+reason and no button, runs a full pilot and checks that a decision is shown, opens a
 hospital view and checks that its charts draw, checks that the backend's
 validation errors appear on an empty form, submits a data entry and checks that
 the record appears and the count rises, switches to the dark theme and checks

@@ -4,7 +4,8 @@
  * comes from `design-system.css`, which is imported first. This file only adds
  * what is specific to this app: the header and its navigation, the guard
  * panel's controls, the round sequence, the gate list, the charts, the
- * data-entry form and the worklist's priority stripe.
+ * data-entry form, the worklist's priority stripe and the steps of adding a
+ * hospital.
  *
  * Two rules hold throughout, and they are the design system's rules:
  *   - Colour carries meaning only. Every chromatic element here is a decision
@@ -865,6 +866,84 @@ ul.lever-notes {
   gap: var(--ds-2);
   max-width: var(--ds-measure);
   color: var(--ds-ink-2);
+}
+
+/* ===== Adding a hospital ================================================== */
+
+/* Each step states its status in words. A step is not a decision of the
+ * planner, so no step gets a decision colour; weight marks a failure. */
+.deploy-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-2);
+  counter-reset: deploy-step;
+}
+
+.deploy-steps li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--ds-1) var(--ds-3);
+  padding: var(--ds-2) var(--ds-3);
+  border: 1px solid var(--ds-line);
+  border-radius: var(--ds-r-1);
+  background: var(--ds-inset);
+  font-size: var(--ds-step--1);
+  min-width: 0;
+}
+
+.deploy-steps .step-label {
+  font-weight: 600;
+}
+
+.deploy-steps .step-label::before {
+  counter-increment: deploy-step;
+  content: counter(deploy-step) ". ";
+  font-weight: 500;
+}
+
+.deploy-steps .step-state {
+  display: inline-flex;
+  gap: var(--ds-3);
+  align-items: baseline;
+}
+
+.deploy-steps .step-status {
+  font-family: var(--ds-font-mono);
+  font-size: 0.78rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.deploy-steps li[data-status="failed"] .step-status,
+.deploy-steps li[data-status="undone"] .step-status {
+  font-weight: 700;
+}
+
+.deploy-steps .step-seconds {
+  color: var(--ds-ink-2);
+}
+
+.deploy-steps .step-detail {
+  flex: 1 1 100%;
+  color: var(--ds-ink-2);
+  overflow-wrap: anywhere;
+}
+
+.compose-file {
+  margin: 0;
+  padding: var(--ds-3);
+  max-width: 100%;
+  overflow-x: auto;
+  background: var(--ds-inset);
+  border: 1px solid var(--ds-line);
+  border-radius: var(--ds-r-1);
+  font-size: 0.8rem;
+  line-height: 1.5;
 }
 
 /* ===== Narrow screens ===================================================== */

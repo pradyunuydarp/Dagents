@@ -106,6 +106,7 @@ export default function App() {
         pilot={pilot}
         onPilot={setPilot}
         onApproved={refreshOverview}
+        onJoined={refreshOverview}
       />
     ) : (
       !overviewError && <Loading what="the consortium" />
