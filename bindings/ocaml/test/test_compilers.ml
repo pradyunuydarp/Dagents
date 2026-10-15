@@ -1438,6 +1438,143 @@ metadata:
   "combinedYaml": "apiVersion: batch/v1\nkind: Job\nmetadata:\n  name: seed\n  namespace: batch\nspec:\n  template:\n    spec:\n      restartPolicy: Never\n      serviceAccountName: seed\n      containers:\n      - name: main\n        image: ghcr.io/example/seed:1.0\n        args:\n        - \"--once\"\n        ports:\n        - name: metrics\n          containerPort: 9100\n        env:\n        - name: SEED_ROWS\n          value: \"400\"\n        resources:\n          requests:\n            cpu: 250m\n            memory: 256Mi\n          limits:\n            cpu: 1\n            memory: 1Gi\n---\napiVersion: v1\nkind: ServiceAccount\nmetadata:\n  name: seed\n  namespace: batch"
 }|}
 
+(** Parse a workload spec from JSON text, as [dagentsc manifest compile --input] does. *)
+let spec_of_json text = Json_codec.workload_spec_of_yojson (Yojson.Safe.from_string text)
+
+(** The first component of a spec parsed from JSON text. *)
+let component_of_json text = List.hd (spec_of_json text).components
+
+(** Verifies every form of the [target] key, the new component and port keys,
+    and the shape errors that stop a request before planning. *)
+let test_deployment_target_codec () =
+  let target_of text = (spec_of_json text).target in
+  let compose placement network existing =
+    Compose { compose_placement = placement; compose_network = network; existing_services = existing }
+  in
+  (* Every Kubernetes form, including a spec written before the target existed. *)
+  List.iter
+    (fun text -> assert_true ("should mean Kubernetes: " ^ text) (target_of text = Kubernetes))
+    [
+      {|{"components": []}|};
+      {|{"target": null}|};
+      {|{"target": "kubernetes"}|};
+      {|{"target": {"kind": "kubernetes"}}|};
+    ];
+  (* The Compose forms and their defaults. *)
+  List.iter
+    (fun text -> assert_true ("should mean the default Compose target: " ^ text) (target_of text = Compose default_compose_target))
+    [
+      {|{"target": "compose"}|};
+      {|{"target": {"kind": "compose"}}|};
+      {|{"target": {"kind": "compose", "placement": null, "network": null}}|};
+      {|{"target": {"kind": "compose", "placement": "own", "network": "default", "externalNetwork": false, "existingServices": []}}|};
+    ];
+  assert_true "default_compose_target is its own project on the default network"
+    (default_compose_target
+    = { compose_placement = OwnProject; compose_network = ProjectNetwork "default"; existing_services = [] });
+  assert_true "every Compose key should be read"
+    (target_of
+       {|{"target": {"kind": "compose", "placement": "merge", "network": "healthcare-demo_default", "externalNetwork": true, "existingServices": ["gma", "lma-uk-134"]}}|}
+    = compose MergedProject (ExternalNetwork "healthcare-demo_default") [ "gma"; "lma-uk-134" ]);
+  assert_true "a network that is not external should be declared by the file"
+    (target_of {|{"target": {"kind": "compose", "network": "dagents"}}|}
+    = compose OwnProject (ProjectNetwork "dagents") []);
+  (* The object form round-trips, and always carries all five keys in order. *)
+  List.iter
+    (fun target ->
+      let json = Json_codec.yojson_of_deployment_target target in
+      assert_true "a deployment target should read back unchanged"
+        (Json_codec.deployment_target_of_yojson json = target))
+    [
+      Kubernetes;
+      Compose default_compose_target;
+      compose MergedProject (ExternalNetwork "shared") [ "gma"; "core" ];
+      compose OwnProject (ProjectNetwork "dagents") [ "gma" ];
+    ];
+  (match Json_codec.yojson_of_deployment_target (Compose default_compose_target) with
+  | `Assoc fields ->
+      assert_true "the Compose object form should list every key in a fixed order"
+        (List.map fst fields = [ "kind"; "placement"; "network"; "externalNetwork"; "existingServices" ])
+  | _ -> failwith "expected a deployment target object");
+  assert_true "Kubernetes in object form is only its kind"
+    (Json_codec.yojson_of_deployment_target Kubernetes = `Assoc [ ("kind", `String "kubernetes") ]);
+  (* Ports: hostPort decides publication; hostIp is read only with it. *)
+  let ports_of text = (component_of_json text).ports |> List.map (fun p -> p.publication) in
+  assert_true "port publication keys should parse"
+    (ports_of
+       {|{"components": [{"name": "a", "image": "x", "ports": [
+           {"containerPort": 8080},
+           {"containerPort": 8081, "hostPort": null},
+           {"containerPort": 8082, "hostIp": "0.0.0.0"},
+           {"containerPort": 8083, "hostPort": 9083},
+           {"containerPort": 8084, "hostPort": 9084, "hostIp": "0.0.0.0"},
+           {"containerPort": 8085, "hostPort": 9085, "hostIp": null}]}]}|}
+    = [
+        NotPublished;
+        NotPublished;
+        NotPublished;
+        PublishedOn { host_ip = "127.0.0.1"; host_port = 9083 };
+        PublishedOn { host_ip = "0.0.0.0"; host_port = 9084 };
+        PublishedOn { host_ip = "127.0.0.1"; host_port = 9085 };
+      ]);
+  (* Components: env files, health check and dependencies, with their defaults. *)
+  let plain = component_of_json {|{"components": [{"name": "a", "image": "x"}]}|} in
+  assert_true "a component without the Compose keys should get empty defaults"
+    (plain.env_files = [] && plain.health_check = None && plain.service_dependencies = []);
+  let nulls =
+    component_of_json {|{"components": [{"name": "a", "image": "x", "healthCheck": null, "dependsOn": null}]}|}
+  in
+  assert_true "null healthCheck and dependsOn should mean none"
+    (nulls.health_check = None && nulls.service_dependencies = []);
+  let full =
+    component_of_json
+      {|{"components": [{"name": "a", "image": "x",
+          "envFiles": ["../../env/.env.shared", "env/site.env"],
+          "healthCheck": {"shell": "true", "command": null},
+          "dependsOn": [
+            {"service": "b"},
+            {"service": "c", "condition": null},
+            {"service": "d", "condition": "service_started"},
+            {"service": "e", "condition": "service_healthy"},
+            {"service": "f", "condition": "service_completed_successfully"}]}]}|}
+  in
+  assert_true "envFiles should keep their order" (full.env_files = [ "../../env/.env.shared"; "env/site.env" ]);
+  assert_true "a null command should count as absent"
+    (match full.health_check with Some { health_test = ShellTest "true"; _ } -> true | _ -> false);
+  assert_true "dependency conditions should parse, defaulting to service_started"
+    (List.map (fun d -> (d.dependency_service, d.dependency_condition)) full.service_dependencies
+    = [
+        ("b", ServiceStarted);
+        ("c", ServiceStarted);
+        ("d", ServiceStarted);
+        ("e", ServiceHealthy);
+        ("f", ServiceCompletedSuccessfully);
+      ]);
+  List.iter
+    (fun condition ->
+      assert_true "a dependency condition should read back from its word"
+        (dependency_condition_of_string (string_of_dependency_condition condition) = condition))
+    [ ServiceStarted; ServiceHealthy; ServiceCompletedSuccessfully ];
+  (* Shape errors: no plan can be made, so the codec raises. *)
+  List.iter
+    (fun text -> expect_invalid_argument ("should be refused: " ^ text) (fun () -> spec_of_json text))
+    [
+      {|{"target": "helm"}|};
+      {|{"target": {"kind": "helm"}}|};
+      {|{"target": {"placement": "own"}}|};
+      {|{"target": {"kind": "compose", "placement": "stack"}}|};
+      {|{"target": 3}|};
+      {|{"target": ["compose"]}|};
+      {|{"components": [{"name": "a", "image": "x", "dependsOn": [{"service": "b", "condition": "started"}]}]}|};
+      {|{"components": [{"name": "a", "image": "x", "dependsOn": [{"condition": "service_started"}]}]}|};
+      {|{"components": [{"name": "a", "image": "x", "dependsOn": {"service": "b"}}]}|};
+      {|{"components": [{"name": "a", "image": "x", "healthCheck": {"command": ["true"], "shell": "true"}}]}|};
+      {|{"components": [{"name": "a", "image": "x", "healthCheck": {"intervalSeconds": 5}}]}|};
+      {|{"components": [{"name": "a", "image": "x", "healthCheck": {"command": null, "shell": null}}]}|};
+      {|{"components": [{"name": "a", "image": "x", "healthCheck": "true"}]}|};
+      {|{"components": [{"name": "a", "image": "x", "ports": [{"containerPort": 80, "hostPort": "80"}]}]}|};
+    ]
+
 (** Run one named test and print a progress line before and after it. *)
 let run_test ~index ~total (name, test) =
   Printf.printf "%s %02d/%02d RUN  %s\n%!" (progress_bar ~completed:(index - 1) ~total) index total name;
@@ -1465,6 +1602,7 @@ let () =
       ("manifest does not duplicate a primary object", test_manifest_does_not_duplicate_a_primary_object);
       ("manifest Kubernetes output is pinned", test_manifest_kubernetes_output_is_pinned);
       ("JSON codec round trip", test_json_codec_roundtrip);
+      ("deployment target codec", test_deployment_target_codec);
       ("KYU trust assessment", test_kyu_assessment);
       ("model updates are never released raw", test_model_update_is_never_allowed_raw);
       ("restriction strategy is monotone in trust", test_strategy_is_monotone_in_trust);
