@@ -129,6 +129,13 @@ ENTRY_NOTICE = (
 
 PILOT_BUSY_MESSAGE = "A pilot is already running. Try again when it finishes."
 
+#: What a pilot request is told when the flight is held, by who holds it. A
+#: pilot and the addition of a hospital share ``pilot_flight``.
+PILOT_BUSY_MESSAGES = {
+    "pilot": PILOT_BUSY_MESSAGE,
+    "deployment": "A hospital is being added. Run the pilot when it has joined.",
+}
+
 if settings.register_extension:
     install()
 
@@ -888,8 +895,10 @@ def run_pilot(request: PilotRequest) -> Any:
     runs at a time; a request while one runs gets 409. Beyond the hourly cap
     on pilots, a request gets 429.
     """
-    if not pilot_flight.try_enter():
-        raise HTTPException(status_code=409, detail=PILOT_BUSY_MESSAGE)
+    if not pilot_flight.try_enter("pilot"):
+        # The holder may have left since; then the message is a pilot's.
+        holder = pilot_flight.holder or "pilot"
+        raise HTTPException(status_code=409, detail=PILOT_BUSY_MESSAGES.get(holder, PILOT_BUSY_MESSAGE))
     try:
         # Counted only for a pilot that starts, not for one refused as busy.
         wait = hourly_caps.take("pilots")
