@@ -23,8 +23,10 @@ entered, instead of being recomputed.
 
 from __future__ import annotations
 
+import hashlib
 import math
 import threading
+from collections import OrderedDict
 from typing import Any, Callable, Mapping
 
 from agents.common.application.federation_worker import LocalFederatedWorker, LocalRunOutcome, UpdateChannel
@@ -74,6 +76,49 @@ PRESENTATION_FIELDS: tuple[str, ...] = (
 
 #: Why a hospital refuses a job whose digest is not the one it computed.
 DIGEST_MISMATCH = "job digest does not match the manifest this site computed"
+
+#: Why a hospital refuses to run a job it did not accept when it was offered.
+NOT_ACCEPTED = "this site did not accept this job when it was offered"
+
+#: Accepted jobs a hospital keeps until they run. Beyond this, the oldest is dropped.
+MAX_ACCEPTED_JOBS = 256
+
+
+class AcceptedJobs:
+    """The jobs a hospital accepted when they were offered and has not run yet.
+
+    A hospital runs only a job it accepted. In one process the engine runs a
+    job only after the same worker accepted it. In a split run the offer and
+    the execution reach the LMA as two requests, each handled by a new worker,
+    so the hospital keeps what it accepted here. An execution must send the
+    same job, field for field, and each accepted job runs once.
+    """
+
+    def __init__(self, limit: int = MAX_ACCEPTED_JOBS) -> None:
+        self._limit = limit
+        self._jobs: OrderedDict[str, None] = OrderedDict()
+        self._lock = threading.Lock()
+
+    @staticmethod
+    def _key(job: FederatedJob) -> str:
+        return hashlib.sha256(job.model_dump_json().encode("utf-8")).hexdigest()
+
+    def add(self, job: FederatedJob) -> None:
+        key = self._key(job)
+        with self._lock:
+            self._jobs[key] = None
+            self._jobs.move_to_end(key)
+            while len(self._jobs) > self._limit:
+                self._jobs.popitem(last=False)
+
+    def take(self, job: FederatedJob) -> bool:
+        """Whether ``job`` was accepted and has not run. It counts as run from now on."""
+        key = self._key(job)
+        with self._lock:
+            if key not in self._jobs:
+                return False
+            del self._jobs[key]
+            return True
 
 
 class EntryLimitReached(RuntimeError):
@@ -214,8 +259,11 @@ class HospitalWorker:
 
     ``expected_digest`` is the manifest digest the hospital computed. The
     framework's worker checks it when a job is offered. :meth:`execute` checks
-    it again, because a hospital in its own process receives the offer and the
-    execution as two separate requests.
+    it again, and runs only a job that :meth:`offer` accepted (see
+    :class:`AcceptedJobs`), because a hospital in its own process receives the
+    offer and the execution as two separate requests. So an execution sent
+    without an offer cannot skip the checks the offer runs: the model and code
+    digests, the feature contract and the ``before_train`` Guard.
     """
 
     def __init__(
@@ -239,7 +287,9 @@ class HospitalWorker:
             )
         else:
             acceptance = self._inner.offer(job)
-        if not acceptance.accepted:
+        if acceptance.accepted:
+            self._hospital.accepted_jobs.add(job)
+        else:
             self._hospital.record_contribution(
                 job.manifest.phase,
                 _refused_result(job, self.site_id, acceptance.reason),
@@ -251,6 +301,10 @@ class HospitalWorker:
         if self._expected_digest and job.manifest_digest != self._expected_digest:
             result = _refused_result(job, self.site_id, DIGEST_MISMATCH)
             self._hospital.record_contribution(job.manifest.phase, result, reason=DIGEST_MISMATCH)
+            return result
+        if not self._hospital.accepted_jobs.take(job):
+            result = _refused_result(job, self.site_id, NOT_ACCEPTED)
+            self._hospital.record_contribution(job.manifest.phase, result, reason=NOT_ACCEPTED)
             return result
         try:
             result = self._inner.execute(job)
@@ -312,6 +366,8 @@ class Hospital:
         self._profile: RunningProfile | None = None
         self._profile_ids: set[str] = set()
         self._rate_decisions: dict[int, str] = {}
+        #: Jobs this hospital accepted and has not run (see :class:`HospitalWorker`).
+        self.accepted_jobs = AcceptedJobs()
 
     # --- Stores, built on first use -------------------------------------------
 

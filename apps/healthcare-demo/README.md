@@ -398,7 +398,11 @@ flowchart LR
 What travels between them:
 
 - The GMA sends each hospital a round job and gets back the site result, with
-  the fields in the table above.
+  the fields in the table above. It offers the job first, then asks the
+  hospital to run it. A hospital runs a job only if it accepted that same job
+  when it was offered, and only once. A job sent to run without an offer is
+  refused, so it cannot skip the offer's checks: the model and code digests,
+  the feature contract and the `before_train` Guard.
 - A hospital loads the model a job names from the app and checks its digests,
   as it does in one process. In a training round it sends its clipped update to
   the app, never to the GMA and never in the result. Both calls go to the app's
