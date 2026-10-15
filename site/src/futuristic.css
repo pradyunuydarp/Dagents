@@ -7,6 +7,8 @@
   --fx-ease: cubic-bezier(0.2, 0.7, 0.2, 1);
   --fx-fast: 150ms;
   --fx-slow: 320ms;
+  /* A one-pixel highlight along the top edge of a panel. */
+  --fx-edge: inset 0 1px 0 color-mix(in srgb, var(--ds-ink) 4%, transparent);
 }
 
 /* ===== Masthead =========================================================== */
@@ -35,4 +37,31 @@
 .api-page h2,
 .resources h2 {
   letter-spacing: -0.01em;
+}
+
+/* ===== Page lists (Learn, Guide, API) ===================================== */
+
+.learn-nav ol a,
+.learn-menu ol a,
+.api-tree a {
+  border-radius: 0 var(--ds-r-1) var(--ds-r-1) 0;
+  transition: color var(--fx-fast) var(--fx-ease), background-color var(--fx-fast) var(--fx-ease),
+    border-color var(--fx-fast) var(--fx-ease);
+}
+
+.learn-nav ol a:hover,
+.learn-menu ol a:hover,
+.api-tree a:hover {
+  background: var(--ds-inset);
+  border-left-color: var(--ds-line-strong);
+}
+
+.learn-nav ol a.is-current,
+.learn-menu ol a.is-current {
+  background: var(--ds-inset);
+}
+
+.learn-menu,
+.api-menu {
+  box-shadow: var(--fx-edge);
 }
