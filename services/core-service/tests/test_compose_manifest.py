@@ -18,13 +18,22 @@ from __future__ import annotations
 
 import copy
 import json
+import os
 import re
+import subprocess
+import tempfile
 import typing
 import unittest
 from pathlib import Path
+from unittest import mock
 
-from app.models import ComposeIssue
+from fastapi.testclient import TestClient
+
+from agents.common.infrastructure.dagents_runner import PlannerUnavailableError, run_dagentsc
+from app.main import app
+from app.models import ComposeIssue, ComposeManifestRequest
 from app.services.compose_renderer import quote, render_compose_plan
+from app.services.manifest_service import ManifestService
 
 FIXTURE_DIR = Path(__file__).resolve().parent / "fixtures" / "compose"
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -47,6 +56,56 @@ def load_fixtures() -> dict[str, dict[str, typing.Any]]:
 
 
 FIXTURES = load_fixtures()
+
+PLANNER_COMMAND = ["manifest", "compile", "--input", "-", "--output", "json"]
+
+# The first golden file as an HTTP request body: one LMA merged into the
+# running healthcare demo project.
+LMA_REQUEST: dict[str, typing.Any] = {
+    "placement": "merge",
+    "existing_services": [
+        "gma",
+        "lma-uk-134",
+        "lma-it-002",
+        "lma-ch-245",
+        "healthcare-demo-backend",
+        "healthcare-demo-frontend",
+    ],
+    "components": [
+        {
+            "name": "lma-hospital-d",
+            "image": "dagents/healthcare-demo-backend:local",
+            "args": ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8085"],
+            "env_files": ["../../env/.env.shared", "env/.env.healthcare-demo"],
+            "env": [
+                {"name": "HEALTHCARE_DEMO_ROLE", "value": "lma"},
+                {"name": "HEALTHCARE_DEMO_SITE_ID", "value": "hospital-d"},
+                {"name": "HEALTHCARE_DEMO_API_PORT", "value": "8085"},
+            ],
+            "ports": [{"container_port": 8085, "host_port": 8085}],
+            "health_check": {
+                "command": [
+                    "python",
+                    "-c",
+                    "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8085/api/v1/health')",
+                ]
+            },
+            "depends_on": [{"service": "gma", "condition": "service_healthy"}],
+        }
+    ],
+}
+LMA_RESPONSE = {
+    "services": ["lma-hospital-d"],
+    "issues": [],
+    "compose_yaml": FIXTURES["lma-merges-into-project"]["expected"]["compose_yaml"],
+}
+
+
+def lma_request(edit: typing.Callable[[dict, dict], typing.Any]) -> dict[str, typing.Any]:
+    """A copy of `LMA_REQUEST` with one change, made by `edit(body, component)`."""
+    body = copy.deepcopy(LMA_REQUEST)
+    edit(body, body["components"][0])
+    return body
 
 
 def shape_error_payloads() -> dict[str, dict[str, typing.Any]]:
@@ -127,6 +186,131 @@ class ComposeVocabularyTests(unittest.TestCase):
         self.assertIsNotNone(match, f"compose_issue_code_and_value is missing from {COMMON_IR}")
         planner_codes = tuple(re.findall(r'\("([a-z_]+)",', match.group(1)))
         self.assertEqual(self.model_codes(), planner_codes)
+
+
+class ComposePlannerTests(unittest.TestCase):
+    """dagentsc gives the golden answer for every fixture. Runs when DAGENTSC_BIN is set."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        binary = os.environ.get("DAGENTSC_BIN")
+        if not binary:
+            raise unittest.SkipTest("dagentsc binary is not available; set DAGENTSC_BIN to test the planner path")
+        # A planner built before the Compose target ignores --target and prints
+        # Kubernetes YAML. Fail the class instead of skipping it, so that such a
+        # binary cannot pass as a tested planner path.
+        result = subprocess.run(
+            [binary, "manifest", "compile", "--target", "compose"], capture_output=True, text=True, check=False
+        )
+        if result.returncode != 0 or not result.stdout.startswith("services:"):
+            raise AssertionError(
+                f"DAGENTSC_BIN={binary} cannot render a Compose file (exit {result.returncode}): "
+                f"{(result.stdout or result.stderr)[:300]!r}"
+            )
+
+    def test_renders_each_fixture(self) -> None:
+        for name, fixture in FIXTURES.items():
+            with self.subTest(fixture=name):
+                self.assertEqual(run_dagentsc(PLANNER_COMMAND, fixture["payload"]), fixture["expected"])
+
+    def test_refuses_each_shape_error(self) -> None:
+        for name, payload in shape_error_payloads().items():
+            with self.subTest(case=name), self.assertRaises(PlannerUnavailableError) as raised:
+                run_dagentsc(PLANNER_COMMAND, payload)
+            self.assertIn("Invalid_argument", str(raised.exception))
+
+
+class ComposeApiTests(unittest.TestCase):
+    """POST /api/v1/manifests/compose, through whichever renderer is active.
+
+    With DAGENTSC_BIN set this is the planner; without it, the Python renderer.
+    """
+
+    def setUp(self) -> None:
+        self.client = TestClient(app)
+
+    def post(self, body: dict[str, typing.Any]):
+        return self.client.post("/api/v1/manifests/compose", json=body)
+
+    def test_renders_an_lma_merged_into_a_project(self) -> None:
+        response = self.post(LMA_REQUEST)
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json(), LMA_RESPONSE)
+
+    def test_reports_issues_with_a_200(self) -> None:
+        response = self.post(lma_request(lambda body, component: body.update(placement="own")))
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(
+            response.json(),
+            {
+                "services": ["lma-hospital-d"],
+                "issues": [{"service": "lma-hospital-d", "code": "dependency_outside_project", "value": "gma"}],
+                "compose_yaml": None,
+            },
+        )
+
+    def test_reports_an_empty_request_as_an_issue(self) -> None:
+        response = self.post({})
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(
+            response.json(),
+            {"services": [], "issues": [{"service": None, "code": "no_services", "value": None}], "compose_yaml": None},
+        )
+
+    def test_refuses_a_wrong_shape_with_422(self) -> None:
+        cases = {
+            "kind without a Compose equivalent": lambda body, component: component.update(kind="CronJob"),
+            "health check with command and shell": lambda body, component: component["health_check"].update(
+                shell="true"
+            ),
+            "health check with neither": lambda body, component: component.update(health_check={}),
+            "unknown condition": lambda body, component: component["depends_on"][0].update(condition="started"),
+            "unknown placement": lambda body, component: body.update(placement="stack"),
+            "a field the route does not read": lambda body, component: component.update(replicas=2),
+        }
+        for name, edit in cases.items():
+            with self.subTest(case=name):
+                self.assertEqual(self.post(lma_request(edit)).status_code, 422)
+
+    def test_kubernetes_routes_still_answer(self) -> None:
+        component = {"name": "lma-hospital-d", "image": "dagents/healthcare-demo-backend:local"}
+        pods = self.client.post("/api/v1/manifests/pods", json={"components": [component]})
+        self.assertEqual(pods.status_code, 200, pods.text)
+        self.assertIn("kind: Deployment", pods.json()["combined_yaml"])
+        compiled = self.client.post(
+            "/api/v1/workloads:compile", json={"plan_id": "compose-neighbour", "components": [component]}
+        )
+        self.assertEqual(compiled.status_code, 200, compiled.text)
+        self.assertEqual(compiled.json()["plan_id"], "compose-neighbour")
+        self.assertIn("kind: Deployment", compiled.json()["combined_yaml"])
+
+
+class ComposeFallbackRuleTests(unittest.TestCase):
+    """The service renders in Python only when the planner cannot be started."""
+
+    def request(self) -> ComposeManifestRequest:
+        return ComposeManifestRequest.model_validate(LMA_REQUEST)
+
+    def test_falls_back_when_the_binary_is_missing(self) -> None:
+        with mock.patch.dict(os.environ, {"DAGENTSC_BIN": "/nonexistent/dagentsc"}):
+            response = ManifestService().render_compose(self.request())
+        self.assertEqual(response.model_dump(), LMA_RESPONSE)
+
+    def test_falls_back_when_the_binary_cannot_be_run(self) -> None:
+        with tempfile.NamedTemporaryFile(suffix="-dagentsc") as not_executable:
+            os.chmod(not_executable.name, 0o644)
+            with mock.patch.dict(os.environ, {"DAGENTSC_BIN": not_executable.name}):
+                response = ManifestService().render_compose(self.request())
+        self.assertEqual(response.model_dump(), LMA_RESPONSE)
+
+    def test_does_not_fall_back_when_the_planner_fails(self) -> None:
+        with mock.patch.dict(os.environ, {"DAGENTSC_BIN": "/bin/false"}):
+            with self.assertRaises(PlannerUnavailableError):
+                ManifestService().render_compose(self.request())
+            response = TestClient(app, raise_server_exceptions=False).post(
+                "/api/v1/manifests/compose", json=LMA_REQUEST
+            )
+        self.assertEqual(response.status_code, 500)
 
 
 if __name__ == "__main__":
