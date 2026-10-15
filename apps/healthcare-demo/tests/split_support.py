@@ -4,7 +4,8 @@ A split run has five processes: three hospital LMAs (``HEALTHCARE_DEMO_ROLE=lma`
 the Dagents GMA (``agents.gma.main``) and the app (``HEALTHCARE_DEMO_ROLE=app``).
 Here each runs as its own FastAPI app in this process, and :class:`HostRouter`
 plays the network: a request to ``http://lma-uk-134/...`` reaches that LMA's
-app through a ``TestClient``.
+app through a ``TestClient``. The app's internal listener (``internal_app``)
+is a host of its own, ``http://healthcare-app-internal``, which the LMAs call.
 
 ``app.main`` reads its settings when it is imported, so :func:`load_main` runs
 ``main.py`` once per process under a module name of its own, with the role's
@@ -42,6 +43,7 @@ MAIN_PATH = APP_ROOT / "backend" / "app" / "main.py"
 
 #: Where each process listens on the test "network".
 APP_URL = "http://healthcare-app"
+APP_INTERNAL_URL = "http://healthcare-app-internal"
 GMA_URL = "http://dagents-gma"
 LMA_URLS = {site.site_id: f"http://lma-{site.site_id}" for site in SITES}
 
@@ -106,7 +108,8 @@ class SplitRun:
     Attributes: ``lmas`` (site id to the LMA's ``main`` module), ``app`` (the
     app's ``main`` module), ``gma`` (``agents.gma.main``), ``router``, and a
     ``TestClient`` for each (``lma_client(site_id)``, ``app_client``,
-    ``gma_client``). Call :meth:`close` when done.
+    ``internal_client`` for the app's internal listener, ``gma_client``).
+    Call :meth:`close` when done.
     """
 
     def __init__(self) -> None:
@@ -117,18 +120,19 @@ class SplitRun:
 
         self.lmas: dict[str, ModuleType] = {}
         for site_id, url in LMA_URLS.items():
-            module = load_main("lma", site_id=site_id, coordinator_url=APP_URL)
+            module = load_main("lma", site_id=site_id, coordinator_url=APP_INTERNAL_URL)
             module.consortium = build_site_node(module.settings, client=self.router)  # type: ignore[arg-type]
             self.lmas[site_id] = module
             self.router.attach(url, module.app)
 
-        self.app = load_main("app", gma_url=GMA_URL, lma_urls=lma_urls, coordinator_url=APP_URL)
+        self.app = load_main("app", gma_url=GMA_URL, lma_urls=lma_urls)
         self.app.consortium = build_app_consortium(
             self.app.settings,
             gma_client=self.router,  # type: ignore[arg-type]
             lma_clients={site_id: self.router for site_id in LMA_URLS},  # type: ignore[misc]
         )
         self.router.attach(APP_URL, self.app.app)
+        self.router.attach(APP_INTERNAL_URL, self.app.internal_app)
 
         # The Dagents GMA, with GMA_FEDERATION_SITES naming the three LMAs.
         self.gma = gma_main
@@ -148,6 +152,10 @@ class SplitRun:
     @property
     def app_client(self) -> TestClient:
         return self.router.apps[httpx.URL(APP_URL).host]
+
+    @property
+    def internal_client(self) -> TestClient:
+        return self.router.apps[httpx.URL(APP_INTERNAL_URL).host]
 
     @property
     def gma_client(self) -> TestClient:

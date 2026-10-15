@@ -24,7 +24,9 @@ How each app uses the framework:
   hospital is its own process on ports 8082 to 8084, the backend runs the
   rounds through the GMA service's API, and the GMA sends the jobs to the
   hospitals. The backend forwards each hospital's routes to that hospital, so
-  the endpoints below answer the same way. The demo's
+  the endpoints below answer the same way. The hospitals load models and send
+  their updates on the backend's second port, 8081. Those routes are not in
+  this reference, and port 8080 answers 404 for them. The demo's
   [README](../../../apps/healthcare-demo/README.md#one-process-per-hospital)
   describes the layout.
 - **The NL2SQL backend calls the planner and the services.** It runs six planner

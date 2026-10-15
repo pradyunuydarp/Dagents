@@ -132,6 +132,7 @@ services:
       # Not set here:
       #
       # HEALTHCARE_DEMO_SITE_ID, HEALTHCARE_DEMO_COORDINATOR_URL,
+      # HEALTHCARE_DEMO_INTERNAL_HOST, HEALTHCARE_DEMO_INTERNAL_PORT,
       # HEALTHCARE_DEMO_LMA_URLS, HEALTHCARE_DEMO_FEDERATION_TIMEOUT_SECONDS and
       # HEALTHCARE_DEMO_UPSTREAM_TIMEOUT_SECONDS. Only the lma and app roles
       # read them, and the hosted demo runs the combined role.

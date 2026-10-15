@@ -23,7 +23,7 @@ to that hospital's LMA. The public API is the same in every role.
 from __future__ import annotations
 
 import logging
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 from typing import Annotated, Any, AsyncIterator, Literal
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Path, Query, Request, Response
@@ -38,7 +38,7 @@ from agents.common.infrastructure.dagents_runner import PlannerUnavailableError
 
 from app.api.app_header import APP_HEADER, AppHeader
 from app.api.errors import UNEXPECTED_ERROR_MESSAGE, UnhandledErrors
-from app.api.coordinator_routes import build_coordinator_router
+from app.api.coordinator_routes import build_coordinator_app, internal_listener
 from app.api.limits import BodySizeLimit, HourlyCap, RateLimiter, SingleFlight, forwarded_for_entries, retry_after
 from app.api.role_paths import OnlyPaths, is_hospital_path, lma_serves
 from app.api.site_routes import build_site_router
@@ -181,9 +181,18 @@ def _over_hourly_cap(wait: float, action: str) -> HTTPException:
 
 @asynccontextmanager
 async def lifespan(application: FastAPI) -> AsyncIterator[None]:
-    """Close every store's database connection, and the forwarding client, when the app shuts down."""
+    """Start the internal listener in the ``app`` role, and close everything when the app shuts down.
+
+    On shutdown the internal listener stops, then every store's database
+    connection and the forwarding client are closed.
+    """
     try:
-        yield
+        async with AsyncExitStack() as stack:
+            if internal_app is not None:
+                await stack.enter_async_context(
+                    internal_listener(internal_app, settings.internal_host, settings.internal_port)
+                )
+            yield
     finally:
         consortium.close()
         forwarder = getattr(application.state, "forwarder", None)
@@ -976,10 +985,19 @@ def framework_trace(
 
 
 # --- Internal routes of a split run -----------------------------------------------------------
-# Mounted only in their role and left out of the OpenAPI document. The combined
+# Only in their role, and left out of the OpenAPI document. The combined
 # process has neither.
+#
+# An LMA's internal routes are on its one port, which only the app and the GMA
+# reach. The app's are on a second listener (``internal_app``, started by the
+# lifespan), because its public port is the one visitors reach.
+
+#: The app role's internal listener, or ``None`` in the other roles.
+internal_app: FastAPI | None = None
 
 if ROLE == "lma":
     app.include_router(build_site_router(lambda: consortium))
 elif ROLE == "app":
-    app.include_router(build_coordinator_router(lambda: consortium))
+    internal_app = build_coordinator_app(
+        lambda: consortium, exception_handlers=app.exception_handlers, max_body_bytes=settings.max_body_bytes
+    )

@@ -384,14 +384,14 @@ processes instead:
 |---|---|---|
 | `gma` | the Dagents GMA service (`agents.gma.main`). It plans each round, sends the jobs to the hospitals named in `GMA_FEDERATION_SITES`, checks quorum and runs the release Guard and gates | 8020 |
 | `lma-uk-134`, `lma-it-002`, `lma-ch-245` | this app with `HEALTHCARE_DEMO_ROLE=lma`: one hospital, its store, its Guard and its audit chain | 8082, 8083, 8084 |
-| `app` | this app with `HEALTHCARE_DEMO_ROLE=app`: the API the frontend calls. It runs the study through the GMA's API, keeps the model registry and the update store, and averages the updates | 8080 |
+| `app` | this app with `HEALTHCARE_DEMO_ROLE=app`: the API the frontend calls. It runs the study through the GMA's API, keeps the model registry and the update store, and averages the updates. The hospitals reach the registry and the update store on a second port | 8080, and 8081 for the hospitals |
 
 ```mermaid
 flowchart LR
     UI["Frontend"] --> APP["<b>app</b> :8080<br/>study, model registry, update store"]
     APP -- "rounds, release" --> GMA["<b>Dagents GMA</b> :8020"]
     GMA -- "round jobs" --> L1["<b>lma-uk-134</b> :8082"] & L2["<b>lma-it-002</b> :8083"] & L3["<b>lma-ch-245</b> :8084"]
-    L1 & L2 & L3 -- "model download, bounded update" --> APP
+    L1 & L2 & L3 -- "model download, bounded update (:8081)" --> APP
     APP -- "hospital pages" --> L1 & L2 & L3
 ```
 
@@ -399,10 +399,13 @@ What travels between them:
 
 - The GMA sends each hospital a round job and gets back the site result, with
   the fields in the table above.
-- A hospital loads the model a job names from the app
-  (`HEALTHCARE_DEMO_COORDINATOR_URL`) and checks its digests, as it does in one
-  process. In a training round it sends its clipped update to the app, never to
-  the GMA and never in the result.
+- A hospital loads the model a job names from the app and checks its digests,
+  as it does in one process. In a training round it sends its clipped update to
+  the app, never to the GMA and never in the result. Both calls go to the app's
+  internal listener (`HEALTHCARE_DEMO_COORDINATOR_URL`, which is
+  `HEALTHCARE_DEMO_INTERNAL_HOST` and `HEALTHCARE_DEMO_INTERNAL_PORT` on the
+  app). The app's public port answers 404 for these routes, so a visitor cannot
+  store an update for a hospital or read a model's parameters.
 - The app forwards each hospital's own routes to that hospital's LMA
   (`HEALTHCARE_DEMO_LMA_URLS`): `/api/v1/hospitals/{id}` and every path below
   it, the Guard probe (by the body's `site_id`) and the framework trace (by its
@@ -413,9 +416,10 @@ What travels between them:
   the visitor. The LMAs run with them set to 0. The hourly probe cap stays in
   each hospital.
 
-The calls between the processes have no authentication, so the run script
-binds every process to 127.0.0.1 and the compose file publishes the GMA's and
-the hospitals' ports on 127.0.0.1 only.
+The calls between the processes have no authentication. So the run script
+binds every process to 127.0.0.1, and the compose file publishes the GMA's and
+the hospitals' ports on 127.0.0.1 only and does not publish the app's internal
+port. The app's public port, 8080, serves no route that another process calls.
 
 ## What the framework owns and what the app owns
 

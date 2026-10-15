@@ -1,7 +1,12 @@
 """Internal routes of the app process (``HEALTHCARE_DEMO_ROLE=app``) for the hospitals' LMAs.
 
-The LMAs call these; the frontend never does. They are left out of the OpenAPI
-document, which describes the public API.
+The LMAs call these; the frontend never does. They are served by a second
+listener of the app process (:func:`internal_listener`), on
+``HEALTHCARE_DEMO_INTERNAL_HOST`` and ``HEALTHCARE_DEMO_INTERNAL_PORT``, never
+on the public port. The public port is the one a compose file publishes and the
+frontend's dev server proxies, and these routes have no authentication, so a
+visitor could otherwise store an update for a hospital or read every model's
+parameters.
 
 - ``GET /api/v1/registry/model-in-use`` and
   ``GET /api/v1/registry/models/{version}``: one model with its parameters,
@@ -15,12 +20,17 @@ document, which describes the public API.
 
 from __future__ import annotations
 
-from typing import Any, Callable
+import asyncio
+import contextlib
+from typing import Any, AsyncIterator, Callable, Iterator, Mapping
 
-from fastapi import APIRouter, HTTPException
+import uvicorn
+from fastapi import APIRouter, FastAPI, HTTPException
 
 from agents.common.infrastructure.federation_http import UPDATE_PATH, UpdateReceipt, UpdateSubmission
 
+from app.api.errors import UnhandledErrors
+from app.api.limits import BodySizeLimit
 from app.services.consortium import Consortium, UpdateRefused
 from app.services.remote import MODEL_IN_USE_PATH, MODEL_PATH
 from app.services.site_store import UnknownModelError
@@ -50,3 +60,58 @@ def build_coordinator_router(consortium: Callable[[], Consortium]) -> APIRouter:
         return UpdateReceipt(update_digest=digest).model_dump(mode="json")
 
     return router
+
+
+def build_coordinator_app(
+    consortium: Callable[[], Consortium],
+    *,
+    exception_handlers: Mapping[Any, Callable[..., Any]],
+    max_body_bytes: int,
+) -> FastAPI:
+    """The ASGI app of the internal listener: the internal routes and nothing else.
+
+    ``exception_handlers`` are the public app's, so an error gets the same
+    answer it got when these routes were on the public app. It has no OpenAPI
+    document and no CORS headers: no browser calls it.
+    """
+    internal = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+    internal.include_router(build_coordinator_router(consortium))
+    for exception, handler in exception_handlers.items():
+        internal.add_exception_handler(exception, handler)
+    internal.add_middleware(BodySizeLimit, max_bytes=max_body_bytes)
+    internal.add_middleware(UnhandledErrors)
+    return internal
+
+
+class _InternalServer(uvicorn.Server):
+    """A uvicorn server that leaves the process's signals to the public server.
+
+    Its own handlers would replace the public server's, so Ctrl-C would stop
+    only this listener. The public server stops it when it shuts down.
+    """
+
+    @contextlib.contextmanager
+    def capture_signals(self) -> Iterator[None]:
+        yield
+
+
+@contextlib.asynccontextmanager
+async def internal_listener(app: FastAPI, host: str, port: int) -> AsyncIterator[None]:
+    """Serve ``app`` on ``host:port`` in this event loop for the length of the block.
+
+    The block starts once the listener accepts connections. If the port cannot
+    be bound, uvicorn logs the error and exits the process, as it does for the
+    public port.
+    """
+    server = _InternalServer(uvicorn.Config(app, host=host, port=port, lifespan="off", log_config=None))
+    task = asyncio.create_task(server.serve())
+    while not server.started:
+        if task.done():
+            await task
+            raise RuntimeError(f"the internal listener on {host}:{port} stopped before it started")
+        await asyncio.sleep(0.05)
+    try:
+        yield
+    finally:
+        server.should_exit = True
+        await task

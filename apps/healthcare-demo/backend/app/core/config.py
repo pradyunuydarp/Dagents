@@ -185,17 +185,27 @@ class Settings:
     #:   Dagents GMA service's API (``GMA_PUBLIC_URL``), keeps the model
     #:   registry and the update store, and forwards each hospital's pages to
     #:   that hospital's LMA (``HEALTHCARE_DEMO_LMA_URLS``). It never reads a
-    #:   hospital's records.
+    #:   hospital's records. The LMAs reach the registry and the update store
+    #:   on a second listener (``internal_host`` and ``internal_port``).
     role: str = field(default_factory=lambda: os.getenv("HEALTHCARE_DEMO_ROLE", "combined").strip().lower())
 
     #: The hospital an ``lma`` process runs, such as ``uk-134``.
     site_id: str = field(default_factory=lambda: os.getenv("HEALTHCARE_DEMO_SITE_ID", "").strip())
 
-    #: Where an ``lma`` process reaches the ``app`` process: it loads the
-    #: models a round names from there and sends its bounded updates there.
+    #: Where an ``lma`` process reaches the ``app`` process's internal
+    #: listener: it loads the models a round names from there and sends its
+    #: bounded updates there.
     coordinator_url: str = field(
-        default_factory=lambda: os.getenv("HEALTHCARE_DEMO_COORDINATOR_URL", "http://127.0.0.1:8080")
+        default_factory=lambda: os.getenv("HEALTHCARE_DEMO_COORDINATOR_URL", "http://127.0.0.1:8081")
     )
+
+    #: The address and port of the ``app`` process's internal listener, which
+    #: serves only the routes the LMAs call (the model registry and the update
+    #: store). They have no authentication, so they are never on the public
+    #: port. Bind an address only the LMAs reach: 127.0.0.1 on one machine, or
+    #: 0.0.0.0 in a container whose port is not published.
+    internal_host: str = field(default_factory=lambda: os.getenv("HEALTHCARE_DEMO_INTERNAL_HOST", "127.0.0.1"))
+    internal_port: int = field(default_factory=lambda: int(os.getenv("HEALTHCARE_DEMO_INTERNAL_PORT", "8081")))
 
     #: Where each hospital's LMA is, for the ``app`` process, in display
     #: order: ``uk-134=http://127.0.0.1:8082,it-002=...``. The Dagents GMA
