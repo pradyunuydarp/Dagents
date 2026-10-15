@@ -8,12 +8,16 @@
 #                                        on 8080. It runs the study through the GMA's API,
 #                                        keeps the model registry and the update store, and
 #                                        forwards each hospital's pages to that hospital.
+#                                        The hospitals reach the registry and the update
+#                                        store on its internal port, 8081.
 #   healthcare-demo-frontend             the UI, on 5174
 #
 # The hospitals and the backend use the same image; each `command` picks the
 # port. The GMA, the hospitals and the backend call each other over the compose
-# network without authentication, so the GMA and the hospitals publish their
-# ports on 127.0.0.1 only, for reading their APIs from this machine.
+# network without authentication. So the GMA and the hospitals publish their
+# ports on 127.0.0.1 only, for reading their APIs from this machine, and the
+# backend's internal port is not published at all. The backend's 8080 and the
+# UI's 5174 are published on every interface and serve no internal route.
 #
 # The backend applies the per-client rate limits. The hospitals see every
 # request coming from the backend or the GMA, so their per-client limits are
@@ -41,7 +45,7 @@ x-backend: &backend
 # Every request reaches a hospital from the backend or the GMA.
 x-hospital-environment: &hospital-environment
   HEALTHCARE_DEMO_ROLE: lma
-  HEALTHCARE_DEMO_COORDINATOR_URL: http://healthcare-demo-backend:8080
+  HEALTHCARE_DEMO_COORDINATOR_URL: http://healthcare-demo-backend:8081
   HEALTHCARE_DEMO_RATE_LIMIT_ENTRIES: "0"
   HEALTHCARE_DEMO_RATE_LIMIT_PROBES: "0"
   HEALTHCARE_DEMO_RATE_LIMIT_PILOTS: "0"
@@ -100,6 +104,10 @@ services:
     environment:
       HEALTHCARE_DEMO_ROLE: app
       HEALTHCARE_DEMO_API_PORT: "8080"
+      # The hospitals' routes. Other containers reach it; the host does not,
+      # because it is not under `ports`.
+      HEALTHCARE_DEMO_INTERNAL_HOST: 0.0.0.0
+      HEALTHCARE_DEMO_INTERNAL_PORT: "8081"
       HEALTHCARE_DEMO_LMA_URLS: uk-134=http://lma-uk-134:8082,it-002=http://lma-it-002:8083,ch-245=http://lma-ch-245:8084
       GMA_PUBLIC_URL: http://gma:8020
       CORE_SERVICE_PUBLIC_URL: http://core-service:8040

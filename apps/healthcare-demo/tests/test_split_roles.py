@@ -20,12 +20,13 @@ from __future__ import annotations
 
 import json
 import re
+import socket
 import unittest
 from typing import Any
 
 import httpx
 
-from tests.split_support import APP_URL, GMA_URL, LMA_URLS, SplitRun  # noqa: E402  (sets sys.path)
+from tests.split_support import APP_INTERNAL_URL, GMA_URL, LMA_URLS, SplitRun, load_main  # noqa: E402  (sets sys.path)
 
 from agents.common.domain.federation import (
     AggregationMethod,
@@ -41,6 +42,7 @@ from app.domain.conditions import STROKE_CLASSIFICATION, STROKE_FEATURE_CONTRACT
 from app.domain.dataset import SITES
 from app.services.consortium import Consortium
 from app.services.remote import (
+    MODEL_IN_USE_PATH,
     GmaReleaseGuard,
     GmaRoundClient,
     RemoteModelRegistry,
@@ -186,7 +188,7 @@ class RegistryTests(SplitTestCase):
     """The app serves models; a hospital checks every one it loads."""
 
     def test_the_app_serves_a_model_with_its_parameters(self) -> None:
-        client = self.split.app_client
+        client = self.split.internal_client
         in_use = self.ok(client.get("/api/v1/registry/model-in-use"))
         self.assertEqual(SEED_VERSION, in_use["version"])
         self.assertIn("params", in_use)
@@ -195,12 +197,12 @@ class RegistryTests(SplitTestCase):
         self.assertEqual(in_use["params"], one["params"])
 
     def test_an_unknown_version_is_a_404(self) -> None:
-        response = self.split.app_client.get("/api/v1/registry/models/no-such-model")
+        response = self.split.internal_client.get("/api/v1/registry/models/no-such-model")
         self.assertEqual(404, response.status_code)
         self.assertEqual("There is no model version 'no-such-model'.", response.json()["detail"])
 
     def test_a_hospital_loads_a_model_only_with_the_digest_the_round_names(self) -> None:
-        registry = RemoteModelRegistry(APP_URL, client=self.split.router)  # type: ignore[arg-type]
+        registry = RemoteModelRegistry(APP_INTERNAL_URL, client=self.split.router)  # type: ignore[arg-type]
         initial = self.split.app.consortium.registry.ensure_initial()
         self.assertEqual(initial.params, registry.load(initial.version, initial.digest).params)
         with self.assertRaisesRegex(ModelVerificationError, "do not match the digest the round names"):
@@ -216,14 +218,14 @@ class RegistryTests(SplitTestCase):
             def request(self, method: str, url: str, **_: Any) -> httpx.Response:
                 return httpx.Response(200, json=row)
 
-        registry = RemoteModelRegistry(APP_URL, client=Tampering())  # type: ignore[arg-type]
+        registry = RemoteModelRegistry(APP_INTERNAL_URL, client=Tampering())  # type: ignore[arg-type]
         with self.assertRaisesRegex(ModelVerificationError, "do not match its stored digest"):
             registry.load(row["version"], row["digest"])
 
     def test_a_registry_that_cannot_be_reached_refuses_the_model(self) -> None:
-        self.split.router.down.add(httpx.URL(APP_URL).host)
+        self.split.router.down.add(httpx.URL(APP_INTERNAL_URL).host)
         try:
-            registry = RemoteModelRegistry(APP_URL, client=self.split.router)  # type: ignore[arg-type]
+            registry = RemoteModelRegistry(APP_INTERNAL_URL, client=self.split.router)  # type: ignore[arg-type]
             with self.assertRaisesRegex(ModelVerificationError, "could not be reached"):
                 registry.load("stroke-outcome-logreg-init", "sha256:any")
             with self.assertRaises(RemoteServiceUnavailable) as raised:
@@ -237,11 +239,51 @@ class RegistryTests(SplitTestCase):
             self.split.router.down.clear()
 
 
+class InternalListenerTests(SplitTestCase):
+    """The app's internal routes are on their own listener, never on the public port."""
+
+    def test_the_public_app_answers_404_for_the_internal_routes(self) -> None:
+        consortium: Consortium = self.split.app.consortium
+        job = self.training_job("r-public", digest="sha256:public")
+        body = {"job": job.model_dump(mode="json"), "update": _update(1.0)}
+        client = self.split.app_client
+        with consortium._round_running("r-public", job.manifest_digest):
+            self.assertEqual(404, client.post(UPDATE_PATH.format(round_id="r-public"), json=body).status_code)
+        self.assertEqual(404, client.get(MODEL_IN_USE_PATH).status_code)
+        self.assertEqual(404, client.get(f"/api/v1/registry/models/{SEED_VERSION}").status_code)
+        self.assertEqual([], consortium.runtime.pending_rounds())
+
+    def test_the_internal_listener_serves_only_the_internal_routes(self) -> None:
+        client = self.split.internal_client
+        self.ok(client.get(MODEL_IN_USE_PATH))
+        for path in ("/api/v1/overview", "/api/v1/models", "/api/v1/health", "/openapi.json", "/docs"):
+            self.assertEqual(404, client.get(path).status_code, path)
+
+    def test_the_app_process_opens_its_internal_listener_while_it_runs(self) -> None:
+        from fastapi.testclient import TestClient
+
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.bind(("127.0.0.1", 0))
+            port = sock.getsockname()[1]
+        url = f"http://127.0.0.1:{port}{MODEL_IN_USE_PATH}"
+        module = load_main("app", internal_host="127.0.0.1", internal_port=port)
+        try:
+            with TestClient(module.app) as public:
+                self.assertEqual(404, public.get(MODEL_IN_USE_PATH).status_code)
+                response = httpx.get(url, timeout=10.0)
+                self.assertEqual(200, response.status_code, response.text[:500])
+                self.assertEqual(SEED_VERSION, response.json()["version"])
+            with self.assertRaises(httpx.ConnectError):
+                httpx.get(url, timeout=10.0)
+        finally:
+            module.consortium.close()
+
+
 class UpdateTests(SplitTestCase):
     """The app stores an update only for a round whose jobs are being dispatched now."""
 
     def post_update(self, path_round: str, job: FederatedJob, update: dict[str, float]) -> httpx.Response:
-        return self.split.app_client.post(
+        return self.split.internal_client.post(
             UPDATE_PATH.format(round_id=path_round),
             json={"job": job.model_dump(mode="json"), "update": update},
         )

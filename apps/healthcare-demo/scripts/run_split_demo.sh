@@ -5,18 +5,19 @@
 #   lma-uk-134   one hospital each, HEALTHCARE_DEMO_ROLE=lma, on 8082, 8083, 8084
 #   lma-it-002
 #   lma-ch-245
-#   app          the API the frontend calls, HEALTHCARE_DEMO_ROLE=app, on 8080
+#   app          the API the frontend calls, HEALTHCARE_DEMO_ROLE=app, on 8080,
+#                and on 8081 the routes only the hospitals call
 #
 # The app runs the study through the GMA's API. The GMA sends each round's
 # jobs to the hospitals, and each hospital trains on its own records and sends
-# its bounded update to the app. The app forwards each hospital's pages to that
-# hospital. Ctrl-C stops all five.
+# its bounded update to the app's internal port. The app forwards each
+# hospital's pages to that hospital. Ctrl-C stops all five.
 #
 #   scripts/run_split_demo.sh
 #
-# GMA_API_PORT, HEALTHCARE_DEMO_API_PORT and HEALTHCARE_DEMO_LMA_PORTS ("8082
-# 8083 8084") change the ports. Every process binds 127.0.0.1: the calls between
-# them have no authentication.
+# GMA_API_PORT, HEALTHCARE_DEMO_API_PORT, HEALTHCARE_DEMO_INTERNAL_PORT and
+# HEALTHCARE_DEMO_LMA_PORTS ("8082 8083 8084") change the ports. Every process
+# binds 127.0.0.1: the calls between them have no authentication.
 #
 # scripts/run_frontend_demo.sh --split sources this file and calls
 # split_start, so the UI runs in front of the same five processes.
@@ -112,6 +113,7 @@ split_start() {
   local log_dir="$1"
   local gma_port="${GMA_API_PORT:-8020}"
   local app_port="${HEALTHCARE_DEMO_API_PORT:-8080}"
+  local internal_port="${HEALTHCARE_DEMO_INTERNAL_PORT:-8081}"
   local -a lma_ports
   read -r -a lma_ports <<<"${HEALTHCARE_DEMO_LMA_PORTS:-8082 8083 8084}"
   if (( ${#lma_ports[@]} != ${#SPLIT_SITES[@]} )); then
@@ -121,6 +123,7 @@ split_start() {
 
   local pythonpath="${DAGENTS_HOME}:${SPLIT_APP_ROOT}/backend"
   local app_url="http://127.0.0.1:${app_port}"
+  local internal_url="http://127.0.0.1:${internal_port}"
   local sites="" i
   for i in "${!SPLIT_SITES[@]}"; do
     sites+="${sites:+,}${SPLIT_SITES[$i]}=http://127.0.0.1:${lma_ports[$i]}"
@@ -136,7 +139,7 @@ split_start() {
   for i in "${!SPLIT_SITES[@]}"; do
     split_spawn "lma-${SPLIT_SITES[$i]}" "${log_dir}/lma-${SPLIT_SITES[$i]}.log" "${SPLIT_APP_ROOT}/backend" \
       PYTHONPATH="${pythonpath}" HEALTHCARE_DEMO_ROLE=lma HEALTHCARE_DEMO_SITE_ID="${SPLIT_SITES[$i]}" \
-      HEALTHCARE_DEMO_COORDINATOR_URL="${app_url}" HEALTHCARE_DEMO_API_PORT="${lma_ports[$i]}" \
+      HEALTHCARE_DEMO_COORDINATOR_URL="${internal_url}" HEALTHCARE_DEMO_API_PORT="${lma_ports[$i]}" \
       HEALTHCARE_DEMO_RATE_LIMIT_ENTRIES=0 HEALTHCARE_DEMO_RATE_LIMIT_PROBES=0 \
       HEALTHCARE_DEMO_RATE_LIMIT_PILOTS=0 HEALTHCARE_DEMO_RATE_LIMIT_APPROVALS=0 \
       "${PYTHON}" -m uvicorn app.main:app --host 127.0.0.1 --port "${lma_ports[$i]}"
@@ -144,6 +147,7 @@ split_start() {
 
   split_spawn app "${log_dir}/app.log" "${SPLIT_APP_ROOT}/backend" \
     PYTHONPATH="${pythonpath}" HEALTHCARE_DEMO_ROLE=app HEALTHCARE_DEMO_API_PORT="${app_port}" \
+    HEALTHCARE_DEMO_INTERNAL_HOST=127.0.0.1 HEALTHCARE_DEMO_INTERNAL_PORT="${internal_port}" \
     GMA_PUBLIC_URL="http://127.0.0.1:${gma_port}" HEALTHCARE_DEMO_LMA_URLS="${sites}" \
     "${PYTHON}" -m uvicorn app.main:app --host 127.0.0.1 --port "${app_port}"
 
@@ -154,6 +158,7 @@ split_start() {
       "http://127.0.0.1:${lma_ports[$i]}   (hospital ${SPLIT_SITES[$i]}, log ${log_dir}/lma-${SPLIT_SITES[$i]}.log)"
   done
   printf '  %-12s %s\n' "app" "${app_url}   (the API the frontend calls, log ${log_dir}/app.log)"
+  printf '  %-12s %s\n' "" "${internal_url}   (the app's routes for the hospitals: models and updates)"
   echo
 
   split_wait_for "http://127.0.0.1:${gma_port}/health" "The GMA" "${log_dir}/gma.log"

@@ -75,7 +75,8 @@ apps/healthcare-demo/scripts/run_frontend_demo.sh --split
 This starts the Dagents GMA on port 8020, one LMA per hospital on ports 8082,
 8083 and 8084, and the API on port 8080. The GMA sends each round's jobs to the
 hospitals over HTTP, and the API forwards each hospital's pages to that
-hospital's process. The calls between the processes have no authentication, so
+hospital's process. The hospitals load models from the API and send their
+updates to it on a second port, 8081, which the web interface never calls. The calls between the processes have no authentication, so
 every process listens on 127.0.0.1 only.
 
 ## 6. Run the tests

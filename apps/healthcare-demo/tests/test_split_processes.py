@@ -3,7 +3,8 @@
 These tests start the five processes as ``scripts/run_split_demo.sh`` does,
 each with ``uvicorn`` on a free port, and call only the app, as the frontend
 does. They check that the app lists the hospitals the LMAs report, that a
-hospital's page comes from its LMA, and, with the planner, that a pilot runs
+hospital's page comes from its LMA, that the routes the LMAs call are on the
+app's internal port and not on its public one, and, with the planner, that a pilot runs
 every round at all three hospitals through the GMA, that training results
 carry a digest of each update and never the update, and that each hospital
 keeps a record of what it sent.
@@ -85,8 +86,10 @@ class SplitProcesses:
         self.log_dir = log_dir
         self.gma_port = free_port()
         self.app_port = free_port()
+        self.internal_port = free_port()
         self.lma_ports = {site_id: free_port() for site_id in SITE_IDS}
         self.app_url = f"http://127.0.0.1:{self.app_port}"
+        self.internal_url = f"http://127.0.0.1:{self.internal_port}"
         self.processes: dict[str, subprocess.Popen] = {}
         self._logs: list = []
 
@@ -135,7 +138,7 @@ class SplitProcesses:
                     PYTHONPATH=pythonpath,
                     HEALTHCARE_DEMO_ROLE="lma",
                     HEALTHCARE_DEMO_SITE_ID=site_id,
-                    HEALTHCARE_DEMO_COORDINATOR_URL=self.app_url,
+                    HEALTHCARE_DEMO_COORDINATOR_URL=self.internal_url,
                     **no_client_limits,
                 ),
             )
@@ -147,6 +150,8 @@ class SplitProcesses:
             child_environment(
                 PYTHONPATH=pythonpath,
                 HEALTHCARE_DEMO_ROLE="app",
+                HEALTHCARE_DEMO_INTERNAL_HOST="127.0.0.1",
+                HEALTHCARE_DEMO_INTERNAL_PORT=str(self.internal_port),
                 GMA_PUBLIC_URL=f"http://127.0.0.1:{self.gma_port}",
                 HEALTHCARE_DEMO_LMA_URLS=sites,
                 **no_client_limits,
@@ -242,6 +247,15 @@ class SplitProcessTests(unittest.TestCase):
         response = httpx.get(f"{self.split.lma_url('uk-134')}/api/v1/hospitals/it-002", timeout=10.0)
         self.assertEqual(404, response.status_code)
         self.assertEqual(404, self.client.get("/api/v1/hospitals/xx-999").status_code)
+
+    def test_the_app_serves_the_routes_the_lmas_call_on_its_internal_port_only(self) -> None:
+        model_in_use = "/api/v1/registry/model-in-use"
+        self.assertEqual(404, self.client.get(model_in_use).status_code)
+        self.assertEqual(404, self.client.post("/api/v1/federation/rounds/r-1/updates", json={}).status_code)
+        response = httpx.get(f"{self.split.internal_url}{model_in_use}", timeout=10.0)
+        self.assertEqual(200, response.status_code, response.text[:500])
+        self.assertIn("params", response.json())
+        self.assertEqual(404, httpx.get(f"{self.split.internal_url}/api/v1/overview", timeout=10.0).status_code)
 
     @unittest.skipUnless(dagentsc_available(), "planner (dagentsc) is not available, so no round can be planned")
     def test_a_pilot_runs_every_round_at_every_hospital_through_the_gma(self) -> None:
