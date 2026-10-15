@@ -47,3 +47,15 @@ val combined_yaml : workload_manifest list -> string
     - [workload_plan]: plan id, namespace, per-component manifests, and combined
       YAML suitable for display or downstream apply steps. *)
 val compile_plan : workload_spec -> workload_plan
+
+(** Write a caller's value as a double-quoted YAML scalar for a Compose file.
+
+    Escapes backslash, double quote, newline, tab and carriage return, writes
+    other control bytes as [\xHH], and doubles [$] so Compose passes it to the
+    container instead of reading a variable.
+
+    Example test case:
+    {[
+      assert (quote_compose_scalar "$HOME" = "\"$$HOME\"")
+    ]} *)
+val quote_compose_scalar : string -> string

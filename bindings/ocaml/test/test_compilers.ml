@@ -1575,6 +1575,31 @@ let test_deployment_target_codec () =
       {|{"components": [{"name": "a", "image": "x", "ports": [{"containerPort": 80, "hostPort": "80"}]}]}|};
     ]
 
+(** Verifies how caller values are quoted in a Compose file: YAML escapes,
+    [$] doubled so Compose does not read a variable, and UTF-8 copied. *)
+let test_compose_quoting () =
+  List.iter
+    (fun (input, expected) ->
+      assert_equal_text ("quote_compose_scalar " ^ String.escaped input) expected
+        (Dagents_manifest_compiler.quote_compose_scalar input))
+    [
+      ("", {|""|});
+      ("plain", {|"plain"|});
+      ({|C:\path|}, {|"C:\\path"|});
+      ({|say "hi"|}, {|"say \"hi\""|});
+      ("$HOME and ${VAR} and $$", {|"$$HOME and $${VAR} and $$$$"|});
+      ("line1\nline2", {|"line1\nline2"|});
+      ("tab\there", {|"tab\there"|});
+      ("cr\rx", {|"cr\rx"|});
+      ("nul\000x", {|"nul\x00x"|});
+      ("bell\001", {|"bell\x01"|});
+      ("esc\027", {|"esc\x1B"|});
+      ("unit\031", {|"unit\x1F"|});
+      ("del\127", {|"del\x7F"|});
+      ("z\195\188rich", "\"z\195\188rich\"");
+      ("space and: colon # hash", {|"space and: colon # hash"|});
+    ]
+
 (** Run one named test and print a progress line before and after it. *)
 let run_test ~index ~total (name, test) =
   Printf.printf "%s %02d/%02d RUN  %s\n%!" (progress_bar ~completed:(index - 1) ~total) index total name;
@@ -1603,6 +1628,7 @@ let () =
       ("manifest Kubernetes output is pinned", test_manifest_kubernetes_output_is_pinned);
       ("JSON codec round trip", test_json_codec_roundtrip);
       ("deployment target codec", test_deployment_target_codec);
+      ("compose quoting", test_compose_quoting);
       ("KYU trust assessment", test_kyu_assessment);
       ("model updates are never released raw", test_model_update_is_never_allowed_raw);
       ("restriction strategy is monotone in trust", test_strategy_is_monotone_in_trust);

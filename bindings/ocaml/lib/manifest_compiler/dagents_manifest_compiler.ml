@@ -297,3 +297,39 @@ let combined_yaml manifests =
 let compile_plan spec =
   let manifests = compile spec in
   { plan_id = spec.plan_id; namespace = spec.namespace; manifests; combined_yaml = combined_yaml manifests }
+
+(* ------------------------------------------------------------------------- *)
+(* Docker Compose target                                                      *)
+(* ------------------------------------------------------------------------- *)
+
+(** Write a caller's value as a double-quoted YAML scalar for a Compose file.
+
+    Backslash, double quote, newline, tab and carriage return get their YAML
+    escapes, and every other control byte gets [\xHH]. A [$] becomes [$$]:
+    Compose reads [$NAME] and [${NAME}] as variables of the shell that runs
+    [docker compose], and [$$] passes one literal [$] to the container. Other
+    bytes, UTF-8 included, are copied. The core-service fallback renderer
+    copies this table, and its tests compare the two.
+
+    Example test case:
+    {[
+      assert (quote_compose_scalar "a\"$b" = "\"a\\\"$$b\"")
+    ]} *)
+let quote_compose_scalar value =
+  let buffer = Buffer.create (String.length value + 2) in
+  Buffer.add_char buffer '"';
+  String.iter
+    (fun c ->
+      match c with
+      | '\\' -> Buffer.add_string buffer "\\\\"
+      | '"' -> Buffer.add_string buffer "\\\""
+      | '$' -> Buffer.add_string buffer "$$"
+      | '\n' -> Buffer.add_string buffer "\\n"
+      | '\t' -> Buffer.add_string buffer "\\t"
+      | '\r' -> Buffer.add_string buffer "\\r"
+      | c when Char.code c < 0x20 || Char.code c = 0x7f ->
+          Buffer.add_string buffer (Printf.sprintf "\\x%02X" (Char.code c))
+      | c -> Buffer.add_char buffer c)
+    value;
+  Buffer.add_char buffer '"';
+  Buffer.contents buffer
