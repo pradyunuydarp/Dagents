@@ -32,13 +32,25 @@ import os
 import re
 import secrets
 import threading
+from contextlib import contextmanager
 from datetime import datetime, timezone
-from typing import Any, Callable, Mapping, Sequence
+from typing import Any, Callable, Iterator, Mapping, Protocol, Sequence
 
 from agents.common.application.federation import FederatedRoundController
 from agents.common.application.governance_service import GovernanceService
-from agents.common.domain.federation import AggregationMethod, CandidateModel, RoundManifest, RoundPhase
-from agents.common.domain.governance import KyuAttribute, Requester, RestrictionRequest
+from agents.common.domain.federation import (
+    AggregationMethod,
+    AggregationReadiness,
+    CandidateModel,
+    FederatedJob,
+    ReleaseDecision,
+    ReleaseGate,
+    RoundManifest,
+    RoundPhase,
+    RoundRecord,
+    SiteRegistration,
+)
+from agents.common.domain.governance import GuardDecision, KyuAttribute, Requester, RestrictionRequest
 from agents.common.infrastructure.charts import MAX_SERIES as MAX_CHART_SERIES
 
 from app.domain import stroke_model
@@ -107,6 +119,63 @@ class ApprovalRefused(RuntimeError):
     """A model cannot be approved for release."""
 
 
+class UpdateRefused(ValueError):
+    """The app does not store a hospital's update: wrong round, site or job, or a duplicate."""
+
+
+class RoundController(Protocol):
+    """What the consortium uses of the framework's ``FederatedRoundController``.
+
+    In one process it is the framework's controller around the app's runtime.
+    In a split run it is :class:`~app.services.remote.GmaRoundClient`, which
+    calls the Dagents GMA service.
+    """
+
+    @property
+    def engine_name(self) -> str: ...
+
+    def register_site(self, registration: SiteRegistration) -> SiteRegistration: ...
+
+    def list_sites(self) -> list[SiteRegistration]: ...
+
+    def digest(self, manifest: RoundManifest) -> str: ...
+
+    def dispatch_round(self, manifest: RoundManifest) -> RoundRecord: ...
+
+    def evaluate_readiness(self, round_id: str) -> AggregationReadiness: ...
+
+    def aggregate(self, round_id: str) -> CandidateModel: ...
+
+    def evaluate_release(
+        self,
+        round_id: str,
+        gates: list[ReleaseGate],
+        candidate: CandidateModel,
+        baseline_metrics: dict[str, float] | None = None,
+        rollback_version: str | None = None,
+    ) -> ReleaseDecision: ...
+
+
+class ReleaseGuard(Protocol):
+    """What the consortium uses of a Guard at the release boundary.
+
+    In one process it is the framework's ``GovernanceService``. In a split run
+    it is :class:`~app.services.remote.GmaReleaseGuard`, which runs the Guard
+    in the Dagents GMA service.
+    """
+
+    def enforce(
+        self,
+        request: RestrictionRequest,
+        payload: list[dict[str, Any]] | None = None,
+        correlation_id: str | None = None,
+    ) -> GuardDecision: ...
+
+    def audit_chain_intact(self) -> bool: ...
+
+    def audit_record_count(self) -> int: ...
+
+
 def build_site_store(site: Site, database_url: str, environ: Mapping[str, str] | None = None) -> SiteStore:
     """The store for one hospital.
 
@@ -134,6 +203,19 @@ class Consortium:
       their own). Defaults to ``os.environ``.
     - `site_stores`, `coordinator_store`: stores to use instead of building
       them, for tests.
+    - `hospitals`: hospitals to use instead of building them, by site id in
+      display order. A split run passes one
+      :class:`~app.services.remote.RemoteHospital` per LMA. Each needs
+      ``site``, ``site_id``, ``display_name``, ``series_slot``, ``summary()``,
+      ``registration()``, ``counts()``, ``audit_summary()``, ``store.kind``,
+      ``worker()`` and ``close()``.
+    - `round_controller`: builds the round controller from the app's runtime.
+      Without it, the framework's ``FederatedRoundController`` runs the rounds
+      in this process and the consortium attaches each hospital's worker. With
+      it, the controller sends the jobs itself. A split run passes one that
+      builds a :class:`~app.services.remote.GmaRoundClient`.
+    - `release_guard`: the Guard at the release boundary. Defaults to a
+      ``GovernanceService`` that keeps its audit chain in the coordinator store.
 
     Building a consortium reads no records and opens no connection.
     """
@@ -148,7 +230,12 @@ class Consortium:
         environ: Mapping[str, str] | None = None,
         site_stores: Mapping[str, SiteStore] | None = None,
         coordinator_store: CoordinatorStore | None = None,
+        hospitals: Mapping[str, Any] | None = None,
+        round_controller: Callable[[ParameterAveragingRuntime], RoundController] | None = None,
+        release_guard: ReleaseGuard | None = None,
     ) -> None:
+        if sites is None and hospitals is not None:
+            sites = [hospital.site for hospital in hospitals.values()]
         self.sites: tuple[Site, ...] = tuple(sites or SITES)
         self._database_url = database_url.strip()
         self._environ = os.environ if environ is None else environ
@@ -164,27 +251,45 @@ class Consortium:
 
         self.registry = ModelRegistry(self.coordinator_store)
         self.runtime = ParameterAveragingRuntime(self.registry)
-        self.controller = FederatedRoundController(engine=self.runtime)
-        # The release Guard's audit chain is kept in the coordinator store, so
-        # it survives a restart like the release decisions it backs.
-        self.governance = GovernanceService(audit=self.coordinator_store.audit_sink())
-        self.governance.register_classification(STROKE_CLASSIFICATION)
+        # Without an injected controller, the rounds run in this process and
+        # the consortium hands the runtime each hospital's worker.
+        self._attaches_workers = round_controller is None
+        self.controller: RoundController = (
+            FederatedRoundController(engine=self.runtime)
+            if round_controller is None
+            else round_controller(self.runtime)
+        )
+        if release_guard is None:
+            # The release Guard's audit chain is kept in the coordinator store, so
+            # it survives a restart like the release decisions it backs.
+            governance = GovernanceService(audit=self.coordinator_store.audit_sink())
+            governance.register_classification(STROKE_CLASSIFICATION)
+            release_guard = governance
+        self.governance: ReleaseGuard = release_guard
 
-        # A hospital's chart colour is its place in the consortium, as on the
-        # consortium charts. More hospitals than colours means no hospital has one.
-        slots = len(self.sites) <= MAX_CHART_SERIES
-        self.hospitals: dict[str, Hospital] = {
-            site.site_id: Hospital(
-                site,
-                store_factory=self._store_factory(site, injected.get(site.site_id)),
-                registry=self.registry,
-                contributions=self._contributions_factory(site),
-                max_entered=max_entered_per_site,
-                series_slot=position if slots else None,
-            )
-            for position, site in enumerate(self.sites, start=1)
-        }
+        self.hospitals: dict[str, Any]
+        if hospitals is not None:
+            self.hospitals = {site.site_id: hospitals[site.site_id] for site in self.sites}
+        else:
+            # A hospital's chart colour is its place in the consortium, as on the
+            # consortium charts. More hospitals than colours means no hospital has one.
+            slots = len(self.sites) <= MAX_CHART_SERIES
+            self.hospitals = {
+                site.site_id: Hospital(
+                    site,
+                    store_factory=self._store_factory(site, injected.get(site.site_id)),
+                    registry=self.registry,
+                    contributions=self._contributions_factory(site),
+                    max_entered=max_entered_per_site,
+                    series_slot=position if slots else None,
+                )
+                for position, site in enumerate(self.sites, start=1)
+            }
         self._lock = threading.RLock()
+        # Rounds being dispatched now, with the digest each job carries. Only
+        # these accept a hospital's update (see accept_update).
+        self._running: dict[str, str] = {}
+        self._running_lock = threading.Lock()
         self._pilot_lock = threading.Lock()
         self._last_pilot: dict[str, Any] | None = None
 
@@ -379,11 +484,60 @@ class Consortium:
         )
 
     def _attach_workers(self, manifest: RoundManifest) -> str:
-        """Give every hospital the digest it verifies the job against."""
+        """Give every hospital the digest it verifies the job against.
+
+        With an injected controller, the controller sends the jobs and each
+        hospital computes the digest itself, so only the digest is returned.
+        """
         digest = self.controller.digest(manifest)
-        for hospital in self.hospitals.values():
-            self.runtime.register_worker(hospital.worker(expected_digest=digest, update_channel=self.runtime))
+        if self._attaches_workers:
+            for hospital in self.hospitals.values():
+                self.runtime.register_worker(hospital.worker(expected_digest=digest, update_channel=self.runtime))
         return digest
+
+    @contextmanager
+    def _round_running(self, round_id: str, digest: str) -> Iterator[None]:
+        """Mark a round as running while its jobs are dispatched.
+
+        A hospital sends its update while it runs its job, so a round accepts
+        updates only inside this block.
+        """
+        with self._running_lock:
+            self._running[round_id] = digest
+        try:
+            yield
+        finally:
+            with self._running_lock:
+                self._running.pop(round_id, None)
+
+    def running_round_digest(self, round_id: str) -> str | None:
+        """The digest of a round whose jobs are being dispatched now, or ``None``."""
+        with self._running_lock:
+            return self._running.get(round_id)
+
+    def accept_update(self, round_id: str, job: FederatedJob, update: dict[str, float]) -> str:
+        """Store one hospital's bounded update, sent from the hospital's own process.
+
+        Returns the digest the runtime stored. Raises :class:`UpdateRefused`
+        when the round in the path is not the job's round, the site is not one
+        of this consortium's hospitals, the round's jobs are not being
+        dispatched now, the job's digest is not the round's, or the runtime
+        refuses the update (a duplicate, a job that is not a training job, or
+        a vector that is not valid).
+        """
+        if job.round_id != round_id:
+            raise UpdateRefused(f"the update names round {job.round_id}, not {round_id}")
+        if job.site_id not in self.hospitals:
+            raise UpdateRefused(f"{job.site_id} is not a hospital in this study")
+        digest = self.running_round_digest(round_id)
+        if digest is None:
+            raise UpdateRefused(f"round {round_id} is not running now")
+        if job.manifest_digest != digest:
+            raise UpdateRefused(f"the job's digest is not the digest of round {round_id}")
+        try:
+            return self.runtime.submit(job, update)
+        except ValueError as error:
+            raise UpdateRefused(str(error)) from error
 
     def run_round(
         self, round_id: str, phase: RoundPhase = "analytics", model: RegisteredModel | None = None
@@ -397,7 +551,8 @@ class Consortium:
         with self._lock:
             manifest = self.manifest(round_id, phase, model)
             digest = self._attach_workers(manifest)
-            record = self.controller.dispatch_round(manifest)
+            with self._round_running(round_id, digest):
+                record = self.controller.dispatch_round(manifest)
             readiness = self.controller.evaluate_readiness(round_id) if record.plan.quorum_met else None
             return {
                 "round_id": round_id,
