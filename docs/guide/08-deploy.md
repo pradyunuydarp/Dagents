@@ -85,6 +85,12 @@ job. Each source's service must answer `POST /api/v1/federation/jobs:offer` and
 The [GMA README](../../agents/gma/README.md#federated-rounds-over-http) has the
 details.
 
+The stroke demo runs this split on one machine:
+`apps/healthcare-demo/scripts/run_split_demo.sh` starts the Dagents GMA with
+`GMA_FEDERATION_SITES` and one LMA process per hospital. Its
+[README](../../apps/healthcare-demo/README.md#one-process-per-hospital) lists
+what travels between the processes.
+
 A round's model update crosses from the left column to the right one only if
 the source's `before_send` Guard permits it. The round's metrics and example
 count cross as the source's runner wrote them

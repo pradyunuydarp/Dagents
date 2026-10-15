@@ -11,6 +11,7 @@
 | core-service | 8040 | Catalog, topology, workload compilation, Kubernetes manifests |
 | Spring control and core | 8050, 8060 | The same control and core APIs for JVM consumers |
 | Stroke demo backend | 8080 | The demo's own API: hospitals, data entry, the Guard probe, the pilot, charts |
+| Stroke demo hospitals | 8082, 8083, 8084 | Only in a split run: one hospital each, with its records, its Guard and its round jobs. The backend forwards each hospital's routes to it |
 
 The [API reference](../reference/api/overview.md) describes every endpoint: its
 parameters, its request and response fields, its errors, and examples captured

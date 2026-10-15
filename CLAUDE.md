@@ -360,7 +360,19 @@ apps/healthcare-demo/scripts/run_frontend_demo.sh          # API + UI + a guided
 apps/healthcare-demo/scripts/run_frontend_demo.sh --check  # start, smoke-test the UI, exit
 apps/healthcare-demo/scripts/run_pilot.sh                  # no UI: one pilot, printed
 apps/healthcare-demo/scripts/run_local_demo.sh             # the API alone on :8080
+apps/healthcare-demo/scripts/run_split_demo.sh             # the API as five processes (below)
+apps/healthcare-demo/scripts/run_frontend_demo.sh --split  # the UI in front of those five
 ```
+
+The split run starts the Dagents GMA (`agents.gma.main`, :8020, with
+`GMA_FEDERATION_SITES`), one LMA per hospital (`HEALTHCARE_DEMO_ROLE=lma`,
+:8082 to :8084) and the API (`HEALTHCARE_DEMO_ROLE=app`, :8080), which forwards
+each hospital's routes to that hospital's LMA (`app/api/forward.py`).
+`apps/healthcare-demo/docker-compose.yml` runs the same layout in containers.
+The calls between the processes have no authentication, so every process binds
+127.0.0.1 and the compose file publishes only the API and the UI to other
+machines. `tests/test_split_processes.py` starts the five processes and runs a
+pilot through them; CI requires it to run.
 
 All of them need `dagentsc`. Without it the Ethical Guard denies every request,
 which is correct but makes every panel a denial, so the scripts check first.
@@ -392,6 +404,7 @@ and a bundle only prove that the app compiles. The smoke test exits 2 and prints
 | nl2sql-demo backend | 8070 |
 | nl2sql-demo frontend | 5173 |
 | healthcare-demo backend | 8080 |
+| healthcare-demo hospital LMAs (split run) | 8082, 8083, 8084 |
 | healthcare-demo frontend | 5174 |
 | framework site (dev) | 5175 |
 
