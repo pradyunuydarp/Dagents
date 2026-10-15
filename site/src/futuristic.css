@@ -93,3 +93,21 @@
 .api-object:hover {
   border-color: var(--ds-line-strong);
 }
+
+.pager a .ds-eyebrow::after {
+  display: inline-block;
+  margin-left: var(--ds-1);
+  transition: transform var(--fx-slow) var(--fx-ease);
+}
+
+.pager a:not(.pager-next) .ds-eyebrow::before {
+  content: "\2190";
+  display: inline-block;
+  margin-right: var(--ds-1);
+  transition: transform var(--fx-slow) var(--fx-ease);
+}
+
+.pager a.pager-next .ds-eyebrow::after { content: "\2192"; }
+
+.pager a:not(.pager-next):hover .ds-eyebrow::before { transform: translateX(-3px); }
+.pager a.pager-next:hover .ds-eyebrow::after { transform: translateX(3px); }
