@@ -176,25 +176,30 @@ class Settings:
 
     #: Which part of the demo this process runs:
     #:
-    #: - ``combined``: every hospital and the coordinator in this one process.
-    #:   The hosted deployment and the test suite use it.
+    #: - ``combined``: every hospital and the coordinator in this one process,
+    #:   with the framework composed in process. The hosted deployment and the
+    #:   test suite use it.
     #: - ``lma``: one hospital, ``HEALTHCARE_DEMO_SITE_ID``. It serves that
-    #:   hospital's pages and runs the round jobs the coordinator sends it.
-    #: - ``gma``: the coordinator. It reaches the hospitals at
-    #:   ``HEALTHCARE_DEMO_LMA_URLS`` over HTTP and never reads their records.
-    #:
-    #: The app the frontend calls in a split run is a separate module,
-    #: ``app.gateway``, which routes each request to the GMA or to a hospital.
+    #:   hospital's pages and runs the round jobs the Dagents GMA sends it.
+    #: - ``app``: the API the frontend calls. It runs the study through the
+    #:   Dagents GMA service's API (``GMA_PUBLIC_URL``), keeps the model
+    #:   registry and the update store, and forwards each hospital's pages to
+    #:   that hospital's LMA (``HEALTHCARE_DEMO_LMA_URLS``). It never reads a
+    #:   hospital's records.
     role: str = field(default_factory=lambda: os.getenv("HEALTHCARE_DEMO_ROLE", "combined").strip().lower())
 
     #: The hospital an ``lma`` process runs, such as ``uk-134``.
     site_id: str = field(default_factory=lambda: os.getenv("HEALTHCARE_DEMO_SITE_ID", "").strip())
 
-    #: Where the GMA is, for an ``lma`` process and the gateway.
-    gma_url: str = field(default_factory=lambda: os.getenv("HEALTHCARE_DEMO_GMA_URL", "http://127.0.0.1:8081"))
+    #: Where an ``lma`` process reaches the ``app`` process: it loads the
+    #: models a round names from there and sends its bounded updates there.
+    coordinator_url: str = field(
+        default_factory=lambda: os.getenv("HEALTHCARE_DEMO_COORDINATOR_URL", "http://127.0.0.1:8080")
+    )
 
-    #: Where each hospital's LMA is, for the GMA and the gateway, in display
-    #: order: ``uk-134=http://127.0.0.1:8082,it-002=...``.
+    #: Where each hospital's LMA is, for the ``app`` process, in display
+    #: order: ``uk-134=http://127.0.0.1:8082,it-002=...``. The Dagents GMA
+    #: reaches the same addresses through its own ``GMA_FEDERATION_SITES``.
     lma_urls: str = field(
         default_factory=lambda: os.getenv(
             "HEALTHCARE_DEMO_LMA_URLS",
@@ -202,16 +207,17 @@ class Settings:
         )
     )
 
-    #: Seconds the GMA waits for a hospital to answer a round job, and a
-    #: hospital waits for the GMA. A training job trains before it answers.
+    #: Seconds the ``app`` process waits for the Dagents GMA and a hospital
+    #: waits for the ``app`` process. A round answers only after every
+    #: hospital has run its job.
     federation_timeout_seconds: float = field(
-        default_factory=lambda: float(os.getenv("HEALTHCARE_DEMO_FEDERATION_TIMEOUT_SECONDS", "60"))
+        default_factory=lambda: float(os.getenv("HEALTHCARE_DEMO_FEDERATION_TIMEOUT_SECONDS", "120"))
     )
 
-    #: Seconds the gateway waits for the GMA or a hospital. A pilot runs every
-    #: round before it answers, so this is long.
+    #: Seconds the ``app`` process waits for a hospital's LMA when it
+    #: forwards a page request.
     upstream_timeout_seconds: float = field(
-        default_factory=lambda: float(os.getenv("HEALTHCARE_DEMO_UPSTREAM_TIMEOUT_SECONDS", "300"))
+        default_factory=lambda: float(os.getenv("HEALTHCARE_DEMO_UPSTREAM_TIMEOUT_SECONDS", "30"))
     )
 
     def lma_url_map(self) -> dict[str, str]:
