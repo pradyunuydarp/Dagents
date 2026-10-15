@@ -424,7 +424,11 @@ jobs:
         # means the service container or the connection string is wrong.
         # --require-ran also catches a class whose tests did not run for a
         # reason the pattern does not match. Both logs are checked before the
-        # step fails, so one run reports every problem.
+        # step fails, so one run reports every problem. The list also holds
+        # tests.test_split_processes.SplitProcessTests, which needs no database:
+        # it is the one test that starts the GMA, the LMAs and the app as
+        # separate processes, and a class that fails to start them must not
+        # pass unnoticed. healthcare-data.yml must list the same classes.
         run: |
           status=0
           python scripts/ci_no_skipped_tests.py \
@@ -445,6 +449,7 @@ jobs:
             --require-ran tests.test_api_postgres.PostgresApiTests \
             --require-ran tests.test_api_postgres.UnmigratedDatabaseApiTests \
             --require-ran tests.test_data_source_status.PostgresStatusTests \
+            --require-ran tests.test_split_processes.SplitProcessTests \
             apps/healthcare-demo/healthcare-suite.log || status=1
           python scripts/ci_no_skipped_tests.py \
             --forbid database \
