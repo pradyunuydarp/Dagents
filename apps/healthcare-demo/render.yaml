@@ -123,8 +123,19 @@ services:
       # classification and condition pack) on startup.
       - key: HEALTHCARE_DEMO_REGISTER_EXTENSION
         value: "true"
+      # The hosted demo runs every hospital and the coordinator in one
+      # process. Docker compose and scripts/run_split_demo.sh run them as
+      # separate processes (roles lma and gma, and the app.gateway module).
+      - key: HEALTHCARE_DEMO_ROLE
+        value: "combined"
 
       # Not set here:
+      #
+      # HEALTHCARE_DEMO_SITE_ID, HEALTHCARE_DEMO_GMA_URL,
+      # HEALTHCARE_DEMO_LMA_URLS, HEALTHCARE_DEMO_FEDERATION_TIMEOUT_SECONDS and
+      # HEALTHCARE_DEMO_UPSTREAM_TIMEOUT_SECONDS. They are read only by the
+      # lma and gma roles and the gateway, which the combined process does not
+      # use.
       #
       # HEALTHCARE_DEMO_API_PORT. Render injects `PORT` and routes to it. The
       # image's command uses `PORT` when this repository's own variable is
