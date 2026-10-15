@@ -379,6 +379,40 @@
 
 .step-art .art-eyes { transform-origin: 174px 45px; }
 
+@media (prefers-reduced-motion: no-preference) {
+  .steps li:hover .art-scan { animation: art-scan 1.6s ease-in-out infinite; }
+  .steps li:hover .art-antenna { animation: art-blink 1.2s ease-in-out infinite; }
+  .steps li:hover .art-eyes { animation: art-look 2.4s ease-in-out infinite; }
+  .steps li:hover .art-spin { animation: art-spin 6s linear infinite; }
+  .steps li:hover .art-runner { animation: art-run 1.8s ease-in-out infinite; }
+}
+
+@keyframes art-scan {
+  0% { opacity: 0; transform: translateY(0); }
+  15%, 85% { opacity: 1; }
+  100% { opacity: 0; transform: translateY(40px); }
+}
+
+@keyframes art-blink {
+  50% { opacity: 0.25; }
+}
+
+@keyframes art-look {
+  0%, 30%, 100% { transform: translateX(0); }
+  45%, 60% { transform: translateX(-3px); }
+  75%, 90% { transform: translateX(3px); }
+}
+
+@keyframes art-spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes art-run {
+  0% { offset-distance: 0%; opacity: 0; }
+  15%, 85% { opacity: 1; }
+  100% { offset-distance: 100%; opacity: 0; }
+}
+
 .cards {
   display: grid;
   gap: var(--ds-4);
