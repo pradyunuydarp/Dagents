@@ -32,10 +32,12 @@ from agents.common.infrastructure.federation_http import (
     EXECUTE_PATH,
     OFFER_PATH,
     UPDATE_PATH,
+    HttpFederationEngine,
     HttpSiteWorker,
     HttpUpdateChannel,
     UpdateReceipt,
     UpdateSubmission,
+    parse_site_urls,
 )
 from agents.tests.test_federation_updates import (
     RecordingChannel,
@@ -331,6 +333,20 @@ class LocalWorkerOverHttpChannelTests(unittest.TestCase):
         self.assertIn("update channel did not accept", result.local_evidence_pointer)
 
 
+def hand_written_plan(manifest: RoundManifest, sites: list[str]) -> RoundPlan:
+    """A plan as the planner would write it, so the engine runs without the planner."""
+    return RoundPlan(
+        round_id=manifest.round_id,
+        study_id=manifest.study_id,
+        phase=manifest.phase,
+        selected_sites=sites,
+        quorum_met=True,
+        required_participants=1,
+        aggregation=AggregationMethod(kind="fedavg"),
+        round_digest="fnv1a:0123456789abcdef",
+    )
+
+
 class EngineOverHttpTests(unittest.TestCase):
     """The in-process engine dispatches to HTTP workers as to any other worker.
 
@@ -348,16 +364,7 @@ class EngineOverHttpTests(unittest.TestCase):
             ]
         )
         manifest: RoundManifest = build_manifest(minimum_participants=1)
-        plan = RoundPlan(
-            round_id=manifest.round_id,
-            study_id=manifest.study_id,
-            phase=manifest.phase,
-            selected_sites=["site-a", "site-b", "site-c"],
-            quorum_met=True,
-            required_participants=1,
-            aggregation=AggregationMethod(kind="fedavg"),
-            round_digest="fnv1a:0123456789abcdef",
-        )
+        plan = hand_written_plan(manifest, ["site-a", "site-b", "site-c"])
 
         submission = engine.submit_round(manifest, plan)
 
@@ -376,6 +383,73 @@ class EngineOverHttpTests(unittest.TestCase):
         self.assertEqual(results["site-a"].job_digest, plan.round_digest)
         self.assertEqual(results["site-b"].participation, "rejected")
         self.assertEqual(results["site-c"].participation, "rejected")
+
+
+class ParseSiteUrlsTests(unittest.TestCase):
+    """``GMA_FEDERATION_SITES`` is a comma list of ``site_id=url`` entries."""
+
+    def test_entries_are_read_in_order_and_trimmed(self) -> None:
+        sites = parse_site_urls(" site-a = http://lma-a:8082/ ,site-b=https://lma-b.example ")
+        self.assertEqual(list(sites.items()), [("site-a", "http://lma-a:8082/"), ("site-b", "https://lma-b.example")])
+
+    def test_empty_text_and_empty_entries_give_no_sites(self) -> None:
+        self.assertEqual(parse_site_urls(""), {})
+        self.assertEqual(parse_site_urls("  "), {})
+        self.assertEqual(parse_site_urls("site-a=http://lma-a,,"), {"site-a": "http://lma-a"})
+
+    def test_a_mistake_names_the_entry(self) -> None:
+        cases = {
+            "site-a": "site_id=url",
+            "=http://lma-a": "site_id=url",
+            "site-a=": "site_id=url",
+            "site-a=lma-a:8082": "http:// or https://",
+            "site-a=ftp://lma-a": "http:// or https://",
+            "site-a=http://": "http:// or https://",
+            "site-a=http://lma a": "http:// or https://",
+            "site-a=http://lma-a,site-a=http://lma-b": "more than once",
+        }
+        for text, words in cases.items():
+            with self.subTest(text=text), self.assertRaises(ValueError) as raised:
+                parse_site_urls(text)
+            self.assertIn(words, str(raised.exception))
+
+
+class HttpFederationEngineTests(unittest.TestCase):
+    """The engine the GMA uses when its sites run in their own processes."""
+
+    def test_it_holds_one_http_worker_per_site(self) -> None:
+        engine = HttpFederationEngine({"site-a": "http://lma-a:8082/", "site-b": "http://lma-b:8083"}, timeout=7.5)
+        self.assertEqual(engine.name, "http-sites")
+        self.assertEqual(engine.site_urls, {"site-a": "http://lma-a:8082", "site-b": "http://lma-b:8083"})
+        self.assertEqual(engine.timeout, 7.5)
+
+    def test_it_dispatches_a_round_to_each_sites_address(self) -> None:
+        sites = {name: FakeSiteWorker(name) for name in ("site-a", "site-b")}
+        network = FastAPI()
+        for name, fake in sites.items():
+            network.mount(f"/{name}", site_app(fake))
+        engine = HttpFederationEngine(
+            {name: f"http://lmas.internal/{name}" for name in sites}, client=TestClient(network)
+        )
+        manifest = build_manifest(minimum_participants=1)
+
+        submission = engine.submit_round(manifest, hand_written_plan(manifest, ["site-a", "site-b"]))
+
+        self.assertEqual(submission.engine, "http-sites")
+        self.assertEqual(submission.dispatched_sites, ["site-a", "site-b"])
+        for name, fake in sites.items():
+            self.assertEqual([job.site_id for job in fake.offered], [name])
+            self.assertEqual([job.site_id for job in fake.executed], [name])
+        results = engine.collect_results(manifest.round_id)
+        self.assertEqual([(r.site_id, r.participation) for r in results], [("site-a", "completed"), ("site-b", "completed")])
+
+    def test_a_selected_site_without_an_address_still_gets_a_result(self) -> None:
+        engine = HttpFederationEngine({}, client=failing_client(httpx.ConnectError("unused")))
+        manifest = build_manifest(minimum_participants=1)
+        engine.submit_round(manifest, hand_written_plan(manifest, ["site-z"]))
+        [result] = engine.collect_results(manifest.round_id)
+        self.assertEqual(result.participation, "failed")
+        self.assertTrue(result.local_evidence_pointer.startswith("unreachable://site-z#"))
 
 
 if __name__ == "__main__":
