@@ -1,5 +1,9 @@
 # TODO
 
+An outside review of the repository lists further work, with a priority, an
+effort and a check for each item, in
+[`docs/review/third-party-evaluation-todo.md`](docs/review/third-party-evaluation-todo.md).
+
 ## Live Kubernetes Validation With Minikube
 
 - Status: pending
