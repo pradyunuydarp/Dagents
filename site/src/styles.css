@@ -11,6 +11,15 @@
   border-bottom: 1px solid var(--ds-line);
 }
 
+/* Where the browser can blur, the page shows faintly through the header. */
+@supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .masthead {
+    background: color-mix(in srgb, var(--ds-ground) 80%, transparent);
+    -webkit-backdrop-filter: saturate(1.4) blur(12px);
+    backdrop-filter: saturate(1.4) blur(12px);
+  }
+}
+
 .masthead-inner {
   display: flex;
   flex-wrap: wrap;
