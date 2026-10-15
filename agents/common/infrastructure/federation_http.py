@@ -71,8 +71,23 @@ def _base(url: str) -> str:
 
 
 def _short(error: object, limit: int = 200) -> str:
-    text = str(error) or type(error).__name__
+    text = " ".join(str(error).split()) or type(error).__name__
     return text if len(text) <= limit else text[:limit] + "…"
+
+
+def _why_unreachable(error: Exception, timeout: float) -> str:
+    """Say why a call failed, in words that never include the address.
+
+    The reason is stored in a round's evidence, which the coordinator shows.
+    httpx's own messages name the URL, so they are not used for HTTP errors.
+    """
+    if isinstance(error, httpx.HTTPStatusError):
+        return f"the site answered with status {error.response.status_code}"
+    if isinstance(error, httpx.TimeoutException):
+        return f"the site did not answer within {timeout:g} seconds"
+    if isinstance(error, httpx.HTTPError):
+        return "the connection to the site failed"
+    return "the site's answer was not in the expected format"
 
 
 class HttpSiteWorker:
@@ -112,27 +127,30 @@ class HttpSiteWorker:
     def offer(self, job: FederatedJob) -> JobAcceptance:
         """Send the job to the site. A site that does not answer has refused it."""
         try:
-            return JobAcceptance.model_validate(self._post(OFFER_PATH, job.model_dump(mode="json")))
+            acceptance = JobAcceptance.model_validate(self._post(OFFER_PATH, job.model_dump(mode="json")))
         except (httpx.HTTPError, ValueError) as error:
-            return JobAcceptance(
-                round_id=job.round_id,
-                site_id=self.site_id,
-                accepted=False,
-                reason=f"the site could not be reached: {_short(error)}",
-            )
+            return self._refusal(job, _why_unreachable(error, self._timeout))
+        return acceptance
 
     def execute(self, job: FederatedJob) -> SiteResult:
         """Ask the site to run the job. A site that does not answer has failed it."""
         try:
-            return SiteResult.model_validate(self._post(EXECUTE_PATH, job.model_dump(mode="json")))
+            result = SiteResult.model_validate(self._post(EXECUTE_PATH, job.model_dump(mode="json")))
         except (httpx.HTTPError, ValueError) as error:
-            return SiteResult(
-                round_id=job.round_id,
-                site_id=self.site_id,
-                job_digest=job.manifest_digest,
-                participation="failed",
-                local_evidence_pointer=f"unreachable://{self.site_id}#{_short(error)}",
-            )
+            return self._failure(job, _why_unreachable(error, self._timeout))
+        return result
+
+    def _refusal(self, job: FederatedJob, reason: str) -> JobAcceptance:
+        return JobAcceptance(round_id=job.round_id, site_id=self.site_id, accepted=False, reason=reason)
+
+    def _failure(self, job: FederatedJob, reason: str) -> SiteResult:
+        return SiteResult(
+            round_id=job.round_id,
+            site_id=self.site_id,
+            job_digest=job.manifest_digest,
+            participation="failed",
+            local_evidence_pointer=f"unreachable://{self.site_id}#{reason}",
+        )
 
 
 class HttpUpdateChannel:
