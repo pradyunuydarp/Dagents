@@ -362,6 +362,21 @@ behaviour, security or privacy in production. A deployment writes an adapter
 for its federated learning runtime (for example NVIDIA FLARE or Flower) that
 implements these three methods. Nothing above the interface changes.
 
+When each source runs in its own process, Dagents has an HTTP transport for the
+same contracts, in `agents/common/infrastructure/federation_http.py`:
+
+| Class | Runs at | What it does |
+|---|---|---|
+| `HttpSiteWorker` | the coordinator | A worker that sends the job to `POST {source}/api/v1/federation/jobs:offer` and then `POST {source}/api/v1/federation/jobs:execute`, and returns the source's `JobAcceptance` and `SiteResult`. A source that does not answer is recorded as a refusal and a `failed` result. |
+| `HttpFederationEngine` | the coordinator | `InProcessFederationEngine` with one `HttpSiteWorker` per source, built from a map of source ids to addresses. The GMA uses it when `GMA_FEDERATION_SITES` is set. |
+| `HttpUpdateChannel` | the source | An update channel (section 6) that sends the bounded update to `POST {coordinator}/api/v1/federation/rounds/{round_id}/updates` and returns the digest the coordinator stored. |
+
+The source's service answers the two job paths by calling its worker's `offer`
+and `execute`. `HttpFederationEngine` is still a simulator: it calls one source
+at a time, does not retry and sends no credentials, so run it on a private
+network. The stroke demo's split mode uses this transport to run each hospital,
+the Dagents GMA and the demo's backend as separate processes.
+
 ## 5. Run the round
 
 <!-- source: examples/getting-started/step4_federated_round.py -->
@@ -541,7 +556,10 @@ one in use.
 
 The GMA exposes the same controller. Its default engine is the in-process one
 with no workers attached, so over HTTP the sources run their own work and post
-their results. The commands below use the GMA from Step 1.
+their results. If each store runs a service that answers the two job paths, set
+`GMA_FEDERATION_SITES` and the GMA sends the job to each store instead
+([section 4](#4-the-coordinators-side-the-engine)). The commands below use the
+GMA from Step 1, with the default engine.
 
 Enrol three stores. store-east still produces the old contract version:
 
