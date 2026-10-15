@@ -117,3 +117,41 @@
 }
 
 .resource:hover .resource-preview { border-color: var(--ds-line-strong); }
+
+/* ===== Motion ============================================================= */
+/* A page fades up a few pixels when it opens. Nothing moves for readers who
+   ask for less motion, and nothing loops. */
+
+@media (prefers-reduced-motion: no-preference) {
+  @keyframes fx-enter {
+    from {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  .learn-main,
+  .api-page,
+  .resources > * {
+    animation: fx-enter var(--fx-slow) var(--fx-ease) both;
+  }
+
+  .resources > :nth-child(2) { animation-delay: 30ms; }
+  .resources > :nth-child(3) { animation-delay: 60ms; }
+  .resources > :nth-child(n + 4) { animation-delay: 90ms; }
+
+  .learn-nav,
+  .api-nav {
+    animation: fx-enter var(--fx-slow) var(--fx-ease) both;
+  }
+
+  .pager a:hover,
+  .resource:hover,
+  .api-index-module:hover {
+    transform: translateY(-1px);
+  }
+}
