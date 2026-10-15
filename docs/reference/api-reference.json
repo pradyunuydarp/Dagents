@@ -34488,11 +34488,16 @@
      "manifest",
      "compile"
     ],
-    "usage": "dagentsc manifest compile [--input <file|->] [--output yaml|json]",
+    "usage": "dagentsc manifest compile [--input <file|->] [--target kubernetes|compose] [--output yaml|json]",
     "flags": [
      {
       "name": "--output",
       "default": "yaml",
+      "repeated": false
+     },
+     {
+      "name": "--target",
+      "default": "kubernetes",
       "repeated": false
      },
      {
@@ -34530,11 +34535,11 @@
      "function": "manifest_compile",
      "file": "bindings/ocaml/bin/dagentsc.ml"
     },
-    "doc": "Handle `dagentsc manifest compile`.\n\nInputs: CLI args, optionally including `--input` JSON. Without `--input`, the handler builds a small demo workload from flags. Output: YAML by default, JSON when `--output json`.",
+    "doc": "Handle `dagentsc manifest compile`.\n\nRenders a workload spec as Kubernetes YAML or as one Docker Compose file. With `--input`, the spec is JSON from a file or standard input, and its `target` key chooses the target; `--target` is then an error. Without `--input`, the handler builds one demo component from flags, and `--target` chooses the target.\n\nOutput: the YAML by default, or the plan as JSON with `--output json`. For a Compose spec with issues, the YAML output is one comment line per issue and the JSON output lists the issues with a null `composeYaml`; both exit with code 0.",
     "calls": [
      {
       "module": "Dagents_manifest_compiler",
-      "function": "compile_plan",
+      "function": "compile_for_target",
       "folder": "bindings/ocaml/lib/manifest_compiler"
      }
     ],
@@ -34542,7 +34547,8 @@
      "workload_spec"
     ],
     "writes": [
-     "workload_plan"
+     "workload_plan",
+     "compose_plan"
     ]
    },
    {
