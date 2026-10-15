@@ -28,11 +28,10 @@ FROM python:3.11-slim
 COPY --from=ocaml-builder /home/opam/src/bindings/ocaml/_build/default/bin/dagentsc.exe /usr/local/bin/dagentsc
 ```
 
-The core, pipeline, NL2SQL and stroke demo images do this. The LMA and GMA
-images (`agents/lma/Dockerfile`, `agents/gma/Dockerfile`) do not include the
-planner yet, so in Docker Compose their Guards deny every request. If your
-application runs the agents in containers, add the build stage and the `COPY`
-line above to their Dockerfiles until that is fixed.
+The core, pipeline, LMA, GMA, NL2SQL and stroke demo images do this. An image
+built from your own Dockerfile needs the same stage and `COPY` line if its
+service calls the planner. Without them its Guard denies every request.
+`tests/test_planner_in_images.py` checks the repository's Dockerfiles for it.
 
 Check a running container with the same command as in Step 1:
 
