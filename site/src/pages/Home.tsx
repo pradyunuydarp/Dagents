@@ -1,6 +1,7 @@
 import { useLayoutEffect } from "react";
 
 import { Diagram } from "../Mermaid";
+import { Topology } from "../Topology";
 import { DEMOS, REPO_URL, demoHref } from "../config";
 import { BUILD_GUIDE } from "../guide";
 import { GUIDE, firstDiagram } from "../learn";
@@ -48,31 +49,35 @@ export function Home({ anchor }: { anchor: string | null }) {
   const buildSteps = BUILD_GUIDE.filter((page) => page.slug !== "");
 
   return (
-    <>
+    <div className="home">
       <section className="hero">
-        <h1>Dagents</h1>
-        <p className="lead">
-          A framework for running analytics and machine learning across many data sources without
-          moving the data.
-        </p>
-        <p className="ds-note ds-measure">
-          Each data source runs a local agent. A coordinator combines their results. A typed planner
-          decides what each request may see, and every decision is recorded.
-        </p>
-        <div className="actions">
-          <a className="ds-btn ds-btn--primary" href={href("learn")}>
-            Start learning
-          </a>
-          <a className="ds-btn" href={href("guide")}>
-            Build an application
-          </a>
-          <a className="ds-btn" href={demoHref("healthcare-demo")}>
-            Try the stroke demo
-          </a>
-          <a className="ds-btn" href={REPO_URL}>
-            View on GitHub
-          </a>
+        <div className="hero-text">
+          <p className="eyebrow">Open-source framework</p>
+          <h1>Dagents</h1>
+          <p className="lead">
+            A framework for running analytics and machine learning across many data sources without
+            moving the data.
+          </p>
+          <p className="ds-note ds-measure">
+            Each data source runs a local agent. A coordinator combines their results. A typed planner
+            decides what each request may see, and every decision is recorded.
+          </p>
+          <div className="actions">
+            <a className="ds-btn ds-btn--primary" href={href("learn")}>
+              Start learning
+            </a>
+            <a className="ds-btn" href={href("guide")}>
+              Build an application
+            </a>
+            <a className="ds-btn" href={demoHref("healthcare-demo")}>
+              Try the stroke demo
+            </a>
+            <a className="ds-btn" href={REPO_URL}>
+              View on GitHub
+            </a>
+          </div>
         </div>
+        <Topology />
       </section>
 
       <section id="how-it-works" className="block">
@@ -200,6 +205,6 @@ export function Home({ anchor }: { anchor: string | null }) {
           ))}
         </ul>
       </section>
-    </>
+    </div>
   );
 }
