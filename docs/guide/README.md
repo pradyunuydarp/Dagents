@@ -115,9 +115,12 @@ which block to update.
 
 - Dagents is not published as a Python package. You clone the repository and
   put its root on `PYTHONPATH`, as the demos do.
-- The LMA and GMA services keep their state in memory. A restart loses site
-  enrolments, rounds and their audit logs. The Python building blocks accept
-  your own stores and audit sinks (Step 3 and Step 4).
-- The in-process federation engine is a simulator for tests and examples. A
-  deployment connects a federated learning runtime through the
+- The LMA and GMA keep site enrolments, rounds and pending model updates in
+  memory, so a restart loses them. Their audit chains, the LMA's job log and
+  the GMA's model registry can be kept in Postgres
+  ([Step 8, section 9](08-deploy.md#9-state-that-survives-a-restart)). The Python building blocks accept your
+  own stores and audit sinks (Step 3 and Step 4).
+- The in-process federation engine is a simulator for tests and examples. The
+  GMA's HTTP engine sends each round's jobs to the LMAs over their APIs; a
+  deployment can connect another federated learning runtime through the
   `FederationEngine` interface (Step 6).

@@ -22,9 +22,12 @@ flowchart LR
 
 Every LMA and the GMA ask `dagentsc` for each decision. The diagram leaves those
 calls out. An **LMA** (local agent) runs at each source. A **GMA** (global agent) runs at
-the coordinator. In the worked example, `StoreSite` plays the LMA role and
-`Coordinator` plays the GMA role, as Python objects in one process. In a
-deployment they run on different machines, and the arrows are network calls.
+the coordinator. In steps 1 to 4 of the worked example, `StoreSite` plays the
+LMA role and `Coordinator` plays the GMA role, as Python objects in one
+process. In step 5 the Dagents LMA and GMA themselves do this work, called
+through their HTTP APIs ([Step 6](06-federated-rounds.md#6-run-the-round-through-the-lma-and-gma)).
+In a deployment they run on different machines, and the arrows are network
+calls.
 
 ## 1. Profile each source locally
 
@@ -194,7 +197,55 @@ Expected output, formatted:
 The profiling endpoint does not run the Guard. It receives the records you
 send. Call it only from inside the source's boundary. The GMA has the same
 endpoint (`POST /api/v1/datasets:profile` on port 8020) for data that has
-already been combined. Send it only what a source's Guard permitted.
+already been combined. Send it only what a source's Guard permitted. A GMA
+started with `GMA_ALLOW_SOURCE_READS=0` answers `403` on its source, dataset
+profile and model job endpoints, so a coordinator that should never read
+records cannot.
+
+An LMA started for a site refuses a request that embeds a source definition in
+`dataset`, with `403`. Records sent inline and the `source_id` of a registered
+source still work. It registers only `inline` sources from a request: a
+Postgres, MongoDB or object storage source, a database role, a credential and
+embedded SQL come from the LMA's configuration, never from a caller. On every
+LMA and on the GMA, the source endpoints show each connection option's value as
+`[redacted]`, except `role`, `sslmode` and `connect_timeout`.
+
+## 4. What an LMA started for a site reports
+
+An LMA started for one site (with `LMA_SITE_ID` and `LMA_CONDITION_ID`, or
+with a `SiteConfig` in code) reads the site's records from its own source and
+keeps a running profile of them. It rebuilds the profile when the source's
+version changes, and checks the version at most once every 30 seconds
+(`LMA_SOURCE_MAX_STALENESS_MS`), or at once after `POST /site/source:refresh`.
+
+| Endpoint (`/api/v1` form) | Token scope | What it answers |
+|---|---|---|
+| `GET /site` | `site`, `coordinator` | The site, its condition, its classification, its label field, its record count, and its source by kind and location, never a host or a connection string |
+| `GET /site/summary` | `site`, `coordinator` | The record count, the labelled count, and the label rate only when the site's planner permits it |
+| `GET /site/profile` | `site` | The running profile. It holds single records' minimums and maximums, so only the site may read it |
+| `POST /site/source:refresh` | `site` | The record count and source version after the LMA asked the source again. Call it after a write |
+| `GET /site/model`, `POST /site/model:evaluate` | `site` | The released model, read from the GMA and checked by its model kind; its metrics on the site's labelled records |
+| `POST /governance/restrictions:probe`, `GET /governance/audit:summary` | `site`; the summary also `coordinator` | What the Guard would release, never the rows (Step 4); the audit chain's state and length |
+| `GET /federation/registration`, `POST /federation/jobs:offer`, `POST /federation/jobs:execute` | `coordinator` | The site's enrolment and its part of a round (Step 6) |
+| `GET /federation/jobs` | `site` | The site's job log: each job it refused or ran, newest first |
+
+The label rate in the summary is decided like any other table request. The LMA
+asks its planner about a `before_send` request for the label field at
+`table` granularity, with the labelled count as the cohort, and records
+nothing. `label_rate_status` says what happened:
+
+| `label_rate_status` | `label_rate` |
+|---|---|
+| `released` | The share of yes/no labels that are true |
+| `no_labels` | Null: no record has a label, or the condition pack names no label field |
+| `below_minimum_cohort` | Null: the planner denied the request because the labelled count is below the classification's minimum cohort; `planner_reason` says so |
+| `denied` | Null: the planner denied the request for another reason; `planner_reason` says why |
+| `withheld` | Null: the planner could not be run, so the rate does not leave |
+
+The GMA combines what each site reports with
+`GET /api/v1/federation/sites/summaries?include=audit`. It calls every LMA it
+is configured for and never reads a record. Step 6 shows its answer for the two
+stores.
 
 The main agent endpoints:
 
@@ -203,8 +254,10 @@ The main agent endpoints:
 | LMA | [`POST /api/v1/datasets:profile`](../reference/api/agents.md#lma-post-api-v1-datasets-profile) | Profile records at the source |
 | LMA | [`POST /api/v1/model-jobs`](../reference/api/agents.md#lma-post-api-v1-model-jobs) | Run a model job on records at the source |
 | LMA | [`POST /api/v1/governance/restrictions:enforce`](../reference/api/agents.md#lma-post-api-v1-governance-restrictions-enforce) | The Guard (Step 4) |
+| LMA | [The site endpoints](../reference/api/agents.md#lma-site) | What a site's LMA reports about its records (above) |
 | LMA, GMA | [`GET /api/v1/governance/audit`](../reference/api/agents.md#lma-get-api-v1-governance-audit) | The audit log and whether its chain verifies |
 | GMA | [`PUT /api/v1/federation/sites/{site_id}`](../reference/api/agents.md#gma-put-api-v1-federation-sites-site-id) | Enrol a source in a study (Step 6) |
+| GMA | [The federated sites endpoints](../reference/api/agents.md#federated-sites) | Enrol each LMA from its own registration, and read what each site reports |
 | GMA | [`POST /api/v1/federation/rounds:plan`](../reference/api/agents.md#gma-post-api-v1-federation-rounds-plan) | Select the sources for a round (Step 6) |
 | LMA, GMA | [`GET /api/v1/extensions`](../reference/api/agents.md#lma-get-api-v1-extensions) | What the registered extensions contribute |
 
@@ -212,7 +265,7 @@ Each agent also keeps a short path for most endpoints, such as `/health` for
 `/api/v1/health`. Both call the same code. Every endpoint is in the
 [API reference for the agents](../reference/api/agents.md).
 
-## 4. Draw charts from the numbers
+## 5. Draw charts from the numbers
 
 `agents/common/infrastructure/charts.py` draws SVG charts from lists of numbers,
 never from records: `bar_chart`, `grouped_bar_chart`, `stacked_bar_chart`,
@@ -230,5 +283,8 @@ hospital pages use it.
 | A store reports `{}` | It holds fewer records than the minimum cohort, so `aggregate_only` returned nothing | This is the policy working. Combine without that store, or wait until it has more records |
 | The coordinator's numbers include single records' values | A profile snapshot was sent without the Guard | Send only a Guard decision's payload. A snapshot is for the source itself |
 | A combined mean is wrong | Means were averaged without weighting by count | Weight each source's mean by its `record_count`, as the script does |
+| A site's summary shows an old count after a write | The LMA checks its source's version at most every 30 seconds | Call `POST /api/v1/site/source:refresh` after the write |
+| `404` with "this LMA was started without a site" | The LMA has no `LMA_SITE_ID` and `LMA_CONDITION_ID`, and no `SiteConfig` | Start it for a site |
+| `403` with "a request may not embed a source definition in a dataset sent to a site's LMA" | A request to a site's LMA named a source in `dataset` | Send inline records or the `source_id` of a registered source |
 
 Next: [Step 6: Run a federated round](06-federated-rounds.md).

@@ -19,6 +19,7 @@ import json
 import logging
 import math
 import random
+import threading
 import time
 import uuid
 from typing import Any, NamedTuple, Protocol
@@ -126,19 +127,25 @@ class InMemoryAuditLog:
         self._records: list[AuditRecord] = []
         # The records the last successful check covered, as the same objects.
         self._verified: list[AuditRecord] = []
+        # Agent handlers run in a thread pool. Without the lock, two appends
+        # could read the same last digest and fork the chain.
+        self._lock = threading.Lock()
 
     def append(self, record: AuditRecord) -> AuditRecord:
-        previous = self._records[-1].digest if self._records else ""
-        chained = record.model_copy(update={"previous_digest": previous})
-        chained = chained.model_copy(update={"digest": audit_digest(chained)})
-        self._records.append(chained)
-        return chained
+        with self._lock:
+            previous = self._records[-1].digest if self._records else ""
+            chained = record.model_copy(update={"previous_digest": previous})
+            chained = chained.model_copy(update={"digest": audit_digest(chained)})
+            self._records.append(chained)
+            return chained
 
     def list_recent(self, limit: int = 50) -> list[AuditRecord]:
-        return list(reversed(self._records[-limit:]))
+        with self._lock:
+            return list(reversed(self._records[-limit:]))
 
     def count(self) -> int:
-        return len(self._records)
+        with self._lock:
+            return len(self._records)
 
     def verify_chain(self, full: bool = False) -> bool:
         """Recompute the digest chain and report whether it is intact.
@@ -149,7 +156,8 @@ class InMemoryAuditLog:
         replaced, removed or inserted in the list is caught without
         re-hashing. Otherwise every record is checked, as with ``full=True``.
         """
-        records = list(self._records)
+        with self._lock:
+            records = list(self._records)
         verified = self._verified
         start = 0
         if (
@@ -629,7 +637,13 @@ class EthicalGuard:
         where noise belongs in the pipeline. It is not a calibrated
         differential-privacy mechanism: that needs a privacy accountant and a
         tracked budget, which are separate controls.
+
+        A missing value (``None``) stays ``None`` under every strategy. There
+        is nothing to protect, and ``generalize`` once turned it into
+        ``"Non*"``.
         """
+        if value is None:
+            return None
         if strategy == "allow_full":
             return value
         if strategy == "generalize":

@@ -25,6 +25,23 @@ from agents.common.domain.models import (
     TelemetryPoint,
     TelemetrySummary,
 )
+from pydantic import ConfigDict, Field
+
+from agents.common.domain.base import DagentsModel
+
+
+class DiscardRequest(DagentsModel):
+    """Why a round is given up. The GMA stores the reason on the round."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    reason: str = Field(
+        min_length=1,
+        max_length=500,
+        pattern=r"\S",
+        description="Why the round is given up, in words. 1 to 500 characters, not only spaces. The first reason given is kept.",
+    )
+
 
 __all__ = [
     "AgentIdentity",
@@ -36,6 +53,7 @@ __all__ = [
     "DeploymentSyncRequest",
     "DeploymentSyncResponse",
     "DesiredDeploymentRequest",
+    "DiscardRequest",
     "DispatchedRun",
     "FleetOverview",
     "HeartbeatRequest",

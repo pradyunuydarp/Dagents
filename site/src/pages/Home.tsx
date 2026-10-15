@@ -27,7 +27,11 @@ const STEPS: { title: string; art: StepArtKind; text: string }[] = [
 ];
 
 const PARTS = [
-  { part: "Agents", folder: "agents/", purpose: "The LMA and GMA services" },
+  {
+    part: "Agents",
+    folder: "agents/",
+    purpose: "The LMA and GMA services, and the client and tokens they call each other with"
+  },
   { part: "Planners", folder: "bindings/ocaml/", purpose: "The OCaml decision modules and the dagentsc tool" },
   { part: "Framework services", folder: "services/", purpose: "Core, pipeline and model services, and their Spring Boot versions" },
   { part: "Stroke triage demo", folder: "apps/healthcare-demo/", purpose: "Example application: governance, federated training and per-hospital stores" },
@@ -36,8 +40,10 @@ const PARTS = [
 ];
 
 const STATUS = [
-  "The framework agents keep their state in memory. Storage and messaging sit behind interfaces so they can be replaced later. With a database, the stroke demo keeps each hospital's records in its own Postgres schema; without one, in memory.",
-  "The federation engine is a simulator for tests and demos. Production training would use a dedicated federated learning runtime.",
+  "The agents deliver messages in memory, and the GMA keeps its enrolments and rounds in memory. With a database, an LMA keeps its audit chain and job log in Postgres, and the GMA keeps its model registry and audit chain there. With a database, the stroke demo keeps each hospital's records in its own Postgres schema; without one, in memory.",
+  "The GMA can send each round's jobs to the LMAs over their HTTP APIs and combine training updates through a model kind the application contributes. It is not a secure-aggregation protocol: the GMA sees each site's clipped update. The in-process engine is a simulator for tests and demos.",
+  "The LMA and GMA accept bearer tokens with fixed scopes. The framework services check no identity, so they belong on a private network.",
+  "The stroke demo builds its hospitals' agents and its coordinator from the framework's classes in its own process. It does not call the LMA and GMA APIs yet.",
   "Kubernetes manifests are generated and tested, but are not yet deployed to a cluster in CI.",
   "The stroke demo's store and isolation tests run in CI against PostgreSQL 16. The tests that need the pagila sample database are skipped in CI."
 ];

@@ -8,17 +8,23 @@ errors, and a failed registration leaves nothing behind.
 
 from __future__ import annotations
 
+import math
 import unittest
 
+from agents.common.domain.errors import ModelVerificationError
 from agents.common.domain.federation import GateComparison, ReleaseGate
 from agents.common.domain.governance import DataClassification
 from agents.common.extensions import (
     ConditionPack,
     ExtensionError,
     ExtensionRegistry,
+    ExtensionSummary,
     FeatureContract,
     FeatureField,
+    TrainingOutcome,
+    load_extensions,
 )
+from agents.tests.fixtures import toy_extension as toy
 
 
 class StubExtension:
@@ -193,6 +199,300 @@ class ExtensionRegistryTests(unittest.TestCase):
         self.assertEqual(described["extensions"], [{"extension_id": "demo", "version": "1.0.0"}])
         self.assertEqual(described["classifications"], ["stroke-triage-v1"])
         self.assertEqual(described["condition_packs"][0]["condition_id"], "suspected_stroke")
+
+
+def toy_pack(**overrides) -> ConditionPack:
+    """The toy condition pack, with fields changed for one test."""
+    return toy.TOY_CONDITION.model_copy(update=overrides)
+
+
+class ConditionPackLabelFieldTests(unittest.TestCase):
+    """A pack names the field that holds its label, and the purposes it is approved for."""
+
+    def setUp(self) -> None:
+        self.registry = ExtensionRegistry()
+
+    def test_the_new_fields_default_to_none_and_empty(self) -> None:
+        self.assertIsNone(CONDITION.label_field)
+        self.assertEqual(CONDITION.approved_purposes, [])
+
+    def test_a_label_field_from_the_contract_registers(self) -> None:
+        self.registry.register(toy.ToyExtension())
+        pack = self.registry.condition_pack("toy_condition")
+        self.assertEqual(pack.label_field, "label")
+        self.assertEqual(pack.approved_purposes, ["toy_condition", "toy_research"])
+
+    def test_a_label_field_outside_the_contract_is_rejected(self) -> None:
+        """A label the contract does not define would be read from a field no site has agreed to."""
+        extension = StubExtension(
+            contracts=[toy.TOY_CONTRACT],
+            classifications=[toy.TOY_CLASSIFICATION],
+            conditions=[toy_pack(label_field="not_in_contract")],
+            steps={"left_out": lambda: None},
+        )
+        with self.assertRaises(ExtensionError) as caught:
+            self.registry.register(extension)
+        self.assertIn("not_in_contract", str(caught.exception))
+        self.assertIn("toy_condition", str(caught.exception))
+        self.assertEqual(self.registry.extensions(), [])
+        self.assertIsNone(self.registry.pipeline_step("left_out"))
+
+    def test_the_label_check_reads_a_contract_another_extension_registered(self) -> None:
+        self.registry.register(
+            StubExtension(extension_id="contracts", contracts=[toy.TOY_CONTRACT], classifications=[toy.TOY_CLASSIFICATION])
+        )
+        with self.assertRaises(ExtensionError):
+            self.registry.register(StubExtension(extension_id="bad", conditions=[toy_pack(label_field="x9")]))
+        self.registry.register(StubExtension(extension_id="good", conditions=[toy_pack(label_field="x1")]))
+        self.assertEqual(self.registry.condition_pack("toy_condition").label_field, "x1")
+
+
+class ModelKindRegistrationTests(unittest.TestCase):
+    """Model kinds are typed contributions, keyed by `kind`, with the usual conflict rule."""
+
+    def setUp(self) -> None:
+        self.registry = ExtensionRegistry()
+
+    def test_registration_indexes_model_kinds_and_site_sources(self) -> None:
+        self.registry.register(toy.ToyExtension())
+        self.assertEqual(self.registry.list_model_kinds(), ["toy_linear", "toy_threshold"])
+        self.assertEqual(self.registry.model_kind("toy_linear").version_prefix, "toy-linear")
+        self.assertFalse(self.registry.model_kind("toy_threshold").trainable)
+        self.assertEqual(self.registry.list_site_sources(), ["toy_static"])
+        source = self.registry.site_source("toy_static")(None, "site_role", "site-1")
+        self.assertEqual(source.count(), 30)
+
+    def test_describe_lists_model_kinds_and_site_sources(self) -> None:
+        self.registry.register(toy.ToyExtension())
+        described = self.registry.describe()
+        self.assertEqual(described["model_kinds"], ["toy_linear", "toy_threshold"])
+        self.assertEqual(described["site_sources"], ["toy_static"])
+        self.assertEqual(ExtensionSummary.model_validate(described).model_dump(), described)
+
+    def test_unknown_kinds_and_sources_raise(self) -> None:
+        with self.assertRaises(ExtensionError):
+            self.registry.model_kind("missing")
+        with self.assertRaises(ExtensionError):
+            self.registry.site_source("missing")
+
+    def test_two_extensions_cannot_contribute_one_kind(self) -> None:
+        self.registry.register(toy.ToyExtension())
+        rival = StubExtension(extension_id="rival", steps={"only_in_rival": lambda: None})
+        rival.model_kinds = lambda: [toy.ToyLinearKind()]  # type: ignore[attr-defined]
+        with self.assertRaises(ExtensionError) as caught:
+            self.registry.register(rival)
+        self.assertIn("toy_linear", str(caught.exception))
+        self.assertIsNone(self.registry.pipeline_step("only_in_rival"))
+        self.assertEqual([e.extension_id for e in self.registry.extensions()], ["dagents-toy-extension"])
+
+    def test_two_extensions_cannot_contribute_one_site_source(self) -> None:
+        self.registry.register(toy.ToyExtension())
+        rival = StubExtension(extension_id="rival")
+        rival.site_sources = lambda: {"toy_static": toy.toy_site_source}  # type: ignore[attr-defined]
+        with self.assertRaises(ExtensionError) as caught:
+            self.registry.register(rival)
+        self.assertIn("toy_static", str(caught.exception))
+
+    def test_one_extension_cannot_contribute_a_kind_twice(self) -> None:
+        twice = StubExtension(extension_id="twice")
+        twice.model_kinds = lambda: [toy.ToyLinearKind(), toy.ToyLinearKind()]  # type: ignore[attr-defined]
+        with self.assertRaises(ExtensionError) as caught:
+            self.registry.register(twice)
+        self.assertIn("toy_linear", str(caught.exception))
+        self.assertEqual(self.registry.extensions(), [])
+
+    def test_a_malformed_kind_is_rejected(self) -> None:
+        """A kind the agents would fail to call is refused at registration, not mid-round."""
+
+        class NoCombine(toy.ToyLinearKind):
+            kind = "no_combine"
+            combine = None  # type: ignore[assignment]
+
+        class NoName(toy.ToyThresholdKind):
+            kind = ""
+
+        class NotBool(toy.ToyThresholdKind):
+            kind = "not_bool"
+            trainable = "yes"  # type: ignore[assignment]
+
+        class NoPrefix(toy.ToyLinearKind):
+            kind = "no_prefix"
+            version_prefix = ""
+
+        class NoEvaluate:
+            kind = "no_evaluate"
+            trainable = False
+            version_prefix = "no-evaluate"
+
+            def parameter_digest(self, params):  # noqa: ANN001, ANN201 - test double
+                return "sha256:x"
+
+            def code_digest(self):  # noqa: ANN201 - test double
+                return "sha256:y"
+
+        for kind in (NoCombine(), NoName(), NotBool(), NoPrefix(), NoEvaluate()):
+            with self.subTest(kind=type(kind).__name__):
+                extension = StubExtension(extension_id=f"bad-{type(kind).__name__}")
+                extension.model_kinds = lambda kind=kind: [kind]  # type: ignore[attr-defined]
+                with self.assertRaises(ExtensionError):
+                    self.registry.register(extension)
+        self.assertEqual(self.registry.list_model_kinds(), [])
+
+    def test_a_site_source_must_be_callable(self) -> None:
+        extension = StubExtension(extension_id="bad-source")
+        extension.site_sources = lambda: {"broken": "not a factory"}  # type: ignore[attr-defined]
+        with self.assertRaises(ExtensionError):
+            self.registry.register(extension)
+
+    def test_an_extension_without_the_new_methods_still_registers(self) -> None:
+        self.registry.register(
+            StubExtension(contracts=[CONTRACT], classifications=[CLASSIFICATION], conditions=[CONDITION])
+        )
+        described = self.registry.describe()
+        self.assertEqual(described["model_kinds"], [])
+        self.assertEqual(described["site_sources"], [])
+        self.assertEqual(self.registry.list_model_kinds(), [])
+
+    def test_a_rejected_registration_leaves_no_kind_behind(self) -> None:
+        bad = toy.ToyExtension()
+        bad.condition_packs = lambda: [toy_pack(label_field="nope")]  # type: ignore[method-assign]
+        with self.assertRaises(ExtensionError):
+            self.registry.register(bad)
+        self.assertEqual(self.registry.list_model_kinds(), [])
+        self.assertEqual(self.registry.list_site_sources(), [])
+
+
+class LoadExtensionsTests(unittest.TestCase):
+    """`load_extensions` registers extensions named as `module:attribute`."""
+
+    TOY = "agents.tests.fixtures.toy_extension:ToyExtension"
+    SPARE = "agents.tests.fixtures.toy_extension:SPARE_EXTENSION"
+
+    def setUp(self) -> None:
+        self.registry = ExtensionRegistry()
+
+    def test_a_class_is_instantiated_and_registered(self) -> None:
+        loaded = load_extensions(self.TOY, self.registry)
+        self.assertEqual([e.extension_id for e in loaded], ["dagents-toy-extension"])
+        self.assertEqual(self.registry.list_model_kinds(), ["toy_linear", "toy_threshold"])
+
+    def test_several_specs_with_spaces_register_in_order(self) -> None:
+        loaded = load_extensions(f" {self.TOY} ,{self.SPARE} ", self.registry)
+        self.assertEqual(
+            [e.extension_id for e in loaded], ["dagents-toy-extension", "dagents-spare-extension"]
+        )
+        self.assertEqual(
+            [e.extension_id for e in self.registry.extensions()],
+            ["dagents-toy-extension", "dagents-spare-extension"],
+        )
+
+    def test_an_empty_setting_registers_nothing(self) -> None:
+        self.assertEqual(load_extensions("", self.registry), [])
+        self.assertEqual(load_extensions(" , ", self.registry), [])
+        self.assertEqual(self.registry.extensions(), [])
+
+    def test_malformed_and_missing_specs_raise_extension_errors(self) -> None:
+        for spec in (
+            "agents.tests.fixtures.toy_extension",
+            "agents.tests.fixtures.toy_extension:",
+            ":ToyExtension",
+            "agents.tests.fixtures.no_such_module:ToyExtension",
+            "agents.tests.fixtures.toy_extension:NoSuchExtension",
+        ):
+            with self.subTest(spec=spec):
+                with self.assertRaises(ExtensionError) as caught:
+                    load_extensions(spec, self.registry)
+                self.assertIn(spec.strip(), str(caught.exception))
+        self.assertEqual(self.registry.extensions(), [])
+
+    def test_a_spec_that_fails_to_load_registers_none_of_the_others(self) -> None:
+        with self.assertRaises(ExtensionError):
+            load_extensions(f"{self.TOY},agents.tests.fixtures.toy_extension:Missing", self.registry)
+        self.assertEqual(self.registry.extensions(), [])
+
+    def test_loading_the_same_extension_twice_is_a_conflict(self) -> None:
+        load_extensions(self.TOY, self.registry)
+        with self.assertRaises(ExtensionError):
+            load_extensions(self.TOY, self.registry)
+
+
+class ToyModelKindTests(unittest.TestCase):
+    """The fixture's model kinds behave as the `ModelKind` protocol says.
+
+    The LMA and GMA tests run rounds with these kinds, so their behaviour is
+    pinned here.
+    """
+
+    def setUp(self) -> None:
+        self.kind = toy.ToyLinearKind()
+        self.params = {"bias": 0.1, "w.x1": -0.2, "w.x2": 0.3}
+        self.records = toy.toy_records("site-1", 40)
+
+    def test_the_parameter_digest_is_stable_and_checks_the_names(self) -> None:
+        self.assertEqual(self.kind.parameter_digest(self.params), self.kind.parameter_digest(dict(self.params)))
+        self.assertNotEqual(self.kind.parameter_digest(self.params), self.kind.parameter_digest(self.kind.initial_params()))
+        for bad in (
+            {**self.params, "extra": 1.0},
+            {"bias": 0.1, "w.x1": 0.2},
+            {**self.params, "bias": math.nan},
+            {**self.params, "bias": True},
+            ["bias"],
+        ):
+            with self.subTest(bad=bad):
+                with self.assertRaises(ModelVerificationError):
+                    self.kind.parameter_digest(bad)  # type: ignore[arg-type]
+
+    def test_training_returns_an_update_and_lowers_the_loss(self) -> None:
+        outcome = self.kind.train(self.kind.initial_params(), self.records, "label")
+        self.assertIsInstance(outcome, TrainingOutcome)
+        self.assertEqual(sorted(outcome.update), sorted(self.kind.NAMES))
+        self.assertEqual(outcome.examples, 40)
+        self.assertLess(outcome.metrics["train_loss"], outcome.metrics["start_loss"])
+
+    def test_training_without_labels_sends_no_update(self) -> None:
+        outcome = self.kind.train(self.params, toy.toy_records("site-1", 10, labelled_share=0.0), "label")
+        self.assertIsNone(outcome.update)
+        self.assertEqual(outcome.examples, 0)
+
+    def test_check_update_refuses_unknown_names_and_values_that_are_not_finite(self) -> None:
+        self.assertEqual(self.kind.check_update({"bias": 1, "w.x1": 0.5, "w.x2": -0.5})["bias"], 1.0)
+        for bad in ({"bias": 0.0, "w.x1": 0.0, "w.x2": 0.0, "w.x3": 0.0}, {"bias": math.inf, "w.x1": 0.0, "w.x2": 0.0}):
+            with self.subTest(bad=bad):
+                with self.assertRaises(ValueError):
+                    self.kind.check_update(bad)
+
+    def test_combine_adds_each_weighted_update(self) -> None:
+        first = {"bias": 1.0, "w.x1": 0.0, "w.x2": 2.0}
+        second = {"bias": -1.0, "w.x1": 4.0, "w.x2": 0.0}
+        combined = self.kind.combine(self.params, [(0.25, first), (0.75, second)])
+        self.assertAlmostEqual(combined["bias"], 0.1 + 0.25 - 0.75)
+        self.assertAlmostEqual(combined["w.x1"], -0.2 + 3.0)
+        self.assertAlmostEqual(combined["w.x2"], 0.3 + 0.5)
+        self.assertAlmostEqual(self.kind.parameter_change(combined, self.params), math.sqrt(0.5**2 + 3.0**2 + 0.5**2))
+
+    def test_evaluate_measures_accuracy_on_labelled_records(self) -> None:
+        trained = self.kind.combine(
+            self.kind.initial_params(), [(1.0, self.kind.train(self.kind.initial_params(), self.records, "label").update)]
+        )
+        metrics = self.kind.evaluate(trained, self.records, "label")
+        self.assertGreater(metrics["accuracy"], 0.7)
+        self.assertEqual(metrics["labelled_count"], 40.0)
+
+    def test_the_rule_kind_cannot_train(self) -> None:
+        rule = toy.ToyThresholdKind()
+        self.assertFalse(rule.trainable)
+        self.assertFalse(hasattr(rule, "train"))
+        self.assertIn("accuracy", rule.evaluate({"threshold": 0.0}, self.records, "label"))
+        with self.assertRaises(ModelVerificationError):
+            rule.parameter_digest({"threshold": "high"})
+
+    def test_the_site_source_reports_a_new_version_after_a_write(self) -> None:
+        source = toy.toy_site_source(None, "site_role", "site-2")
+        before = source.version()
+        source.append({"x1": 0.1, "x2": 0.2, "group": "a"})
+        self.assertNotEqual(source.version(), before)
+        self.assertEqual(source.count(), 31)
+        self.assertNotIn("postgresql", repr(source.location()))
 
 
 if __name__ == "__main__":

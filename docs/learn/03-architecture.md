@@ -68,10 +68,20 @@ The planner modules:
 **LMA (local monitoring agent).** One runs at each data source: a hospital, a
 database, a service. It profiles the local data, runs local work, and applies
 governance before data is read, before training, and before anything leaves the
-site.
+site. An LMA started for one site reads that site's records from its own
+source, keeps a running profile of them, reports counts and the rates its
+planner permits, and runs the site's part of each federated round. It keeps a
+log of every job it refused or ran.
 
 **GMA (global monitoring agent).** It registers the LMAs, plans federated rounds,
-combines results, and decides whether a candidate model may be released.
+sends each site its job over the LMA's API, combines results, and decides
+whether a candidate model may be released. It keeps a registry of model
+versions and their status.
+
+The agents call each other only through their HTTP APIs, with bearer tokens of
+fixed scopes. An application can run them as separate processes, or inside its
+own process, where each call still goes through the agent's routes and checks
+without a socket.
 
 Both agents use the same code layout:
 
@@ -82,9 +92,11 @@ Both agents use the same code layout:
 | `adapters/` | Code that talks to specific technologies |
 | `infrastructure/` | Messaging and storage, behind interfaces |
 
-Storage and messaging are in memory today. They sit behind interfaces so they can
-be replaced with a database or a message broker later. The stroke demo already
-keeps each site's records and audit chain in Postgres, as described below.
+Messaging is in memory today, and so are the GMA's enrolments and rounds. With
+a database, an LMA keeps its audit chain and job log in Postgres, and the GMA
+keeps its model registry and its own audit chain there. Each runs every query
+as one database role. The stroke demo keeps each site's records and audit chain
+in Postgres, as described below.
 
 ## Four guard boundaries
 
@@ -104,7 +116,7 @@ flowchart LR
 | `before_train` | LMA | Whether the site may train on the requested fields for this round. Checked when the job is offered. |
 | `before_read` | LMA | Which records and fields the job may read. The job runs on this governed data, not the raw records. |
 | `before_send` | LMA | What may leave the site: a round's result, with its counts, metrics and bounded model update, leaves only when this boundary permits the contribution for the number of records the round used. It bounds the update; it does not inspect each metric. |
-| `before_release` | GMA | Whether a candidate model may be released. The coordinator sends this Guard request itself. The GMA's release evaluation endpoint runs only the gates, not the Guard. |
+| `before_release` | GMA | Whether a candidate model may be released. The GMA's release evaluation runs this Guard request before the gates when the request names a condition pack. A coordinator that runs the round in its own code sends the request itself. |
 
 ## A federated round in Dagents
 
@@ -114,24 +126,41 @@ sequenceDiagram
     participant L as LMA (each site)
     G->>G: Plan: check each site's contract, capabilities and cohort size
     G->>G: Check quorum (enough eligible sites)
-    G->>L: Offer the job with the manifest digest
-    L->>L: Check the digest matches the approved manifest
+    G->>L: Offer the job: the manifest, its digest and the starting model
+    L->>L: Check the digest, the model's digest and its code digest
     L->>L: before_train: may this site train on these fields?
     L-->>G: Accept or decline
     G->>L: Run the job
     L->>L: before_read, then run on the governed records
-    L-->>G: Result, after before_send
-    G->>G: Check whether aggregation may run
+    L->>G: Training round: the clipped update, after before_send, to the update store
+    L-->>G: Result: counts, metrics, the update's size and digest
+    G->>G: Check whether aggregation may run, counting only selected sites
     G->>G: Aggregate into a candidate
-    G->>G: before_release: a separate Guard request about the candidate
+    G->>G: before_release: a Guard request about the candidate
     G->>G: Evaluate the release gates
     G-->>G: Decision: release, another round, or reject
 ```
+
+The GMA sends each call to the LMA over its HTTP API
+(`POST /api/v1/federation/jobs:offer` and `jobs:execute`), and records the
+status of each call with the round. A result counts only when it comes from a
+site the round's plan selected. The planner rejects any other result with the
+reason "site was not selected for this round", and the GMA refuses it with
+`403` when it is posted. A round id can be used once.
 
 Two rules always hold, and both have tests:
 
 1. Aggregation produces a **candidate**, never a release. Release needs the gates to pass.
 2. A release gate whose metric is missing **blocks** the release. It never passes by default.
+
+The planner also decides every change of a model version's status
+(`dagentsc federation model lifecycle`). A version is a `candidate`,
+`released`, `rejected` or `superseded`, and at most one version is released.
+A candidate becomes `rejected` when the gates or the release Guard say no. A
+person's approval releases a candidate only when the stored decision says
+`release`, the Guard permitted it, its metrics came from the study's rounds,
+and the model it was compared with is still the one in use. The GMA's model
+registry applies the planner's answer and keeps no status rule of its own.
 
 The stroke demo runs eight rounds in order: analytics, evaluation of the model in
 use, five training rounds, and validation of the candidate at each hospital.
@@ -213,8 +242,12 @@ An application registers an **extension**. It can contribute:
 
 - feature contracts: the fields each site must provide,
 - data classifications: how sensitive each field is,
-- condition packs: one studied condition with its cohort, approved fields,
-  thresholds and release gates,
+- condition packs: one studied condition with its cohort, its label field, its
+  approved purposes, thresholds and release gates,
+- model kinds: the code that runs a model, so the LMA can train and evaluate
+  it and the GMA can check and combine its updates without importing the
+  application,
+- site sources: how an LMA started from settings reads a site's records,
 - named pipeline steps,
 - named model adapters.
 

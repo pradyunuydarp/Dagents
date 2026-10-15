@@ -8,10 +8,12 @@ an extension:
 |---|---|---|
 | Feature contract | The fields every source agrees to produce, their types and units, and a version | The planner, when it validates records and selects sources for a round |
 | Data classification | How sensitive each field is, which regulations apply, and the smallest group that may be described | The planner, when it decides what a request may see |
-| Condition pack | One study: its purpose, its contract, its classification and its release gates | Your coordinator, when it decides on a release |
+| Condition pack | One study: its purpose, its contract, its classification, its label field, its approved purposes and its release gates | The LMA, which reads the label field and the purposes, and the coordinator or the GMA, when it decides on a release |
 
 An **extension** is a class that hands these objects to Dagents. Your
 application never changes framework code. It registers an extension instead.
+An extension can also contribute **model kinds**: the code that runs your model
+or rule, so that the Dagents agents can run it in a round (section 5).
 
 ## 1. Write the feature contract
 
@@ -52,7 +54,7 @@ FEATURE_CONTRACT = FeatureContract(
 
 - `version` is what sources compare before a round. A store that produces
   `retail-orders-v0` is excluded from a round that needs `retail-orders-v1`
-  (you will see this in [Step 6](06-federated-rounds.md#what-the-gma-does-over-http)).
+  (you will see this in [Step 6](06-federated-rounds.md#post-results-to-the-gma-yourself)).
 - `unit` records what a number means. Two stores that both send `order_value`
   but in different currencies do not produce comparable data.
 - `required=False` marks a field that a record may lack. Here `returned` is
@@ -127,6 +129,9 @@ CONDITION = ConditionPack(
     intended_use="Flag orders that are likely to be returned, so staff can check sizes before dispatch.",
     feature_contract_id="retail-orders",
     classification_id="retail-orders",
+    # The field a model is measured against. An LMA reads it from the pack.
+    label_field="returned",
+    approved_purposes=APPROVED_PURPOSES,
     release_gates=RELEASE_GATES,
     limitations=["The orders in data/ are made up for this example."],
     owner="returns-team",
@@ -135,11 +140,17 @@ CONDITION = ConditionPack(
 
 - **Approved purposes.** Every request declares a purpose, and carries the list
   of approved purposes in `approved_purposes`. The planner denies a request
-  whose purpose is not in that list, whoever asks. Neither the condition pack
-  nor the classification holds this list: your code keeps it in its own
-  configuration (here, `APPROVED_PURPOSES`) and puts it on every
-  `RestrictionRequest`. An empty list turns the purpose check off, so a request
+  whose purpose is not in that list, whoever asks. The condition pack holds the
+  list in `approved_purposes`. An LMA or a GMA started with the pack puts it on
+  every Guard request it builds. Code that builds its own `RestrictionRequest`,
+  such as `StoreSite` in Step 4, puts the list on the request itself (here,
+  `APPROVED_PURPOSES`). An empty list turns the purpose check off, so a request
   sent without the list is not checked for its purpose.
+- **Label field.** `label_field` names the field that holds the outcome a model
+  is measured against, here `returned`. It must be a field of the pack's
+  feature contract; otherwise registration fails. An LMA reads it to measure
+  or train a model in a round, and to decide whether the share of positive
+  labels may leave the site (Step 5).
 - **Release gates.** Each gate names a metric and a threshold. A gate is
   blocking unless you set `blocking=False`. A gate whose metric is missing
   blocks the release. It never passes by default.
@@ -161,6 +172,7 @@ from agents.common.extensions import (
     ConditionPack,
     ExtensionRegistry,
     FeatureContract,
+    ModelKind,
     default_registry,
 )
 
@@ -190,6 +202,10 @@ class ReturnsExtension:
         # A round or a model job can select the rule by this name.
         return {rule.RULE_VERSION: rule.flag}
 
+    def model_kinds(self) -> list[ModelKind]:
+        # An LMA runs the rule in a round through this kind (step 5).
+        return [rule.RuleKind()]
+
 
 def install(registry: ExtensionRegistry | None = None) -> ReturnsExtension:
     """Register the extension once and return it.
@@ -206,22 +222,91 @@ def install(registry: ExtensionRegistry | None = None) -> ReturnsExtension:
     return extension
 ```
 
-An extension contributes five kinds of thing. Return an empty list or dict for
-any you do not need.
+An extension contributes up to seven kinds of thing. Return an empty list or
+dict for any you do not need. The registry reads `model_kinds()` and
+`site_sources()` only when the extension has them, so an extension written
+before they existed still registers.
 
 | Method | Returns | Used by |
 |---|---|---|
 | `feature_contracts()` | `FeatureContract` objects | Validation and round planning |
 | `classifications()` | `DataClassification` objects | Every Guard decision |
-| `condition_packs()` | `ConditionPack` objects | Your release decision |
+| `condition_packs()` | `ConditionPack` objects | The LMA (label field, purposes) and the release decision (gates) |
 | `pipeline_steps()` | Named functions | Your own code, through `registry.pipeline_step(name)` |
 | `model_adapters()` | Named functions | Your own code, through `registry.model_adapter(name)` |
+| `model_kinds()` | `ModelKind` objects | The LMA, to run a round's model; the GMA, to check, combine and register model versions |
+| `site_sources()` | Named factories that build a source's record reader | An LMA started from settings, through `LMA_SITE_SOURCE` |
 
 No framework service calls a contributed pipeline step or model adapter today.
 The pipeline service runs only its six built-in step kinds. The registry keeps
-the names so that your application looks them up in one place.
+the names so that your application looks them up in one place. The LMA and GMA
+do call model kinds and site sources.
 
-## 5. Register it and check your records
+## 5. Contribute a model kind
+
+A **model kind** is the code that runs one kind of model, such as a rule or a
+logistic regression. The Dagents agents never import your model code. An LMA
+runs your model in a round through its kind, and the GMA uses the kind to check
+a model's digest and to combine training updates. The example's rule is a kind
+that cannot be trained:
+
+<!-- source: examples/getting-started/shop/rule.py -->
+```python
+class RuleKind:
+    """The rule as a model kind, so that a store's LMA can run it in a round.
+
+    The extension contributes this kind. Before an LMA reads any order for a
+    job, it checks that the job's parameters have the digest the manifest
+    names, and that the manifest's code digest is this kind's. The rule
+    cannot be trained, so the LMA refuses a training job that names it.
+    """
+
+    kind = "return_check_rule"
+    trainable = False
+    version_prefix = "return-check-rule"
+
+    def parameter_digest(self, params: Mapping[str, Any]) -> str:
+        try:
+            material = json.dumps(dict(params), sort_keys=True, separators=(",", ":"))
+        except (TypeError, ValueError) as error:
+            raise ModelVerificationError("the rule's parameters must be JSON values") from error
+        digest = "sha256:" + hashlib.sha256(material.encode("utf-8")).hexdigest()
+        # This store runs one rule: flag() reads RULE_PARAMETERS, not the job's.
+        if digest != RULE_DIGEST:
+            raise ModelVerificationError(f"this store runs only {RULE_VERSION}")
+        return digest
+
+    def code_digest(self) -> str:
+        # The rule has no training code, so the manifest names the rule's own
+        # digest as its code digest, as the coordinator in step 4 does.
+        return RULE_DIGEST
+
+    def evaluate(self, params: Mapping[str, Any], records: list[Mapping[str, Any]], label_field: str) -> dict[str, float]:
+        self.parameter_digest(params)
+        if label_field != "returned":
+            raise ModelVerificationError("the rule is measured against the returned field")
+        return evaluate(records)
+```
+
+The members of `ModelKind` (`agents/common/extensions/registry.py`):
+
+| Member | Needed by | What it does |
+|---|---|---|
+| `kind`, `trainable`, `version_prefix` | every kind | The kind's name, whether a training round can train it, and the start of a candidate's version (`<version_prefix>+<round_id>`) |
+| `parameter_digest(params)` | every kind | The digest of a model's parameters. Raises `ModelVerificationError` for parameters the kind cannot run |
+| `code_digest()` | every kind | The digest a round manifest's `training_code_digest` must equal |
+| `evaluate(params, records, label_field)` | every kind | Metrics the release gates read, by name |
+| `train(params, records, label_field)` | a trainable kind | Local training on the Guard's payload; returns a `TrainingOutcome` with the update, metrics and example count |
+| `check_update(update)` | a trainable kind | Returns the update as floats; raises `ValueError` for an unknown name or a value that is not finite |
+| `update_digest(update)` | a trainable kind | The digest the site reports and the GMA checks |
+| `combine(params, weighted_updates)` | a trainable kind | Adds each `(weight, update)` pair to the parameters, with the planner's weights |
+| `parameter_change(params, reference)` | a trainable kind | The size of the change between two models, which the release Guard reads |
+
+The registry checks these members when the extension registers, so a malformed
+kind fails at startup and not during a round. Two kinds with the same `kind`
+name are an error, as for every other contribution.
+
+## 6. Register it and check your records
 
 <!-- source: examples/getting-started/step1_register.py -->
 ```python
@@ -277,8 +362,40 @@ your store still checks each record when it is added (Step 3).
 
 ## Registering with the LMA and GMA over HTTP
 
-The LMA and GMA services do not load extensions on their own. If your
-application uses them over HTTP, register the classification at runtime:
+An LMA or a GMA run as its own process loads the extensions named in
+`LMA_EXTENSIONS` or `GMA_EXTENSIONS`: a comma-separated list of
+`module:attribute` names, imported from `PYTHONPATH`. Start an LMA with the
+example's extension:
+
+```bash
+LMA_EXTENSIONS=shop.extension:ReturnsExtension PYTHONPATH=.:examples/getting-started \
+  .venv/bin/uvicorn agents.lma.main:app --port 8010
+```
+
+In a second terminal:
+
+```bash
+curl -s http://127.0.0.1:8010/api/v1/extensions
+```
+
+The LMA lists what the extension contributes:
+
+```json
+{"extensions":[{"extension_id":"example-retail-returns","version":"1.0.0"}],"feature_contracts":[{"contract_id":"retail-orders","version":"retail-orders-v1"}],"classifications":["retail-orders"],"condition_packs":[{"condition_id":"order_returns","display_name":"Orders likely to be returned"}],"pipeline_steps":[],"model_adapters":["return-check-rule-v2"],"model_kinds":["return_check_rule"],"site_sources":[]}
+```
+
+A classification an extension contributes cannot be replaced at runtime. A
+`PUT /api/v1/governance/classifications/retail-orders` with different content
+answers `409`:
+
+```json
+{"detail":"classification retail-orders is contributed by an extension; a runtime registration cannot replace it","code":"conflict"}
+```
+
+The same content again answers `200` and changes nothing.
+
+An agent started without extensions holds no classification. Register one at
+runtime:
 
 ```bash
 PYTHONPATH=.:examples/getting-started .venv/bin/python -c \
@@ -295,8 +412,10 @@ The LMA answers with the classification it stored:
 
 `GET /api/v1/governance/classifications` lists what the agent holds. A request
 to the Guard over HTTP carries its classification in the request body, so your
-client reads it from here or from your own code. The classification endpoints
-are in the API reference, under
+client reads it from here or from your own code. An LMA started for a site, and
+a GMA with condition packs, refuse a request whose classification differs from
+the registered one ([Step 4](04-govern-every-read.md#5-the-guard-over-http)).
+The classification endpoints are in the API reference, under
 [LMA governance](../reference/api/agents.md#lma-governance).
 
 ## What can go wrong
@@ -307,5 +426,8 @@ are in the API reference, under
 | `ExtensionError: extension X redefines classification Y, which another extension already provides` | Two extensions use the same id | Give each contract, classification and condition pack a unique id. Dagents refuses the second one, because otherwise a Guard decision would depend on import order |
 | `ExtensionError: condition pack X references unknown classification Y` | The condition pack names a classification that nobody registered | Register the classification in the same extension, or in one registered earlier |
 | `ExtensionError: unknown classification: Y` when a Guard check runs | The extension was not installed in this process | Call `install()` before the first request |
+| `ExtensionError: condition pack X names label field Y, which is not a field of feature contract Z` | `label_field` is not in the pack's contract | Name a field of the contract, or add the field to the contract |
+| `ExtensionError: model kind X from extension Y lacks train, check_update, ...` | A kind sets `trainable = True` but does not have every member a trainable kind needs | Add the members the message lists, or set `trainable = False` |
+| `409` with "classification X is contributed by an extension; a runtime registration cannot replace it" | A `PUT` tried to change an extension's classification on a running agent | Change the classification in the extension and restart the agent |
 
 Next: [Step 3: Give each source its own store](03-store-per-source.md).

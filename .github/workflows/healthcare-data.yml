@@ -14,8 +14,11 @@ name: Healthcare data
 # Before touching the project, the job prints the project's PostgreSQL version,
 # applies the same migrations to a scratch PostgreSQL 16 service container, as a
 # non-superuser that stands in for Supabase's `postgres` role, and runs the
-# healthcare demo's database tests there: the same test classes the CI
-# `demo-apps` job requires, with the planner built, so none of them may skip.
+# healthcare demo's database tests there. It then runs the framework's database
+# tests on the same container (role scoping, the connection lease, the model
+# store, the LMA job log and the GMA's coordinator wiring). These are the same
+# test classes the CI `demo-apps` job requires, with the planner built, so none
+# of them may skip.
 #
 # Required secret:
 #   SUPABASE_DB_URL  Supabase -> Project settings -> Database -> Connection string
@@ -160,10 +163,32 @@ jobs:
             tests.test_data_source_status \
             2>&1 | tee database-suite.log
 
+      - name: Test the framework's database code on the scratch PostgreSQL 16
+        # The framework's PostgreSQL code. The model store and job log tests
+        # build tables shaped like the demo's coordinator tables. Each test
+        # creates its own scratch database in the service container and drops
+        # it afterwards. The job installs only the demo's requirements, as the
+        # deployed image does.
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+          DAGENTSC_BIN: ${{ github.workspace }}/bindings/ocaml/_build/default/bin/dagentsc.exe
+          DAGENTS_TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
+        run: |
+          set -o pipefail
+          python -m unittest -v \
+            agents.tests.test_postgres_roles \
+            agents.tests.test_postgres_lease \
+            agents.tests.test_model_registry \
+            agents.tests.test_job_log \
+            agents.tests.test_gma_release \
+            2>&1 | tee framework-database.log
+
       - name: Fail if the database tests skipped
         # The same classes the CI demo-apps job requires.
-        # tests/test_ci_guards.py checks that the two lists match.
+        # tests/test_ci_guards.py checks that the lists match. Both logs are
+        # checked before the step fails, so one run reports every problem.
         run: |
+          status=0
           python scripts/ci_no_skipped_tests.py \
             --forbid planner \
             --forbid database \
@@ -183,7 +208,24 @@ jobs:
             --require-ran tests.test_api_postgres.PostgresApiTests \
             --require-ran tests.test_api_postgres.UnmigratedDatabaseApiTests \
             --require-ran tests.test_data_source_status.PostgresStatusTests \
-            apps/healthcare-demo/database-suite.log
+            apps/healthcare-demo/database-suite.log || status=1
+          python scripts/ci_no_skipped_tests.py \
+            --forbid planner \
+            --forbid database \
+            --require-ran agents.tests.test_postgres_roles.ActingAsTests \
+            --require-ran agents.tests.test_postgres_roles.ConnectTests \
+            --require-ran agents.tests.test_postgres_roles.AdapterRoleTests \
+            --require-ran agents.tests.test_postgres_roles.PostgresAuditSinkTests \
+            --require-ran agents.tests.test_postgres_lease.KeptConnectionPostgresTests \
+            --require-ran agents.tests.test_postgres_lease.LeaseErrorTextPostgresTests \
+            --require-ran agents.tests.test_postgres_lease.LeaseAuditSinkPostgresTests \
+            --require-ran agents.tests.test_postgres_lease.SourceAdapterPostgresTests \
+            --require-ran agents.tests.test_model_registry.PostgresModelStoreTests \
+            --require-ran agents.tests.test_model_registry.PostgresModelRegistryTests \
+            --require-ran agents.tests.test_job_log.PostgresJobLogTests \
+            --require-ran agents.tests.test_gma_release.GmaPostgresWiringTests \
+            framework-database.log || status=1
+          exit "${status}"
 
       - name: Apply migrations
         env:

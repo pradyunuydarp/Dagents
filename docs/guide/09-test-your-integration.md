@@ -78,17 +78,17 @@ DAGENTSC_BIN=$PWD/bindings/ocaml/_build/default/bin/dagentsc.exe \
 Expected output, the last lines:
 
 ```text
-Ran 13 tests in 1.091s
+Ran 14 tests in 2.664s
 
 OK
 ```
 
-Without the planner, the six tests that run the example skip:
+Without the planner, the seven tests that run the example skip:
 
 ```text
-Ran 13 tests in 0.219s
+Ran 14 tests in 0.279s
 
-OK (skipped=6)
+OK (skipped=7)
 ```
 
 The run is still green, so CI reads the log with a guard script that fails on
@@ -144,7 +144,7 @@ code that no test checks goes out of date.
 
 | What you see | Why | What to do |
 |---|---|---|
-| `OK (skipped=6)` in CI | The job has no planner | Download or build `dagentsc` in the job and set `DAGENTSC_BIN`; run the guard script so a skip fails |
+| `OK (skipped=7)` in CI | The job has no planner | Download or build `dagentsc` in the job and set `DAGENTSC_BIN`; run the guard script so a skip fails |
 | `this block differs from its source file` | The example changed and the guide did not | Copy the block again from the file |
 | `run the script and paste its output` | The script's output changed | Run the script and replace the output block |
 | A Postgres test class shows no tests run | It skipped in `setUpClass` | Add it to `--require-ran` in your CI |

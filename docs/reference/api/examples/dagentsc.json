@@ -1746,6 +1746,131 @@
    ]
   },
   {
+   "id": "aggregate-readiness-selected",
+   "endpoint": "dagentsc federation aggregate readiness",
+   "title": "Reject a result from a site the plan did not select",
+   "description": "selectedSites is the selection from the round plan above. store-outlet was never selected, so its result is rejected and gets no weight, although it is complete and its jobDigest matches.",
+   "request": {
+    "args": [
+     "federation",
+     "aggregate",
+     "readiness",
+     "--input",
+     "-"
+    ],
+    "stdin": {
+     "manifest": {
+      "roundId": "returns-round-1",
+      "studyId": "returns-pilot",
+      "conditionId": "order_returns",
+      "phase": "evaluation",
+      "modelVersion": "returns-rule-1.0",
+      "modelArtifactDigest": "sha256:4f1c0e9a",
+      "trainingCodeDigest": "sha256:9b27d3e1",
+      "featureContractVersion": "retail-orders-v1",
+      "privacyProfile": "guarded-rows",
+      "aggregation": {
+       "kind": "fedavg"
+      },
+      "minimumParticipants": 2,
+      "minimumCohortPerSite": 20,
+      "requiredCapabilities": [
+       "evaluate"
+      ],
+      "stopConditions": [
+       "schema_failure",
+       "quorum_not_met"
+      ],
+      "invitedSites": [
+       "store-central",
+       "store-east",
+       "store-north",
+       "store-south",
+       "store-west"
+      ]
+     },
+     "results": [
+      {
+       "roundId": "returns-round-1",
+       "siteId": "store-north",
+       "jobDigest": "fnv1a:767d1ad0c4595843",
+       "participation": "completed",
+       "codeVerified": true,
+       "privacyChecksPassed": true,
+       "contributedExamples": 60,
+       "metrics": {
+        "accuracy": 0.86,
+        "recall": 0.74
+       },
+       "localEvidencePointer": "lma://store-north/rounds/returns-round-1"
+      },
+      {
+       "roundId": "returns-round-1",
+       "siteId": "store-south",
+       "jobDigest": "fnv1a:767d1ad0c4595843",
+       "participation": "completed",
+       "codeVerified": true,
+       "privacyChecksPassed": true,
+       "contributedExamples": 40,
+       "metrics": {
+        "accuracy": 0.82,
+        "recall": 0.71
+       },
+       "localEvidencePointer": "lma://store-south/rounds/returns-round-1"
+      },
+      {
+       "roundId": "returns-round-1",
+       "siteId": "store-outlet",
+       "jobDigest": "fnv1a:767d1ad0c4595843",
+       "participation": "completed",
+       "codeVerified": true,
+       "privacyChecksPassed": true,
+       "contributedExamples": 500,
+       "metrics": {
+        "accuracy": 0.99,
+        "recall": 0.98
+       },
+       "localEvidencePointer": "lma://store-outlet/rounds/returns-round-1"
+      }
+     ],
+     "selectedSites": [
+      "store-north",
+      "store-south"
+     ]
+    }
+   },
+   "response": {
+    "exit_code": 0,
+    "status": 0,
+    "headers": {},
+    "body": {
+     "roundId": "returns-round-1",
+     "acceptedSites": [
+      "store-north",
+      "store-south"
+     ],
+     "rejectedContributions": [
+      {
+       "siteId": "store-outlet",
+       "reason": "site was not selected for this round"
+      }
+     ],
+     "acceptedExamples": 100,
+     "aggregationPermitted": true,
+     "stopReason": null,
+     "siteWeights": {
+      "store-north": 0.6,
+      "store-south": 0.4
+     }
+    },
+    "stderr": "",
+    "trimmed": []
+   },
+   "planner_calls": [
+    "federation aggregate readiness"
+   ]
+  },
+  {
    "id": "release-evaluate",
    "endpoint": "dagentsc federation release evaluate",
    "title": "Evaluate three release gates, one with a missing metric",
@@ -1842,6 +1967,278 @@
    },
    "planner_calls": [
     "federation release evaluate"
+   ]
+  },
+  {
+   "id": "lifecycle-register-first",
+   "endpoint": "dagentsc federation model lifecycle",
+   "title": "Register the first version as the release",
+   "description": "No version is released yet, so the version may start as the release.",
+   "request": {
+    "args": [
+     "federation",
+     "model",
+     "lifecycle",
+     "--input",
+     "-"
+    ],
+    "stdin": {
+     "version": "returns-rule-1.0",
+     "event": {
+      "kind": "registered",
+      "requestedStatus": "released"
+     }
+    }
+   },
+   "response": {
+    "exit_code": 0,
+    "status": 0,
+    "headers": {},
+    "body": {
+     "allowed": true,
+     "refusal": null,
+     "reason": "returns-rule-1.0 is registered as released, because no version is released",
+     "statusChanges": [
+      {
+       "version": "returns-rule-1.0",
+       "fromStatus": null,
+       "toStatus": "released"
+      }
+     ]
+    },
+    "stderr": "",
+    "trimmed": []
+   },
+   "planner_calls": [
+    "federation model lifecycle"
+   ]
+  },
+  {
+   "id": "lifecycle-aggregated",
+   "endpoint": "dagentsc federation model lifecycle",
+   "title": "Record the candidate a training round produced",
+   "description": "The round started from a candidate, so that candidate is superseded.",
+   "request": {
+    "args": [
+     "federation",
+     "model",
+     "lifecycle",
+     "--input",
+     "-"
+    ],
+    "stdin": {
+     "version": "returns-logreg+returns-train-2",
+     "event": {
+      "kind": "aggregated",
+      "parentVersion": "returns-logreg+returns-train-1",
+      "parentStatus": "candidate"
+     }
+    }
+   },
+   "response": {
+    "exit_code": 0,
+    "status": 0,
+    "headers": {},
+    "body": {
+     "allowed": true,
+     "refusal": null,
+     "reason": "returns-logreg+returns-train-2 is a candidate; returns-logreg+returns-train-1, the candidate it was trained from, is superseded",
+     "statusChanges": [
+      {
+       "version": "returns-logreg+returns-train-1",
+       "fromStatus": "candidate",
+       "toStatus": "superseded"
+      },
+      {
+       "version": "returns-logreg+returns-train-2",
+       "fromStatus": null,
+       "toStatus": "candidate"
+      }
+     ]
+    },
+    "stderr": "",
+    "trimmed": []
+   },
+   "planner_calls": [
+    "federation model lifecycle"
+   ]
+  },
+  {
+   "id": "lifecycle-release-evaluated",
+   "endpoint": "dagentsc federation model lifecycle",
+   "title": "Reject a candidate the gates did not release",
+   "description": "The gates decided another_round, so the candidate is rejected.",
+   "request": {
+    "args": [
+     "federation",
+     "model",
+     "lifecycle",
+     "--input",
+     "-"
+    ],
+    "stdin": {
+     "version": "returns-logreg+returns-train-2",
+     "event": {
+      "kind": "release_evaluated",
+      "status": "candidate",
+      "action": "another_round",
+      "guardPermitted": true
+     }
+    }
+   },
+   "response": {
+    "exit_code": 0,
+    "status": 0,
+    "headers": {},
+    "body": {
+     "allowed": true,
+     "refusal": null,
+     "reason": "returns-logreg+returns-train-2 is rejected, because the release gates decided another_round",
+     "statusChanges": [
+      {
+       "version": "returns-logreg+returns-train-2",
+       "fromStatus": "candidate",
+       "toStatus": "rejected"
+      }
+     ]
+    },
+    "stderr": "",
+    "trimmed": []
+   },
+   "planner_calls": [
+    "federation model lifecycle"
+   ]
+  },
+  {
+   "id": "lifecycle-approve",
+   "endpoint": "dagentsc federation model lifecycle",
+   "title": "Approve a candidate",
+   "description": "The gates decided release from the rounds' metrics, the release Guard permitted it, and the model it was compared with is still released.",
+   "request": {
+    "args": [
+     "federation",
+     "model",
+     "lifecycle",
+     "--input",
+     "-"
+    ],
+    "stdin": {
+     "version": "returns-logreg+returns-train-2",
+     "event": {
+      "kind": "approval_requested",
+      "status": "candidate",
+      "decision": {
+       "action": "release",
+       "guardPermitted": true,
+       "metricsSource": "rounds",
+       "baselineVersion": "returns-rule-1.0"
+      },
+      "releasedVersion": "returns-rule-1.0"
+     }
+    }
+   },
+   "response": {
+    "exit_code": 0,
+    "status": 0,
+    "headers": {},
+    "body": {
+     "allowed": true,
+     "refusal": null,
+     "reason": "returns-logreg+returns-train-2 is released; returns-rule-1.0 is superseded",
+     "statusChanges": [
+      {
+       "version": "returns-logreg+returns-train-2",
+       "fromStatus": "candidate",
+       "toStatus": "released"
+      },
+      {
+       "version": "returns-rule-1.0",
+       "fromStatus": "released",
+       "toStatus": "superseded"
+      }
+     ]
+    },
+    "stderr": "",
+    "trimmed": []
+   },
+   "planner_calls": [
+    "federation model lifecycle"
+   ]
+  },
+  {
+   "id": "lifecycle-approve-baseline-changed",
+   "endpoint": "dagentsc federation model lifecycle",
+   "title": "Refuse an approval after the released model changed",
+   "description": "The candidate was compared with returns-rule-1.0, but returns-rule-1.1 is released now. A refusal is a normal answer, so the exit code is 0.",
+   "request": {
+    "args": [
+     "federation",
+     "model",
+     "lifecycle",
+     "--input",
+     "-"
+    ],
+    "stdin": {
+     "version": "returns-logreg+returns-train-2",
+     "event": {
+      "kind": "approval_requested",
+      "status": "candidate",
+      "decision": {
+       "action": "release",
+       "guardPermitted": true,
+       "metricsSource": "rounds",
+       "baselineVersion": "returns-rule-1.0"
+      },
+      "releasedVersion": "returns-rule-1.1"
+     }
+    }
+   },
+   "response": {
+    "exit_code": 0,
+    "status": 0,
+    "headers": {},
+    "body": {
+     "allowed": false,
+     "refusal": "baseline_changed",
+     "reason": "returns-logreg+returns-train-2 was checked against returns-rule-1.0, but returns-rule-1.1 is now in use. Run the pilot again.",
+     "statusChanges": []
+    },
+    "stderr": "",
+    "trimmed": []
+   },
+   "planner_calls": [
+    "federation model lifecycle"
+   ]
+  },
+  {
+   "id": "lifecycle-unknown-event",
+   "endpoint": "dagentsc federation model lifecycle",
+   "title": "An event kind the planner does not know",
+   "request": {
+    "args": [
+     "federation",
+     "model",
+     "lifecycle",
+     "--input",
+     "-"
+    ],
+    "stdin": {
+     "version": "returns-logreg+returns-train-2",
+     "event": {
+      "kind": "deployed"
+     }
+    }
+   },
+   "response": {
+    "exit_code": 2,
+    "status": 2,
+    "headers": {},
+    "body": "",
+    "stderr": "Fatal error: exception Invalid_argument(\"Unknown lifecycle event: deployed\")",
+    "trimmed": []
+   },
+   "planner_calls": [
+    "federation model lifecycle"
    ]
   }
  ]

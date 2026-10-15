@@ -59,7 +59,7 @@ Responsibilities:
 - invoke supporting product services or adapters
 - publish model outputs, summaries, and artifact pointers to GMA or downstream systems
 
-Current in-memory implementation includes:
+Current implementation includes:
 
 - health endpoint
 - bundle deployment endpoint
@@ -67,6 +67,15 @@ Current in-memory implementation includes:
 - source dataset profiling endpoint
 - source model execution endpoint
 - local bundle, model-run, and run inspection endpoints
+- the Guard (`restrictions:plan`, `restrictions:enforce`) and its audit log
+- for an LMA started for one site (`LMA_SITE_ID`, `LMA_CONDITION_ID`): the site's
+  description and summary (counts, and a label rate only when the site's
+  planner permits it), its running profile, the Guard probe, the audit chain
+  summary, the model in use, and the federated job routes (registration, offer,
+  execute, job log). A site's LMA reads records only from its configured source
+  and refuses request-supplied databases, roles, credentials and SQL
+
+`agents/lma/README.md` lists the settings and routes.
 
 ### GMA Responsibilities
 
@@ -82,7 +91,7 @@ Responsibilities:
 - correlate cross-source incidents and patterns
 - prepare actionable outputs for downstream orchestration or case-management systems
 
-Current in-memory implementation includes:
+Current implementation includes:
 
 - registration endpoint
 - deployment planning and sync endpoints
@@ -90,6 +99,15 @@ Current in-memory implementation includes:
 - aggregate model execution endpoint
 - run dispatch tracking
 - in-memory storage of agent registrations and model-run history
+- federated sites and rounds: enrolment (also from each LMA's own registration),
+  round planning and dispatch, results, readiness, aggregation, discard and
+  release evaluation; with `GMA_ENGINE=http`, jobs go to the LMAs over their
+  HTTP API and training updates go to a write-only update store
+- a model registry (`/model-versions`): registration, the released model with
+  an `ETag`, and approval, with every status change decided by the planner's
+  lifecycle rule; in memory or in Postgres
+
+`agents/gma/README.md` lists the settings and routes.
 
 ## Shared Run Flow
 
@@ -103,6 +121,14 @@ The intended operating flow across the framework is:
 6. GMA runs aggregate models over assimilated datasets.
 7. Core service generates Kubernetes manifests for the required workloads.
 8. Downstream orchestration systems apply manifests and consume model outcomes.
+
+A federated round follows its own flow: the GMA plans the round with the
+planner, offers each selected LMA its job (`jobs:offer`), asks it to run it
+(`jobs:execute`), collects the results and any clipped training updates,
+asks the planner whether the results may be combined, and makes a candidate.
+The release Guard, the release gates and a person's approval decide whether
+the candidate is released. `docs/agents/lma-gma-architecture.md` shows the
+calls.
 
 ## Layering Conventions
 
@@ -240,7 +266,12 @@ Implemented framework capabilities currently include:
 - federated round control: signed round manifests, site eligibility, quorum, aggregation
   readiness, and release gates, with an adapter seam for a specialist federated runtime
 - a consumer extension registry, so an app contributes feature contracts, data classifications,
-  condition packs, pipeline steps, and model adapters without forking the framework
+  condition packs, model kinds, site sources, pipeline steps, and model adapters without forking
+  the framework
+- calls between agents through one client (`agents/common/infrastructure/agent_client.py`), in
+  one process through `httpx.ASGITransport` or over HTTP, with bearer tokens of fixed scopes
+  (`agent_auth.py`: LMA `site` and `coordinator`, GMA `admin` and a per-site `site` token) and
+  typed `{detail, code}` errors that never hold a host, a token or a connection string
 - separate Docker images for `lma`, `gma`, `core-service`, `model-service`, and `pipeline-service`;
   every image whose service calls the planner contains `dagentsc`, and
   `tests/test_planner_in_images.py` checks the Dockerfiles for it
@@ -266,8 +297,10 @@ Implemented framework capabilities currently include:
 
 Deliberately **not** implemented, and named so nobody assumes otherwise:
 
-- a federated optimizer or secure-aggregation protocol; `FederationEngine` is an adapter seam and
-  the bundled engine is an in-process simulator
+- a federated optimizer or secure-aggregation protocol; `FederationEngine` is an adapter seam,
+  the in-process engine is a simulator, and the GMA's HTTP engine moves jobs and clipped updates
+  but sees each site's update and combines updates only through the model kind an application
+  contributes
 - differential privacy accounting; the Guard's noise strategy shows where a mechanism belongs, and
   a privacy budget is separate work
 - cryptographic signing; round digests detect drift and carry no authenticity guarantee
@@ -342,7 +375,8 @@ Preferred integration pattern:
 - `lma` calls the OCaml dataset compiler and model router for source-level runs, and the
   governance compiler before reading, training on, or sending anything
 - `gma` calls the same OCaml modules for assimilated-data planning, plus the federation compiler
-  for round planning, quorum, aggregation readiness, and release gates
+  for round planning, quorum, aggregation readiness, release gates, and every change of a model
+  version's status
 
 This keeps failure isolation, upgrade independence, explicit contracts, and simpler Kubernetes deployment.
 

@@ -50,7 +50,8 @@ its own, and keeps the Kubernetes deployment simple.
 
 ```text
 agents/
-  common/        shared domain contracts + dagents_runner (the dagentsc bridge)
+  common/        shared domain contracts, the extension registry, dagents_runner (the dagentsc
+                 bridge), and agent_client and agent_auth (how agents call each other)
   lma/           Local Monitoring Agent service
   gma/           Global Monitoring Agent service
   tests/         agent + control-plane + runner tests
@@ -173,12 +174,14 @@ admin login:
 
 ```bash
 export HEALTHCARE_DEMO_TEST_DATABASE_URL=postgresql://admin:pw@127.0.0.1:5432/postgres  # healthcare suite
-export DAGENTS_TEST_DATABASE_URL=postgresql://admin:pw@127.0.0.1:5432/postgres          # agents/tests/test_postgres_roles.py
+export DAGENTS_TEST_DATABASE_URL=postgresql://admin:pw@127.0.0.1:5432/postgres          # agents/tests: role scoping, the lease, the model store, the job log, the GMA's Postgres wiring
 ```
 
 Without them these tests skip with a message that starts `database test
 skipped`. The in-memory store runs the same assertions without a database, so
-both store implementations are tested.
+both store implementations are tested. The same holds for the agents' twins:
+`InMemoryModelStore` and `PostgresModelStore`, `InMemoryJobLog` and
+`PostgresJobLog` each run one shared suite.
 
 ### CI
 
@@ -574,7 +577,11 @@ Governance follows the same split as the rest of the code:
   includes the digest of the previous record.
 - **Policy** is configuration: a `DataClassification` contributed by an
   extension or registered at runtime. Changing a field's sensitivity changes no
-  code path.
+  code path. A runtime registration cannot replace an extension's
+  classification (`ClassificationConflict`, `409`), and an LMA started for a
+  site or a GMA with condition packs runs strict: it refuses a request whose
+  inline classification differs from the registered one. Never let a caller
+  choose the policy a request is checked against.
 
 The Guard **fails closed**. If the planner cannot be reached, it denies the
 request and records the denial. Never add a fallback that permits a request when
@@ -625,24 +632,41 @@ login and database; the store reads an optional per-site connection string,
 ### Federated rounds
 
 `bindings/ocaml/lib/federation_compiler` makes every deterministic decision:
-eligibility, quorum, aggregation readiness and release gates.
+eligibility, quorum, aggregation readiness (which counts only the sites the
+plan selected), release gates, and every change of a model version's status
+(`dagentsc federation model lifecycle`).
 `agents/common/application/federation.py` holds state and side effects and calls
-the planner for the rest. Do not write a planning rule again in Python.
+the planner for the rest; the GMA's model registry
+(`agents/gma/application/model_registry.py`) applies the lifecycle answer and
+keeps no status rule of its own. Do not write a planning rule again in Python.
 
 The federated protocol belongs to a dedicated runtime behind `FederationEngine`.
 The in-process engine is a simulator for tests and demos; do not turn it into a
-federated optimizer.
+federated optimizer. The GMA's HTTP engine
+(`agents/gma/adapters/http_federation_engine.py`) moves jobs to the LMAs and
+holds clipped updates until aggregation; how updates are combined comes from
+the model kind an extension contributes (`ModelKind.combine`), so no averaging
+rule lives in `agents/`.
 
 Two rules always hold, and both have tests: aggregation produces a candidate,
 never a release; and a release gate whose metric is missing blocks the release.
+The controller also refuses a reused round id, a result from a site the plan
+did not select, a second aggregate or release decision for a round, and, with
+the HTTP engine, any posted result. Only a GMA whose engine collected the
+results itself records `metrics_source: rounds`, the one value an approval
+accepts.
 
 ### Extending the framework from an application
 
 An application contributes through `agents/common/extensions`, never by patching
 the framework. An extension supplies feature contracts, data classifications,
-condition packs, named pipeline steps and named model adapters. Registration is
+condition packs (with their label field and approved purposes), model kinds
+(how the LMA trains and evaluates a model and how the GMA checks and combines
+its updates), site sources (how an LMA started from settings reads a site's
+records), named pipeline steps and named model adapters. Registration is
 explicit, and two extensions registering the same id is an error, because
-otherwise a guard decision would depend on import order.
+otherwise a guard decision would depend on import order. The LMA and GMA load
+extensions named in `LMA_EXTENSIONS` and `GMA_EXTENSIONS`.
 
 `apps/healthcare-demo/backend/app/extension.py` is the reference: about a
 hundred declarative lines that import no framework internals. If a new application needs
@@ -661,10 +685,11 @@ The two demos show the boundary:
 - Healthcare: the app owns its clinical feature contract, the dataset extract,
   the per-hospital stores, the scoring rule, the logistic regression model and
   its parameter-averaging runtime, the FHIR mapping and the intended-use
-  statement. Dagents owns governance, federation, role scoping
-  (`postgres_roles.py`), the running profile, the chart renderer and everything
-  else generic. See `apps/healthcare-demo/backend/app/extension.py` for the
-  extension.
+  statement. Dagents owns governance, federation (including the LMA and GMA
+  APIs, job dispatch, the update store, the model registry and approval), role
+  scoping (`postgres_roles.py`), the running profile, the chart renderer and
+  everything else generic. See `apps/healthcare-demo/backend/app/extension.py`
+  for the extension.
 
 Nothing in `agents/` knows what a stroke is, and nothing in the healthcare app
 implements a quorum rule. Apply that test to a new capability: if it would need a
@@ -688,9 +713,18 @@ The `writing` skill has the full rules, with examples.
 
 ## Current state
 
-The agents deliver messages in memory. Health and control endpoints come first;
-messaging and storage sit behind interfaces, and broker-backed infrastructure is
-deferred.
+The agents deliver messages in memory, and broker-backed messaging is deferred.
+An LMA can serve one site (its records, profile, Guard probe, federated jobs and
+job log), and a GMA can dispatch rounds to the LMAs over HTTP, keep model
+versions and handle approvals. They call each other through
+`agents/common/infrastructure/agent_client.py`, in one process through
+`httpx.ASGITransport` or over HTTP, with bearer tokens of fixed scopes
+(`agent_auth.py`). With a database, an LMA keeps its audit chain and job log in
+Postgres and the GMA keeps its model registry and audit chain there; the GMA's
+enrolments, rounds and pending updates stay in memory. The getting-started
+example's `step5_agents_over_http.py` runs a round this way. The healthcare demo
+does not use these agent APIs yet: it builds its hospitals and coordinator from
+the framework's classes in its own process.
 
 Open work is in `TODO.md`. The main item is live Kubernetes validation on
 Minikube, which is blocked on local Docker Desktop disk space (see `CHANGES.md`).

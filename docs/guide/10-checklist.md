@@ -43,8 +43,10 @@ Check each item before your application handles real data.
 **Deployment and tests**
 
 - [ ] `dagentsc` is on `PATH` in every container that decides.
-- [ ] The agents and services run on a private network or behind a gateway
-      that authenticates callers. They check no identity themselves.
+- [ ] The LMA and GMA run with tokens and `LMA_REQUIRE_TOKENS=1` /
+      `GMA_REQUIRE_TOKENS=1`. The framework services check no identity, so
+      they run on a private network or behind a gateway that authenticates
+      callers.
 - [ ] No URL or port is written in the code.
 - [ ] Governance and federation tests run against the real planner, and CI fails on a skip.
 - [ ] Both store implementations pass the same tests.

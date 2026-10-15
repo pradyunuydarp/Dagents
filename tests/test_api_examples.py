@@ -160,6 +160,7 @@ class ApiExampleFileTests(unittest.TestCase):
                 with self.subTest(service=service, example=want["id"]):
                     self.assertEqual(want["endpoint"], have["endpoint"])
                     self.assertEqual(want.get("title"), have.get("title"))
+                    self.assertEqual(want.get("app"), have.get("app"), "the example's app changed; capture again")
                     expected_request = dict(want["request"])
                     if service != capture.PLANNER:
                         expected_request = {"method": want["endpoint"].split()[0], **expected_request}
@@ -215,6 +216,76 @@ class ApiExampleFileTests(unittest.TestCase):
                         self.assertEqual(
                             [], schema_errors(response["body"], documented["schema"], schemas, strict=False)
                         )
+
+
+class ApiExampleAppTests(unittest.TestCase):
+    """An example can run against an app its request file names, instead of the service's own app."""
+
+    def test_every_named_app_is_declared_and_importable_from_its_path(self) -> None:
+        for path in capture.request_files():
+            document = capture.load_requests(capture.service_of(path))
+            apps = document.get("apps") or {}
+            for name, entry in apps.items():
+                with self.subTest(service=document["service"], app=name):
+                    self.assertRegex(entry["app"], r"^[A-Za-z_][\w.]*:[A-Za-z_]\w*$")
+                    for directory in entry.get("pythonpath", []):
+                        self.assertTrue((REPO_ROOT / directory).is_dir(), f"{directory} is not a directory")
+            for example in document["examples"]:
+                if "app" in example:
+                    with self.subTest(service=document["service"], example=example["id"]):
+                        self.assertIn(example["app"], apps)
+
+    def test_an_example_naming_an_undeclared_app_is_refused(self) -> None:
+        document = {
+            "service": "lma",
+            "examples": [
+                {"id": "x", "app": "missing", "endpoint": "GET /api/v1/health", "request": {"path": "/api/v1/health"}}
+            ],
+        }
+        with self.assertRaisesRegex(ValueError, "missing"):
+            capture.check_apps("lma.requests.json", document)
+
+    def test_an_example_runs_against_the_app_it_names(self) -> None:
+        import tempfile
+        import textwrap
+
+        with tempfile.TemporaryDirectory() as directory:
+            Path(directory, "override_app_for_test.py").write_text(
+                textwrap.dedent(
+                    """
+                    from fastapi import FastAPI
+
+                    def build():
+                        app = FastAPI()
+
+                        @app.get("/api/v1/health")
+                        def health():
+                            return {"status": "ok", "agent_type": "override"}
+
+                        return app
+                    """
+                ),
+                encoding="utf-8",
+            )
+            document = {
+                "service": "lma",
+                "apps": {"other": {"app": "override_app_for_test:build", "pythonpath": [directory]}},
+                "examples": [
+                    {"id": "plain", "endpoint": "GET /api/v1/health", "request": {"path": "/api/v1/health"}},
+                    {
+                        "id": "named",
+                        "app": "other",
+                        "endpoint": "GET /api/v1/health",
+                        "request": {"path": "/api/v1/health"},
+                    },
+                ],
+            }
+            service = next(entry for entry in capture.inventory.PYTHON_SERVICES if entry.name == "lma")
+            results = capture.run_fastapi(service, document)
+        self.assertEqual("LMA", results[0]["response"]["body"]["agent_type"])
+        self.assertNotIn("app", results[0])
+        self.assertEqual("override", results[1]["response"]["body"]["agent_type"])
+        self.assertEqual("other", results[1]["app"])
 
 
 def planner_available() -> bool:

@@ -126,8 +126,14 @@ audit.
   drift detection and stable round identity — explicitly not a signature.
 - `compile_round_plan`: site eligibility and quorum, with a recorded reason for every exclusion.
 - `evaluate_aggregation_readiness`: which contributions may enter an aggregate, and the FedAvg
-  weights, reported rather than applied.
+  weights, reported rather than applied. Given the round plan's selection (`Selected sites`), it
+  rejects a result from any other site with the reason "site was not selected for this round";
+  that result counts toward neither the quorum nor the weights. `Unchecked` skips the check.
 - `evaluate_release`: release gates against a candidate's metrics.
+- `decide_model_lifecycle`: the status changes that follow one event on a model version
+  (`registered`, `aggregated`, `release_evaluated`, `approval_requested`), or the refusal and its
+  reason. A version is a candidate, released, rejected or superseded. A model registry applies
+  the answer and keeps no status rule of its own.
 
 Two behaviours matter most. A secure aggregation threshold raises the minimum number of
 participants above the manifest's stated minimum, because the threshold is what stops the
@@ -135,7 +141,12 @@ coordinator from seeing any single site's update. And a gate whose metric the ca
 reported is `GateNotEvaluated`, not a pass, so leaving out a subgroup measurement cannot get an
 unevaluated model released.
 
-The module's main rule: aggregation produces a candidate, never a release.
+The module's main rule: aggregation produces a candidate, never a release. The lifecycle rule
+holds it: an aggregated version is always a candidate, and only an `approval_requested` event can
+release one. An approval is refused, in this order, when the version has no release decision, the
+gates did not decide `release`, the release Guard did not permit it, the gate metrics did not come
+from the rounds, the version is not a candidate, or the model the gates compared it with is no
+longer the released one.
 
 ## CLI Surface
 
@@ -157,11 +168,14 @@ dagentsc governance restrict --input request.json
 dagentsc governance assess --input requester.json
 dagentsc federation round plan --input '{"manifest": {...}, "registrations": [...]}'
 dagentsc federation round digest --input '{"manifest": {...}}'
-dagentsc federation aggregate readiness --input '{"manifest": {...}, "results": [...]}'
+dagentsc federation aggregate readiness --input '{"manifest": {...}, "results": [...], "selectedSites": [...]}'
 dagentsc federation release evaluate --input '{"gates": [...], "candidateMetrics": {...}}'
+dagentsc federation model lifecycle --input '{"version": "...", "event": {"kind": "approval_requested", ...}}'
 ```
 
 Use `--input -`, `--records -`, or similar flags to read JSON from stdin.
+
+`--input` takes a file name or `-`; the inline JSON above shows the shape of the input.
 
 ## Data-Engineering API Shape
 
@@ -205,6 +219,52 @@ Quality rules:
 ]
 ```
 
+Aggregation readiness with the round plan's selection (`selectedSites` is optional; without it
+the selection is not checked):
+
+```json
+{
+  "manifest": { "roundId": "returns-round-1", "...": "..." },
+  "results": [
+    { "roundId": "returns-round-1", "siteId": "store-north", "participation": "completed", "...": "..." }
+  ],
+  "selectedSites": ["store-north", "store-south"]
+}
+```
+
+Model lifecycle, an approval:
+
+```json
+{
+  "version": "returns-logreg+returns-train-2",
+  "event": {
+    "kind": "approval_requested",
+    "status": "candidate",
+    "decision": {
+      "action": "release",
+      "guardPermitted": true,
+      "metricsSource": "rounds",
+      "baselineVersion": "returns-rule-1.0"
+    },
+    "releasedVersion": "returns-rule-1.0"
+  }
+}
+```
+
+and its answer:
+
+```json
+{
+  "allowed": true,
+  "refusal": null,
+  "reason": "returns-logreg+returns-train-2 is released; returns-rule-1.0 is superseded",
+  "statusChanges": [
+    { "version": "returns-logreg+returns-train-2", "fromStatus": "candidate", "toStatus": "released" },
+    { "version": "returns-rule-1.0", "fromStatus": "released", "toStatus": "superseded" }
+  ]
+}
+```
+
 Transform operations:
 
 ```json
@@ -234,6 +294,13 @@ not permission:
 | site `enrolled` | `false` | taking part has to be stated, never inferred from a record existing |
 | gate `blocking` | `true` | a gate whose severity nobody stated is not advisory |
 | round `phase` | `analytics` | the phase that moves the least |
+| lifecycle `requestedStatus` | `candidate` | a registration that does not ask for a release does not get one |
+| lifecycle `guardPermitted` | `false` | a release Guard verdict nobody recorded is not a permit |
+| decision `metricsSource` | `unrecorded` | only metrics from the rounds can lead to an approval |
+
+One optional key is not a cautious default: readiness without `selectedSites` does not check the
+selection, so inputs written before the key existed give the same answer. A caller that has the
+round plan should send its `selectedSites`.
 
 ## Extension Guidelines
 

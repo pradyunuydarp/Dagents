@@ -124,37 +124,46 @@ let compile_round_plan manifest registrations =
 let contribution_bound manifest =
   match manifest.aggregation with SecureAggregation _ -> Some 10.0 | FedAvg | FedProx _ | FedOpt _ -> None
 
-(** Decide whether one returned contribution may enter the aggregate. *)
-let contribution_failure manifest result =
-  let expected_digest = round_digest manifest in
-  match result.participation with
-  | SiteRejected -> Some "site rejected the job"
-  | SiteFailed -> Some "site reported a failed run"
-  | SiteDropped -> Some "site dropped out of the round"
-  | SiteAccepted -> Some "site accepted the job but has not completed it"
-  | SiteCompleted ->
-      if result.result_round_id <> manifest.round_id then Some "result belongs to a different round"
-      else if result.result_job_digest <> expected_digest then
-        Some "returned job digest does not match the round manifest"
-      else if not result.code_verified then Some "site did not verify the training code digest"
-      else if not result.privacy_checks_passed then Some "site privacy checks did not pass"
-      else if result.contributed_examples < manifest.minimum_cohort_per_site then
-        Some
-          (Printf.sprintf "contributed %d examples, below the per-site minimum %d" result.contributed_examples
-             manifest.minimum_cohort_per_site)
-      else (
-        match (contribution_bound manifest, result.update_norm) with
-        | Some bound, Some norm when norm > bound ->
-            Some (Printf.sprintf "update norm %g exceeds the permitted bound %g" norm bound)
-        | Some _, None -> Some "update norm is required under a secure-aggregation profile"
-        | _ -> None)
+(** Whether the round plan selected this site. [Unchecked] selects every site. *)
+let site_selected selection site_id =
+  match selection with Unchecked -> true | Selected sites -> List.mem site_id sites
 
-let evaluate_aggregation_readiness manifest results =
+(** Decide whether one returned contribution may enter the aggregate.
+
+    The selection is checked first, so a site that was never part of the round
+    is reported as such whatever else its result says. *)
+let contribution_failure selection manifest result =
+  let expected_digest = round_digest manifest in
+  if not (site_selected selection result.result_site_id) then Some "site was not selected for this round"
+  else
+    match result.participation with
+    | SiteRejected -> Some "site rejected the job"
+    | SiteFailed -> Some "site reported a failed run"
+    | SiteDropped -> Some "site dropped out of the round"
+    | SiteAccepted -> Some "site accepted the job but has not completed it"
+    | SiteCompleted ->
+        if result.result_round_id <> manifest.round_id then Some "result belongs to a different round"
+        else if result.result_job_digest <> expected_digest then
+          Some "returned job digest does not match the round manifest"
+        else if not result.code_verified then Some "site did not verify the training code digest"
+        else if not result.privacy_checks_passed then Some "site privacy checks did not pass"
+        else if result.contributed_examples < manifest.minimum_cohort_per_site then
+          Some
+            (Printf.sprintf "contributed %d examples, below the per-site minimum %d" result.contributed_examples
+               manifest.minimum_cohort_per_site)
+        else (
+          match (contribution_bound manifest, result.update_norm) with
+          | Some bound, Some norm when norm > bound ->
+              Some (Printf.sprintf "update norm %g exceeds the permitted bound %g" norm bound)
+          | Some _, None -> Some "update norm is required under a secure-aggregation profile"
+          | _ -> None)
+
+let evaluate_aggregation_readiness ~selection manifest results =
   let sorted = List.sort (fun left right -> compare left.result_site_id right.result_site_id) results in
   let accepted, rejected =
     List.fold_left
       (fun (accepted, rejected) result ->
-        match contribution_failure manifest result with
+        match contribution_failure selection manifest result with
         | None -> (result :: accepted, rejected)
         | Some reason ->
             ( accepted,
@@ -179,8 +188,12 @@ let evaluate_aggregation_readiness manifest results =
           (result.result_site_id, float_of_int result.contributed_examples /. float_of_int accepted_examples))
         accepted
   in
+  (* A site the plan did not select cannot drop out of the round. *)
   let dropouts =
-    List.length (List.filter (fun result -> result.participation = SiteDropped) results)
+    List.length
+      (List.filter
+         (fun result -> result.participation = SiteDropped && site_selected selection result.result_site_id)
+         results)
   in
   let stop_reason =
     if permitted then None
@@ -282,3 +295,128 @@ let evaluate_release gates candidate_metrics baseline_metrics candidate_version 
     blocking_failures;
     rollback_version;
   }
+
+(** The sentence for a lifecycle refusal.
+
+    The approval refusals keep the wording the healthcare demo's approval
+    used before this rule moved into the planner, so what a person reads does
+    not change. *)
+let refusal_reason version = function
+  | AlreadyReleased released ->
+      Printf.sprintf "%s cannot be registered as released while %s is released" version released
+  | NotCandidate status -> Printf.sprintf "%s is %s, not a candidate" version (string_of_model_status status)
+  | NoDecision -> Printf.sprintf "%s has no release decision; only a pilot's candidate can be approved" version
+  | GatesDecided action ->
+      Printf.sprintf "the release gates decided %s for %s" (string_of_release_action action) version
+  | GuardDenied -> Printf.sprintf "the release Guard did not permit %s" version
+  | MetricsNotFromRounds ->
+      Printf.sprintf "the release decision for %s did not take its metrics from the rounds" version
+  | BaselineChanged { checked_against; in_use } ->
+      let checked =
+        match checked_against with
+        | Some baseline -> "was checked against " ^ baseline
+        | None -> "has no record of the model it was checked against"
+      in
+      let now = match in_use with Some released -> released ^ " is now in use" | None -> "no model is now in use" in
+      Printf.sprintf "%s %s, but %s. Run the pilot again." version checked now
+
+(** A refused event: no status changes, and the refusal's sentence. *)
+let refuse version refusal =
+  { verdict = LifecycleRefused refusal; lifecycle_reason = refusal_reason version refusal }
+
+(** An allowed event, with its status changes sorted by version. *)
+let allow reason changes =
+  let sorted = List.sort (fun left right -> compare left.changed_version right.changed_version) changes in
+  { verdict = LifecycleAllowed sorted; lifecycle_reason = reason }
+
+(** Decide whether a person may release a candidate, in the order the checks
+    have always run: decision, gates, Guard, metrics source, status, baseline. *)
+let decide_approval version status decision released_version =
+  match decision with
+  | None -> refuse version NoDecision
+  | Some decision -> (
+      match decision.recorded_action with
+      | (RequireAnotherRound | RejectCandidate) as action -> refuse version (GatesDecided action)
+      | ReleaseCandidate -> (
+          if not decision.recorded_guard_permitted then refuse version GuardDenied
+          else
+            match decision.recorded_metrics_source with
+            | MetricsFromRequest | MetricsSourceUnrecorded -> refuse version MetricsNotFromRounds
+            | MetricsFromRounds -> (
+                match status with
+                | ModelReleased | ModelRejected | ModelSuperseded -> refuse version (NotCandidate status)
+                | ModelCandidate -> (
+                    if decision.recorded_baseline_version <> released_version then
+                      refuse version
+                        (BaselineChanged
+                           { checked_against = decision.recorded_baseline_version; in_use = released_version })
+                    else
+                      let released =
+                        { changed_version = version; from_status = Some ModelCandidate; to_status = ModelReleased }
+                      in
+                      match released_version with
+                      | None -> allow (Printf.sprintf "%s is released" version) [ released ]
+                      | Some previous when previous = version ->
+                          invalid_arg (version ^ " is given both as a candidate and as the released version")
+                      | Some previous ->
+                          allow
+                            (Printf.sprintf "%s is released; %s is superseded" version previous)
+                            [
+                              released;
+                              {
+                                changed_version = previous;
+                                from_status = Some ModelReleased;
+                                to_status = ModelSuperseded;
+                              };
+                            ]))))
+
+let decide_model_lifecycle request =
+  let version = request.lifecycle_version in
+  let added status = { changed_version = version; from_status = None; to_status = status } in
+  match request.lifecycle_event with
+  | Registered { requested_status = RequestCandidate; released_version = _ } ->
+      allow (Printf.sprintf "%s is registered as a candidate" version) [ added ModelCandidate ]
+  | Registered { requested_status = RequestReleased; released_version = Some released } ->
+      refuse version (AlreadyReleased released)
+  | Registered { requested_status = RequestReleased; released_version = None } ->
+      allow
+        (Printf.sprintf "%s is registered as released, because no version is released" version)
+        [ added ModelReleased ]
+  | Aggregated { parent_version; parent_status } -> (
+      if parent_version = version then invalid_arg (version ^ " cannot be its own parent");
+      match parent_status with
+      | ModelCandidate ->
+          allow
+            (Printf.sprintf "%s is a candidate; %s, the candidate it was trained from, is superseded" version
+               parent_version)
+            [
+              added ModelCandidate;
+              { changed_version = parent_version; from_status = Some ModelCandidate; to_status = ModelSuperseded };
+            ]
+      | ModelReleased | ModelRejected | ModelSuperseded ->
+          allow
+            (Printf.sprintf "%s is a candidate; %s stays %s" version parent_version
+               (string_of_model_status parent_status))
+            [ added ModelCandidate ])
+  | ReleaseEvaluated { status; action; guard_permitted } -> (
+      match status with
+      | ModelReleased | ModelRejected | ModelSuperseded -> refuse version (NotCandidate status)
+      | ModelCandidate -> (
+          let rejected because =
+            allow
+              (Printf.sprintf "%s is rejected, because %s" version because)
+              [ { changed_version = version; from_status = Some ModelCandidate; to_status = ModelRejected } ]
+          in
+          (* The gates are named before the Guard, as in the approval order. *)
+          match (action, guard_permitted) with
+          | ReleaseCandidate, true ->
+              allow
+                (Printf.sprintf
+                   "%s stays a candidate: the release gates decided release and the release Guard permitted it"
+                   version)
+                []
+          | ReleaseCandidate, false -> rejected "the release Guard did not permit it"
+          | (RequireAnotherRound | RejectCandidate), _ ->
+              rejected ("the release gates decided " ^ string_of_release_action action)))
+  | ApprovalRequested { status; decision; released_version } ->
+      decide_approval version status decision released_version

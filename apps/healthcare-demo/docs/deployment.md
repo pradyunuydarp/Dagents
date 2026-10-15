@@ -231,11 +231,15 @@ so a real mistake stays visible.
 2. **Create the schemas and load the records.** Actions → *Healthcare data* →
    Run workflow. The job:
    - prints the project's PostgreSQL version, and warns on 15;
-   - builds the planner, applies the migrations to a scratch PostgreSQL 16
-     service container, as a non-superuser that stands in for Supabase's
-     `postgres` role, and runs the database tests there: the schema, isolation,
-     store, pilot, data-entry, API and status tests. It fails if any of them
-     skipped, with the same `--require-ran` classes as CI;
+   - builds the planner and, on a scratch PostgreSQL 16 service container,
+     runs the framework's database tests first: role scoping, the kept
+     connection, the GMA's model store and registry, the LMA's job log and the
+     GMA's Postgres wiring;
+   - applies the migrations to the same scratch database, as a non-superuser
+     that stands in for Supabase's `postgres` role, and runs the demo's
+     database tests there: the schema, isolation, store, pilot, data-entry, API
+     and status tests. It fails if any framework or demo test class skipped,
+     with the same `--require-ran` classes as CI;
    - applies each migration to the project once, recording it in
      `public.schema_migrations`;
    - loads each hospital's records as that hospital's role

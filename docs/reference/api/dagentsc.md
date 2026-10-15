@@ -13,7 +13,7 @@ the service, and lets either side be upgraded alone.
 | Binary | `bindings/ocaml/_build/default/bin/dagentsc.exe` locally, `dagentsc` on `PATH` in the containers |
 | How services find it | `DAGENTSC_BIN`, or `dagentsc` on `PATH` |
 | Python wrapper | `agents/common/infrastructure/dagents_runner.py` |
-| Commands | 17, in six groups |
+| Commands | 18, in six groups |
 
 Every command is pure: it reads its input, decides, and prints the result. It
 opens no database, no network connection and no file other than the ones its
@@ -82,6 +82,7 @@ Which services run which commands:
 | `dataset source validate`, `source extract`, `schema validate`, `quality evaluate` | the NL2SQL demo for every question; the healthcare demo's trace (validate, schema, quality) |
 | `governance restrict` | the Ethical Guard in the LMA, the GMA and each healthcare hospital, and every planning endpoint of the agents |
 | `federation round digest`, `round plan`, `aggregate readiness`, `release evaluate` | the round controller in the GMA and in the healthcare demo |
+| `federation model lifecycle` | the GMA's model registry, for every change of a model version's status |
 
 The remaining commands (`dataset profile`, `source metadata`, `transform
 compile`, `transform apply`, `governance assess`) are not called by any
@@ -540,12 +541,15 @@ endpoints:
 - dagentsc federation round digest
 - dagentsc federation aggregate readiness
 - dagentsc federation release evaluate
+- dagentsc federation model lifecycle
 ```
 
-Govern a federated study without running one. The four commands make every
-deterministic decision of a round; the round controller
+Govern a federated study without running one. The first four commands make
+every deterministic decision of a round; the round controller
 (`agents/common/application/federation.py`) holds the state and calls them.
-The federated protocol itself belongs to a runtime behind `FederationEngine`.
+The fifth decides how each event changes a model version's status, so a model
+registry applies its answer and keeps no status rule of its own. The federated
+protocol itself belongs to a runtime behind `FederationEngine`.
 
 The examples follow one evaluation round of a retail study across five invited
 stores, with the same manifest as [the GMA's examples](agents.md#federated-rounds).
@@ -573,6 +577,9 @@ sequenceDiagram
     Note over Controller: the runtime aggregates a candidate
     Controller->>Planner: federation release evaluate, with the gates and metrics
     Planner-->>Controller: release, another_round or reject
+    Note over Controller: a person asks to approve the candidate
+    Controller->>Planner: federation model lifecycle, event approval_requested
+    Planner-->>Controller: the status changes, or the refusal and its reason
 ```
 
 ### Plan which sites join a round
@@ -620,8 +627,17 @@ offered with the digest it computes, and every result must carry it as its
 dagentsc federation aggregate readiness
 ```
 
-Reads `{"manifest": ..., "results": [...]}` and decides which returned
-contributions may enter the aggregate. A result is rejected, with the reason,
+Reads `{"manifest": ..., "results": [...], "selectedSites": [...]}` and
+decides which returned contributions may enter the aggregate.
+
+`selectedSites` is optional. It is the `selectedSites` of the round plan. When
+it is given, a result from any other site is rejected first, with the reason
+"site was not selected for this round". That result counts toward neither the
+quorum nor the weights, and an empty list accepts no result. Without the key
+the selection is not checked, so inputs written before the key existed give
+the same answer.
+
+A result is also rejected, with the reason,
 when the site did not complete the job, the result belongs to another round,
 its `jobDigest` is not the manifest's digest, the site did not verify the code
 or its privacy checks, it contributed fewer examples than
@@ -631,7 +647,8 @@ accepted. `siteWeights` are each accepted site's share of the accepted
 examples, the FedAvg weights; they are reported, not applied.
 
 **Errors.** As for planning a round, and exit `2` for a result without
-`roundId`, `siteId` or `participation`.
+`roundId`, `siteId` or `participation`, or a `selectedSites` that is not a list
+of strings.
 
 **Related.** [Readiness on the GMA](agents.md#federated-rounds),
 [the AggregationReadiness object](agents.md#the-aggregationreadiness-object).
@@ -658,3 +675,51 @@ approves it.
 **Related.** [Evaluate a release on the GMA](agents.md#federated-rounds),
 [the ReleaseDecision object](agents.md#the-releasedecision-object),
 [approve a candidate in the healthcare demo](demo-apps.md#healthcare-demo-backend-post-api-v1-models-version-approve).
+
+### Decide a model version's status
+
+```api-endpoint
+dagentsc federation model lifecycle
+```
+
+Reads `{"version": ..., "event": {"kind": ...}}` and decides how one event
+changes the status of model versions. A version is `candidate`, `released`,
+`rejected` or `superseded`, and at most one version is released. The output
+has `allowed`, `refusal` (`null` or a kind), `reason` (one sentence) and
+`statusChanges`: each with `version`, `fromStatus` (`null` for a version the
+event adds) and `toStatus`, sorted by version. A refusal changes nothing and
+is a normal result, so the exit code is 0.
+
+| Event `kind` | Keys | What happens | Refusals |
+|---|---|---|---|
+| `registered` | `requestedStatus` (`candidate`, the default, or `released`), `releasedVersion` | The version is added as a candidate, or as the release when it asks to be one and nothing is released | `already_released` |
+| `aggregated` | `parentVersion`, `parentStatus` | The version a training round produced is added as a candidate. Its parent becomes `superseded` when the parent is a candidate, and keeps its status otherwise | none |
+| `release_evaluated` | `status`, `action` (the gates' `release`, `another_round` or `reject`), `guardPermitted` (default false) | The version stays a candidate when the gates decided `release` and the release Guard permitted it, and becomes `rejected` otherwise | `not_candidate` |
+| `approval_requested` | `status`, `decision`, `releasedVersion` | The version becomes `released`, and `releasedVersion` becomes `superseded` | `no_decision`, `gates_decided`, `guard_denied`, `metrics_not_from_rounds`, `not_candidate`, `baseline_changed` |
+
+`decision` is the release decision stored with the candidate: `action`,
+`guardPermitted` (default false), `metricsSource` and `baselineVersion` (the
+released version the gates compared the candidate with). `metricsSource` is
+`rounds` when the gate metrics came from the stored aggregates of the study's
+rounds, `request` when the caller sent them, and `unrecorded` when it is
+missing. An approval checks, in this order, and refuses at the first check
+that fails:
+
+1. `no_decision`: the version has no stored decision.
+2. `gates_decided`: the gates decided something other than `release`.
+3. `guard_denied`: the release Guard did not permit the release.
+4. `metrics_not_from_rounds`: `metricsSource` is not `rounds`.
+5. `not_candidate`: the version is not a candidate.
+6. `baseline_changed`: `baselineVersion` is not the version released now.
+
+The reasons use the wording of the healthcare demo's approval, for example
+"the release gates decided reject for VERSION".
+
+**Errors.** Exit `2` when `version` or `event` is missing or `version` is
+empty, for an unknown event kind, status, action or metrics source, for a
+registration that asks for `rejected` or `superseded`, for an aggregation
+without `parentVersion`, and for an event that names one version twice: an
+aggregation whose parent is the version itself, or an approval of a candidate
+that is also given as `releasedVersion`.
+
+**Related.** [Evaluate release gates](#dagentsc-federation-release-evaluate).

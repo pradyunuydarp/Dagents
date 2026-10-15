@@ -10,27 +10,45 @@ from __future__ import annotations
 import os
 import stat
 import tempfile
+import threading
+import time
+import typing
 import unittest
 from unittest.mock import patch
 
 from agents.common.application.federation import (
     FederatedRoundController,
+    InMemoryRoundRepository,
     InProcessFederationEngine,
+    weighted_metrics,
 )
 from agents.common.application.federation_worker import (
     LocalFederatedWorker,
     LocalRunOutcome,
 )
 from agents.common.application.governance_service import GovernanceService
+from agents.common.domain.errors import AggregationRefused, NotSelected, RoundConflict
 from agents.common.domain.federation import (
+    PHASE_TASKS,
     AggregationMethod,
+    AggregationReadiness,
+    CandidateModel,
+    DispatchCall,
+    FederatedJob,
     GateComparison,
     ReleaseGate,
     RoundManifest,
+    RoundPhase,
+    RoundPlan,
+    RoundRecord,
     SiteRegistration,
+    SiteResult,
+    UpdateUpload,
 )
 from agents.common.domain.governance import DataClassification
 from agents.common.infrastructure.dagents_runner import PlannerUnavailableError
+from agents.gma.infrastructure.update_store import InMemoryUpdateStore
+from agents.tests.fixtures.toy_extension import ToyLinearKind
 from agents.tests.test_governance import dagentsc_available
 
 CLASSIFICATION = DataClassification(
@@ -225,6 +243,9 @@ class RoundLifecycleTests(unittest.TestCase):
                 gate_id="alert_burden", metric="alerts_per_1000", comparison=GateComparison(kind="at_most", value=40)
             ),
         ]
+        # A round takes one saved decision, so the decision without a baseline
+        # is asked for first and not saved.
+        without_baseline = self.controller.decide_release(self.manifest.round_id, gates, candidate)
         decision = self.controller.evaluate_release(
             self.manifest.round_id, gates, candidate, baseline_metrics={"auc": 0.8}
         )
@@ -232,7 +253,6 @@ class RoundLifecycleTests(unittest.TestCase):
         self.assertAlmostEqual(thresholds["discrimination"], 0.85)
         self.assertAlmostEqual(thresholds["improves"], 0.82)
         self.assertAlmostEqual(thresholds["alert_burden"], 40.0)
-        without_baseline = self.controller.evaluate_release(self.manifest.round_id, gates, candidate)
         improves = next(result for result in without_baseline.gate_results if result.gate_id == "improves")
         self.assertIsNone(improves.threshold)
         self.assertEqual("not_evaluated", improves.outcome)
@@ -473,6 +493,599 @@ class PlannerOutputTests(unittest.TestCase):
                         produced_at=0,
                     ),
                 )
+
+
+SITES = ("hospital-a", "hospital-b", "hospital-c")
+
+
+class ScriptedEngine:
+    """The in-process engine with hooks a test can set.
+
+    - ``on_submit(manifest, plan)`` runs before the jobs are offered, so a test
+      can look at what the controller stored at that moment.
+    - ``extra_results`` are added to what the engine collected.
+    - ``dispatch_rows`` are returned by ``dispatch_calls``, as the GMA's HTTP
+      engine returns its calls to the LMAs.
+    - ``fail_with`` makes ``submit_round`` raise after ``on_submit``.
+    - ``discarded`` records every ``discard`` call.
+    """
+
+    name = "scripted"
+
+    def __init__(self) -> None:
+        self.inner = InProcessFederationEngine()
+        self.on_submit = None
+        self.extra_results: list[SiteResult] = []
+        self.dispatch_rows: list[DispatchCall] = []
+        self.fail_with: Exception | None = None
+        self.discarded: list[str] = []
+
+    def register_worker(self, worker) -> None:  # noqa: ANN001 - test double
+        self.inner.register_worker(worker)
+
+    def submit_round(self, manifest, plan):  # noqa: ANN001, ANN201 - test double
+        if self.on_submit is not None:
+            self.on_submit(manifest, plan)
+        if self.fail_with is not None:
+            raise self.fail_with
+        return self.inner.submit_round(manifest, plan)
+
+    def collect_results(self, round_id: str) -> list[SiteResult]:
+        return self.inner.collect_results(round_id) + list(self.extra_results)
+
+    def aggregate(self, manifest, readiness, results):  # noqa: ANN001, ANN201 - test double
+        return self.inner.aggregate(manifest, readiness, results)
+
+    def dispatch_calls(self, round_id: str) -> list[DispatchCall]:
+        return list(self.dispatch_rows)
+
+    def discard(self, round_id: str) -> None:
+        self.discarded.append(round_id)
+
+
+class SlowReadRepository(InMemoryRoundRepository):
+    """A round repository whose reads take a while, like a store across a network.
+
+    A read-modify-write that is not atomic loses updates here: every thread
+    reads the same record, then each saves its own copy over the others.
+    """
+
+    def get(self, round_id: str) -> RoundRecord | None:
+        record = super().get(round_id)
+        time.sleep(0.05)
+        return record
+
+
+def completed_result(site_id: str, digest: str, round_id: str = "round-0042", examples: int = 5) -> SiteResult:
+    return SiteResult(
+        round_id=round_id,
+        site_id=site_id,
+        job_digest=digest,
+        participation="completed",
+        code_verified=True,
+        privacy_checks_passed=True,
+        contributed_examples=examples,
+        update_norm=0.5,
+        metrics={"auc": 0.9},
+    )
+
+
+@unittest.skipUnless(dagentsc_available(), "dagentsc binary is not available")
+class RoundStateTests(unittest.TestCase):
+    """What the controller stores while a round moves from dispatch to a candidate."""
+
+    def setUp(self) -> None:
+        self.engine = ScriptedEngine()
+        self.controller = FederatedRoundController(engine=self.engine)
+        for site_id in SITES:
+            self.controller.register_site(build_registration(site_id))
+        self.manifest = build_manifest()
+        self.digest = self.controller.digest(self.manifest)
+        for site_id in SITES:
+            self.engine.register_worker(build_worker(site_id, expected_digest=self.digest))
+
+    def test_a_reused_round_id_is_refused_and_the_stored_round_is_kept(self) -> None:
+        """A second dispatch under one id would erase the first round's evidence and decision."""
+        self.controller.dispatch_round(self.manifest)
+        candidate = self.controller.aggregate(self.manifest.round_id)
+        before = self.controller.get_round(self.manifest.round_id)
+        with self.assertRaises(RoundConflict) as raised:
+            self.controller.dispatch_round(self.manifest.model_copy(update={"phase": "evaluation"}))
+        self.assertIn(self.manifest.round_id, str(raised.exception))
+        after = self.controller.get_round(self.manifest.round_id)
+        self.assertEqual(before, after)
+        self.assertEqual("aggregated", after.status)
+        self.assertEqual(candidate, after.candidate)
+
+    def test_a_reused_round_id_is_refused_for_a_round_without_quorum(self) -> None:
+        manifest = build_manifest(round_id="short", invited_sites=["hospital-a"])
+        self.assertEqual("closed", self.controller.dispatch_round(manifest).status)
+        with self.assertRaises(RoundConflict):
+            self.controller.dispatch_round(manifest)
+
+    def test_the_round_is_stored_as_dispatched_with_its_plan_before_the_engine_runs(self) -> None:
+        """The update store checks uploads against the stored plan while the jobs run."""
+        seen: list[RoundRecord | None] = []
+        self.engine.on_submit = lambda manifest, plan: seen.append(self.controller.get_round(manifest.round_id))
+        record = self.controller.dispatch_round(self.manifest)
+        [during] = seen
+        self.assertIsNotNone(during)
+        self.assertEqual("dispatched", during.status)
+        self.assertEqual(record.plan, during.plan)
+        self.assertEqual([], during.results)
+        self.assertEqual("collecting", record.status)
+
+    def test_acceptances_and_results_are_stored_sorted_by_site(self) -> None:
+        engine = ScriptedEngine()
+        controller = FederatedRoundController(engine=engine)
+        for site_id in reversed(SITES):
+            controller.register_site(build_registration(site_id))
+            engine.register_worker(build_worker(site_id, expected_digest=self.digest))
+        record = controller.dispatch_round(self.manifest)
+        self.assertEqual(list(SITES), [acceptance.site_id for acceptance in record.acceptances])
+        self.assertTrue(all(acceptance.accepted for acceptance in record.acceptances))
+        self.assertEqual(list(SITES), [result.site_id for result in record.results])
+        self.assertEqual(record, controller.get_round(self.manifest.round_id))
+
+    def test_a_round_without_quorum_has_no_acceptances(self) -> None:
+        record = self.controller.dispatch_round(build_manifest(round_id="short", invited_sites=["hospital-a"]))
+        self.assertEqual([], record.acceptances)
+        self.assertEqual([], record.dispatch)
+
+    def test_the_engine_dispatch_rows_are_stored_with_the_round(self) -> None:
+        rows = [
+            DispatchCall(site_id="hospital-a", step="offer", status_code=200, ms=4.0, outcome="accepted"),
+            DispatchCall(site_id="hospital-a", step="execute", status_code=200, ms=9.5, outcome="completed"),
+        ]
+        self.engine.dispatch_rows = rows
+        record = self.controller.dispatch_round(self.manifest)
+        self.assertEqual(rows, record.dispatch)
+
+    def test_a_result_from_a_site_the_plan_did_not_select_is_refused(self) -> None:
+        """A site that was never enrolled or invited must not enter the round's evidence."""
+        self.controller.dispatch_round(self.manifest)
+        before = self.controller.get_round(self.manifest.round_id)
+        with self.assertRaises(NotSelected) as raised:
+            self.controller.submit_result(completed_result("intruder", self.digest))
+        self.assertIsInstance(raised.exception, PermissionError)
+        self.assertIn("intruder", str(raised.exception))
+        self.assertEqual(before, self.controller.get_round(self.manifest.round_id))
+
+    def test_a_result_for_an_unknown_round_raises_key_error(self) -> None:
+        with self.assertRaises(KeyError):
+            self.controller.submit_result(completed_result("hospital-a", self.digest, round_id="missing"))
+
+    def test_a_late_result_cannot_reopen_an_aggregated_or_closed_round(self) -> None:
+        self.controller.dispatch_round(self.manifest)
+        self.controller.aggregate(self.manifest.round_id)
+        late = completed_result("hospital-a", self.digest).model_copy(update={"contributed_examples": 99})
+        with self.assertRaises(RoundConflict):
+            self.controller.submit_result(late)
+        candidate = self.controller.get_round(self.manifest.round_id).candidate
+        self.controller.evaluate_release(self.manifest.round_id, [], candidate)
+        closed = self.controller.get_round(self.manifest.round_id)
+        self.assertEqual("closed", closed.status)
+        with self.assertRaises(RoundConflict):
+            self.controller.submit_result(late)
+        self.assertEqual(closed, self.controller.get_round(self.manifest.round_id))
+
+    def test_concurrent_results_keep_every_result(self) -> None:
+        """Results posted at the same time must not overwrite each other."""
+        controller = FederatedRoundController(engine=InProcessFederationEngine(), rounds=SlowReadRepository())
+        for site_id in SITES:
+            controller.register_site(build_registration(site_id))
+        record = controller.dispatch_round(self.manifest)
+        self.assertEqual(3, len(record.results))  # failed: the engine has no workers
+        barrier = threading.Barrier(len(SITES))
+        errors: list[BaseException] = []
+
+        def post(site_id: str) -> None:
+            try:
+                barrier.wait()
+                controller.submit_result(completed_result(site_id, self.digest))
+            except BaseException as error:  # noqa: BLE001 - reported below
+                errors.append(error)
+
+        threads = [threading.Thread(target=post, args=(site_id,)) for site_id in SITES]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=10)
+        self.assertEqual([], errors)
+        stored = controller.get_round(self.manifest.round_id)
+        self.assertEqual({"completed"}, {result.participation for result in stored.results})
+        self.assertEqual(list(SITES), [result.site_id for result in stored.results])
+
+    def test_readiness_rejects_a_result_from_a_site_outside_the_selection(self) -> None:
+        """Even a result the engine hands back counts only for a site the plan selected."""
+        self.engine.extra_results = [completed_result("intruder", self.digest, examples=500)]
+        record = self.controller.dispatch_round(self.manifest)
+        self.assertIn("intruder", [result.site_id for result in record.results])
+        readiness = self.controller.evaluate_readiness(self.manifest.round_id)
+        self.assertEqual(list(SITES), readiness.accepted_sites)
+        self.assertNotIn("intruder", readiness.site_weights)
+        rejected = {item.site_id: item.reason for item in readiness.rejected_contributions}
+        self.assertEqual("site was not selected for this round", rejected["intruder"])
+        self.assertEqual(15, readiness.accepted_examples)
+
+    def test_a_readiness_check_without_save_writes_nothing(self) -> None:
+        self.controller.dispatch_round(self.manifest)
+        before = self.controller.get_round(self.manifest.round_id)
+        readiness = self.controller.evaluate_readiness(self.manifest.round_id, save=False)
+        self.assertTrue(readiness.aggregation_permitted)
+        self.assertEqual(before, self.controller.get_round(self.manifest.round_id))
+        self.assertEqual(readiness, self.controller.evaluate_readiness(self.manifest.round_id))
+        self.assertEqual(readiness, self.controller.get_round(self.manifest.round_id).readiness)
+
+    def test_aggregate_stores_the_candidate_and_the_readiness_on_the_round(self) -> None:
+        self.controller.dispatch_round(self.manifest)
+        candidate = self.controller.aggregate(self.manifest.round_id)
+        stored = self.controller.get_round(self.manifest.round_id)
+        self.assertEqual("aggregated", stored.status)
+        self.assertEqual(candidate, stored.candidate)
+        self.assertTrue(stored.readiness.aggregation_permitted)
+
+    def test_a_refused_aggregation_is_an_aggregation_refused_error(self) -> None:
+        record = self.controller.dispatch_round(self.manifest)
+        for result in record.results[1:]:
+            self.controller.submit_result(result.model_copy(update={"participation": "dropped"}))
+        with self.assertRaises(AggregationRefused) as raised:
+            self.controller.aggregate(self.manifest.round_id)
+        self.assertIsInstance(raised.exception, PermissionError)
+        self.assertIn("aggregation is not permitted for round-0042", str(raised.exception))
+        stored = self.controller.get_round(self.manifest.round_id)
+        self.assertIsNone(stored.candidate)
+        self.assertEqual("collecting", stored.status)
+
+    def test_discard_deletes_the_engine_updates_and_records_the_reason(self) -> None:
+        self.controller.dispatch_round(self.manifest)
+        record = self.controller.discard(self.manifest.round_id, "the study stopped")
+        self.assertEqual([self.manifest.round_id], self.engine.discarded)
+        self.assertEqual("the study stopped", record.abandoned_reason)
+        self.assertEqual("closed", record.status)
+        self.assertEqual(record, self.controller.get_round(self.manifest.round_id))
+        with self.assertRaises(RoundConflict):
+            self.controller.submit_result(completed_result("hospital-a", self.digest))
+        with self.assertRaises(RoundConflict) as raised:
+            self.controller.aggregate(self.manifest.round_id)
+        self.assertIn("discarded", str(raised.exception))
+
+    def test_discard_keeps_the_first_reason(self) -> None:
+        self.controller.dispatch_round(self.manifest)
+        self.controller.discard(self.manifest.round_id, "first")
+        record = self.controller.discard(self.manifest.round_id, "second")
+        self.assertEqual("first", record.abandoned_reason)
+        self.assertEqual([self.manifest.round_id] * 2, self.engine.discarded)
+
+    def test_discard_of_an_aggregated_round_keeps_its_status_and_candidate(self) -> None:
+        self.controller.dispatch_round(self.manifest)
+        candidate = self.controller.aggregate(self.manifest.round_id)
+        record = self.controller.discard(self.manifest.round_id, "the pilot finished")
+        self.assertEqual("aggregated", record.status)
+        self.assertEqual(candidate, record.candidate)
+        self.assertEqual("the pilot finished", record.abandoned_reason)
+
+    def test_discard_of_an_unknown_round_raises_key_error(self) -> None:
+        with self.assertRaises(KeyError):
+            self.controller.discard("missing", "no such round")
+        self.assertEqual([], self.engine.discarded)
+
+    def test_an_engine_without_discard_can_still_discard_a_round(self) -> None:
+        controller = FederatedRoundController(engine=InProcessFederationEngine())
+        for site_id in SITES:
+            controller.register_site(build_registration(site_id))
+        controller.dispatch_round(self.manifest)
+        self.assertEqual("stopped", controller.discard(self.manifest.round_id, "stopped").abandoned_reason)
+
+    def test_an_engine_that_fails_closes_the_round_and_deletes_its_updates(self) -> None:
+        """A round the engine could not finish must not keep taking uploads or results."""
+        self.engine.fail_with = RuntimeError("the runtime stopped")
+        with self.assertRaises(RuntimeError):
+            self.controller.dispatch_round(self.manifest)
+        stored = self.controller.get_round(self.manifest.round_id)
+        self.assertEqual("closed", stored.status)
+        self.assertEqual("the engine failed while it dispatched the round", stored.abandoned_reason)
+        self.assertEqual([self.manifest.round_id], self.engine.discarded)
+        with self.assertRaises(RoundConflict):
+            self.controller.dispatch_round(self.manifest)
+
+    def test_an_engine_that_collects_results_refuses_posted_results(self) -> None:
+        """A posted result must not replace what a site returned through the engine."""
+        self.engine.collects_results = True
+        record = self.controller.dispatch_round(self.manifest)
+        self.assertTrue(self.controller.engine_collects_results)
+        forged = completed_result("hospital-a", self.digest, examples=100000).model_copy(update={"metrics": {"auc": 1.0}})
+        with self.assertRaises(RoundConflict) as raised:
+            self.controller.submit_result(forged)
+        self.assertIn("scripted engine", str(raised.exception))
+        self.assertEqual(record, self.controller.get_round(self.manifest.round_id))
+        # A site the plan did not select is still refused as not selected.
+        with self.assertRaises(NotSelected):
+            self.controller.submit_result(completed_result("intruder", self.digest))
+
+    def test_an_engine_without_the_flag_takes_posted_results(self) -> None:
+        self.assertFalse(self.controller.engine_collects_results)
+        self.controller.dispatch_round(self.manifest)
+        stored = self.controller.submit_result(completed_result("hospital-a", self.digest, examples=7))
+        self.assertEqual(7, stored.results[0].contributed_examples)
+
+    def test_a_finished_round_cannot_be_aggregated_again(self) -> None:
+        """A second aggregate would replace the candidate, or reopen a round a decision closed."""
+        self.controller.dispatch_round(self.manifest)
+        candidate = self.controller.aggregate(self.manifest.round_id)
+        aggregated = self.controller.get_round(self.manifest.round_id)
+        with self.assertRaises(RoundConflict) as raised:
+            self.controller.aggregate(self.manifest.round_id)
+        self.assertIn("aggregated", str(raised.exception))
+        self.assertEqual(aggregated, self.controller.get_round(self.manifest.round_id))
+
+        self.controller.evaluate_release(self.manifest.round_id, [], candidate)
+        closed = self.controller.get_round(self.manifest.round_id)
+        self.assertEqual("closed", closed.status)
+        with self.assertRaises(RoundConflict) as raised:
+            self.controller.aggregate(self.manifest.round_id)
+        self.assertIn("closed", str(raised.exception))
+        self.assertEqual(closed, self.controller.get_round(self.manifest.round_id))
+
+    def test_a_round_without_quorum_cannot_be_aggregated(self) -> None:
+        manifest = build_manifest(round_id="short", invited_sites=["hospital-a"])
+        closed = self.controller.dispatch_round(manifest)
+        with self.assertRaises(RoundConflict):
+            self.controller.aggregate("short")
+        self.assertEqual(closed, self.controller.get_round("short"))
+
+    def test_a_round_takes_one_release_decision(self) -> None:
+        """A second decision would replace the evidence the first one left."""
+        self.controller.dispatch_round(self.manifest)
+        candidate = self.controller.aggregate(self.manifest.round_id)
+        first = self.controller.evaluate_release(self.manifest.round_id, [], candidate)
+        stored = self.controller.get_round(self.manifest.round_id)
+        with self.assertRaises(RoundConflict) as raised:
+            self.controller.evaluate_release(
+                self.manifest.round_id, [], candidate.model_copy(update={"metrics": {"auc": 0.1}})
+            )
+        self.assertIn("release decision", str(raised.exception))
+        self.assertEqual(stored, self.controller.get_round(self.manifest.round_id))
+        self.assertEqual(first, stored.decision)
+
+    def test_a_closed_round_takes_no_release_decision(self) -> None:
+        self.controller.dispatch_round(self.manifest)
+        self.controller.discard(self.manifest.round_id, "the study stopped")
+        closed = self.controller.get_round(self.manifest.round_id)
+        candidate = CandidateModel(
+            round_id=self.manifest.round_id,
+            candidate_version="model+round-0042",
+            parent_version=self.manifest.model_version,
+            aggregation_method="fedavg",
+        )
+        with self.assertRaises(RoundConflict) as raised:
+            self.controller.evaluate_release(self.manifest.round_id, [], candidate)
+        self.assertIn("closed", str(raised.exception))
+        self.assertEqual(closed, self.controller.get_round(self.manifest.round_id))
+
+    def test_a_decision_can_be_made_first_and_saved_after(self) -> None:
+        """The GMA saves a decision only after the model registry accepted it."""
+        self.controller.dispatch_round(self.manifest)
+        candidate = self.controller.aggregate(self.manifest.round_id)
+        before = self.controller.get_round(self.manifest.round_id)
+        decision = self.controller.decide_release(self.manifest.round_id, [], candidate)
+        self.assertEqual(before, self.controller.get_round(self.manifest.round_id))
+        saved = self.controller.save_release_decision(self.manifest.round_id, decision)
+        self.assertEqual(decision, saved.decision)
+        self.assertEqual("closed", saved.status)
+        with self.assertRaises(RoundConflict):
+            self.controller.save_release_decision(self.manifest.round_id, decision)
+        with self.assertRaises(RoundConflict):
+            self.controller.decide_release(self.manifest.round_id, [], candidate)
+
+
+class PhaseTaskTests(unittest.TestCase):
+    """One map from a round's phase to the task its jobs carry, used by every engine and the LMA."""
+
+    def test_every_round_phase_has_a_job_task(self) -> None:
+        self.assertEqual(set(typing.get_args(RoundPhase)), set(PHASE_TASKS))
+        tasks = set(typing.get_args(FederatedJob.model_fields["task"].annotation))
+        self.assertLessEqual(set(PHASE_TASKS.values()), tasks)
+
+    def test_the_http_engine_and_the_lma_read_the_shared_map(self) -> None:
+        from agents.gma.adapters import http_federation_engine
+        from agents.lma.application import federation_jobs
+
+        self.assertIs(PHASE_TASKS, http_federation_engine.PHASE_TASKS)
+        self.assertIs(PHASE_TASKS, federation_jobs.PHASE_TASKS)
+
+
+@unittest.skipUnless(dagentsc_available(), "dagentsc binary is not available")
+class InProcessEngineResultTests(unittest.TestCase):
+    """The simulator's refused and failed results say why, in ``refusal_reason``."""
+
+    def test_refused_and_failed_results_carry_a_refusal_reason(self) -> None:
+        engine = InProcessFederationEngine()
+        controller = FederatedRoundController(engine=engine)
+        for site_id in SITES:
+            controller.register_site(build_registration(site_id))
+        manifest = build_manifest()
+        digest = controller.digest(manifest)
+        engine.register_worker(build_worker("hospital-a", expected_digest=digest))
+        engine.register_worker(build_worker("hospital-b", expected_digest="fnv1a:something-else"))
+        record = controller.dispatch_round(manifest)
+        by_site = {result.site_id: result for result in record.results}
+        self.assertIsNone(by_site["hospital-a"].refusal_reason)
+        self.assertNotIn("refusal_reason", by_site["hospital-a"].model_dump(mode="json"))
+        self.assertEqual("rejected", by_site["hospital-b"].participation)
+        refused = {acceptance.site_id: acceptance.reason for acceptance in record.acceptances}
+        self.assertTrue(refused["hospital-b"])
+        self.assertEqual(refused["hospital-b"], by_site["hospital-b"].refusal_reason)
+        self.assertEqual("failed", by_site["hospital-c"].participation)
+        self.assertEqual("no worker is attached for this site", by_site["hospital-c"].refusal_reason)
+        self.assertIn("no worker", by_site["hospital-c"].local_evidence_pointer)
+
+
+class WeightedMetricsTests(unittest.TestCase):
+    """The metric averaging both engines use."""
+
+    def readiness(self, weights: dict[str, float]) -> AggregationReadiness:
+        return AggregationReadiness(
+            round_id="r", accepted_sites=sorted(weights), aggregation_permitted=True, site_weights=weights
+        )
+
+    def result(self, site_id: str, **metrics: float) -> SiteResult:
+        return SiteResult(round_id="r", site_id=site_id, participation="completed", metrics=metrics)
+
+    def test_each_shared_metric_is_weighted_by_the_planner_weights(self) -> None:
+        metrics = weighted_metrics(
+            self.readiness({"a": 0.25, "b": 0.75}),
+            [self.result("a", auc=0.8, loss=0.4), self.result("b", auc=0.6, loss=0.2)],
+        )
+        self.assertEqual(["auc", "loss"], list(metrics))
+        self.assertAlmostEqual(0.65, metrics["auc"], places=12)
+        self.assertAlmostEqual(0.25, metrics["loss"], places=12)
+
+    def test_a_metric_only_some_sites_reported_is_left_out(self) -> None:
+        metrics = weighted_metrics(
+            self.readiness({"a": 0.5, "b": 0.5}), [self.result("a", auc=0.8, extra=1.0), self.result("b", auc=0.6)]
+        )
+        self.assertEqual({"auc"}, set(metrics))
+
+    def test_results_from_sites_that_were_not_accepted_are_ignored(self) -> None:
+        metrics = weighted_metrics(
+            self.readiness({"a": 1.0}), [self.result("a", auc=0.8), self.result("intruder", auc=0.0, other=1.0)]
+        )
+        self.assertEqual({"auc": 0.8}, metrics)
+
+    def test_no_accepted_site_gives_no_metrics(self) -> None:
+        self.assertEqual({}, weighted_metrics(self.readiness({}), [self.result("a", auc=0.8)]))
+
+
+def training_record(status: str = "dispatched", phase: str = "training", **overrides) -> RoundRecord:
+    """A round as the controller stores it after planning, without running the planner."""
+    manifest = build_manifest(phase=phase)
+    plan = RoundPlan(
+        round_id=manifest.round_id,
+        study_id=manifest.study_id,
+        phase=manifest.phase,
+        selected_sites=list(SITES),
+        quorum_met=True,
+        required_participants=2,
+        aggregation=manifest.aggregation,
+        round_digest="fnv1a:0123456789abcdef",
+    )
+    payload = {"manifest": manifest, "plan": plan, "created_at": 0, "updated_at": 0, "status": status}
+    payload.update(overrides)
+    return RoundRecord(**payload)
+
+
+UPDATE = {"bias": 0.01, "w.x1": -0.02, "w.x2": 0.03}
+
+
+class UpdateStoreTests(unittest.TestCase):
+    """The GMA's write-only update store checks each upload against the round's plan."""
+
+    def setUp(self) -> None:
+        self.store = InMemoryUpdateStore()
+        self.kind = ToyLinearKind()
+        self.record = training_record()
+
+    def upload(self, update: dict | None = None, job_digest: str = "fnv1a:0123456789abcdef") -> UpdateUpload:
+        return UpdateUpload(job_digest=job_digest, update=dict(UPDATE if update is None else update))
+
+    def test_an_upload_is_stored_and_its_digest_comes_from_the_model_kind(self) -> None:
+        receipt = self.store.put(self.record, "hospital-a", self.upload(), self.kind)
+        self.assertEqual(self.kind.update_digest(UPDATE), receipt.digest)
+        stored = self.store.get(self.record.manifest.round_id, "hospital-a")
+        self.assertEqual(UPDATE, stored.update)
+        self.assertEqual(receipt.digest, stored.digest)
+        self.assertEqual("fnv1a:0123456789abcdef", stored.job_digest)
+        self.assertEqual([self.record.manifest.round_id], self.store.pending_rounds())
+
+    def test_a_collecting_round_takes_uploads_too(self) -> None:
+        self.store.put(training_record(status="collecting"), "hospital-b", self.upload(), self.kind)
+        self.assertIsNotNone(self.store.get(self.record.manifest.round_id, "hospital-b"))
+
+    def test_a_site_the_plan_did_not_select_is_refused(self) -> None:
+        with self.assertRaises(NotSelected):
+            self.store.put(self.record, "intruder", self.upload(), self.kind)
+        self.assertEqual([], self.store.pending_rounds())
+
+    def test_a_round_that_is_not_a_training_round_takes_no_update(self) -> None:
+        with self.assertRaises(RoundConflict) as raised:
+            self.store.put(training_record(phase="evaluation"), "hospital-a", self.upload(), self.kind)
+        self.assertIn("is in the evaluation phase; only a training round takes updates", str(raised.exception))
+
+    def test_a_round_that_is_aggregated_closed_or_discarded_takes_no_update(self) -> None:
+        records = {
+            "aggregated": training_record(status="aggregated"),
+            "closed": training_record(status="closed"),
+            "discarded": training_record(status="collecting", abandoned_reason="stopped"),
+        }
+        for name, record in records.items():
+            with self.subTest(name):
+                with self.assertRaises(RoundConflict):
+                    self.store.put(record, "hospital-a", self.upload(), self.kind)
+        self.assertEqual([], self.store.pending_rounds())
+
+    def test_a_job_digest_that_is_not_the_plan_round_digest_is_refused(self) -> None:
+        with self.assertRaises(RoundConflict) as raised:
+            self.store.put(self.record, "hospital-a", self.upload(job_digest="fnv1a:ffffffffffffffff"), self.kind)
+        self.assertIn("round digest", str(raised.exception))
+
+    def test_a_second_upload_from_one_site_is_refused_and_the_first_is_kept(self) -> None:
+        first = self.store.put(self.record, "hospital-a", self.upload(), self.kind)
+        with self.assertRaises(RoundConflict):
+            self.store.put(self.record, "hospital-a", self.upload({"bias": 9.0, "w.x1": 9.0, "w.x2": 9.0}), self.kind)
+        self.assertEqual(first.digest, self.store.get(self.record.manifest.round_id, "hospital-a").digest)
+
+    def test_an_update_the_model_kind_refuses_is_refused(self) -> None:
+        with self.assertRaises(RoundConflict) as raised:
+            self.store.put(self.record, "hospital-a", self.upload({"bias": 0.1, "secret": 1.0}), self.kind)
+        self.assertIn("unknown names", str(raised.exception))
+        self.assertIsNone(self.store.get(self.record.manifest.round_id, "hospital-a"))
+
+    def test_a_round_whose_model_kind_cannot_be_trained_takes_no_update(self) -> None:
+        from agents.tests.fixtures.toy_extension import ToyThresholdKind
+
+        with self.assertRaises(RoundConflict) as raised:
+            self.store.put(self.record, "hospital-a", self.upload(), ToyThresholdKind())
+        self.assertIn("toy_threshold", str(raised.exception))
+        self.assertEqual([], self.store.pending_rounds())
+
+    def test_a_read_returns_a_copy(self) -> None:
+        self.store.put(self.record, "hospital-a", self.upload(), self.kind)
+        copy = self.store.get(self.record.manifest.round_id, "hospital-a")
+        copy.update["bias"] = 100.0
+        self.assertEqual(UPDATE, self.store.get(self.record.manifest.round_id, "hospital-a").update)
+        everything = self.store.updates(self.record.manifest.round_id)
+        self.assertEqual(["hospital-a"], list(everything))
+
+    def test_discard_deletes_the_round_updates_and_refuses_later_uploads(self) -> None:
+        """An upload that arrives after the round was discarded must not stay in memory."""
+        self.store.put(self.record, "hospital-a", self.upload(), self.kind)
+        self.store.put(self.record, "hospital-b", self.upload(), self.kind)
+        self.assertEqual(2, self.store.discard(self.record.manifest.round_id))
+        self.assertEqual({}, self.store.updates(self.record.manifest.round_id))
+        self.assertEqual([], self.store.pending_rounds())
+        with self.assertRaises(RoundConflict):
+            self.store.put(self.record, "hospital-c", self.upload(), self.kind)
+        self.assertEqual(0, self.store.discard(self.record.manifest.round_id))
+
+    def test_concurrent_uploads_from_one_site_store_one_update(self) -> None:
+        barrier = threading.Barrier(8)
+        outcomes: list[str] = []
+
+        def put() -> None:
+            barrier.wait()
+            try:
+                self.store.put(self.record, "hospital-a", self.upload(), self.kind)
+                outcomes.append("stored")
+            except RoundConflict:
+                outcomes.append("refused")
+
+        threads = [threading.Thread(target=put) for _ in range(8)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=10)
+        self.assertEqual(["refused"] * 7 + ["stored"], sorted(outcomes))
 
 
 if __name__ == "__main__":

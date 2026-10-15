@@ -11,7 +11,11 @@ response always belong to the same call.
 How each service is called:
 
 - **FastAPI services** run in process, in their own interpreter, through
-  FastAPI's `TestClient`. No port is opened and no network is used.
+  FastAPI's `TestClient`. No port is opened and no network is used. An
+  example can name another app of the same service in the request file's
+  `apps`, such as an LMA started for a site: `{"app": "module:attribute",
+  "pythonpath": [...]}`, where the attribute is an app or a function that
+  returns one. Each app is built once, the first time an example names it.
 - **dagentsc** is run as a subprocess with the request's arguments and its
   JSON on standard input.
 - **Any other service** (the Spring services) needs a `runner` in its request
@@ -109,7 +113,33 @@ def load_requests(service: str) -> dict[str, Any]:
     duplicates = sorted({example_id for example_id in ids if ids.count(example_id) > 1})
     if duplicates:
         raise ValueError(f"{path.name}: example ids must be unique, repeated: {duplicates}")
+    check_apps(path.name, document)
     return document
+
+
+#: `module:attribute` in an app entry.
+APP_REFERENCE = re.compile(r"^[A-Za-z_][\w.]*:[A-Za-z_]\w*$")
+
+
+def check_apps(name: str, document: dict[str, Any]) -> None:
+    """Check the `apps` a request file declares, and that each example names one of them.
+
+    An entry is `{"app": "module:attribute", "pythonpath": [...], "description": ...}`.
+    The attribute is an ASGI app, or a function without arguments that returns
+    one. Raises ``ValueError`` naming the file and the problem.
+    """
+    apps = document.get("apps") or {}
+    if not isinstance(apps, dict):
+        raise ValueError(f"{name}: 'apps' must map names to app entries")
+    for app_name, entry in apps.items():
+        if not isinstance(entry, dict) or not APP_REFERENCE.match(str(entry.get("app", ""))):
+            raise ValueError(f"{name}: app {app_name!r} needs 'app' written as 'module:attribute'")
+        paths = entry.get("pythonpath", [])
+        if not isinstance(paths, list) or not all(isinstance(item, str) and item for item in paths):
+            raise ValueError(f"{name}: app {app_name!r} needs 'pythonpath' as a list of directories")
+    for example in document.get("examples", []):
+        if "app" in example and example["app"] not in apps:
+            raise ValueError(f"{name}: example {example.get('id')!r} names the app {example['app']!r}, which 'apps' does not declare")
 
 
 def planner_binary() -> str | None:
@@ -260,7 +290,7 @@ def _record(
     example: dict[str, Any], response: dict[str, Any], planner_calls: list[str], path: str | None = None
 ) -> dict[str, Any]:
     record = {key: example[key] for key in ("id", "endpoint", "title") if key in example}
-    for key in ("description", "show", "volatile", "trim"):
+    for key in ("description", "app", "show", "volatile", "trim"):
         if key in example:
             record[key] = example[key]
     record["request"] = {"method": _endpoint_method(example), **example["request"]}
@@ -272,9 +302,21 @@ def _record(
     return record
 
 
+def _load_app(reference: str) -> Any:
+    """The ASGI app that `module:attribute` names, calling the attribute when it is a function."""
+    import importlib
+    import inspect
+
+    module_name, _, attribute = reference.partition(":")
+    target = getattr(importlib.import_module(module_name), attribute)
+    if inspect.isfunction(target) or inspect.ismethod(target):
+        target = target()
+    return target
+
+
 #: Runs inside the service's own interpreter, so its `app` package is the only one.
 def _fastapi_worker(module_name: str, attribute: str, document_json: str) -> list[dict[str, Any]]:
-    import importlib
+    from contextlib import ExitStack
 
     document = json.loads(document_json)
     for key, value in (document.get("env") or {}).items():
@@ -300,11 +342,20 @@ def _fastapi_worker(module_name: str, attribute: str, document_json: str) -> lis
 
     from fastapi.testclient import TestClient
 
-    app = getattr(importlib.import_module(module_name), attribute)
+    # The service's own app, and each app the request file names, built the
+    # first time an example needs it. All of them stay open until the end, so
+    # a later example sees what an earlier one stored in the same app.
+    references = {None: f"{module_name}:{attribute}"}
+    references.update({name: entry["app"] for name, entry in (document.get("apps") or {}).items()})
     results = []
     answers: dict[str, Any] = {}
-    with TestClient(app) as client:
+    with ExitStack() as stack:
+        clients: dict[str | None, Any] = {}
         for example in document.get("examples", []):
+            app_name = example.get("app")
+            if app_name not in clients:
+                clients[app_name] = stack.enter_context(TestClient(_load_app(references[app_name])))
+            client = clients[app_name]
             request = example["request"]
             calls.clear()
             kwargs: dict[str, Any] = {"params": request.get("query"), "headers": request.get("headers")}
@@ -321,8 +372,9 @@ def _fastapi_worker(module_name: str, attribute: str, document_json: str) -> lis
 
 def run_fastapi(service: inventory.PythonService, document: dict[str, Any]) -> list[dict[str, Any]]:
     env = dict(os.environ)
+    extra = [entry for app in (document.get("apps") or {}).values() for entry in app.get("pythonpath", [])]
     env["PYTHONPATH"] = os.pathsep.join(
-        [str(REPO_ROOT / entry) for entry in service.python_path]
+        [str(REPO_ROOT / entry) for entry in (*service.python_path, *extra)]
         + ([env["PYTHONPATH"]] if env.get("PYTHONPATH") else [])
     )
     completed = subprocess.run(

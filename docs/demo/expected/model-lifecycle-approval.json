@@ -1,0 +1,17 @@
+{
+  "allowed": true,
+  "refusal": null,
+  "reason": "returns-logreg+returns-train-2 is released; returns-rule-1.0 is superseded",
+  "statusChanges": [
+    {
+      "version": "returns-logreg+returns-train-2",
+      "fromStatus": "candidate",
+      "toStatus": "released"
+    },
+    {
+      "version": "returns-rule-1.0",
+      "fromStatus": "released",
+      "toStatus": "superseded"
+    }
+  ]
+}

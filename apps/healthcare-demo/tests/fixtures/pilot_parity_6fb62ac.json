@@ -1,0 +1,805 @@
+{
+  "about": "The numbers of one federated pilot, run through POST /api/v1/pilot:run with round_prefix api, in-memory stores loaded from the committed extract, and the real planner. Read by tests/test_pilot_parity.py, which says what is left out and why.",
+  "command": "DAGENTSC_BIN=... PYTHONPATH=../..:backend python -m tests.test_pilot_parity --print",
+  "commit": "6fb62ac",
+  "view": {
+    "baseline_metrics": {
+      "alerts_per_1000": 766.2721893491124,
+      "auc": 0.7769158003008153,
+      "log_loss": 0.5236633218319613,
+      "sensitivity": 0.8610302014410136,
+      "specificity": 0.4692919741521124,
+      "subgroup_auc_gap": 0.020527316128627588
+    },
+    "candidate": {
+      "aggregation_method": "secure_aggregation",
+      "artifact_digest": "sha256:e904b41fc176c4810c76d72b06e6e83379819910907b0a5bc2f3ea3e09a2c38a",
+      "contributed_examples": 1014,
+      "contributing_sites": [
+        "ch-245",
+        "it-002",
+        "uk-134"
+      ],
+      "metrics": {
+        "alerts_per_1000": 853.0571992110454,
+        "auc": 0.7859023096285793,
+        "log_loss": 0.4962481636952011,
+        "sensitivity": 0.9223701403779994,
+        "specificity": 0.31144749243947206,
+        "subgroup_auc_gap": 0.022396894676720114
+      },
+      "site_weights": {
+        "ch-245": 0.1952662721893491,
+        "it-002": 0.2879684418145957,
+        "uk-134": 0.5167652859960552
+      },
+      "status": "rejected"
+    },
+    "model_in_use": {
+      "digest": "sha256:04177e54a0c7c829a484a962f37eb0945a39f1ff7e5dc3319b266842fc3bd416",
+      "kind": "points_rule",
+      "status": "released",
+      "version": "stroke-outcome-rule-v1"
+    },
+    "release": {
+      "gates": {
+        "action": "reject",
+        "blocking_failures": [
+          "improves_on_current_release"
+        ],
+        "gate_results": {
+          "alert_burden": {
+            "observed": 853.0571992110454,
+            "outcome": "failed",
+            "threshold": 750.0
+          },
+          "discrimination": {
+            "observed": 0.7859023096285793,
+            "outcome": "passed",
+            "threshold": 0.7
+          },
+          "improves_on_current_release": {
+            "observed": 0.7859023096285793,
+            "outcome": "failed",
+            "threshold": 0.7969158003008153
+          },
+          "sensitivity_at_alert_threshold": {
+            "observed": 0.9223701403779994,
+            "outcome": "passed",
+            "threshold": 0.8
+          },
+          "subgroup_fairness": {
+            "observed": 0.022396894676720114,
+            "outcome": "passed",
+            "threshold": 0.1
+          }
+        },
+        "rollback_version": "stroke-outcome-rule-v1"
+      },
+      "guard": {
+        "boundary": "before_release",
+        "decision": "narrow",
+        "payload": [
+          {
+            "model_update": 1.0
+          }
+        ],
+        "permitted": true,
+        "strategies": {
+          "model_update": "clip_contribution:1"
+        },
+        "transformed_fields": [
+          "model_update"
+        ],
+        "withheld_fields": []
+      }
+    },
+    "rounds": {
+      "analytics": {
+        "model_artifact_digest": "sha256:04177e54a0c7c829a484a962f37eb0945a39f1ff7e5dc3319b266842fc3bd416",
+        "phase": "analytics",
+        "plan": {
+          "excluded_sites": [],
+          "quorum_met": true,
+          "required_participants": 3,
+          "selected_sites": [
+            "ch-245",
+            "it-002",
+            "uk-134"
+          ],
+          "stop_reason": null
+        },
+        "readiness": {
+          "accepted_examples": 1014,
+          "accepted_sites": [
+            "ch-245",
+            "it-002",
+            "uk-134"
+          ],
+          "aggregation_permitted": true,
+          "rejected_contributions": [],
+          "site_weights": {
+            "ch-245": 0.1952662721893491,
+            "it-002": 0.2879684418145957,
+            "uk-134": 0.5167652859960552
+          },
+          "stop_reason": null
+        },
+        "sites": {
+          "ch-245": {
+            "code_verified": true,
+            "contributed_examples": 198,
+            "metrics": {
+              "completeness": 0.9242424242424242,
+              "label_coverage": 1.0,
+              "label_rate": 0.6868686868686869,
+              "record_count": 198.0
+            },
+            "participation": "completed",
+            "privacy_checks_passed": true,
+            "update_digest": null,
+            "update_norm": 0.0
+          },
+          "it-002": {
+            "code_verified": true,
+            "contributed_examples": 292,
+            "metrics": {
+              "completeness": 0.9691780821917808,
+              "label_coverage": 1.0,
+              "label_rate": 0.5993150684931506,
+              "record_count": 292.0
+            },
+            "participation": "completed",
+            "privacy_checks_passed": true,
+            "update_digest": null,
+            "update_norm": 0.0
+          },
+          "uk-134": {
+            "code_verified": true,
+            "contributed_examples": 524,
+            "metrics": {
+              "completeness": 0.9465648854961832,
+              "label_coverage": 1.0,
+              "label_rate": 0.7977099236641222,
+              "record_count": 524.0
+            },
+            "participation": "completed",
+            "privacy_checks_passed": true,
+            "update_digest": null,
+            "update_norm": 0.0
+          }
+        },
+        "training_code_digest": "sha256:04177e54a0c7c829a484a962f37eb0945a39f1ff7e5dc3319b266842fc3bd416"
+      },
+      "candidate_validation": {
+        "model_artifact_digest": "sha256:e904b41fc176c4810c76d72b06e6e83379819910907b0a5bc2f3ea3e09a2c38a",
+        "phase": "evaluation",
+        "plan": {
+          "excluded_sites": [],
+          "quorum_met": true,
+          "required_participants": 3,
+          "selected_sites": [
+            "ch-245",
+            "it-002",
+            "uk-134"
+          ],
+          "stop_reason": null
+        },
+        "readiness": {
+          "accepted_examples": 1014,
+          "accepted_sites": [
+            "ch-245",
+            "it-002",
+            "uk-134"
+          ],
+          "aggregation_permitted": true,
+          "rejected_contributions": [],
+          "site_weights": {
+            "ch-245": 0.1952662721893491,
+            "it-002": 0.2879684418145957,
+            "uk-134": 0.5167652859960552
+          },
+          "stop_reason": null
+        },
+        "sites": {
+          "ch-245": {
+            "code_verified": true,
+            "contributed_examples": 198,
+            "metrics": {
+              "alerts_per_1000": 898.989898989899,
+              "auc": 0.8184297912713473,
+              "log_loss": 0.4945827826336292,
+              "sensitivity": 0.9632352941176471,
+              "specificity": 0.24193548387096775,
+              "subgroup_auc_gap": 0.057673794826572644
+            },
+            "participation": "completed",
+            "privacy_checks_passed": true,
+            "update_digest": null,
+            "update_norm": 0.0
+          },
+          "it-002": {
+            "code_verified": true,
+            "contributed_examples": 292,
+            "metrics": {
+              "alerts_per_1000": 842.4657534246576,
+              "auc": 0.8115262515262516,
+              "log_loss": 0.558883648831623,
+              "sensitivity": 0.9657142857142857,
+              "specificity": 0.3418803418803419,
+              "subgroup_auc_gap": 0.005026485839277228
+            },
+            "participation": "completed",
+            "privacy_checks_passed": true,
+            "update_digest": null,
+            "update_norm": 0.0
+          },
+          "uk-134": {
+            "code_verified": true,
+            "contributed_examples": 524,
+            "metrics": {
+              "alerts_per_1000": 841.6030534351145,
+              "auc": 0.7593324004694412,
+              "log_loss": 0.46197370527985004,
+              "sensitivity": 0.8827751196172249,
+              "specificity": 0.32075471698113206,
+              "subgroup_auc_gap": 0.01874676710203027
+            },
+            "participation": "completed",
+            "privacy_checks_passed": true,
+            "update_digest": null,
+            "update_norm": 0.0
+          }
+        },
+        "training_code_digest": "sha256:cf1c962b4001c40d2eddd2cd06a7f1144fcccd12f2011afd76f948997f8ba662"
+      },
+      "evaluation": {
+        "model_artifact_digest": "sha256:04177e54a0c7c829a484a962f37eb0945a39f1ff7e5dc3319b266842fc3bd416",
+        "phase": "evaluation",
+        "plan": {
+          "excluded_sites": [],
+          "quorum_met": true,
+          "required_participants": 3,
+          "selected_sites": [
+            "ch-245",
+            "it-002",
+            "uk-134"
+          ],
+          "stop_reason": null
+        },
+        "readiness": {
+          "accepted_examples": 1014,
+          "accepted_sites": [
+            "ch-245",
+            "it-002",
+            "uk-134"
+          ],
+          "aggregation_permitted": true,
+          "rejected_contributions": [],
+          "site_weights": {
+            "ch-245": 0.1952662721893491,
+            "it-002": 0.2879684418145957,
+            "uk-134": 0.5167652859960552
+          },
+          "stop_reason": null
+        },
+        "sites": {
+          "ch-245": {
+            "code_verified": true,
+            "contributed_examples": 198,
+            "metrics": {
+              "alerts_per_1000": 823.2323232323232,
+              "auc": 0.8006404174573055,
+              "log_loss": 0.4916766364605739,
+              "sensitivity": 0.9191176470588235,
+              "specificity": 0.3870967741935484,
+              "subgroup_auc_gap": 0.03509975749559091
+            },
+            "participation": "completed",
+            "privacy_checks_passed": true,
+            "update_digest": null,
+            "update_norm": 0.0
+          },
+          "it-002": {
+            "code_verified": true,
+            "contributed_examples": 292,
+            "metrics": {
+              "alerts_per_1000": 770.5479452054794,
+              "auc": 0.8092307692307692,
+              "log_loss": 0.5189562055766382,
+              "sensitivity": 0.92,
+              "specificity": 0.452991452991453,
+              "subgroup_auc_gap": 0.021132997582031576
+            },
+            "participation": "completed",
+            "privacy_checks_passed": true,
+            "update_digest": null,
+            "update_norm": 0.0
+          },
+          "uk-134": {
+            "code_verified": true,
+            "contributed_examples": 524,
+            "metrics": {
+              "alerts_per_1000": 742.3664122137404,
+              "auc": 0.7499435767807168,
+              "log_loss": 0.5383729433015968,
+              "sensitivity": 0.80622009569378,
+              "specificity": 0.5094339622641509,
+              "subgroup_auc_gap": 0.01468341846631327
+            },
+            "participation": "completed",
+            "privacy_checks_passed": true,
+            "update_digest": null,
+            "update_norm": 0.0
+          }
+        },
+        "training_code_digest": "sha256:04177e54a0c7c829a484a962f37eb0945a39f1ff7e5dc3319b266842fc3bd416"
+      },
+      "training-1": {
+        "model_artifact_digest": "sha256:aa3d97c86ae04f1598eba39e3224607034579ba621fd11c00eba4b11d4aaf974",
+        "phase": "training",
+        "plan": {
+          "excluded_sites": [],
+          "quorum_met": true,
+          "required_participants": 3,
+          "selected_sites": [
+            "ch-245",
+            "it-002",
+            "uk-134"
+          ],
+          "stop_reason": null
+        },
+        "readiness": {
+          "accepted_examples": 1014,
+          "accepted_sites": [
+            "ch-245",
+            "it-002",
+            "uk-134"
+          ],
+          "aggregation_permitted": true,
+          "rejected_contributions": [],
+          "site_weights": {
+            "ch-245": 0.1952662721893491,
+            "it-002": 0.2879684418145957,
+            "uk-134": 0.5167652859960552
+          },
+          "stop_reason": null
+        },
+        "sites": {
+          "ch-245": {
+            "code_verified": true,
+            "contributed_examples": 198,
+            "metrics": {
+              "record_count": 198.0,
+              "start_loss": 0.6931471805599465,
+              "train_loss": 0.4805341313238986
+            },
+            "participation": "completed",
+            "privacy_checks_passed": true,
+            "update_digest": "sha256:4d03b68339973d08b21fa7d12b4ae250e4b16c0673c4ed6c401cdd3c3d61866b",
+            "update_norm": 0.9999999999999999
+          },
+          "it-002": {
+            "code_verified": true,
+            "contributed_examples": 292,
+            "metrics": {
+              "record_count": 292.0,
+              "start_loss": 0.6931471805599467,
+              "train_loss": 0.5085733094127751
+            },
+            "participation": "completed",
+            "privacy_checks_passed": true,
+            "update_digest": "sha256:84bdc8cafdcb86091c909cf05872ebc7dce2d479359419a0797e628fc7926b30",
+            "update_norm": 1.0
+          },
+          "uk-134": {
+            "code_verified": true,
+            "contributed_examples": 524,
+            "metrics": {
+              "record_count": 524.0,
+              "start_loss": 0.6931471805599468,
+              "train_loss": 0.4415364670160477
+            },
+            "participation": "completed",
+            "privacy_checks_passed": true,
+            "update_digest": "sha256:877fb57f04340503a27831ccc96b0f300995ecbd16270ac13e2762e05fc62530",
+            "update_norm": 1.0
+          }
+        },
+        "training_code_digest": "sha256:cf1c962b4001c40d2eddd2cd06a7f1144fcccd12f2011afd76f948997f8ba662"
+      },
+      "training-2": {
+        "model_artifact_digest": "sha256:493d030b6c5488cd6347f85c2c8f8a625d0d9ef47b9909a62dbdb30c527bb911",
+        "phase": "training",
+        "plan": {
+          "excluded_sites": [],
+          "quorum_met": true,
+          "required_participants": 3,
+          "selected_sites": [
+            "ch-245",
+            "it-002",
+            "uk-134"
+          ],
+          "stop_reason": null
+        },
+        "readiness": {
+          "accepted_examples": 1014,
+          "accepted_sites": [
+            "ch-245",
+            "it-002",
+            "uk-134"
+          ],
+          "aggregation_permitted": true,
+          "rejected_contributions": [],
+          "site_weights": {
+            "ch-245": 0.1952662721893491,
+            "it-002": 0.2879684418145957,
+            "uk-134": 0.5167652859960552
+          },
+          "stop_reason": null
+        },
+        "sites": {
+          "ch-245": {
+            "code_verified": true,
+            "contributed_examples": 198,
+            "metrics": {
+              "record_count": 198.0,
+              "start_loss": 0.5085856604331264,
+              "train_loss": 0.47642837937952703
+            },
+            "participation": "completed",
+            "privacy_checks_passed": true,
+            "update_digest": "sha256:c5956e5a95b6ff69a68409b926743d395a553ff5a59814c334d874a28fd1544b",
+            "update_norm": 0.5979253422808163
+          },
+          "it-002": {
+            "code_verified": true,
+            "contributed_examples": 292,
+            "metrics": {
+              "record_count": 292.0,
+              "start_loss": 0.5665379476617938,
+              "train_loss": 0.5045136270755707
+            },
+            "participation": "completed",
+            "privacy_checks_passed": true,
+            "update_digest": "sha256:ce67d137c8600d144b6f23a07be0f73a99e13eb7f705d86bbf0810dc9cf828da",
+            "update_norm": 0.7654694727796514
+          },
+          "uk-134": {
+            "code_verified": true,
+            "contributed_examples": 524,
+            "metrics": {
+              "record_count": 524.0,
+              "start_loss": 0.4915668689139993,
+              "train_loss": 0.43535058713952474
+            },
+            "participation": "completed",
+            "privacy_checks_passed": true,
+            "update_digest": "sha256:9ce93bbe3a75ca480f5738ca29b8597a34811626eee5fc8fa81f220f07565544",
+            "update_norm": 0.6529451110787148
+          }
+        },
+        "training_code_digest": "sha256:cf1c962b4001c40d2eddd2cd06a7f1144fcccd12f2011afd76f948997f8ba662"
+      },
+      "training-3": {
+        "model_artifact_digest": "sha256:80e34160252969cc501ba66aa6fd837b1de8c3be56996d9379688e737e9ef4d9",
+        "phase": "training",
+        "plan": {
+          "excluded_sites": [],
+          "quorum_met": true,
+          "required_participants": 3,
+          "selected_sites": [
+            "ch-245",
+            "it-002",
+            "uk-134"
+          ],
+          "stop_reason": null
+        },
+        "readiness": {
+          "accepted_examples": 1014,
+          "accepted_sites": [
+            "ch-245",
+            "it-002",
+            "uk-134"
+          ],
+          "aggregation_permitted": true,
+          "rejected_contributions": [],
+          "site_weights": {
+            "ch-245": 0.1952662721893491,
+            "it-002": 0.2879684418145957,
+            "uk-134": 0.5167652859960552
+          },
+          "stop_reason": null
+        },
+        "sites": {
+          "ch-245": {
+            "code_verified": true,
+            "contributed_examples": 198,
+            "metrics": {
+              "record_count": 198.0,
+              "start_loss": 0.4977107721148733,
+              "train_loss": 0.4740855099781931
+            },
+            "participation": "completed",
+            "privacy_checks_passed": true,
+            "update_digest": "sha256:b70383582ea559790b778c1a31b1639d66465df6a4dc134e029a4da5179abb7c",
+            "update_norm": 0.4745801286007511
+          },
+          "it-002": {
+            "code_verified": true,
+            "contributed_examples": 292,
+            "metrics": {
+              "record_count": 292.0,
+              "start_loss": 0.5626287715860365,
+              "train_loss": 0.5023104832040295
+            },
+            "participation": "completed",
+            "privacy_checks_passed": true,
+            "update_digest": "sha256:a7b87d1806af873ba3687144963e534e0599f46d139e8250f7ecb4b1333ed789",
+            "update_norm": 0.6876242800742844
+          },
+          "uk-134": {
+            "code_verified": true,
+            "contributed_examples": 524,
+            "metrics": {
+              "record_count": 524.0,
+              "start_loss": 0.4658472003101121,
+              "train_loss": 0.4320739607459365
+            },
+            "participation": "completed",
+            "privacy_checks_passed": true,
+            "update_digest": "sha256:d2c2e9b3546cae28c30c7fed975eaa9b1f7e6024b1e9ae264695cbfe134ec353",
+            "update_norm": 0.5105096821742139
+          }
+        },
+        "training_code_digest": "sha256:cf1c962b4001c40d2eddd2cd06a7f1144fcccd12f2011afd76f948997f8ba662"
+      },
+      "training-4": {
+        "model_artifact_digest": "sha256:92def0a91bbb0012f3087ca5cb0c02d2d4ec0508890ea5aec59bb43d6a3acff2",
+        "phase": "training",
+        "plan": {
+          "excluded_sites": [],
+          "quorum_met": true,
+          "required_participants": 3,
+          "selected_sites": [
+            "ch-245",
+            "it-002",
+            "uk-134"
+          ],
+          "stop_reason": null
+        },
+        "readiness": {
+          "accepted_examples": 1014,
+          "accepted_sites": [
+            "ch-245",
+            "it-002",
+            "uk-134"
+          ],
+          "aggregation_permitted": true,
+          "rejected_contributions": [],
+          "site_weights": {
+            "ch-245": 0.1952662721893491,
+            "it-002": 0.2879684418145957,
+            "uk-134": 0.5167652859960552
+          },
+          "stop_reason": null
+        },
+        "sites": {
+          "ch-245": {
+            "code_verified": true,
+            "contributed_examples": 198,
+            "metrics": {
+              "record_count": 198.0,
+              "start_loss": 0.4953243050073807,
+              "train_loss": 0.473341773360886
+            },
+            "participation": "completed",
+            "privacy_checks_passed": true,
+            "update_digest": "sha256:b92688e6b4d7b12377f9c36116cc185eec9bdcf750b958cc771111d04059cd3a",
+            "update_norm": 0.45184977329389414
+          },
+          "it-002": {
+            "code_verified": true,
+            "contributed_examples": 292,
+            "metrics": {
+              "record_count": 292.0,
+              "start_loss": 0.5598100306181826,
+              "train_loss": 0.5015738901344738
+            },
+            "participation": "completed",
+            "privacy_checks_passed": true,
+            "update_digest": "sha256:199bbe108972fa958a7c88294605948160873c7ca794d312db5a95d52007eee4",
+            "update_norm": 0.6750468356135425
+          },
+          "uk-134": {
+            "code_verified": true,
+            "contributed_examples": 524,
+            "metrics": {
+              "record_count": 524.0,
+              "start_loss": 0.4634966153272673,
+              "train_loss": 0.4308854526803299
+            },
+            "participation": "completed",
+            "privacy_checks_passed": true,
+            "update_digest": "sha256:f75de8dd552b32be8b566f88642c343a9390b27313296c7accaf539aabcb8838",
+            "update_norm": 0.5015992854248128
+          }
+        },
+        "training_code_digest": "sha256:cf1c962b4001c40d2eddd2cd06a7f1144fcccd12f2011afd76f948997f8ba662"
+      },
+      "training-5": {
+        "model_artifact_digest": "sha256:3cf63ad88cc56a3e84c5c485e27469346228121ba5a24a991deef428b586d9ac",
+        "phase": "training",
+        "plan": {
+          "excluded_sites": [],
+          "quorum_met": true,
+          "required_participants": 3,
+          "selected_sites": [
+            "ch-245",
+            "it-002",
+            "uk-134"
+          ],
+          "stop_reason": null
+        },
+        "readiness": {
+          "accepted_examples": 1014,
+          "accepted_sites": [
+            "ch-245",
+            "it-002",
+            "uk-134"
+          ],
+          "aggregation_permitted": true,
+          "rejected_contributions": [],
+          "site_weights": {
+            "ch-245": 0.1952662721893491,
+            "it-002": 0.2879684418145957,
+            "uk-134": 0.5167652859960552
+          },
+          "stop_reason": null
+        },
+        "sites": {
+          "ch-245": {
+            "code_verified": true,
+            "contributed_examples": 198,
+            "metrics": {
+              "record_count": 198.0,
+              "start_loss": 0.4947169014762667,
+              "train_loss": 0.4731432016556353
+            },
+            "participation": "completed",
+            "privacy_checks_passed": true,
+            "update_digest": "sha256:326022ddc71069ce641313517783d1026003b8c101c24964dc4a339c231cbf2a",
+            "update_norm": 0.4469377672882201
+          },
+          "it-002": {
+            "code_verified": true,
+            "contributed_examples": 292,
+            "metrics": {
+              "record_count": 292.0,
+              "start_loss": 0.5590723310124822,
+              "train_loss": 0.5012489002664933
+            },
+            "participation": "completed",
+            "privacy_checks_passed": true,
+            "update_digest": "sha256:1f6681feee572268e3ea5f1e1fcac453034811dfa1b8d0ec82344b82c3529952",
+            "update_norm": 0.6740603337695117
+          },
+          "uk-134": {
+            "code_verified": true,
+            "contributed_examples": 524,
+            "metrics": {
+              "record_count": 524.0,
+              "start_loss": 0.4625114088335336,
+              "train_loss": 0.4303292984984712
+            },
+            "participation": "completed",
+            "privacy_checks_passed": true,
+            "update_digest": "sha256:6e403cf5f7a50ead27c23d39f23e0280c35e2d97d411475bf3139724883614b6",
+            "update_norm": 0.4987633484669523
+          }
+        },
+        "training_code_digest": "sha256:cf1c962b4001c40d2eddd2cd06a7f1144fcccd12f2011afd76f948997f8ba662"
+      }
+    },
+    "stop_reason": null,
+    "training_curve": [
+      {
+        "contributed_examples": 1014,
+        "contributing_sites": [
+          "ch-245",
+          "it-002",
+          "uk-134"
+        ],
+        "local_loss": 0.46845589059868964,
+        "loss": 0.5164793696192687,
+        "max_update_norm": 1.0,
+        "round": 1,
+        "start_loss": 0.6931471805599467,
+        "update_norms": {
+          "ch-245": 0.9999999999999999,
+          "it-002": 1.0,
+          "uk-134": 1.0
+        }
+      },
+      {
+        "contributed_examples": 1014,
+        "contributing_sites": [
+          "ch-245",
+          "it-002",
+          "uk-134"
+        ],
+        "local_loss": 0.46328846734154233,
+        "loss": 0.4999391194717616,
+        "max_update_norm": 0.7654694727796514,
+        "round": 2,
+        "start_loss": 0.5164793696192687,
+        "update_norms": {
+          "ch-245": 0.5979253422808163,
+          "it-002": 0.7654694727796514,
+          "uk-134": 0.6529451110787148
+        }
+      },
+      {
+        "contributed_examples": 1014,
+        "contributing_sites": [
+          "ch-245",
+          "it-002",
+          "uk-134"
+        ],
+        "local_loss": 0.46050330128415146,
+        "loss": 0.4974467137706694,
+        "max_update_norm": 0.6876242800742844,
+        "round": 3,
+        "start_loss": 0.4999391194717616,
+        "update_norms": {
+          "ch-245": 0.4745801286007511,
+          "it-002": 0.6876242800742844,
+          "uk-134": 0.5105096821742139
+        }
+      },
+      {
+        "contributed_examples": 1014,
+        "contributing_sites": [
+          "ch-245",
+          "it-002",
+          "uk-134"
+        ],
+        "local_loss": 0.459531779338476,
+        "loss": 0.49660655362595385,
+        "max_update_norm": 0.6750468356135425,
+        "round": 4,
+        "start_loss": 0.4974467137706694,
+        "update_norms": {
+          "ch-245": 0.45184977329389414,
+          "it-002": 0.6750468356135425,
+          "uk-134": 0.5015992854248128
+        }
+      },
+      {
+        "contributed_examples": 1014,
+        "contributing_sites": [
+          "ch-245",
+          "it-002",
+          "uk-134"
+        ],
+        "local_loss": 0.4591120169810954,
+        "loss": 0.4962481636952011,
+        "max_update_norm": 0.6740603337695117,
+        "round": 5,
+        "start_loss": 0.49660655362595385,
+        "update_norms": {
+          "ch-245": 0.4469377672882201,
+          "it-002": 0.6740603337695117,
+          "uk-134": 0.4987633484669523
+        }
+      }
+    ],
+    "training_settings": {
+      "epochs": 30,
+      "initial_version": "stroke-outcome-logreg-init",
+      "l2": 0.01,
+      "learning_rate": 0.5,
+      "rounds": 5
+    }
+  }
+}

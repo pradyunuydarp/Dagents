@@ -1,11 +1,14 @@
 """Federated round contracts shared by the GMA, the LMA, and consumer apps.
 
-Dagents governs a federation; it does not run one. These contracts describe the
-round agreement, who may take part, what a site returns, and what has to be true
-before a candidate model may be released. The distributed training protocol
-belongs to a specialist runtime such as NVIDIA FLARE, reached through
-:class:`~agents.common.application.federation.FederationEngine`, so nothing here
-reimplements a federated optimizer.
+These contracts describe the round agreement, who may take part, the job each
+site is offered, what a site returns, the update store, the model registry,
+and what has to be true before a candidate model may be released.
+
+The runtime behind
+:class:`~agents.common.application.federation.FederationEngine` moves the jobs
+and the clipped updates. It can be the GMA's own HTTP engine or a specialist
+runtime such as NVIDIA FLARE. How updates are combined comes from a model kind
+the application contributes, so nothing here is a federated optimizer.
 
 The rule these contracts exist to hold: aggregation creates a candidate model,
 never an approved release.
@@ -17,11 +20,12 @@ schema agreement its sites have signed.
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Annotated, Any, Literal, Mapping
 
-from pydantic import Field
+from pydantic import ConfigDict, Field, SerializerFunctionWrapHandler, model_serializer
 
 from agents.common.domain.base import DagentsModel
+from agents.common.domain.governance import Requester, RestrictionPlan
 
 #: What a round is for.
 #:
@@ -29,6 +33,14 @@ from agents.common.domain.base import DagentsModel
 #: a consortium proves it can produce the same measures before any model update
 #: moves. The phase is explicit so a study cannot skip ahead silently.
 RoundPhase = Literal["analytics", "evaluation", "training"]
+
+#: What a site does in each phase: the ``task`` of every job in the round.
+JobTask = Literal["profile", "evaluate", "train"]
+
+#: The one map from a round's phase to its jobs' task. The GMA's HTTP engine,
+#: the in-process simulator and the LMA all read it, so a new phase cannot be
+#: added to one of them and missed in another.
+PHASE_TASKS: Mapping[RoundPhase, JobTask] = {"analytics": "profile", "evaluation": "evaluate", "training": "train"}
 
 StopCondition = Literal[
     "schema_failure",
@@ -125,8 +137,8 @@ class RoundManifest(DagentsModel):
 
     round_id: str = Field(
         description=(
-            "The round's id, chosen by the caller. The GMA stores the round under it; dispatching a manifest "
-            "whose id is already stored replaces that round."
+            "The round's id, chosen by the caller. The GMA stores the round under it and refuses a manifest "
+            "whose id is already stored, with 409."
         )
     )
     study_id: str = Field(description="The study the round belongs to. Copied into the plan.")
@@ -307,6 +319,31 @@ class SiteResult(DagentsModel):
     local_evidence_pointer: str | None = Field(
         default=None, description="Where the site keeps its detailed evidence. Stored; the GMA never follows it."
     )
+    refusal_reason: str | None = Field(
+        default=None,
+        description=(
+            "Why the site refused or could not finish the job, in words, such as `the guard withheld the "
+            "outbound model update`. Present only when there is a reason: a result without one leaves the key "
+            "out. Stored; no planner rule reads it."
+        ),
+    )
+
+    @model_serializer(mode="wrap")
+    def _leave_out_an_empty_refusal_reason(self, handler: SerializerFunctionWrapHandler):  # noqa: ANN202
+        """Leave ``refusal_reason`` out of a result that has none.
+
+        A result without a reason then has exactly the keys it had before the
+        field existed, so stored results, recorded examples and consumers that
+        check a result's keys against a fixed list see no change.
+
+        The method has no return annotation on purpose: with one, pydantic
+        would describe the serialized model by that type instead of by its
+        fields, and the OpenAPI schema would lose the fields.
+        """
+        data = handler(self)
+        if isinstance(data, dict) and data.get("refusal_reason") is None:
+            data.pop("refusal_reason", None)
+        return data
 
 
 class ContributionRejection(DagentsModel):
@@ -454,13 +491,33 @@ class FederatedJob(DagentsModel):
     digest does not match the manifest it was given is not the approved job.
     """
 
-    round_id: str
-    site_id: str
-    manifest: RoundManifest
-    manifest_digest: str
-    task: Literal["profile", "evaluate", "train"] = "evaluate"
-    feature_fields: list[str] = Field(default_factory=list)
-    parameters: dict[str, Any] = Field(default_factory=dict)
+    round_id: str = Field(description="The round the job belongs to.")
+    site_id: str = Field(description="The site asked to do the job. A site refuses a job addressed to another site.")
+    manifest: RoundManifest = Field(description="The round's manifest, as the GMA dispatched it.")
+    manifest_digest: str = Field(
+        description=(
+            "The plan's `round_digest` for the manifest. The site computes the digest itself and refuses the job "
+            "when the two differ."
+        )
+    )
+    task: JobTask = Field(
+        default="evaluate",
+        description="`profile` for an analytics round, `evaluate` for an evaluation round, `train` for a training round.",
+    )
+    feature_fields: list[str] = Field(
+        default_factory=list,
+        description=(
+            "The fields the job asks to read. The site narrows them to the fields it approved. Empty asks for "
+            "every approved field."
+        ),
+    )
+    parameters: dict[str, Any] = Field(
+        default_factory=dict,
+        description=(
+            "Settings for the site's runner. The GMA's HTTP engine puts the round's model here under `model`, "
+            "as a `JobModel`."
+        ),
+    )
 
 
 class JobAcceptance(DagentsModel):
@@ -470,41 +527,72 @@ class JobAcceptance(DagentsModel):
     runs is the point of distributing a signed job at all.
     """
 
-    round_id: str
-    site_id: str
-    accepted: bool
-    reason: str = ""
-    verified_digest: bool = False
-    feature_contract_version: str = ""
+    round_id: str = Field(description="The round the job belongs to.")
+    site_id: str = Field(description="The site that answered.")
+    accepted: bool = Field(description="Whether the site accepted the job. A site that refuses reads no data.")
+    reason: str = Field(default="", description="Why the site accepted or refused the job, in words.")
+    verified_digest: bool = Field(
+        default=False, description="Whether the job's digest matched the digest the site computed for the manifest."
+    )
+    feature_contract_version: str = Field(
+        default="", description="The feature contract version the site produces."
+    )
 
 
-class RoundRecord(DagentsModel):
-    """The GMA's stored lineage for one round.
+class JobModel(DagentsModel):
+    """The model a round's jobs start from, sent to each site with the job.
 
-    Kept so the path from seed model to round to candidate to release can be
-    reconstructed later without reading any site's local evidence.
+    The GMA's HTTP engine reads it from its model registry and puts it in
+    ``FederatedJob.parameters["model"]``. Before it accepts the job, a site
+    checks that ``digest`` equals the manifest's ``model_artifact_digest`` and
+    that its own model kind computes the same digest from ``params``.
     """
 
-    manifest: RoundManifest = Field(description="The manifest the round was dispatched with.")
-    plan: RoundPlan = Field(description="The planner's plan for the round.")
-    results: list[SiteResult] = Field(
-        default_factory=list, description="One result per site, sorted by site id. A later result from a site replaces its earlier one."
+    version: str = Field(description="The model version, equal to the manifest's `model_version`.")
+    kind: str = Field(description="The model kind that runs it, such as a kind an extension contributes.")
+    params: dict[str, Any] = Field(description="The model's parameters, in the form its model kind reads.")
+    digest: str = Field(description="The digest of `params`, computed by the model kind.")
+
+    @classmethod
+    def from_parameters(cls, parameters: Mapping[str, Any]) -> JobModel | None:
+        """Read the model from a job's ``parameters``.
+
+        Returns ``None`` when the job carries no model. Raises
+        ``pydantic.ValidationError`` (a ``ValueError``) when ``model`` is not
+        a valid ``JobModel``.
+        """
+        raw = parameters.get("model")
+        if raw is None:
+            return None
+        return cls.model_validate(raw)
+
+
+#: The calls the GMA's HTTP engine makes to an LMA for one site in a round.
+DispatchStep = Literal["offer", "execute"]
+
+#: What one dispatch call came to. ``accepted`` and ``refused`` answer an
+#: offer. ``completed``, ``rejected``, ``failed``, ``dropped`` and
+#: ``accepted`` are the participation of the result an execute call returned.
+#: ``failed`` is also any call that did not get an answer it could read.
+DispatchOutcome = Literal["accepted", "refused", "completed", "rejected", "failed", "dropped"]
+
+
+class DispatchCall(DagentsModel):
+    """One call the GMA made to an LMA while it dispatched a round."""
+
+    site_id: str = Field(description="The site whose LMA was called.")
+    step: DispatchStep = Field(description="`offer` (the site checks the job) or `execute` (the site runs it).")
+    status_code: int | None = Field(
+        default=None,
+        description="The HTTP status the LMA answered with. Null when no answer came: the LMA was unreachable or the call timed out.",
     )
-    readiness: AggregationReadiness | None = Field(
-        default=None, description="The last readiness check, saved by the readiness and aggregate endpoints. Null before either."
-    )
-    decision: ReleaseDecision | None = Field(
-        default=None, description="The release decision, saved by the evaluate-release endpoint. Null before it."
-    )
-    created_at: int = Field(description="When the round was dispatched, in Unix seconds.")
-    updated_at: int = Field(description="When the record last changed, in Unix seconds.")
-    status: Literal["planned", "dispatched", "collecting", "aggregated", "closed"] = Field(
-        default="planned",
+    ms: float = Field(ge=0, description="How long the call took, in milliseconds. At least 0.")
+    outcome: DispatchOutcome = Field(
         description=(
-            "`collecting` after a dispatch that met quorum or a new result, `aggregated` after a candidate was "
-            "made, `closed` after a dispatch without quorum or a release decision. The GMA never stores "
-            "`planned` or `dispatched`."
-        ),
+            "For an offer: `accepted`, `refused`, or `failed` when no answer could be read. For an execute "
+            "call: the participation of the returned result (`completed`, `rejected`, `failed`, `dropped`), or "
+            "`failed` when no answer could be read."
+        )
     )
 
 
@@ -523,7 +611,10 @@ class CandidateModel(DagentsModel):
 
     round_id: str = Field(description="The round that produced the candidate.")
     candidate_version: str = Field(
-        description="The candidate's version. The in-process engine writes `<model_version>+<round_id>`."
+        description=(
+            "The candidate's version. The in-process engine writes `<model_version>+<round_id>`. The HTTP "
+            "engine writes `<version_prefix>+<round_id>`, with the model kind's prefix."
+        )
     )
     parent_version: str = Field(description="The round manifest's `model_version`.")
     aggregation_method: str = Field(description="The manifest's aggregation `kind`, such as `fedavg`.")
@@ -539,19 +630,81 @@ class CandidateModel(DagentsModel):
     metrics: dict[str, float] = Field(
         default_factory=dict,
         description=(
-            "The candidate's metrics. The in-process engine gives the weighted mean of each metric that every "
-            "contributing site reported, and leaves out a metric only some sites reported."
+            "The candidate's metrics: the weighted mean of each metric that every contributing site reported. "
+            "A metric only some sites reported is left out."
         ),
     )
     artifact_uri: str = Field(
         default="",
-        description="Where the candidate's parameters are. The in-process engine writes `memory://candidates/<round_id>`, which names no file.",
+        description=(
+            "Where the candidate's parameters are. The in-process engine writes `memory://candidates/<round_id>`, "
+            "which names no file."
+        ),
     )
     artifact_digest: str = Field(
         default="",
-        description="The digest of the parameters at `artifact_uri`. Empty from the in-process engine, which makes no parameters.",
+        description=(
+            "The digest of the candidate's parameters. Empty from the in-process engine, which makes no "
+            "parameters."
+        ),
     )
     produced_at: int = Field(default=0, description="When the engine made the candidate, in Unix seconds.")
+
+
+class RoundRecord(DagentsModel):
+    """The GMA's stored lineage for one round.
+
+    Kept so the path from seed model to round to candidate to release can be
+    reconstructed later without reading any site's local evidence.
+    """
+
+    manifest: RoundManifest = Field(description="The manifest the round was dispatched with.")
+    plan: RoundPlan = Field(description="The planner's plan for the round.")
+    results: list[SiteResult] = Field(
+        default_factory=list,
+        description=(
+            "One result per site, sorted by site id. A later result from a site replaces its earlier one. With the "
+            "HTTP engine every result comes from the site's LMA; none can be posted."
+        ),
+    )
+    readiness: AggregationReadiness | None = Field(
+        default=None, description="The readiness check saved by the aggregate endpoint. Null before it."
+    )
+    decision: ReleaseDecision | None = Field(
+        default=None, description="The release decision, saved by the evaluate-release endpoint. Null before it."
+    )
+    created_at: int = Field(description="When the round was dispatched, in Unix seconds.")
+    updated_at: int = Field(description="When the record last changed, in Unix seconds.")
+    status: Literal["planned", "dispatched", "collecting", "aggregated", "closed"] = Field(
+        default="planned",
+        description=(
+            "`dispatched` while the engine offers and runs the jobs, `collecting` after a dispatch that met "
+            "quorum or a new result, `aggregated` after a candidate was made, `closed` after a dispatch without quorum, a "
+            "release decision or a discard. A round is aggregated once and takes one release decision. The GMA never "
+            "stores `planned`."
+        ),
+    )
+    acceptances: list[JobAcceptance] = Field(
+        default_factory=list,
+        description="Each selected site's answer to the job offer, sorted by site id. Empty before dispatch and for a round without quorum.",
+    )
+    candidate: CandidateModel | None = Field(
+        default=None, description="The candidate the aggregate endpoint made from this round. Null before it."
+    )
+    dispatch: list[DispatchCall] = Field(
+        default_factory=list,
+        description=(
+            "Every call the GMA's HTTP engine made to an LMA for this round, in the order the calls finished. "
+            "Empty for the in-process engine."
+        ),
+    )
+    abandoned_reason: str | None = Field(
+        default=None,
+        description=(
+            "Why the round was discarded: the reason the first discard request gave, or `the engine failed while it "
+            "dispatched the round`. Null for a round that was not discarded."
+        ),
+    )
 
 
 class RoundSubmission(DagentsModel):
@@ -566,3 +719,270 @@ class RoundSubmission(DagentsModel):
     dispatched_sites: list[str] = Field(default_factory=list)
     acceptances: list[JobAcceptance] = Field(default_factory=list)
     message: str = ""
+
+
+#: One coordinate of an uploaded update: a finite JSON number. Strict, so a
+#: string such as ``"0.5"`` or a boolean is refused rather than converted.
+UpdateValue = Annotated[float, Field(strict=True, allow_inf_nan=False)]
+
+
+class UpdateUpload(DagentsModel):
+    """One site's clipped model update, as its LMA sends it to the GMA's update store.
+
+    The store keeps it until the round is aggregated or discarded. No route
+    reads an update back.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    job_digest: str = Field(
+        description="The round digest from the site's job. It must equal the plan's `round_digest`, or the store answers 409."
+    )
+    update: dict[str, UpdateValue] = Field(
+        description=(
+            "The update the site's `before_send` Guard returned, by parameter name. Every value must be a finite "
+            "number. The model kind's `check_update` checks the names."
+        )
+    )
+
+
+class UpdateReceipt(DagentsModel):
+    """What the update store answers when it has stored an update."""
+
+    digest: str = Field(
+        description="The digest of the stored update, computed with the model kind's `update_digest`. The site checks it against its own."
+    )
+
+
+#: Where a model version stands in the GMA's model registry. At most one
+#: version is ``released`` at a time.
+ModelStatus = Literal["candidate", "released", "rejected", "superseded"]
+
+#: Where the metrics behind a release decision came from: the stored
+#: aggregates of the study's own rounds, or numbers the caller sent.
+MetricsSource = Literal["rounds", "request"]
+
+#: Why the model lifecycle rule refused an event. The planner's
+#: ``federation model lifecycle`` command returns one of these.
+LifecycleRefusal = Literal[
+    "already_released",
+    "not_candidate",
+    "no_decision",
+    "gates_decided",
+    "guard_denied",
+    "metrics_not_from_rounds",
+    "baseline_changed",
+]
+
+
+class ModelReleaseDecision(DagentsModel):
+    """The latest release decision for a model version, stored with the version.
+
+    An approval reads it. Decisions stored before ``baseline_version`` or
+    ``metrics_source`` existed lack them; the lifecycle rule refuses to approve
+    such a decision.
+    """
+
+    action: ReleaseAction = Field(description="What the release gates decided: `release`, `another_round` or `reject`.")
+    guard_permitted: bool = Field(description="Whether the `before_release` Guard permitted the release.")
+    gate_results: list[GateResult] = Field(default_factory=list, description="One result per gate, in gate order.")
+    round_id: str = Field(description="The training round the candidate came from.")
+    baseline_version: str | None = Field(
+        default=None,
+        description=(
+            "The version the gates compared the candidate with: the version the baseline round measured, or the "
+            "version released at the time. An approval is refused once another version is released."
+        ),
+    )
+    metrics_source: MetricsSource | None = Field(
+        default=None,
+        description=(
+            "`rounds` when the gates read the stored aggregates of rounds whose results the GMA's HTTP engine "
+            "collected from the sites, `request` when they read metrics a caller sent or posted. Only `rounds` can "
+            "lead to an approval. Null for an older decision."
+        ),
+    )
+    decided_at: str | None = Field(default=None, description="When the decision was stored, in ISO 8601. Set by the store.")
+
+
+class ModelVersion(DagentsModel):
+    """One model version in the GMA's model registry."""
+
+    version: str = Field(description="The version's name. A candidate is named `<version_prefix>+<round_id>`.")
+    kind: str = Field(description="The model kind that runs it.")
+    digest: str = Field(description="The digest of the parameters, computed by the model kind. Checked on every load.")
+    status: ModelStatus = Field(
+        description="`candidate`, `released` (the version sites use), `rejected` or `superseded`. Only the lifecycle rule changes it."
+    )
+    parent_version: str | None = Field(
+        default=None, description="The version a training round started from. Null for a registered version."
+    )
+    created_at: str | None = Field(default=None, description="When the version was registered, in ISO 8601.")
+    params: dict[str, Any] | None = Field(
+        default=None,
+        description="The parameters. Only `GET /api/v1/model-versions:released` returns them; other routes leave them null.",
+    )
+    release_decision: ModelReleaseDecision | None = Field(
+        default=None, description="The latest release decision for the version. Null before one."
+    )
+
+
+class ModelVersionRegistration(DagentsModel):
+    """A request to register a model version under a name the caller chooses."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: str = Field(min_length=1, max_length=64, description="The model kind. An extension must contribute it.")
+    params: dict[str, Any] = Field(description="The parameters. The model kind computes their digest and refuses invalid ones.")
+    requested_status: Literal["candidate", "released"] = Field(
+        default="candidate",
+        description="`candidate`, or `released`, which the lifecycle rule allows only when no version is released.",
+    )
+
+
+class ModelVersionList(DagentsModel):
+    """The model versions the GMA's registry holds, without their parameters."""
+
+    model_in_use: ModelVersion | None = Field(
+        default=None, description="The released version, the one sites use. Null when nothing is released."
+    )
+    versions: list[ModelVersion] = Field(
+        default_factory=list, description="The newest versions first, at most `limit` of them."
+    )
+
+
+class ApprovalResult(DagentsModel):
+    """What an approval changed."""
+
+    released: ModelVersion = Field(description="The version now released, without its parameters.")
+    previous: str | None = Field(
+        default=None, description="The version that was released before. It is now `superseded`. Null when nothing was released."
+    )
+
+
+class ModelStatusChange(DagentsModel):
+    """One status change the lifecycle rule asks the registry to apply."""
+
+    version: str = Field(description="The version whose status changes.")
+    from_status: ModelStatus | None = Field(description="Its status before the change. Null for a version the event adds.")
+    to_status: ModelStatus = Field(description="Its status after the change.")
+
+
+class ModelLifecycleDecision(DagentsModel):
+    """The planner's answer to one model lifecycle event (`dagentsc federation model lifecycle`)."""
+
+    allowed: bool = Field(description="Whether the event is allowed. A refused event changes no status.")
+    refusal: LifecycleRefusal | None = Field(
+        default=None, description="Why the event was refused. Null when it is allowed."
+    )
+    reason: str = Field(description="The decision in words.")
+    status_changes: list[ModelStatusChange] = Field(
+        default_factory=list, description="The status changes to apply, sorted by version. Empty for a refused event."
+    )
+
+
+class ReleaseEvaluationRequest(DagentsModel):
+    """A request to decide on a round's candidate.
+
+    Two flows use it:
+
+    - **Round flow**: ``condition_id`` names a condition pack. The GMA reads
+      the gates from the pack, the candidate's metrics from
+      ``metrics_from_round`` and the baseline from ``baseline_from_round``,
+      and runs the ``before_release`` Guard for ``release_requester`` before
+      the gates. Gates in the body are refused.
+    - **Bare flow**: no ``condition_id``. The GMA evaluates ``gates`` against
+      ``candidate_metrics`` and ``baseline_metrics`` as sent, and runs no Guard.
+    """
+
+    gates: list[ReleaseGate] = Field(
+        default_factory=list,
+        description=(
+            "Bare flow only: the gates to evaluate, in order, usually a condition pack's `release_gates`. With "
+            "no gates the decision is `release`."
+        ),
+    )
+    candidate_version: str = Field(
+        description=(
+            "The candidate's version, as `POST /api/v1/federation/rounds/{round_id}:aggregate` returned it. "
+            "When the round holds a candidate, the two must be equal, or the GMA answers 409."
+        )
+    )
+    candidate_metrics: dict[str, float] = Field(
+        default_factory=dict,
+        description="Bare flow only: the candidate's measured metrics, by name. The gates read these values as sent.",
+    )
+    baseline_metrics: dict[str, float] = Field(
+        default_factory=dict,
+        description="Bare flow only: the released model's metrics, by name. Only `improves_on_baseline` gates read them.",
+    )
+    rollback_version: str | None = Field(
+        default=None,
+        description="The version to keep using if the candidate is not released. Default: the round's `model_version`.",
+    )
+    condition_id: str | None = Field(
+        default=None,
+        description="Round flow: the condition pack whose gates, classification and purposes apply. Null for the bare flow.",
+    )
+    metrics_from_round: str | None = Field(
+        default=None,
+        description=(
+            "Round flow: the round whose stored aggregate holds the candidate's metrics, usually a validation "
+            "round. A round that was not aggregated gives no metrics, so every gate is `not_evaluated`."
+        ),
+    )
+    baseline_from_round: str | None = Field(
+        default=None,
+        description="Round flow: the round whose stored aggregate holds the released model's metrics, usually an evaluation round.",
+    )
+    change_from_version: str | None = Field(
+        default=None,
+        description=(
+            "Round flow: the version the release Guard measures the candidate's change from. The Guard's "
+            "payload is the model kind's `parameter_change` between the two."
+        ),
+    )
+    release_requester: Requester | None = Field(
+        default=None, description="Round flow: who asks for the release, as the `before_release` Guard assesses them."
+    )
+    declared_purpose: str | None = Field(
+        default=None,
+        description="Round flow: why the release is wanted. It must be one of the condition pack's approved purposes.",
+    )
+
+
+class ReleaseGuardCheck(DagentsModel):
+    """What the `before_release` Guard decided for a release evaluation."""
+
+    permitted: bool = Field(description="Whether the Guard permitted the release.")
+    plan: RestrictionPlan = Field(description="The plan the Guard applied.")
+    audit_id: str = Field(description="The id of the record in the GMA's audit chain.")
+    message: str = Field(default="", description="The decision in words.")
+
+
+class ReleaseEvaluation(DagentsModel):
+    """The GMA's answer to a release evaluation."""
+
+    decision: ReleaseDecision = Field(description="The release gates' decision. It is also saved in the round's `decision` field.")
+    guard: ReleaseGuardCheck | None = Field(
+        default=None, description="The `before_release` Guard's decision. Null in the bare flow, which runs no Guard."
+    )
+    candidate_status: ModelStatus | None = Field(
+        default=None,
+        description="The candidate's status in the model registry after the decision. Null when the registry does not hold the candidate.",
+    )
+    metrics_source: MetricsSource = Field(
+        description=(
+            "`rounds` when the gates read the stored aggregates of rounds whose results the GMA's HTTP engine "
+            "collected from the sites. `request` when they read metrics from the body (the bare flow), or "
+            "aggregates of rounds whose results callers posted (a GMA on the simulator). Only `rounds` can lead "
+            "to an approval."
+        )
+    )
+    baseline_version: str | None = Field(
+        default=None,
+        description=(
+            "The version the baseline round measured. Without a baseline round, the version released when the "
+            "decision was made. Null when neither is known."
+        ),
+    )

@@ -4,8 +4,8 @@
 
 | Service | Port | Main endpoints |
 |---|---|---|
-| LMA | 8010 | Governance at one site, dataset profiling, local model runs |
-| GMA | 8020 | Governance, federated rounds, site enrolment |
+| LMA | 8010 | Governance at one site, dataset profiling, local model runs; for a site: its summary, profile, Guard probe and federated jobs |
+| GMA | 8020 | Governance, site enrolment, federated rounds, model versions and approval |
 | model-service | 8000 | Model training, checks and jobs |
 | pipeline-service | 8030 | Pipeline registry, validation and runs |
 | core-service | 8040 | Catalog, topology, workload compilation, Kubernetes manifests |
@@ -31,10 +31,16 @@ from real calls. It is generated from the code, grouped by module:
 - Every Python service serves interactive documentation at `/docs` and its
   OpenAPI schema at `/openapi.json`. Once the stroke demo API is running (below),
   open <http://127.0.0.1:8080/docs>.
-- No service checks who is calling: there are no accounts, tokens or API keys.
-  The [API reference overview](../reference/api/overview.md#authentication)
-  says what that means, and lists the error shapes, status codes and the stroke
-  demo's rate limits.
+- The LMA and the GMA accept bearer tokens, each with one scope, when they are
+  started with tokens: `Authorization: Bearer <token>`. Started without
+  tokens, as in the walkthroughs below, they answer every caller and log a
+  warning. The framework services and the demos check no token. The scopes are
+  in [Tokens, errors and calls between agents](../reference/api/agents.md#tokens-errors-and-calls-between-agents),
+  and the [API reference overview](../reference/api/overview.md) lists the
+  error shapes, status codes and the stroke demo's rate limits.
+- The agents answer their own errors as `{"detail": "...", "code": "..."}`,
+  for example `{"detail": "site store-east was not selected for round returns-eval-http-1", "code": "forbidden"}`.
+  No `detail` holds a host, a token or a connection string.
 
 ## Walkthrough 1: the stroke demo API on your machine
 
@@ -384,9 +390,21 @@ sequenceDiagram
     You->>GMA: POST /federation/rounds/{id}:evaluate-release (check the gates)
 ```
 
-Each path also works under `/api/v1/`. The request schemas are on the GMA's
-`/docs` page and in the [federated rounds](../reference/api/agents.md#federated-rounds)
-section of the API reference.
+Each path also works under `/api/v1/`. A round id can be used once: sending
+the same manifest again answers `409`. Only the sites the plan selected may
+post a result; any other site gets `403`. The readiness `GET` asks the planner
+and stores nothing. A round is aggregated once and takes one release decision;
+a second attempt answers `409`. The request schemas are on the GMA's `/docs` page and in
+the [federated rounds](../reference/api/agents.md#federated-rounds) section of
+the API reference.
+
+Started with nothing configured, as here, the GMA runs no site's work: each
+site posts its own result. Started with `GMA_ENGINE=http` and the addresses of
+its LMAs, the GMA offers each site its job over the LMA's API, collects the
+results, combines training updates and keeps the model versions. It then takes
+results only from the LMAs: a posted result answers `409`. Step 6 of the
+[guide to building an application](../guide/06-federated-rounds.md) runs a
+round that way, with one LMA per store, and shows every call.
 
 ## Read
 

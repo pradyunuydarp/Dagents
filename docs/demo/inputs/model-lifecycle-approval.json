@@ -1,0 +1,14 @@
+{
+  "version": "returns-logreg+returns-train-2",
+  "event": {
+    "kind": "approval_requested",
+    "status": "candidate",
+    "decision": {
+      "action": "release",
+      "guardPermitted": true,
+      "metricsSource": "rounds",
+      "baselineVersion": "returns-rule-1.0"
+    },
+    "releasedVersion": "returns-rule-1.0"
+  }
+}

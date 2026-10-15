@@ -290,7 +290,9 @@
         "The trial enrolled patients with a clinical diagnosis of acute ischaemic stroke within 48 hours of onset and no clear reason for or against aspirin or heparin. That is a narrower group than everyone seen with a suspected stroke.",
         "The seed rule's points were chosen by hand as an illustration. They were not fitted or validated."
        ],
-       "owner": "demo-stroke-pathway-lead"
+       "owner": "demo-stroke-pathway-lead",
+       "label_field": null,
+       "approved_purposes": []
       }
      ],
      "planned": [
@@ -439,7 +441,9 @@
       "model_adapters": [
        "stroke_outcome_logreg_v1",
        "stroke_outcome_rule_v1"
-      ]
+      ],
+      "model_kinds": [],
+      "site_sources": []
      },
      "boundary": {
       "framework_owns": [
@@ -1236,7 +1240,7 @@
       "digest": "sha256:04177e54a0c7c829a484a962f37eb0945a39f1ff7e5dc3319b266842fc3bd416",
       "status": "released",
       "parent_version": null,
-      "created_at": "2026-10-14T12:10:55.652963+00:00",
+      "created_at": "2026-10-15T12:15:44.201078+00:00",
       "release_decision": null
      },
      "contributions": []
@@ -1610,7 +1614,7 @@
       "atrial_fibrillation": true,
       "onset_on_waking": false,
       "stroke_subtype": "PACS",
-      "recorded_at": "2026-10-14T12:10:55.742779+00:00"
+      "recorded_at": "2026-10-15T12:15:44.307699+00:00"
      },
      "assessment": {
       "model_version": "stroke-outcome-rule-v1",
@@ -1933,7 +1937,7 @@
       "atrial_fibrillation": true,
       "onset_on_waking": false,
       "stroke_subtype": "PACS",
-      "recorded_at": "2026-10-14T12:10:55.742779+00:00"
+      "recorded_at": "2026-10-15T12:15:44.307699+00:00"
      },
      "assessment": {
       "model_version": "stroke-outcome-rule-v1",
@@ -2338,7 +2342,7 @@
        "atrial_fibrillation": true,
        "onset_on_waking": false,
        "stroke_subtype": "PACS",
-       "recorded_at": "2026-10-14T12:10:55.742779+00:00",
+       "recorded_at": "2026-10-15T12:15:44.307699+00:00",
        "assessment": {
         "model_version": "stroke-outcome-rule-v1",
         "score": 0.9241,
@@ -2420,8 +2424,8 @@
       "onset_on_waking": false,
       "stroke_subtype": "PACS",
       "poor_outcome_6m": true,
-      "recorded_at": "2026-10-14T12:10:55.742779+00:00",
-      "outcome_recorded_at": "2026-10-14T12:10:55.755045+00:00"
+      "recorded_at": "2026-10-15T12:15:44.307699+00:00",
+      "outcome_recorded_at": "2026-10-15T12:15:44.324404+00:00"
      },
      "counts": {
       "total": 199,
@@ -2814,7 +2818,7 @@
      "transformed_fields": [
       "systolic_bp"
      ],
-     "audit_id": "e78bab7f0bab4204b3704f9c643c103c",
+     "audit_id": "04361e8ded564553806fe3ac528c2451",
      "message": "permitted with restrictions"
     },
     "trimmed": [
@@ -2911,7 +2915,7 @@
       "age_band"
      ],
      "transformed_fields": [],
-     "audit_id": "d67b4a446949403aaa9acd3a049b544d",
+     "audit_id": "d52966f1dbf240db8cfa6286120ef31f",
      "message": "cohort_size 12 is below minimum_cohort 20"
     },
     "trimmed": [
@@ -2984,8 +2988,8 @@
      "chain_intact": true,
      "records": [
       {
-       "audit_id": "d67b4a446949403aaa9acd3a049b544d",
-       "recorded_at": 1791979855,
+       "audit_id": "d52966f1dbf240db8cfa6286120ef31f",
+       "recorded_at": 1792066544,
        "boundary": "before_send",
        "request_id": "probe:uk-134:before_send:table",
        "requester_id": "demo-operator",
@@ -3010,12 +3014,12 @@
        "contribution_norm_before": null,
        "contribution_norm_after": null,
        "contribution_strategies": [],
-       "previous_digest": "89a5e27a175e86db572ea62366a57fd9a0165f9af8e03c89099d5dcc1966ab90",
-       "digest": "77025bc329755ef97ff7ae49315cbd21aad7e1643da40b987d229645d9f166dc"
+       "previous_digest": "64b4a0f31acff86bbac90a44edbae06ce637861865d9a2f99dbf4bf6709e189f",
+       "digest": "9b98152b56001e0ded502b959e01c715aa00280a67ccdcdf26dd380579292869"
       },
       {
-       "audit_id": "e78bab7f0bab4204b3704f9c643c103c",
-       "recorded_at": 1791979855,
+       "audit_id": "04361e8ded564553806fe3ac528c2451",
+       "recorded_at": 1792066544,
        "boundary": "before_read",
        "request_id": "probe:uk-134:before_read:row",
        "requester_id": "demo-operator",
@@ -3035,7 +3039,7 @@
        "contribution_norm_after": null,
        "contribution_strategies": [],
        "previous_digest": "",
-       "digest": "89a5e27a175e86db572ea62366a57fd9a0165f9af8e03c89099d5dcc1966ab90"
+       "digest": "64b4a0f31acff86bbac90a44edbae06ce637861865d9a2f99dbf4bf6709e189f"
       }
      ]
     },
@@ -3621,7 +3625,7 @@
     },
     "body": {
      "study_id": "stroke-triage-pilot",
-     "pilot_id": "api-20261014T121056Z-8588cd",
+     "pilot_id": "api-20261015T121545Z-cbcc10",
      "condition": {
       "condition_id": "suspected_stroke",
       "display_name": "Suspected stroke",
@@ -3666,7 +3670,9 @@
        "The trial enrolled patients with a clinical diagnosis of acute ischaemic stroke within 48 hours of onset and no clear reason for or against aspirin or heparin. That is a narrower group than everyone s…",
        "The seed rule's points were chosen by hand as an illustration. They were not fitted or validated."
       ],
-      "owner": "demo-stroke-pathway-lead"
+      "owner": "demo-stroke-pathway-lead",
+      "label_field": null,
+      "approved_purposes": []
      },
      "engine": "in-process-parameter-averaging",
      "model_in_use": {
@@ -3675,19 +3681,19 @@
       "digest": "sha256:04177e54a0c7c829a484a962f37eb0945a39f1ff7e5dc3319b266842fc3bd416",
       "status": "released",
       "parent_version": null,
-      "created_at": "2026-10-14T12:10:55.652963+00:00",
+      "created_at": "2026-10-15T12:15:44.201078+00:00",
       "release_decision": null
      },
      "rounds": {
       "analytics": {
-       "round_id": "api-20261014T121056Z-8588cd-analytics",
+       "round_id": "api-20261015T121545Z-cbcc10-analytics",
        "phase": "analytics",
        "model_version": "stroke-outcome-rule-v1",
        "model_artifact_digest": "sha256:04177e54a0c7c829a484a962f37eb0945a39f1ff7e5dc3319b266842fc3bd416",
        "training_code_digest": "sha256:04177e54a0c7c829a484a962f37eb0945a39f1ff7e5dc3319b266842fc3bd416",
-       "digest": "fnv1a:5818533828dce021",
+       "digest": "fnv1a:a2f2a320cb536785",
        "plan": {
-        "round_id": "api-20261014T121056Z-8588cd-analytics",
+        "round_id": "api-20261015T121545Z-cbcc10-analytics",
         "study_id": "stroke-triage-pilot",
         "phase": "analytics",
         "selected_sites": [
@@ -3705,13 +3711,13 @@
          "threshold": 3
         },
         "stop_reason": null,
-        "round_digest": "fnv1a:5818533828dce021"
+        "round_digest": "fnv1a:a2f2a320cb536785"
        },
        "results": [
         {
-         "round_id": "api-20261014T121056Z-8588cd-analytics",
+         "round_id": "api-20261015T121545Z-cbcc10-analytics",
          "site_id": "ch-245",
-         "job_digest": "fnv1a:5818533828dce021",
+         "job_digest": "fnv1a:a2f2a320cb536785",
          "participation": "completed",
          "code_verified": true,
          "privacy_checks_passed": true,
@@ -3724,12 +3730,12 @@
           "label_coverage": 1.0,
           "outcome_rate": 0.6884422110552764
          },
-         "local_evidence_pointer": "site-local://ch-245/rounds/api-20261014T121056Z-8588cd-analytics/evidence"
+         "local_evidence_pointer": "site-local://ch-245/rounds/api-20261015T121545Z-cbcc10-analytics/evidence"
         },
         {
-         "round_id": "api-20261014T121056Z-8588cd-analytics",
+         "round_id": "api-20261015T121545Z-cbcc10-analytics",
          "site_id": "it-002",
-         "job_digest": "fnv1a:5818533828dce021",
+         "job_digest": "fnv1a:a2f2a320cb536785",
          "participation": "completed",
          "code_verified": true,
          "privacy_checks_passed": true,
@@ -3742,12 +3748,12 @@
           "label_coverage": 1.0,
           "outcome_rate": 0.5993150684931506
          },
-         "local_evidence_pointer": "site-local://it-002/rounds/api-20261014T121056Z-8588cd-analytics/evidence"
+         "local_evidence_pointer": "site-local://it-002/rounds/api-20261015T121545Z-cbcc10-analytics/evidence"
         },
         {
-         "round_id": "api-20261014T121056Z-8588cd-analytics",
+         "round_id": "api-20261015T121545Z-cbcc10-analytics",
          "site_id": "uk-134",
-         "job_digest": "fnv1a:5818533828dce021",
+         "job_digest": "fnv1a:a2f2a320cb536785",
          "participation": "completed",
          "code_verified": true,
          "privacy_checks_passed": true,
@@ -3760,11 +3766,11 @@
           "label_coverage": 1.0,
           "outcome_rate": 0.7977099236641222
          },
-         "local_evidence_pointer": "site-local://uk-134/rounds/api-20261014T121056Z-8588cd-analytics/evidence"
+         "local_evidence_pointer": "site-local://uk-134/rounds/api-20261015T121545Z-cbcc10-analytics/evidence"
         }
        ],
        "readiness": {
-        "round_id": "api-20261014T121056Z-8588cd-analytics",
+        "round_id": "api-20261015T121545Z-cbcc10-analytics",
         "accepted_sites": [
          "ch-245",
          "it-002",
@@ -3783,14 +3789,14 @@
        "status": "collecting"
       },
       "evaluation": {
-       "round_id": "api-20261014T121056Z-8588cd-evaluation",
+       "round_id": "api-20261015T121545Z-cbcc10-evaluation",
        "phase": "evaluation",
        "model_version": "stroke-outcome-rule-v1",
        "model_artifact_digest": "sha256:04177e54a0c7c829a484a962f37eb0945a39f1ff7e5dc3319b266842fc3bd416",
        "training_code_digest": "sha256:04177e54a0c7c829a484a962f37eb0945a39f1ff7e5dc3319b266842fc3bd416",
-       "digest": "fnv1a:52a58615a4947587",
+       "digest": "fnv1a:3727f3fe73a09793",
        "plan": {
-        "round_id": "api-20261014T121056Z-8588cd-evaluation",
+        "round_id": "api-20261015T121545Z-cbcc10-evaluation",
         "study_id": "stroke-triage-pilot",
         "phase": "evaluation",
         "selected_sites": [
@@ -3808,13 +3814,13 @@
          "threshold": 3
         },
         "stop_reason": null,
-        "round_digest": "fnv1a:52a58615a4947587"
+        "round_digest": "fnv1a:3727f3fe73a09793"
        },
        "results": [
         {
-         "round_id": "api-20261014T121056Z-8588cd-evaluation",
+         "round_id": "api-20261015T121545Z-cbcc10-evaluation",
          "site_id": "ch-245",
-         "job_digest": "fnv1a:52a58615a4947587",
+         "job_digest": "fnv1a:3727f3fe73a09793",
          "participation": "completed",
          "code_verified": true,
          "privacy_checks_passed": true,
@@ -3829,12 +3835,12 @@
           "subgroup_auc_gap": 0.03298577136333991,
           "log_loss": 0.48960233041952855
          },
-         "local_evidence_pointer": "site-local://ch-245/rounds/api-20261014T121056Z-8588cd-evaluation/evidence"
+         "local_evidence_pointer": "site-local://ch-245/rounds/api-20261015T121545Z-cbcc10-evaluation/evidence"
         },
         {
-         "round_id": "api-20261014T121056Z-8588cd-evaluation",
+         "round_id": "api-20261015T121545Z-cbcc10-evaluation",
          "site_id": "it-002",
-         "job_digest": "fnv1a:52a58615a4947587",
+         "job_digest": "fnv1a:3727f3fe73a09793",
          "participation": "completed",
          "code_verified": true,
          "privacy_checks_passed": true,
@@ -3849,12 +3855,12 @@
           "subgroup_auc_gap": 0.021132997582031576,
           "log_loss": 0.5189562055766382
          },
-         "local_evidence_pointer": "site-local://it-002/rounds/api-20261014T121056Z-8588cd-evaluation/evidence"
+         "local_evidence_pointer": "site-local://it-002/rounds/api-20261015T121545Z-cbcc10-evaluation/evidence"
         },
         {
-         "round_id": "api-20261014T121056Z-8588cd-evaluation",
+         "round_id": "api-20261015T121545Z-cbcc10-evaluation",
          "site_id": "uk-134",
-         "job_digest": "fnv1a:52a58615a4947587",
+         "job_digest": "fnv1a:3727f3fe73a09793",
          "participation": "completed",
          "code_verified": true,
          "privacy_checks_passed": true,
@@ -3869,11 +3875,11 @@
           "subgroup_auc_gap": 0.01468341846631327,
           "log_loss": 0.5383729433015968
          },
-         "local_evidence_pointer": "site-local://uk-134/rounds/api-20261014T121056Z-8588cd-evaluation/evidence"
+         "local_evidence_pointer": "site-local://uk-134/rounds/api-20261015T121545Z-cbcc10-evaluation/evidence"
         }
        ],
        "readiness": {
-        "round_id": "api-20261014T121056Z-8588cd-evaluation",
+        "round_id": "api-20261015T121545Z-cbcc10-evaluation",
         "accepted_sites": [
          "ch-245",
          "it-002",
@@ -3893,14 +3899,14 @@
       },
       "training": [
        {
-        "round_id": "api-20261014T121056Z-8588cd-training-1",
+        "round_id": "api-20261015T121545Z-cbcc10-training-1",
         "phase": "training",
         "model_version": "stroke-outcome-logreg-init",
         "model_artifact_digest": "sha256:aa3d97c86ae04f1598eba39e3224607034579ba621fd11c00eba4b11d4aaf974",
         "training_code_digest": "sha256:cf1c962b4001c40d2eddd2cd06a7f1144fcccd12f2011afd76f948997f8ba662",
-        "digest": "fnv1a:6a6bb225e7d38b58",
+        "digest": "fnv1a:3f64f60b0a4f6854",
         "plan": {
-         "round_id": "api-20261014T121056Z-8588cd-training-1",
+         "round_id": "api-20261015T121545Z-cbcc10-training-1",
          "study_id": "stroke-triage-pilot",
          "phase": "training",
          "selected_sites": [
@@ -3918,13 +3924,13 @@
           "threshold": 3
          },
          "stop_reason": null,
-         "round_digest": "fnv1a:6a6bb225e7d38b58"
+         "round_digest": "fnv1a:3f64f60b0a4f6854"
         },
         "results": [
          {
-          "round_id": "api-20261014T121056Z-8588cd-training-1",
+          "round_id": "api-20261015T121545Z-cbcc10-training-1",
           "site_id": "ch-245",
-          "job_digest": "fnv1a:6a6bb225e7d38b58",
+          "job_digest": "fnv1a:3f64f60b0a4f6854",
           "participation": "completed",
           "code_verified": true,
           "privacy_checks_passed": true,
@@ -3936,12 +3942,12 @@
            "train_loss": 0.47885711271675885,
            "record_count": 199.0
           },
-          "local_evidence_pointer": "site-local://ch-245/rounds/api-20261014T121056Z-8588cd-training-1/evidence"
+          "local_evidence_pointer": "site-local://ch-245/rounds/api-20261015T121545Z-cbcc10-training-1/evidence"
          },
          {
-          "round_id": "api-20261014T121056Z-8588cd-training-1",
+          "round_id": "api-20261015T121545Z-cbcc10-training-1",
           "site_id": "it-002",
-          "job_digest": "fnv1a:6a6bb225e7d38b58",
+          "job_digest": "fnv1a:3f64f60b0a4f6854",
           "participation": "completed",
           "code_verified": true,
           "privacy_checks_passed": true,
@@ -3953,12 +3959,12 @@
            "train_loss": 0.5085733094127751,
            "record_count": 292.0
           },
-          "local_evidence_pointer": "site-local://it-002/rounds/api-20261014T121056Z-8588cd-training-1/evidence"
+          "local_evidence_pointer": "site-local://it-002/rounds/api-20261015T121545Z-cbcc10-training-1/evidence"
          },
          {
-          "round_id": "api-20261014T121056Z-8588cd-training-1",
+          "round_id": "api-20261015T121545Z-cbcc10-training-1",
           "site_id": "uk-134",
-          "job_digest": "fnv1a:6a6bb225e7d38b58",
+          "job_digest": "fnv1a:3f64f60b0a4f6854",
           "participation": "completed",
           "code_verified": true,
           "privacy_checks_passed": true,
@@ -3970,11 +3976,11 @@
            "train_loss": 0.4415364670160477,
            "record_count": 524.0
           },
-          "local_evidence_pointer": "site-local://uk-134/rounds/api-20261014T121056Z-8588cd-training-1/evidence"
+          "local_evidence_pointer": "site-local://uk-134/rounds/api-20261015T121545Z-cbcc10-training-1/evidence"
          }
         ],
         "readiness": {
-         "round_id": "api-20261014T121056Z-8588cd-training-1",
+         "round_id": "api-20261015T121545Z-cbcc10-training-1",
          "accepted_sites": [
           "ch-245",
           "it-002",
@@ -3991,17 +3997,17 @@
          }
         },
         "status": "collecting",
-        "candidate_version": "stroke-outcome-logreg+api-20261014T121056Z-8588cd-training-1"
+        "candidate_version": "stroke-outcome-logreg+api-20261015T121545Z-cbcc10-training-1"
        },
        {
-        "round_id": "api-20261014T121056Z-8588cd-training-2",
+        "round_id": "api-20261015T121545Z-cbcc10-training-2",
         "phase": "training",
-        "model_version": "stroke-outcome-logreg+api-20261014T121056Z-8588cd-training-1",
+        "model_version": "stroke-outcome-logreg+api-20261015T121545Z-cbcc10-training-1",
         "model_artifact_digest": "sha256:ae9586dd59d018195458b106267fe66afb536051687fc839236b8fa48ffe20fa",
         "training_code_digest": "sha256:cf1c962b4001c40d2eddd2cd06a7f1144fcccd12f2011afd76f948997f8ba662",
-        "digest": "fnv1a:38de5d0a243f379b",
+        "digest": "fnv1a:e891d729daba13c7",
         "plan": {
-         "round_id": "api-20261014T121056Z-8588cd-training-2",
+         "round_id": "api-20261015T121545Z-cbcc10-training-2",
          "study_id": "stroke-triage-pilot",
          "phase": "training",
          "selected_sites": [
@@ -4019,13 +4025,13 @@
           "threshold": 3
          },
          "stop_reason": null,
-         "round_digest": "fnv1a:38de5d0a243f379b"
+         "round_digest": "fnv1a:e891d729daba13c7"
         },
         "results": [
          {
-          "round_id": "api-20261014T121056Z-8588cd-training-2",
+          "round_id": "api-20261015T121545Z-cbcc10-training-2",
           "site_id": "ch-245",
-          "job_digest": "fnv1a:38de5d0a243f379b",
+          "job_digest": "fnv1a:e891d729daba13c7",
           "participation": "completed",
           "code_verified": true,
           "privacy_checks_passed": true,
@@ -4037,12 +4043,12 @@
            "train_loss": 0.47470914270850384,
            "record_count": 199.0
           },
-          "local_evidence_pointer": "site-local://ch-245/rounds/api-20261014T121056Z-8588cd-training-2/evidence"
+          "local_evidence_pointer": "site-local://ch-245/rounds/api-20261015T121545Z-cbcc10-training-2/evidence"
          },
          {
-          "round_id": "api-20261014T121056Z-8588cd-training-2",
+          "round_id": "api-20261015T121545Z-cbcc10-training-2",
           "site_id": "it-002",
-          "job_digest": "fnv1a:38de5d0a243f379b",
+          "job_digest": "fnv1a:e891d729daba13c7",
           "participation": "completed",
           "code_verified": true,
           "privacy_checks_passed": true,
@@ -4054,12 +4060,12 @@
            "train_loss": 0.5045093708422604,
            "record_count": 292.0
           },
-          "local_evidence_pointer": "site-local://it-002/rounds/api-20261014T121056Z-8588cd-training-2/evidence"
+          "local_evidence_pointer": "site-local://it-002/rounds/api-20261015T121545Z-cbcc10-training-2/evidence"
          },
          {
-          "round_id": "api-20261014T121056Z-8588cd-training-2",
+          "round_id": "api-20261015T121545Z-cbcc10-training-2",
           "site_id": "uk-134",
-          "job_digest": "fnv1a:38de5d0a243f379b",
+          "job_digest": "fnv1a:e891d729daba13c7",
           "participation": "completed",
           "code_verified": true,
           "privacy_checks_passed": true,
@@ -4071,11 +4077,11 @@
            "train_loss": 0.43534447046284047,
            "record_count": 524.0
           },
-          "local_evidence_pointer": "site-local://uk-134/rounds/api-20261014T121056Z-8588cd-training-2/evidence"
+          "local_evidence_pointer": "site-local://uk-134/rounds/api-20261015T121545Z-cbcc10-training-2/evidence"
          }
         ],
         "readiness": {
-         "round_id": "api-20261014T121056Z-8588cd-training-2",
+         "round_id": "api-20261015T121545Z-cbcc10-training-2",
          "accepted_sites": [
           "ch-245",
           "it-002",
@@ -4092,17 +4098,17 @@
          }
         },
         "status": "collecting",
-        "candidate_version": "stroke-outcome-logreg+api-20261014T121056Z-8588cd-training-2"
+        "candidate_version": "stroke-outcome-logreg+api-20261015T121545Z-cbcc10-training-2"
        },
        {
-        "round_id": "api-20261014T121056Z-8588cd-training-3",
+        "round_id": "api-20261015T121545Z-cbcc10-training-3",
         "phase": "training",
-        "model_version": "stroke-outcome-logreg+api-20261014T121056Z-8588cd-training-2",
+        "model_version": "stroke-outcome-logreg+api-20261015T121545Z-cbcc10-training-2",
         "model_artifact_digest": "sha256:a4f8d0ee7d135fa0f022c88527db955ab697f5d418fc44566eed4994006e0b6e",
         "training_code_digest": "sha256:cf1c962b4001c40d2eddd2cd06a7f1144fcccd12f2011afd76f948997f8ba662",
-        "digest": "fnv1a:50c7161f058bb703",
+        "digest": "fnv1a:9b6a576dc9145573",
         "plan": {
-         "round_id": "api-20261014T121056Z-8588cd-training-3",
+         "round_id": "api-20261015T121545Z-cbcc10-training-3",
          "study_id": "stroke-triage-pilot",
          "phase": "training",
          "selected_sites": [
@@ -4120,13 +4126,13 @@
           "threshold": 3
          },
          "stop_reason": null,
-         "round_digest": "fnv1a:50c7161f058bb703"
+         "round_digest": "fnv1a:9b6a576dc9145573"
         },
         "results": [
          {
-          "round_id": "api-20261014T121056Z-8588cd-training-3",
+          "round_id": "api-20261015T121545Z-cbcc10-training-3",
           "site_id": "ch-245",
-          "job_digest": "fnv1a:50c7161f058bb703",
+          "job_digest": "fnv1a:9b6a576dc9145573",
           "participation": "completed",
           "code_verified": true,
           "privacy_checks_passed": true,
@@ -4138,12 +4144,12 @@
            "train_loss": 0.4723369282927214,
            "record_count": 199.0
           },
-          "local_evidence_pointer": "site-local://ch-245/rounds/api-20261014T121056Z-8588cd-training-3/evidence"
+          "local_evidence_pointer": "site-local://ch-245/rounds/api-20261015T121545Z-cbcc10-training-3/evidence"
          },
          {
-          "round_id": "api-20261014T121056Z-8588cd-training-3",
+          "round_id": "api-20261015T121545Z-cbcc10-training-3",
           "site_id": "it-002",
-          "job_digest": "fnv1a:50c7161f058bb703",
+          "job_digest": "fnv1a:9b6a576dc9145573",
           "participation": "completed",
           "code_verified": true,
           "privacy_checks_passed": true,
@@ -4155,12 +4161,12 @@
            "train_loss": 0.5023013786678774,
            "record_count": 292.0
           },
-          "local_evidence_pointer": "site-local://it-002/rounds/api-20261014T121056Z-8588cd-training-3/evidence"
+          "local_evidence_pointer": "site-local://it-002/rounds/api-20261015T121545Z-cbcc10-training-3/evidence"
          },
          {
-          "round_id": "api-20261014T121056Z-8588cd-training-3",
+          "round_id": "api-20261015T121545Z-cbcc10-training-3",
           "site_id": "uk-134",
-          "job_digest": "fnv1a:50c7161f058bb703",
+          "job_digest": "fnv1a:9b6a576dc9145573",
           "participation": "completed",
           "code_verified": true,
           "privacy_checks_passed": true,
@@ -4172,11 +4178,11 @@
            "train_loss": 0.4320619610922388,
            "record_count": 524.0
           },
-          "local_evidence_pointer": "site-local://uk-134/rounds/api-20261014T121056Z-8588cd-training-3/evidence"
+          "local_evidence_pointer": "site-local://uk-134/rounds/api-20261015T121545Z-cbcc10-training-3/evidence"
          }
         ],
         "readiness": {
-         "round_id": "api-20261014T121056Z-8588cd-training-3",
+         "round_id": "api-20261015T121545Z-cbcc10-training-3",
          "accepted_sites": [
           "ch-245",
           "it-002",
@@ -4193,18 +4199,18 @@
          }
         },
         "status": "collecting",
-        "candidate_version": "stroke-outcome-logreg+api-20261014T121056Z-8588cd-training-3"
+        "candidate_version": "stroke-outcome-logreg+api-20261015T121545Z-cbcc10-training-3"
        }
       ],
       "candidate_validation": {
-       "round_id": "api-20261014T121056Z-8588cd-candidate-validation",
+       "round_id": "api-20261015T121545Z-cbcc10-candidate-validation",
        "phase": "evaluation",
-       "model_version": "stroke-outcome-logreg+api-20261014T121056Z-8588cd-training-5",
+       "model_version": "stroke-outcome-logreg+api-20261015T121545Z-cbcc10-training-5",
        "model_artifact_digest": "sha256:05237605cac4f2bcaa7579fa7f9e6d1e30e07ed2860f7a3228a6ecd0244cd2ff",
        "training_code_digest": "sha256:cf1c962b4001c40d2eddd2cd06a7f1144fcccd12f2011afd76f948997f8ba662",
-       "digest": "fnv1a:b66658988e9263b9",
+       "digest": "fnv1a:9a638959b35192d5",
        "plan": {
-        "round_id": "api-20261014T121056Z-8588cd-candidate-validation",
+        "round_id": "api-20261015T121545Z-cbcc10-candidate-validation",
         "study_id": "stroke-triage-pilot",
         "phase": "evaluation",
         "selected_sites": [
@@ -4222,13 +4228,13 @@
          "threshold": 3
         },
         "stop_reason": null,
-        "round_digest": "fnv1a:b66658988e9263b9"
+        "round_digest": "fnv1a:9a638959b35192d5"
        },
        "results": [
         {
-         "round_id": "api-20261014T121056Z-8588cd-candidate-validation",
+         "round_id": "api-20261015T121545Z-cbcc10-candidate-validation",
          "site_id": "ch-245",
-         "job_digest": "fnv1a:b66658988e9263b9",
+         "job_digest": "fnv1a:9a638959b35192d5",
          "participation": "completed",
          "code_verified": true,
          "privacy_checks_passed": true,
@@ -4243,12 +4249,12 @@
           "subgroup_auc_gap": 0.05633244545915783,
           "log_loss": 0.49256247337099424
          },
-         "local_evidence_pointer": "site-local://ch-245/rounds/api-20261014T121056Z-8588cd-candidate-validation/evidence"
+         "local_evidence_pointer": "site-local://ch-245/rounds/api-20261015T121545Z-cbcc10-candidate-validation/evidence"
         },
         {
-         "round_id": "api-20261014T121056Z-8588cd-candidate-validation",
+         "round_id": "api-20261015T121545Z-cbcc10-candidate-validation",
          "site_id": "it-002",
-         "job_digest": "fnv1a:b66658988e9263b9",
+         "job_digest": "fnv1a:9a638959b35192d5",
          "participation": "completed",
          "code_verified": true,
          "privacy_checks_passed": true,
@@ -4263,12 +4269,12 @@
           "subgroup_auc_gap": 0.00566149373611069,
           "log_loss": 0.5588721133727008
          },
-         "local_evidence_pointer": "site-local://it-002/rounds/api-20261014T121056Z-8588cd-candidate-validation/evidence"
+         "local_evidence_pointer": "site-local://it-002/rounds/api-20261015T121545Z-cbcc10-candidate-validation/evidence"
         },
         {
-         "round_id": "api-20261014T121056Z-8588cd-candidate-validation",
+         "round_id": "api-20261015T121545Z-cbcc10-candidate-validation",
          "site_id": "uk-134",
-         "job_digest": "fnv1a:b66658988e9263b9",
+         "job_digest": "fnv1a:9a638959b35192d5",
          "participation": "completed",
          "code_verified": true,
          "privacy_checks_passed": true,
@@ -4283,11 +4289,11 @@
           "subgroup_auc_gap": 0.01913067373593691,
           "log_loss": 0.4619806263649448
          },
-         "local_evidence_pointer": "site-local://uk-134/rounds/api-20261014T121056Z-8588cd-candidate-validation/evidence"
+         "local_evidence_pointer": "site-local://uk-134/rounds/api-20261015T121545Z-cbcc10-candidate-validation/evidence"
         }
        ],
        "readiness": {
-        "round_id": "api-20261014T121056Z-8588cd-candidate-validation",
+        "round_id": "api-20261015T121545Z-cbcc10-candidate-validation",
         "accepted_sites": [
          "ch-245",
          "it-002",
@@ -4309,7 +4315,7 @@
      "training_curve": [
       {
        "round": 1,
-       "round_id": "api-20261014T121056Z-8588cd-training-1",
+       "round_id": "api-20261015T121545Z-cbcc10-training-1",
        "loss": 0.5161499333433959,
        "start_loss": 0.6931471805599467,
        "local_loss": 0.4681389955621422,
@@ -4325,11 +4331,11 @@
         "uk-134"
        ],
        "contributed_examples": 1015,
-       "candidate_version": "stroke-outcome-logreg+api-20261014T121056Z-8588cd-training-1"
+       "candidate_version": "stroke-outcome-logreg+api-20261015T121545Z-cbcc10-training-1"
       },
       {
        "round": 2,
-       "round_id": "api-20261014T121056Z-8588cd-training-2",
+       "round_id": "api-20261015T121545Z-cbcc10-training-2",
        "loss": 0.49955296532736865,
        "start_loss": 0.5161499333433959,
        "local_loss": 0.46295995882508445,
@@ -4345,11 +4351,11 @@
         "uk-134"
        ],
        "contributed_examples": 1015,
-       "candidate_version": "stroke-outcome-logreg+api-20261014T121056Z-8588cd-training-2"
+       "candidate_version": "stroke-outcome-logreg+api-20261015T121545Z-cbcc10-training-2"
       },
       {
        "round": 3,
-       "round_id": "api-20261014T121056Z-8588cd-training-3",
+       "round_id": "api-20261015T121545Z-cbcc10-training-3",
        "loss": 0.4970526201245551,
        "start_loss": 0.49955296532736865,
        "local_loss": 0.46016504326463537,
@@ -4365,7 +4371,7 @@
         "uk-134"
        ],
        "contributed_examples": 1015,
-       "candidate_version": "stroke-outcome-logreg+api-20261014T121056Z-8588cd-training-3"
+       "candidate_version": "stroke-outcome-logreg+api-20261015T121545Z-cbcc10-training-3"
       }
      ],
      "training_settings": {
@@ -4376,9 +4382,9 @@
       "initial_version": "stroke-outcome-logreg-init"
      },
      "candidate": {
-      "round_id": "api-20261014T121056Z-8588cd-training-5",
-      "candidate_version": "stroke-outcome-logreg+api-20261014T121056Z-8588cd-training-5",
-      "parent_version": "stroke-outcome-logreg+api-20261014T121056Z-8588cd-training-4",
+      "round_id": "api-20261015T121545Z-cbcc10-training-5",
+      "candidate_version": "stroke-outcome-logreg+api-20261015T121545Z-cbcc10-training-5",
+      "parent_version": "stroke-outcome-logreg+api-20261015T121545Z-cbcc10-training-4",
       "aggregation_method": "secure_aggregation",
       "contributing_sites": [
        "ch-245",
@@ -4399,18 +4405,18 @@
        "specificity": 0.31624934881173467,
        "subgroup_auc_gap": 0.022549542714234157
       },
-      "artifact_uri": "registry://models/stroke-outcome-logreg+api-20261014T121056Z-8588cd-training-5",
+      "artifact_uri": "registry://models/stroke-outcome-logreg+api-20261015T121545Z-cbcc10-training-5",
       "artifact_digest": "sha256:05237605cac4f2bcaa7579fa7f9e6d1e30e07ed2860f7a3228a6ecd0244cd2ff",
-      "produced_at": 1791979857,
+      "produced_at": 1792066545,
       "status": "rejected"
      },
      "release": {
       "guard": {
-       "request_id": "api-20261014T121056Z-8588cd-training-5:release:stroke-outcome-logreg+api-20261014T121056Z-8588cd-training-5",
+       "request_id": "api-20261015T121545Z-cbcc10-training-5:release:stroke-outcome-logreg+api-20261015T121545Z-cbcc10-training-5",
        "boundary": "before_release",
        "permitted": true,
        "plan": {
-        "request_id": "api-20261014T121056Z-8588cd-training-5:release:stroke-outcome-logreg+api-20261014T121056Z-8588cd-training-5",
+        "request_id": "api-20261015T121545Z-cbcc10-training-5:release:stroke-outcome-logreg+api-20261015T121545Z-cbcc10-training-5",
         "boundary": "before_release",
         "assessment": {
          "requester_id": "stroke-consortium-release-committee",
@@ -4434,7 +4440,7 @@
         "decision": "narrow",
         "filtering_score": 0.45,
         "obligations": [
-         "record the decision, reason, and request id api-20261014T121056Z-8588cd-training-5:release:stroke-outcome-logreg+api-20261014T121056Z-8588cd-training-5 in the audit log",
+         "record the decision, reason, and request id api-20261015T121545Z-cbcc10-training-5:release:stroke-outcome-logreg+api-20261015T121545Z-cbcc10-training-5 in the audit log",
          "enforce at boundary before_release",
          "apply controls required by each hospital's national data protection law"
         ],
@@ -4449,12 +4455,12 @@
        "transformed_fields": [
         "model_update"
        ],
-       "audit_id": "0fe1debee71f4752b950983bc03f15f9",
+       "audit_id": "a284665d1fee48c4b4352ca2e9412eb3",
        "message": "permitted with restrictions"
       },
       "gates": {
-       "round_id": "api-20261014T121056Z-8588cd-training-5",
-       "candidate_version": "stroke-outcome-logreg+api-20261014T121056Z-8588cd-training-5",
+       "round_id": "api-20261015T121545Z-cbcc10-training-5",
+       "candidate_version": "stroke-outcome-logreg+api-20261015T121545Z-cbcc10-training-5",
        "gate_results": [
         {
          "gate_id": "discrimination",
@@ -4631,7 +4637,7 @@
       "digest": "sha256:04177e54a0c7c829a484a962f37eb0945a39f1ff7e5dc3319b266842fc3bd416",
       "status": "released",
       "parent_version": null,
-      "created_at": "2026-10-14T12:10:55.652963+00:00",
+      "created_at": "2026-10-15T12:15:44.201078+00:00",
       "release_decision": null
      },
      "models": [
@@ -4641,7 +4647,7 @@
        "digest": "sha256:04177e54a0c7c829a484a962f37eb0945a39f1ff7e5dc3319b266842fc3bd416",
        "status": "released",
        "parent_version": null,
-       "created_at": "2026-10-14T12:10:55.652963+00:00",
+       "created_at": "2026-10-15T12:15:44.201078+00:00",
        "release_decision": null
       },
       {
@@ -4650,16 +4656,16 @@
        "digest": "sha256:aa3d97c86ae04f1598eba39e3224607034579ba621fd11c00eba4b11d4aaf974",
        "status": "superseded",
        "parent_version": null,
-       "created_at": "2026-10-14T12:10:56.568956+00:00",
+       "created_at": "2026-10-15T12:15:45.189232+00:00",
        "release_decision": null
       },
       {
-       "version": "stroke-outcome-logreg+api-20261014T121056Z-8588cd-training-1",
+       "version": "stroke-outcome-logreg+api-20261015T121545Z-cbcc10-training-1",
        "kind": "logistic_regression",
        "digest": "sha256:ae9586dd59d018195458b106267fe66afb536051687fc839236b8fa48ffe20fa",
        "status": "superseded",
        "parent_version": "stroke-outcome-logreg-init",
-       "created_at": "2026-10-14T12:10:56.695643+00:00",
+       "created_at": "2026-10-15T12:15:45.300049+00:00",
        "release_decision": null
       }
      ]

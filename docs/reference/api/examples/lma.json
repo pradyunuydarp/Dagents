@@ -1,7 +1,7 @@
 {
  "service": "lma",
  "generated_by": "scripts/capture_api_examples.py",
- "note": "Captured in process with the planner available. The requests run in this order against one new agent, so later requests see what earlier ones stored.",
+ "note": "Captured in process with the planner available. The requests run in this order against one new agent started with nothing configured, so later requests see what earlier ones stored. Examples that name the app store-north run, in order, against store north's LMA in the getting-started study (scripts/api_example_agents.py).",
  "examples": [
   {
    "id": "health",
@@ -127,7 +127,7 @@
       "bundle_version": "1.4.0",
       "bundle_uri": "oci://registry.example.com/dagents/order-checks:1.4.0",
       "signature": "sha256:5f1c0e",
-      "deployed_at": 1791970325,
+      "deployed_at": 1792082418,
       "config_digest": "4e34d7cfe08d9bd3e286804e474a171396a525691f427ac27477c21d0730ab5e"
      }
     ],
@@ -177,8 +177,8 @@
        "store": "north"
       },
       "status": "COMPLETED",
-      "started_at": 1791970325,
-      "completed_at": 1791970325,
+      "started_at": 1792082418,
+      "completed_at": 1792082418,
       "metrics_emitted": 2,
       "pointers": {
        "scope": "{'table': 'orders', 'store': 'north'}",
@@ -201,7 +201,7 @@
          "bundle_id": "order-checks",
          "bundle_version": "1.4.0"
         },
-        "observed_at": 1791970325
+        "observed_at": 1792082418
        },
        {
         "key": "metadata_fields_total",
@@ -209,7 +209,7 @@
         "labels": {
          "correlation_id": "nightly-2026-10-14"
         },
-        "observed_at": 1791970325
+        "observed_at": 1792082418
        }
       ],
       "pointers": {
@@ -291,8 +291,8 @@
        "store": "north"
       },
       "status": "COMPLETED",
-      "started_at": 1791970325,
-      "completed_at": 1791970325,
+      "started_at": 1792082418,
+      "completed_at": 1792082418,
       "metrics_emitted": 2,
       "pointers": {
        "scope": "{'table': 'orders', 'store': 'north'}",
@@ -373,7 +373,7 @@
          "bundle_id": "order-checks",
          "bundle_version": "1.4.0"
         },
-        "observed_at": 1791970325
+        "observed_at": 1792082418
        },
        {
         "key": "metadata_fields_total",
@@ -381,7 +381,7 @@
         "labels": {
          "correlation_id": "nightly-2026-10-14"
         },
-        "observed_at": 1791970325
+        "observed_at": 1792082418
        }
       ],
       "pointers": {
@@ -1243,7 +1243,7 @@
       ]
      },
      "run": {
-      "run_id": "lma-store-north-1791970325",
+      "run_id": "lma-store-north-1792082418",
       "agent_role": "LMA",
       "scope_id": "store-north",
       "scope_kind": "source",
@@ -1259,8 +1259,8 @@
        "feature_coverage": 0.625
       },
       "artifact_uri": "artifacts/lma/store-north/random_forest-v2.json",
-      "started_at": 1791970325,
-      "completed_at": 1791970325
+      "started_at": 1792082418,
+      "completed_at": 1792082418
      }
     },
     "trimmed": []
@@ -1343,7 +1343,7 @@
       ]
      },
      "run": {
-      "run_id": "lma-store-north-1791970325",
+      "run_id": "lma-store-north-1792082418",
       "agent_role": "LMA",
       "scope_id": "store-north",
       "scope_kind": "source",
@@ -1359,8 +1359,8 @@
        "feature_coverage": 1.0
       },
       "artifact_uri": "artifacts/lma/store-north/autoencoder-v1.json",
-      "started_at": 1791970325,
-      "completed_at": 1791970325
+      "started_at": 1792082418,
+      "completed_at": 1792082418
      }
     },
     "trimmed": []
@@ -1438,7 +1438,7 @@
     },
     "body": [
      {
-      "run_id": "lma-store-north-1791970325",
+      "run_id": "lma-store-north-1792082418",
       "agent_role": "LMA",
       "scope_id": "store-north",
       "scope_kind": "source",
@@ -1454,11 +1454,11 @@
        "feature_coverage": 1.0
       },
       "artifact_uri": "artifacts/lma/store-north/autoencoder-v1.json",
-      "started_at": 1791970325,
-      "completed_at": 1791970325
+      "started_at": 1792082418,
+      "completed_at": 1792082418
      },
      {
-      "run_id": "lma-store-north-1791970325",
+      "run_id": "lma-store-north-1792082418",
       "agent_role": "LMA",
       "scope_id": "store-north",
       "scope_kind": "source",
@@ -1474,8 +1474,8 @@
        "feature_coverage": 0.625
       },
       "artifact_uri": "artifacts/lma/store-north/random_forest-v2.json",
-      "started_at": 1791970325,
-      "completed_at": 1791970325
+      "started_at": 1792082418,
+      "completed_at": 1792082418
      }
     ],
     "trimmed": []
@@ -2132,7 +2132,7 @@
      "transformed_fields": [
       "customer_age_band"
      ],
-     "audit_id": "5e38470b362f434f815d7d278b55d33b",
+     "audit_id": "28caa18c914e4c23b14becf703fa336a",
      "message": "permitted with restrictions"
     },
     "trimmed": []
@@ -2274,7 +2274,7 @@
      "transformed_fields": [
       "model_update"
      ],
-     "audit_id": "6f921689971d4f7db4fbd5351faf1376",
+     "audit_id": "f4734791f731496da5df9d4e5bb7a76d",
      "message": "permitted with restrictions"
     },
     "trimmed": []
@@ -2391,7 +2391,7 @@
       "category"
      ],
      "transformed_fields": [],
-     "audit_id": "c6941c56c07e4936a4d7f3a9871b8577",
+     "audit_id": "41a16ac689b64420971831b711604af5",
      "message": "the restriction planner denied this request"
     },
     "trimmed": []
@@ -2470,8 +2470,8 @@
      "chain_intact": true,
      "records": [
       {
-       "audit_id": "c6941c56c07e4936a4d7f3a9871b8577",
-       "recorded_at": 1791970325,
+       "audit_id": "41a16ac689b64420971831b711604af5",
+       "recorded_at": 1792082418,
        "boundary": "before_read",
        "request_id": "read-rows-006",
        "requester_id": "unknown-caller",
@@ -2493,12 +2493,12 @@
        "contribution_norm_before": null,
        "contribution_norm_after": null,
        "contribution_strategies": [],
-       "previous_digest": "fdb9bef99917c465d0649187798ae61f43f5809f8952cf35af36be6637ca84bd",
-       "digest": "dd01dd32d6f0e085abfb565c42117f47b9de9754f48314f3ae5646839255b732"
+       "previous_digest": "470b0200e8d9de1665fdc8a7ec1e76d4f077e3243fa550a5e457f6695ccac0f0",
+       "digest": "db6331d75725062dc6f1ca1948849f946244d695591d432c86f3b36c253012e8"
       },
       {
-       "audit_id": "6f921689971d4f7db4fbd5351faf1376",
-       "recorded_at": 1791970325,
+       "audit_id": "f4734791f731496da5df9d4e5bb7a76d",
+       "recorded_at": 1792082418,
        "boundary": "before_send",
        "request_id": "send-update-005",
        "requester_id": "returns-coordinator",
@@ -2521,12 +2521,12 @@
        "contribution_strategies": [
         "clip_contribution:1"
        ],
-       "previous_digest": "9dc0970d0d8b728e79d44e397f87c6ae958b26d92dedcb1cdb6907733352fcc8",
-       "digest": "fdb9bef99917c465d0649187798ae61f43f5809f8952cf35af36be6637ca84bd"
+       "previous_digest": "c0316faba1ab2917b2de86841a46f0c7b8419228614b3702be1dbea9f6941e49",
+       "digest": "470b0200e8d9de1665fdc8a7ec1e76d4f077e3243fa550a5e457f6695ccac0f0"
       },
       {
-       "audit_id": "5e38470b362f434f815d7d278b55d33b",
-       "recorded_at": 1791970325,
+       "audit_id": "28caa18c914e4c23b14becf703fa336a",
+       "recorded_at": 1792082418,
        "boundary": "before_read",
        "request_id": "read-rows-004",
        "requester_id": "store-north-dashboard",
@@ -2548,7 +2548,7 @@
        "contribution_norm_after": null,
        "contribution_strategies": [],
        "previous_digest": "",
-       "digest": "9dc0970d0d8b728e79d44e397f87c6ae958b26d92dedcb1cdb6907733352fcc8"
+       "digest": "c0316faba1ab2917b2de86841a46f0c7b8419228614b3702be1dbea9f6941e49"
       }
      ]
     },
@@ -2576,7 +2576,1238 @@
      "classifications": [],
      "condition_packs": [],
      "pipeline_steps": [],
-     "model_adapters": []
+     "model_adapters": [],
+     "model_kinds": [],
+     "site_sources": []
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "site-not-configured",
+   "endpoint": "GET /api/v1/site",
+   "title": "An LMA started without a site has no site to describe",
+   "request": {
+    "method": "GET",
+    "path": "/api/v1/site"
+   },
+   "response": {
+    "status": 404,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "detail": "this LMA was started without a site; start it with LMA_SITE_ID and LMA_CONDITION_ID to serve one",
+     "code": "not_found"
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "site-info",
+   "endpoint": "GET /api/v1/site",
+   "title": "Describe the site this LMA serves",
+   "description": "Captured from store north's LMA, started for its site. The source is named by its kind and location, never by a host.",
+   "app": "store-north",
+   "request": {
+    "method": "GET",
+    "path": "/api/v1/site",
+    "headers": {
+     "Authorization": "Bearer example-store-north-staff-token"
+    }
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "site_id": "store-north",
+     "condition_id": "order_returns",
+     "classification_id": "retail-orders",
+     "feature_contract_version": "retail-orders-v1",
+     "label_field": "returned",
+     "source": {
+      "kind": "memory",
+      "location": {
+       "store": "store-north"
+      },
+      "role": null
+     },
+     "record_count": 60,
+     "source_version": "0:60",
+     "capabilities": [
+      "evaluate",
+      "train"
+     ],
+     "policy_version": "site-policy-v1",
+     "minimum_cohort": 20
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "site-info-no-token",
+   "endpoint": "GET /api/v1/site",
+   "title": "A request without a token",
+   "app": "store-north",
+   "request": {
+    "method": "GET",
+    "path": "/api/v1/site"
+   },
+   "response": {
+    "status": 401,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "detail": "a bearer token is required",
+     "code": "unauthorized"
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "site-summary",
+   "endpoint": "GET /site/summary",
+   "title": "The summary the GMA reads, with the coordinator's token",
+   "app": "store-north",
+   "request": {
+    "method": "GET",
+    "path": "/site/summary",
+    "headers": {
+     "Authorization": "Bearer example-store-north-coordinator-token"
+    }
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "site_id": "store-north",
+     "record_count": 60,
+     "labelled_count": 60,
+     "label_rate": 0.43333333333333335,
+     "label_rate_status": "released",
+     "minimum_cohort": 20,
+     "planner_reason": null
+    },
+    "trimmed": []
+   },
+   "planner_calls": [
+    "governance restrict"
+   ]
+  },
+  {
+   "id": "site-profile",
+   "endpoint": "GET /api/v1/site/profile",
+   "title": "The running profile, for the store's own staff",
+   "app": "store-north",
+   "trim": {
+    "items": 6
+   },
+   "request": {
+    "method": "GET",
+    "path": "/api/v1/site/profile",
+    "headers": {
+     "Authorization": "Bearer example-store-north-staff-token"
+    }
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "record_count": 60,
+     "tracked_fields": [
+      "category",
+      "customer_age_band",
+      "items",
+      "loyalty_member",
+      "order_value",
+      "returned"
+     ],
+     "fields": {
+      "category": {
+       "present": 60,
+       "missing": 0,
+       "kind": "categorical",
+       "numeric": null,
+       "categories": {
+        "clothing": 16,
+        "electronics": 12,
+        "home": 11,
+        "shoes": 21
+       },
+       "booleans": {},
+       "other": 0
+      },
+      "customer_age_band": {
+       "present": 60,
+       "missing": 0,
+       "kind": "categorical",
+       "numeric": null,
+       "categories": {
+        "18-24": 15,
+        "25-34": 15,
+        "35-44": 8,
+        "45-54": 7,
+        "55+": 15
+       },
+       "booleans": {},
+       "other": 0
+      },
+      "items": {
+       "present": 60,
+       "missing": 0,
+       "kind": "numeric",
+       "numeric": {
+        "count": 60,
+        "mean": 2.733333333333333,
+        "variance": 1.8598870056497179,
+        "min": 1,
+        "max": 5,
+        "m2": 109.73333333333335
+       },
+       "categories": {},
+       "booleans": {},
+       "other": 0
+      },
+      "loyalty_member": {
+       "present": 60,
+       "missing": 0,
+       "kind": "boolean",
+       "numeric": null,
+       "categories": {},
+       "booleans": {
+        "false": 32,
+        "true": 28
+       },
+       "other": 0
+      },
+      "order_value": {
+       "present": 60,
+       "missing": 0,
+       "kind": "numeric",
+       "numeric": {
+        "count": 60,
+        "mean": 114.18816666666667,
+        "variance": 6724.835740649717,
+        "min": 11.53,
+        "max": 310.94,
+        "m2": 396765.30869833333
+       },
+       "categories": {},
+       "booleans": {},
+       "other": 0
+      },
+      "returned": {
+       "present": 60,
+       "missing": 0,
+       "kind": "boolean",
+       "numeric": null,
+       "categories": {},
+       "booleans": {
+        "false": 34,
+        "true": 26
+       },
+       "other": 0
+      }
+     }
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "site-profile-coordinator",
+   "endpoint": "GET /api/v1/site/profile",
+   "title": "The coordinator's token may not read the profile",
+   "app": "store-north",
+   "request": {
+    "method": "GET",
+    "path": "/api/v1/site/profile",
+    "headers": {
+     "Authorization": "Bearer example-store-north-coordinator-token"
+    }
+   },
+   "response": {
+    "status": 403,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "detail": "this token may not call this route",
+     "code": "forbidden"
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "source-refresh",
+   "endpoint": "POST /api/v1/site/source:refresh",
+   "title": "Read the source again after a write",
+   "app": "store-north",
+   "request": {
+    "method": "POST",
+    "path": "/api/v1/site/source:refresh",
+    "headers": {
+     "Authorization": "Bearer example-store-north-staff-token"
+    }
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "record_count": 60,
+     "source_version": "0:60"
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "site-model",
+   "endpoint": "GET /api/v1/site/model",
+   "title": "The released model, read from the GMA",
+   "app": "store-north",
+   "request": {
+    "method": "GET",
+    "path": "/api/v1/site/model",
+    "headers": {
+     "Authorization": "Bearer example-store-north-staff-token"
+    }
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "version": "return-check-rule-v2",
+     "kind": "return_check_rule",
+     "digest": "sha256:6367ac6596e4db525b87ac86bc6b9d0aa6138948a230cc3ea2d5308b6174e937",
+     "status": "released",
+     "params": {
+      "risky_categories": [
+       "clothing",
+       "shoes"
+      ],
+      "min_items": 3,
+      "high_value": 150
+     }
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "site-model-evaluate",
+   "endpoint": "POST /api/v1/site/model:evaluate",
+   "title": "Measure the released model on the store's own orders",
+   "app": "store-north",
+   "request": {
+    "method": "POST",
+    "path": "/api/v1/site/model:evaluate",
+    "headers": {
+     "Authorization": "Bearer example-store-north-staff-token"
+    }
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "version": "return-check-rule-v2",
+     "labelled_count": 60,
+     "metrics": {
+      "precision": 0.75,
+      "recall": 0.6923076923076923,
+      "flag_rate": 0.4
+     }
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "probe-rows",
+   "endpoint": "POST /api/v1/governance/restrictions:probe",
+   "title": "Ask what the Guard would release to the returns desk",
+   "description": "The answer counts and names what would be released. It holds no order.",
+   "app": "store-north",
+   "volatile": [
+    "/request_id",
+    "/audit_id",
+    "/plan/request_id",
+    "/plan/obligations"
+   ],
+   "trim": {
+    "items": 6
+   },
+   "request": {
+    "method": "POST",
+    "path": "/api/v1/governance/restrictions:probe",
+    "headers": {
+     "Authorization": "Bearer example-store-north-staff-token"
+    },
+    "json": {
+     "boundary": "before_read",
+     "granularity": "row",
+     "requested_fields": [
+      "order_value",
+      "items",
+      "category",
+      "customer_postcode"
+     ],
+     "record_limit": 5,
+     "requester": {
+      "requester_id": "store-north-returns-desk",
+      "requester_kind": "human",
+      "affiliation": "store-north",
+      "stated_purpose": "order_returns",
+      "attributes": [
+       {
+        "attribute_id": "employee_sso",
+        "verified": true
+       }
+      ],
+      "compliance_history": 0.9
+     },
+     "declared_purpose": "order_returns"
+    }
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "request_id": "probe:store-north:f29926d36e1642f09d8ecf70fe4dce14",
+     "boundary": "before_read",
+     "permitted": true,
+     "plan": {
+      "request_id": "probe:store-north:f29926d36e1642f09d8ecf70fe4dce14",
+      "boundary": "before_read",
+      "assessment": {
+       "requester_id": "store-north-returns-desk",
+       "kyu_score": 0.97,
+       "trust": "high",
+       "rationale": [
+        "requester_kind=human",
+        "verified_attributes=1/1",
+        "compliance_history=0.90",
+        "kyu_score=0.97",
+        "affiliation=store-north",
+        "stated_purpose=order_returns"
+       ]
+      },
+      "granularity": "row",
+      "field_restrictions": [
+       {
+        "field": "order_value",
+        "sensitivity": "high",
+        "strategy": "generalize:1",
+        "reason": "sensitivity=high trust=high granularity=row -> generalize:1"
+       },
+       {
+        "field": "items",
+        "sensitivity": "low",
+        "strategy": "allow_full",
+        "reason": "sensitivity=low trust=high granularity=row -> allow_full"
+       },
+       {
+        "field": "category",
+        "sensitivity": "low",
+        "strategy": "allow_full",
+        "reason": "sensitivity=low trust=high granularity=row -> allow_full"
+       },
+       {
+        "field": "customer_postcode",
+        "sensitivity": "high",
+        "strategy": "generalize:1",
+        "reason": "sensitivity=high trust=high granularity=row -> generalize:1"
+       }
+      ],
+      "decision": "narrow",
+      "filtering_score": 0.175,
+      "obligations": [
+       "record the decision, reason, and request id probe:store-north:f29926d36e1642f09d8ecf70fe4dce14 in the audit log",
+       "enforce at boundary before_read",
+       "apply controls required by GDPR"
+      ],
+      "violations": []
+     },
+     "released_count": 5,
+     "released_fields": [
+      "order_value",
+      "items",
+      "category",
+      "customer_postcode"
+     ],
+     "withheld_fields": [],
+     "transformed_fields": [
+      "order_value",
+      "customer_postcode"
+     ],
+     "audit_id": "40181eab850d47bb9203c6f0402f4628",
+     "message": "permitted with restrictions"
+    },
+    "trimmed": []
+   },
+   "planner_calls": [
+    "governance restrict"
+   ]
+  },
+  {
+   "id": "probe-unapproved-purpose",
+   "endpoint": "POST /governance/restrictions:probe",
+   "title": "A purpose the condition pack does not approve",
+   "app": "store-north",
+   "volatile": [
+    "/request_id",
+    "/audit_id",
+    "/plan/request_id",
+    "/plan/obligations"
+   ],
+   "trim": {
+    "items": 6
+   },
+   "request": {
+    "method": "POST",
+    "path": "/governance/restrictions:probe",
+    "headers": {
+     "Authorization": "Bearer example-store-north-staff-token"
+    },
+    "json": {
+     "boundary": "before_read",
+     "granularity": "row",
+     "requested_fields": [
+      "order_value",
+      "category"
+     ],
+     "requester": {
+      "requester_id": "store-north-returns-desk",
+      "requester_kind": "human",
+      "affiliation": "store-north",
+      "stated_purpose": "order_returns",
+      "attributes": [
+       {
+        "attribute_id": "employee_sso",
+        "verified": true
+       }
+      ],
+      "compliance_history": 0.9
+     },
+     "declared_purpose": "marketing"
+    }
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "request_id": "probe:store-north:221c94b386d4464484ae1c5d06e88e49",
+     "boundary": "before_read",
+     "permitted": false,
+     "plan": {
+      "request_id": "probe:store-north:221c94b386d4464484ae1c5d06e88e49",
+      "boundary": "before_read",
+      "assessment": {
+       "requester_id": "store-north-returns-desk",
+       "kyu_score": 0.97,
+       "trust": "high",
+       "rationale": [
+        "requester_kind=human",
+        "verified_attributes=1/1",
+        "compliance_history=0.90",
+        "kyu_score=0.97",
+        "affiliation=store-north",
+        "stated_purpose=order_returns"
+       ]
+      },
+      "granularity": "row",
+      "field_restrictions": [
+       {
+        "field": "order_value",
+        "sensitivity": "high",
+        "strategy": "refuse",
+        "reason": "request-level gate failed; field withheld"
+       },
+       {
+        "field": "category",
+        "sensitivity": "low",
+        "strategy": "refuse",
+        "reason": "request-level gate failed; field withheld"
+       }
+      ],
+      "decision": "deny",
+      "filtering_score": 1.0,
+      "obligations": [
+       "record the decision, reason, and request id probe:store-north:221c94b386d4464484ae1c5d06e88e49 in the audit log",
+       "enforce at boundary before_read",
+       "apply controls required by GDPR"
+      ],
+      "violations": [
+       "declared_purpose marketing is not an approved purpose"
+      ]
+     },
+     "released_count": 0,
+     "released_fields": [],
+     "withheld_fields": [
+      "order_value",
+      "category"
+     ],
+     "transformed_fields": [],
+     "audit_id": "93930ae1dd834d6aac90af7ed283040b",
+     "message": "declared_purpose marketing is not an approved purpose"
+    },
+    "trimmed": []
+   },
+   "planner_calls": [
+    "governance restrict"
+   ]
+  },
+  {
+   "id": "audit-summary",
+   "endpoint": "GET /api/v1/governance/audit:summary",
+   "title": "The audit chain's state and length, without its records",
+   "app": "store-north",
+   "request": {
+    "method": "GET",
+    "path": "/api/v1/governance/audit:summary",
+    "headers": {
+     "Authorization": "Bearer example-store-north-coordinator-token"
+    }
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "chain_intact": true,
+     "record_count": 2
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "registration",
+   "endpoint": "GET /api/v1/federation/registration",
+   "title": "How the store enrols, with its current order count",
+   "app": "store-north",
+   "request": {
+    "method": "GET",
+    "path": "/api/v1/federation/registration",
+    "headers": {
+     "Authorization": "Bearer example-store-north-coordinator-token"
+    }
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "site_id": "store-north",
+     "capabilities": [
+      "evaluate",
+      "train"
+     ],
+     "feature_contract_version": "retail-orders-v1",
+     "approved_conditions": [
+      "order_returns"
+     ],
+     "policy_version": "site-policy-v1",
+     "cohort_size": 60,
+     "enrolled": true
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "registration-staff-token",
+   "endpoint": "GET /federation/registration",
+   "title": "The staff token may not call a coordinator route",
+   "app": "store-north",
+   "request": {
+    "method": "GET",
+    "path": "/federation/registration",
+    "headers": {
+     "Authorization": "Bearer example-store-north-staff-token"
+    }
+   },
+   "response": {
+    "status": 403,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "detail": "this token may not call this route",
+     "code": "forbidden"
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "offer-job",
+   "endpoint": "POST /api/v1/federation/jobs:offer",
+   "title": "The GMA offers store north its job in an evaluation round",
+   "description": "The job the GMA's HTTP engine sends for round returns-eval-1. `manifest_digest` is the round digest the planner computed for this manifest, fnv1a:45279496fde370c7; the LMA computes it again before it accepts.",
+   "app": "store-north",
+   "request": {
+    "method": "POST",
+    "path": "/api/v1/federation/jobs:offer",
+    "headers": {
+     "Authorization": "Bearer example-store-north-coordinator-token"
+    },
+    "json": {
+     "round_id": "returns-eval-1",
+     "site_id": "store-north",
+     "manifest": {
+      "round_id": "returns-eval-1",
+      "study_id": "returns-pilot",
+      "condition_id": "order_returns",
+      "phase": "evaluation",
+      "model_version": "return-check-rule-v2",
+      "model_artifact_digest": "sha256:6367ac6596e4db525b87ac86bc6b9d0aa6138948a230cc3ea2d5308b6174e937",
+      "training_code_digest": "sha256:6367ac6596e4db525b87ac86bc6b9d0aa6138948a230cc3ea2d5308b6174e937",
+      "feature_contract_version": "retail-orders-v1",
+      "privacy_profile": "guarded-rows",
+      "aggregation": {
+       "kind": "fedavg"
+      },
+      "minimum_participants": 2,
+      "minimum_cohort_per_site": 20,
+      "required_capabilities": [
+       "evaluate"
+      ],
+      "stop_conditions": [
+       "schema_failure",
+       "quorum_not_met"
+      ],
+      "invited_sites": [
+       "store-north",
+       "store-south"
+      ]
+     },
+     "manifest_digest": "fnv1a:45279496fde370c7",
+     "task": "evaluate",
+     "parameters": {
+      "model": {
+       "version": "return-check-rule-v2",
+       "kind": "return_check_rule",
+       "params": {
+        "risky_categories": [
+         "clothing",
+         "shoes"
+        ],
+        "min_items": 3,
+        "high_value": 150
+       },
+       "digest": "sha256:6367ac6596e4db525b87ac86bc6b9d0aa6138948a230cc3ea2d5308b6174e937"
+      }
+     }
+    }
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "round_id": "returns-eval-1",
+     "site_id": "store-north",
+     "accepted": true,
+     "reason": "job verified and permitted by local governance",
+     "verified_digest": true,
+     "feature_contract_version": "retail-orders-v1"
+    },
+    "trimmed": []
+   },
+   "planner_calls": [
+    "federation round digest",
+    "governance restrict"
+   ]
+  },
+  {
+   "id": "offer-job-again",
+   "endpoint": "POST /federation/jobs:offer",
+   "title": "A second offer for the same round",
+   "app": "store-north",
+   "request": {
+    "method": "POST",
+    "path": "/federation/jobs:offer",
+    "headers": {
+     "Authorization": "Bearer example-store-north-coordinator-token"
+    },
+    "json": {
+     "round_id": "returns-eval-1",
+     "site_id": "store-north",
+     "manifest": {
+      "round_id": "returns-eval-1",
+      "study_id": "returns-pilot",
+      "condition_id": "order_returns",
+      "phase": "evaluation",
+      "model_version": "return-check-rule-v2",
+      "model_artifact_digest": "sha256:6367ac6596e4db525b87ac86bc6b9d0aa6138948a230cc3ea2d5308b6174e937",
+      "training_code_digest": "sha256:6367ac6596e4db525b87ac86bc6b9d0aa6138948a230cc3ea2d5308b6174e937",
+      "feature_contract_version": "retail-orders-v1",
+      "privacy_profile": "guarded-rows",
+      "aggregation": {
+       "kind": "fedavg"
+      },
+      "minimum_participants": 2,
+      "minimum_cohort_per_site": 20,
+      "required_capabilities": [
+       "evaluate"
+      ],
+      "stop_conditions": [
+       "schema_failure",
+       "quorum_not_met"
+      ],
+      "invited_sites": [
+       "store-north",
+       "store-south"
+      ]
+     },
+     "manifest_digest": "fnv1a:45279496fde370c7",
+     "task": "evaluate",
+     "parameters": {
+      "model": {
+       "version": "return-check-rule-v2",
+       "kind": "return_check_rule",
+       "params": {
+        "risky_categories": [
+         "clothing",
+         "shoes"
+        ],
+        "min_items": 3,
+        "high_value": 150
+       },
+       "digest": "sha256:6367ac6596e4db525b87ac86bc6b9d0aa6138948a230cc3ea2d5308b6174e937"
+      }
+     }
+    }
+   },
+   "response": {
+    "status": 409,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "detail": "this site was already offered a job for round returns-eval-1",
+     "code": "conflict"
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "execute-job",
+   "endpoint": "POST /api/v1/federation/jobs:execute",
+   "title": "Run the accepted job",
+   "description": "The result holds counts and metrics measured on the Guard's payload. No order leaves the store.",
+   "app": "store-north",
+   "request": {
+    "method": "POST",
+    "path": "/api/v1/federation/jobs:execute",
+    "headers": {
+     "Authorization": "Bearer example-store-north-coordinator-token"
+    },
+    "json": {
+     "round_id": "returns-eval-1",
+     "site_id": "store-north",
+     "manifest": {
+      "round_id": "returns-eval-1",
+      "study_id": "returns-pilot",
+      "condition_id": "order_returns",
+      "phase": "evaluation",
+      "model_version": "return-check-rule-v2",
+      "model_artifact_digest": "sha256:6367ac6596e4db525b87ac86bc6b9d0aa6138948a230cc3ea2d5308b6174e937",
+      "training_code_digest": "sha256:6367ac6596e4db525b87ac86bc6b9d0aa6138948a230cc3ea2d5308b6174e937",
+      "feature_contract_version": "retail-orders-v1",
+      "privacy_profile": "guarded-rows",
+      "aggregation": {
+       "kind": "fedavg"
+      },
+      "minimum_participants": 2,
+      "minimum_cohort_per_site": 20,
+      "required_capabilities": [
+       "evaluate"
+      ],
+      "stop_conditions": [
+       "schema_failure",
+       "quorum_not_met"
+      ],
+      "invited_sites": [
+       "store-north",
+       "store-south"
+      ]
+     },
+     "manifest_digest": "fnv1a:45279496fde370c7",
+     "task": "evaluate",
+     "parameters": {
+      "model": {
+       "version": "return-check-rule-v2",
+       "kind": "return_check_rule",
+       "params": {
+        "risky_categories": [
+         "clothing",
+         "shoes"
+        ],
+        "min_items": 3,
+        "high_value": 150
+       },
+       "digest": "sha256:6367ac6596e4db525b87ac86bc6b9d0aa6138948a230cc3ea2d5308b6174e937"
+      }
+     }
+    }
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "round_id": "returns-eval-1",
+     "site_id": "store-north",
+     "job_digest": "fnv1a:45279496fde370c7",
+     "participation": "completed",
+     "code_verified": true,
+     "privacy_checks_passed": true,
+     "contributed_examples": 60,
+     "update_norm": 0.0,
+     "update_digest": null,
+     "metrics": {
+      "precision": 0.75,
+      "recall": 0.6923076923076923,
+      "flag_rate": 0.4
+     },
+     "local_evidence_pointer": "site-local://store-north/rounds/returns-eval-1/evidence"
+    },
+    "trimmed": []
+   },
+   "planner_calls": [
+    "governance restrict"
+   ]
+  },
+  {
+   "id": "execute-job-again",
+   "endpoint": "POST /federation/jobs:execute",
+   "title": "Each accepted job runs once",
+   "app": "store-north",
+   "request": {
+    "method": "POST",
+    "path": "/federation/jobs:execute",
+    "headers": {
+     "Authorization": "Bearer example-store-north-coordinator-token"
+    },
+    "json": {
+     "round_id": "returns-eval-1",
+     "site_id": "store-north",
+     "manifest": {
+      "round_id": "returns-eval-1",
+      "study_id": "returns-pilot",
+      "condition_id": "order_returns",
+      "phase": "evaluation",
+      "model_version": "return-check-rule-v2",
+      "model_artifact_digest": "sha256:6367ac6596e4db525b87ac86bc6b9d0aa6138948a230cc3ea2d5308b6174e937",
+      "training_code_digest": "sha256:6367ac6596e4db525b87ac86bc6b9d0aa6138948a230cc3ea2d5308b6174e937",
+      "feature_contract_version": "retail-orders-v1",
+      "privacy_profile": "guarded-rows",
+      "aggregation": {
+       "kind": "fedavg"
+      },
+      "minimum_participants": 2,
+      "minimum_cohort_per_site": 20,
+      "required_capabilities": [
+       "evaluate"
+      ],
+      "stop_conditions": [
+       "schema_failure",
+       "quorum_not_met"
+      ],
+      "invited_sites": [
+       "store-north",
+       "store-south"
+      ]
+     },
+     "manifest_digest": "fnv1a:45279496fde370c7",
+     "task": "evaluate",
+     "parameters": {
+      "model": {
+       "version": "return-check-rule-v2",
+       "kind": "return_check_rule",
+       "params": {
+        "risky_categories": [
+         "clothing",
+         "shoes"
+        ],
+        "min_items": 3,
+        "high_value": 150
+       },
+       "digest": "sha256:6367ac6596e4db525b87ac86bc6b9d0aa6138948a230cc3ea2d5308b6174e937"
+      }
+     }
+    }
+   },
+   "response": {
+    "status": 409,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "detail": "this site has no accepted job for round returns-eval-1 to run",
+     "code": "conflict"
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "offer-untrainable",
+   "endpoint": "POST /api/v1/federation/jobs:offer",
+   "title": "A training job for a model that cannot be trained",
+   "description": "The LMA refuses before it reads any order or computes the round digest, so this job's digest is not checked.",
+   "app": "store-north",
+   "request": {
+    "method": "POST",
+    "path": "/api/v1/federation/jobs:offer",
+    "headers": {
+     "Authorization": "Bearer example-store-north-coordinator-token"
+    },
+    "json": {
+     "round_id": "returns-train-rule",
+     "site_id": "store-north",
+     "manifest": {
+      "round_id": "returns-train-rule",
+      "study_id": "returns-pilot",
+      "condition_id": "order_returns",
+      "phase": "training",
+      "model_version": "return-check-rule-v2",
+      "model_artifact_digest": "sha256:6367ac6596e4db525b87ac86bc6b9d0aa6138948a230cc3ea2d5308b6174e937",
+      "training_code_digest": "sha256:6367ac6596e4db525b87ac86bc6b9d0aa6138948a230cc3ea2d5308b6174e937",
+      "feature_contract_version": "retail-orders-v1",
+      "privacy_profile": "guarded-rows",
+      "aggregation": {
+       "kind": "fedavg"
+      },
+      "minimum_participants": 2,
+      "minimum_cohort_per_site": 20,
+      "required_capabilities": [
+       "train"
+      ],
+      "stop_conditions": [
+       "schema_failure",
+       "quorum_not_met"
+      ],
+      "invited_sites": [
+       "store-north",
+       "store-south"
+      ]
+     },
+     "manifest_digest": "fnv1a:0000000000000000",
+     "task": "train",
+     "parameters": {
+      "model": {
+       "version": "return-check-rule-v2",
+       "kind": "return_check_rule",
+       "params": {
+        "risky_categories": [
+         "clothing",
+         "shoes"
+        ],
+        "min_items": 3,
+        "high_value": 150
+       },
+       "digest": "sha256:6367ac6596e4db525b87ac86bc6b9d0aa6138948a230cc3ea2d5308b6174e937"
+      }
+     }
+    }
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "round_id": "returns-train-rule",
+     "site_id": "store-north",
+     "accepted": false,
+     "reason": "return-check-rule-v2 is a return_check_rule, which cannot be trained",
+     "verified_digest": false,
+     "feature_contract_version": "retail-orders-v1"
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "job-log",
+   "endpoint": "GET /api/v1/federation/jobs",
+   "title": "The store's job log: the refusal and the result",
+   "app": "store-north",
+   "volatile": [
+    "/*/submitted_at"
+   ],
+   "request": {
+    "method": "GET",
+    "path": "/api/v1/federation/jobs",
+    "headers": {
+     "Authorization": "Bearer example-store-north-staff-token"
+    }
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": [
+     {
+      "round_id": "returns-train-rule",
+      "phase": "training",
+      "participation": "rejected",
+      "contributed_examples": 0,
+      "update_norm": null,
+      "update_digest": null,
+      "job_digest": "fnv1a:0000000000000000",
+      "metrics": {},
+      "reason": "return-check-rule-v2 is a return_check_rule, which cannot be trained",
+      "submitted_at": "2026-10-15T16:40:18.501751+00:00"
+     },
+     {
+      "round_id": "returns-eval-1",
+      "phase": "evaluation",
+      "participation": "completed",
+      "contributed_examples": 60,
+      "update_norm": 0.0,
+      "update_digest": null,
+      "job_digest": "fnv1a:45279496fde370c7",
+      "metrics": {
+       "precision": 0.75,
+       "recall": 0.6923076923076923,
+       "flag_rate": 0.4
+      },
+      "reason": null,
+      "submitted_at": "2026-10-15T16:40:18.497168+00:00"
+     }
+    ],
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "site-postgres-source-refused",
+   "endpoint": "POST /api/v1/sources",
+   "title": "An LMA that serves a site takes no Postgres source from a request",
+   "app": "store-north",
+   "request": {
+    "method": "POST",
+    "path": "/api/v1/sources",
+    "headers": {
+     "Authorization": "Bearer example-store-north-staff-token"
+    },
+    "json": {
+     "kind": "postgres",
+     "source_id": "orders-db",
+     "connection_ref": {
+      "connection_id": "orders",
+      "options": {
+       "host": "db.internal",
+       "password": "secret",
+       "role": "site_store_north"
+      }
+     },
+     "selection": {
+      "table": "orders"
+     }
+    }
+   },
+   "response": {
+    "status": 403,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "detail": "a request may not send a postgres source to a site's LMA, only: inline; the site's records come from its configured source; a request may not send embedded SQL (a query, table, columns, condition or order) to a site's LMA; a request may not set these connection options on a site's LMA: host, password, role; roles, credentials and connection targets come from the site's configuration",
+     "code": "forbidden"
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "site-strict-classification",
+   "endpoint": "POST /api/v1/governance/restrictions:plan",
+   "title": "A request that brings its own policy under the site's classification id",
+   "app": "store-north",
+   "request": {
+    "method": "POST",
+    "path": "/api/v1/governance/restrictions:plan",
+    "headers": {
+     "Authorization": "Bearer example-store-north-staff-token"
+    },
+    "json": {
+     "request_id": "own-policy-1",
+     "boundary": "before_read",
+     "requester": {
+      "requester_id": "store-north-returns-desk",
+      "requester_kind": "human",
+      "affiliation": "store-north",
+      "stated_purpose": "order_returns",
+      "attributes": [
+       {
+        "attribute_id": "employee_sso",
+        "verified": true
+       }
+      ],
+      "compliance_history": 0.9
+     },
+     "classification": {
+      "classification_id": "retail-orders",
+      "field_sensitivity": {
+       "order_value": "low",
+       "customer_postcode": "low",
+       "returned": "low"
+      },
+      "default_sensitivity": "low",
+      "minimum_cohort": 0
+     },
+     "requested_fields": [
+      "order_value",
+      "customer_postcode"
+     ],
+     "granularity": "row",
+     "declared_purpose": "order_returns",
+     "approved_purposes": [
+      "order_returns"
+     ]
+    }
+   },
+   "response": {
+    "status": 409,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "detail": "the request's classification retail-orders differs from the one registered with this agent",
+     "code": "conflict"
     },
     "trimmed": []
    },

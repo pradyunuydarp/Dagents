@@ -1,7 +1,7 @@
 {
   "framework": "dagents",
   "generated_by": "scripts/service_inventory.py",
-  "endpoint_count": 178,
+  "endpoint_count": 222,
   "services": [
     {
       "name": "core-service",
@@ -229,6 +229,17 @@
           }
         },
         {
+          "method": "PUT",
+          "path": "/api/v1/federation/rounds/{round_id}/updates/{site_id}",
+          "handler": "upload_update_v1",
+          "status_code": null,
+          "summary": "Versioned alias for storing a site's update.",
+          "alias_of": {
+            "method": "PUT",
+            "path": "/federation/rounds/{round_id}/updates/{site_id}"
+          }
+        },
+        {
           "method": "POST",
           "path": "/api/v1/federation/rounds/{round_id}:aggregate",
           "handler": "aggregate_round_v1",
@@ -237,6 +248,17 @@
           "alias_of": {
             "method": "POST",
             "path": "/federation/rounds/{round_id}:aggregate"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/federation/rounds/{round_id}:discard",
+          "handler": "discard_round_v1",
+          "status_code": 204,
+          "summary": "Versioned alias for discarding a round.",
+          "alias_of": {
+            "method": "POST",
+            "path": "/federation/rounds/{round_id}:discard"
           }
         },
         {
@@ -273,6 +295,17 @@
           }
         },
         {
+          "method": "GET",
+          "path": "/api/v1/federation/sites/summaries",
+          "handler": "site_summaries_v1",
+          "status_code": null,
+          "summary": "Versioned alias for the site summaries.",
+          "alias_of": {
+            "method": "GET",
+            "path": "/federation/sites/summaries"
+          }
+        },
+        {
           "method": "PUT",
           "path": "/api/v1/federation/sites/{site_id}",
           "handler": "register_site_v1",
@@ -284,6 +317,17 @@
           }
         },
         {
+          "method": "POST",
+          "path": "/api/v1/federation/sites:refresh",
+          "handler": "refresh_sites_v1",
+          "status_code": null,
+          "summary": "Versioned alias for refreshing the enrolments from the LMAs.",
+          "alias_of": {
+            "method": "POST",
+            "path": "/federation/sites:refresh"
+          }
+        },
+        {
           "method": "GET",
           "path": "/api/v1/governance/audit",
           "handler": "governance_audit_v1",
@@ -292,6 +336,17 @@
           "alias_of": {
             "method": "GET",
             "path": "/governance/audit"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/governance/audit:summary",
+          "handler": "governance_audit_summary_v1",
+          "status_code": null,
+          "summary": "Versioned alias for the audit chain summary.",
+          "alias_of": {
+            "method": "GET",
+            "path": "/governance/audit:summary"
           }
         },
         {
@@ -369,6 +424,61 @@
           "alias_of": {
             "method": "POST",
             "path": "/models/run"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/model-versions",
+          "handler": "list_model_versions_v1",
+          "status_code": null,
+          "summary": "Versioned alias for listing model versions.",
+          "alias_of": {
+            "method": "GET",
+            "path": "/model-versions"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/model-versions/{version}",
+          "handler": "get_model_version_v1",
+          "status_code": null,
+          "summary": "Versioned alias for fetching one model version.",
+          "alias_of": {
+            "method": "GET",
+            "path": "/model-versions/{version}"
+          }
+        },
+        {
+          "method": "PUT",
+          "path": "/api/v1/model-versions/{version}",
+          "handler": "register_model_version_v1",
+          "status_code": 201,
+          "summary": "Versioned alias for registering a model version.",
+          "alias_of": {
+            "method": "PUT",
+            "path": "/model-versions/{version}"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/model-versions/{version}:approve",
+          "handler": "approve_model_version_v1",
+          "status_code": null,
+          "summary": "Versioned alias for approving a model version.",
+          "alias_of": {
+            "method": "POST",
+            "path": "/model-versions/{version}:approve"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/model-versions:released",
+          "handler": "released_model_version_v1",
+          "status_code": null,
+          "summary": "Versioned alias for the released model version.",
+          "alias_of": {
+            "method": "GET",
+            "path": "/model-versions:released"
           }
         },
         {
@@ -456,7 +566,7 @@
           "path": "/federation/rounds",
           "handler": "dispatch_round",
           "status_code": null,
-          "summary": "Plan a round and, if quorum allows, offer it to the selected sites.",
+          "summary": "Plan a round and, if quorum allows, dispatch its jobs to the selected sites.",
           "alias_of": null
         },
         {
@@ -484,6 +594,14 @@
           "alias_of": null
         },
         {
+          "method": "PUT",
+          "path": "/federation/rounds/{round_id}/updates/{site_id}",
+          "handler": "upload_update",
+          "status_code": null,
+          "summary": "Store one site's clipped model update for a training round.",
+          "alias_of": null
+        },
+        {
           "method": "POST",
           "path": "/federation/rounds/{round_id}:aggregate",
           "handler": "aggregate_round",
@@ -493,10 +611,18 @@
         },
         {
           "method": "POST",
+          "path": "/federation/rounds/{round_id}:discard",
+          "handler": "discard_round",
+          "status_code": 204,
+          "summary": "Give up a round: delete its stored updates and record why.",
+          "alias_of": null
+        },
+        {
+          "method": "POST",
           "path": "/federation/rounds/{round_id}:evaluate-release",
           "handler": "evaluate_release",
           "status_code": null,
-          "summary": "Evaluate release gates against a candidate and record the verdict.",
+          "summary": "Evaluate a round's candidate against the release gates and record the verdict.",
           "alias_of": null
         },
         {
@@ -516,6 +642,14 @@
           "alias_of": null
         },
         {
+          "method": "GET",
+          "path": "/federation/sites/summaries",
+          "handler": "site_summaries",
+          "status_code": null,
+          "summary": "Report what each configured site's LMA says about its records.",
+          "alias_of": null
+        },
+        {
           "method": "PUT",
           "path": "/federation/sites/{site_id}",
           "handler": "register_site",
@@ -524,11 +658,27 @@
           "alias_of": null
         },
         {
+          "method": "POST",
+          "path": "/federation/sites:refresh",
+          "handler": "refresh_sites",
+          "status_code": null,
+          "summary": "Enrol each configured LMA from its own registration.",
+          "alias_of": null
+        },
+        {
           "method": "GET",
           "path": "/governance/audit",
           "handler": "governance_audit",
           "status_code": null,
           "summary": "List recent guard decisions and whether the digest chain still verifies.",
+          "alias_of": null
+        },
+        {
+          "method": "GET",
+          "path": "/governance/audit:summary",
+          "handler": "governance_audit_summary",
+          "status_code": null,
+          "summary": "Report whether the GMA's audit chain verifies and how many decisions it holds, without its records.",
           "alias_of": null
         },
         {
@@ -577,6 +727,46 @@
           "handler": "heartbeat",
           "status_code": null,
           "summary": "Ingest one heartbeat update from a registered LMA.",
+          "alias_of": null
+        },
+        {
+          "method": "GET",
+          "path": "/model-versions",
+          "handler": "list_model_versions",
+          "status_code": null,
+          "summary": "List the model in use and the newest model versions, without their parameters.",
+          "alias_of": null
+        },
+        {
+          "method": "GET",
+          "path": "/model-versions/{version}",
+          "handler": "get_model_version",
+          "status_code": null,
+          "summary": "Fetch one model version, with its status and latest release decision, without its parameters.",
+          "alias_of": null
+        },
+        {
+          "method": "PUT",
+          "path": "/model-versions/{version}",
+          "handler": "register_model_version",
+          "status_code": 201,
+          "summary": "Register a model version under a name the caller chooses.",
+          "alias_of": null
+        },
+        {
+          "method": "POST",
+          "path": "/model-versions/{version}:approve",
+          "handler": "approve_model_version",
+          "status_code": null,
+          "summary": "Release a candidate, as the person who approves releases.",
+          "alias_of": null
+        },
+        {
+          "method": "GET",
+          "path": "/model-versions:released",
+          "handler": "released_model_version",
+          "status_code": null,
+          "summary": "Return the released model version, the one sites use, with its parameters.",
           "alias_of": null
         },
         {
@@ -914,6 +1104,50 @@
         },
         {
           "method": "GET",
+          "path": "/api/v1/federation/jobs",
+          "handler": "list_jobs_v1",
+          "status_code": null,
+          "summary": "Versioned alias for the site's job log.",
+          "alias_of": {
+            "method": "GET",
+            "path": "/federation/jobs"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/federation/jobs:execute",
+          "handler": "execute_job_v1",
+          "status_code": null,
+          "summary": "Versioned alias for executing a job.",
+          "alias_of": {
+            "method": "POST",
+            "path": "/federation/jobs:execute"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/federation/jobs:offer",
+          "handler": "offer_job_v1",
+          "status_code": null,
+          "summary": "Versioned alias for offering a job.",
+          "alias_of": {
+            "method": "POST",
+            "path": "/federation/jobs:offer"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/federation/registration",
+          "handler": "federation_registration_v1",
+          "status_code": null,
+          "summary": "Versioned alias for the site's registration.",
+          "alias_of": {
+            "method": "GET",
+            "path": "/federation/registration"
+          }
+        },
+        {
+          "method": "GET",
           "path": "/api/v1/governance/audit",
           "handler": "governance_audit_v1",
           "status_code": null,
@@ -921,6 +1155,17 @@
           "alias_of": {
             "method": "GET",
             "path": "/governance/audit"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/governance/audit:summary",
+          "handler": "governance_audit_summary_v1",
+          "status_code": null,
+          "summary": "Versioned alias for the audit chain summary.",
+          "alias_of": {
+            "method": "GET",
+            "path": "/governance/audit:summary"
           }
         },
         {
@@ -968,6 +1213,17 @@
           }
         },
         {
+          "method": "POST",
+          "path": "/api/v1/governance/restrictions:probe",
+          "handler": "probe_restriction_v1",
+          "status_code": null,
+          "summary": "Versioned alias for the Guard probe.",
+          "alias_of": {
+            "method": "POST",
+            "path": "/governance/restrictions:probe"
+          }
+        },
+        {
           "method": "GET",
           "path": "/api/v1/health",
           "handler": "health_v1",
@@ -998,6 +1254,72 @@
           "alias_of": {
             "method": "POST",
             "path": "/models/run"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/site",
+          "handler": "site_info_v1",
+          "status_code": null,
+          "summary": "Versioned alias for the site description.",
+          "alias_of": {
+            "method": "GET",
+            "path": "/site"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/site/model",
+          "handler": "site_model_v1",
+          "status_code": null,
+          "summary": "Versioned alias for the site's model in use.",
+          "alias_of": {
+            "method": "GET",
+            "path": "/site/model"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/site/model:evaluate",
+          "handler": "evaluate_site_model_v1",
+          "status_code": null,
+          "summary": "Versioned alias for evaluating the site's model in use.",
+          "alias_of": {
+            "method": "POST",
+            "path": "/site/model:evaluate"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/site/profile",
+          "handler": "site_profile_v1",
+          "status_code": null,
+          "summary": "Versioned alias for the site profile.",
+          "alias_of": {
+            "method": "GET",
+            "path": "/site/profile"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/site/source:refresh",
+          "handler": "refresh_site_source_v1",
+          "status_code": null,
+          "summary": "Versioned alias for refreshing the site's source.",
+          "alias_of": {
+            "method": "POST",
+            "path": "/site/source:refresh"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/site/summary",
+          "handler": "site_summary_v1",
+          "status_code": null,
+          "summary": "Versioned alias for the site summary.",
+          "alias_of": {
+            "method": "GET",
+            "path": "/site/summary"
           }
         },
         {
@@ -1066,10 +1388,50 @@
         },
         {
           "method": "GET",
+          "path": "/federation/jobs",
+          "handler": "list_jobs",
+          "status_code": null,
+          "summary": "List the jobs the site refused or ran, newest first, as its job log recorded them.",
+          "alias_of": null
+        },
+        {
+          "method": "POST",
+          "path": "/federation/jobs:execute",
+          "handler": "execute_job",
+          "status_code": null,
+          "summary": "Run a job the site accepted, on the Guard's payload, and return what the Guard lets leave.",
+          "alias_of": null
+        },
+        {
+          "method": "POST",
+          "path": "/federation/jobs:offer",
+          "handler": "offer_job",
+          "status_code": null,
+          "summary": "Let the site check a job before it reads any data, and accept or refuse it.",
+          "alias_of": null
+        },
+        {
+          "method": "GET",
+          "path": "/federation/registration",
+          "handler": "federation_registration",
+          "status_code": null,
+          "summary": "Return how the site enrols in a study, with its current record count as the cohort size.",
+          "alias_of": null
+        },
+        {
+          "method": "GET",
           "path": "/governance/audit",
           "handler": "governance_audit",
           "status_code": null,
           "summary": "List recent guard decisions and whether the digest chain still verifies.",
+          "alias_of": null
+        },
+        {
+          "method": "GET",
+          "path": "/governance/audit:summary",
+          "handler": "governance_audit_summary",
+          "status_code": null,
+          "summary": "Report whether the site's audit chain verifies and how many decisions it holds, without its records.",
           "alias_of": null
         },
         {
@@ -1102,6 +1464,14 @@
           "handler": "plan_restriction",
           "status_code": null,
           "summary": "Ask what protection a request would need, without enforcing anything.",
+          "alias_of": null
+        },
+        {
+          "method": "POST",
+          "path": "/governance/restrictions:probe",
+          "handler": "probe_restriction",
+          "status_code": null,
+          "summary": "Run one request through the site's Guard over the site's first records, and report what it would release.",
           "alias_of": null
         },
         {
@@ -1142,6 +1512,54 @@
           "handler": "list_runs",
           "status_code": null,
           "summary": "List recent local monitoring runs.",
+          "alias_of": null
+        },
+        {
+          "method": "GET",
+          "path": "/site",
+          "handler": "site_info",
+          "status_code": null,
+          "summary": "Describe the site this LMA serves: its condition, policy, source and record count.",
+          "alias_of": null
+        },
+        {
+          "method": "GET",
+          "path": "/site/model",
+          "handler": "site_model",
+          "status_code": null,
+          "summary": "Return the released model, as this LMA reads it from the GMA, after its model kind checked the digest.",
+          "alias_of": null
+        },
+        {
+          "method": "POST",
+          "path": "/site/model:evaluate",
+          "handler": "evaluate_site_model",
+          "status_code": null,
+          "summary": "Measure the released model on the site's own labelled records. The records stay at the site.",
+          "alias_of": null
+        },
+        {
+          "method": "GET",
+          "path": "/site/profile",
+          "handler": "site_profile",
+          "status_code": null,
+          "summary": "Return the running profile of the site's records, for the site's own staff.",
+          "alias_of": null
+        },
+        {
+          "method": "POST",
+          "path": "/site/source:refresh",
+          "handler": "refresh_site_source",
+          "status_code": null,
+          "summary": "Ask the site's source for its version now, and read the records again if it changed.",
+          "alias_of": null
+        },
+        {
+          "method": "GET",
+          "path": "/site/summary",
+          "handler": "site_summary",
+          "status_code": null,
+          "summary": "Report the site's counts, and its label rate only when the site's planner permits it.",
           "alias_of": null
         },
         {

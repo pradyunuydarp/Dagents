@@ -1,10 +1,19 @@
-"""Dependency container for the Global Monitoring Agent."""
+"""Builders for the Global Monitoring Agent's services.
 
+:func:`agents.gma.app_factory.create_app` calls these with what the GMA's
+settings and dependencies give it; they hold no module-level state.
+"""
+
+from __future__ import annotations
+
+from agents.common.application.ethical_guard import AuditSink
 from agents.common.application.federation import (
     FederatedRoundController,
+    FederationEngine,
     InProcessFederationEngine,
 )
 from agents.common.application.governance_service import GovernanceService
+from agents.common.extensions import ExtensionRegistry
 from agents.common.infrastructure.sources import DefaultSourceResolver
 from agents.gma.application.aggregation_service import AggregationService
 from agents.gma.infrastructure.persistence import (
@@ -16,6 +25,7 @@ from agents.gma.infrastructure.persistence import (
 
 
 def build_aggregation_service() -> AggregationService:
+    """The LMA control plane: registrations, telemetry, deployments and aggregate model runs, in memory."""
     return AggregationService(
         registry=InMemoryAgentRegistryRepository(),
         telemetry_repository=InMemoryTelemetryRepository(),
@@ -25,18 +35,31 @@ def build_aggregation_service() -> AggregationService:
     )
 
 
-def build_governance_service() -> GovernanceService:
-    """Build the GMA's Ethical Guard, which stands at the release boundary."""
-    return GovernanceService()
+def build_governance_service(
+    registry: ExtensionRegistry | None = None,
+    audit: AuditSink | None = None,
+    strict_classifications: bool = False,
+) -> GovernanceService:
+    """Build the GMA's Ethical Guard, which stands at the release boundary.
+
+    Params:
+    - `registry`: where extension classifications are looked up; the default
+      registry when ``None``.
+    - `audit`: the audit sink; in memory when ``None``.
+    - `strict_classifications`: refuse a request whose classification is not
+      the registered one (a GMA with condition packs runs strict).
+    """
+    return GovernanceService(audit=audit, registry=registry, strict_classifications=strict_classifications)
 
 
-def build_round_controller() -> FederatedRoundController:
+def build_round_controller(engine: FederationEngine | None = None) -> FederatedRoundController:
     """Build the federated round controller.
 
-    The default engine runs every site in this process, which makes the control
-    plane demonstrable without provisioning a distributed runtime. A deployment
-    swaps in an adapter for NVIDIA FLARE or another approved runtime; nothing
-    above :class:`~agents.common.application.federation.FederationEngine` has to
-    change when it does.
+    The default engine is the in-process simulator, which runs every site in
+    this process. ``GMA_ENGINE=http`` gives it the GMA's HTTP engine instead
+    (:class:`agents.gma.adapters.http_federation_engine.HttpFederationEngine`),
+    and an adapter for another runtime such as NVIDIA FLARE fits the same
+    :class:`~agents.common.application.federation.FederationEngine`
+    interface; nothing above it changes.
     """
-    return FederatedRoundController(engine=InProcessFederationEngine())
+    return FederatedRoundController(engine=engine or InProcessFederationEngine())

@@ -1,0 +1,14 @@
+{
+  "roundId": "returns-round-1",
+  "acceptedSites": [ "store-north", "store-south" ],
+  "rejectedContributions": [
+    {
+      "siteId": "store-outlet",
+      "reason": "site was not selected for this round"
+    }
+  ],
+  "acceptedExamples": 100,
+  "aggregationPermitted": true,
+  "stopReason": null,
+  "siteWeights": { "store-north": 0.6, "store-south": 0.4 }
+}
