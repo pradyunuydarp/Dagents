@@ -19,10 +19,12 @@ So this talks to a real deployment and checks what the demo shows:
 - the legacy and versioned health routes agree;
 - the app marks its own responses with ``X-Dagents-App``;
 - the rate limits read the client from the ``X-Forwarded-For`` entry the
-  platform's edge wrote.
+  platform's edge wrote;
+- it never offers to add a hospital, because that starts a process or a
+  container.
 
-It never enters records, records outcomes or approves models, so it changes no
-hospital's data. A probe and a pilot do add audit records and model versions,
+It never enters records, records outcomes, approves models or adds a hospital,
+so it changes no hospital's data. A probe and a pilot do add audit records and model versions,
 as they do when a visitor uses the page.
 
 Set ``HEALTHCARE_DEPLOYED_API`` to run it. Without it the tests skip with a
@@ -356,6 +358,27 @@ class DeployedApiTests(unittest.TestCase):
         self.assertTrue(response.headers["content-type"].startswith("image/svg+xml"))
         self.assertIn("<svg", response.text)
         self.assertIn("International Stroke Trial", response.text)
+
+    def test_the_hosted_api_never_offers_to_add_a_hospital(self) -> None:
+        """Adding a hospital starts a process or a container, which no visitor may cause.
+
+        A deployment from before the action answers 404 for both routes. A newer
+        one answers the view with ``available: false`` and refuses the POST.
+        The POST is sent once without an ``Origin``, as curl sends it, and once
+        as a page on another host would send it.
+        """
+        view = self.client.get("/api/v1/deployments")
+        self.assertIn(view.status_code, (200, 404), view.text[:300])
+        if view.status_code == 200:
+            body = self.json_of(view, "/api/v1/deployments")
+            self.assertIs(False, body["available"], "the hosted API offers to add a hospital")
+            self.assertTrue(body["reason"])
+            self.assertEqual("off", body["applier"])
+            self.assertEqual([], body["deployments"])
+        for headers in ({}, {"Origin": "https://example.github.io"}):
+            with self.subTest(origin=headers.get("Origin")):
+                response = self.client.post("/api/v1/deployments", json={"site_id": "pl-290"}, headers=headers)
+                self.assertIn(response.status_code, (403, 404, 405), response.text[:300])
 
 
 if __name__ == "__main__":

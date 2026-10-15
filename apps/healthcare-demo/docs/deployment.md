@@ -430,13 +430,16 @@ checks that:
 - a pilot reports a decision that matches its own gate results (the test does
   not assume which decision);
 - every hospital's audit chain is intact;
-- the consortium charts are listed and one draws.
+- the consortium charts are listed and one draws;
+- the API never offers to add a hospital: `GET /api/v1/deployments` answers
+  404 or `available: false`, and the `POST` answers 403, 404 or 405, with or
+  without an `Origin` header.
 
 It also reports how long the first request took, compared with the 90 seconds
 the page waits.
 
-The tests never enter records, record outcomes or approve models, so they change
-no hospital's records. Their probes and pilot add audit records and model
+The tests never enter records, record outcomes, approve models or add a
+hospital, so they change no hospital's records. Their probes and pilot add audit records and model
 versions, as a visitor's do.
 
 To run it yourself against any deployment:
