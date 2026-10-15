@@ -48,7 +48,9 @@ With `GMA_FEDERATION_SITES` set, `di.py` builds `HttpFederationEngine`
 (`agents/common/infrastructure/federation_http.py`). Dispatching a round then
 sends the job to `POST {site}/api/v1/federation/jobs:offer` and
 `POST {site}/api/v1/federation/jobs:execute` for each selected site. A site that
-does not answer is recorded as `failed`. The engine is still a simulator: it
+does not answer the offer, such as a site that is down, is recorded as a
+refusal, a `rejected` result. A site that accepts and then does not answer the
+execution is recorded as `failed`. The engine is still a simulator: it
 calls one site at a time, does not retry and sends no credentials, so run it on
 a private network. The healthcare demo's split mode uses it to reach one
 service per hospital.

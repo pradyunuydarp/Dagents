@@ -1864,10 +1864,16 @@ instead. For each selected site it sends the job to
 `JobAcceptance` and then a `SiteResult`. This request waits until every
 selected site has answered or timed out (`GMA_FEDERATION_TIMEOUT_SECONDS` per
 call, default 120). A site that does not answer, answers with an error status,
-or answers for another site or round gets a `failed` result whose evidence
-pointer is `unreachable://<site_id>#<reason>`. The reason never contains the
-site's address. A selected site that is not listed gets the same result as with
-no worker attached. The Dagents LMA does not serve these two paths; a site
+or answers for another site or round is recorded by the step that failed:
+
+| Step that fails | Result |
+|---|---|
+| `jobs:offer`, as for a site that is down | A refusal: a `rejected` result with no evidence pointer. The round keeps no reason |
+| `jobs:execute`, after the site accepted | A `failed` result whose evidence pointer is `unreachable://<site_id>#<reason>`. The reason never contains the site's address |
+
+So a site that is down shows as `rejected`, like a site that declined the job.
+A selected site that is not listed gets the same result as with no worker
+attached. The Dagents LMA does not serve these two paths; a site
 service that runs `LocalFederatedWorker` does, as the healthcare demo's
 hospital services do in split mode.
 
