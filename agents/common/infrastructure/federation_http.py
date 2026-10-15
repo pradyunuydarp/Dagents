@@ -164,10 +164,12 @@ class HttpUpdateChannel:
             with httpx.Client(timeout=self._timeout) as client:
                 response = client.post(url, json=body)
         if response.status_code >= 400:
-            detail = response.text
+            detail: object = response.text
             try:
-                detail = response.json().get("detail", detail)
+                answer = response.json()
             except ValueError:
-                pass
+                answer = None
+            if isinstance(answer, dict) and "detail" in answer:
+                detail = answer["detail"]
             raise RuntimeError(f"the coordinator answered {response.status_code}: {_short(detail)}")
         return UpdateReceipt.model_validate(response.json()).update_digest
