@@ -140,7 +140,8 @@ jobs:
         # The schema tests read the migration as text. The other modules apply
         # it to the service container, try every cross-site path, and run the
         # stores, the pilot, data entry, the API and the status report against
-        # it.
+        # it. tests.test_split_processes runs the pilot across separate GMA, LMA
+        # and app processes; the guard below requires it, as CI does.
         working-directory: apps/healthcare-demo
         env:
           PYTHONPATH: ${{ github.workspace }}:${{ github.workspace }}/apps/healthcare-demo/backend
@@ -158,6 +159,7 @@ jobs:
             tests.test_store_connections \
             tests.test_api_postgres \
             tests.test_data_source_status \
+            tests.test_split_processes \
             2>&1 | tee database-suite.log
 
       - name: Fail if the database tests skipped
@@ -183,6 +185,7 @@ jobs:
             --require-ran tests.test_api_postgres.PostgresApiTests \
             --require-ran tests.test_api_postgres.UnmigratedDatabaseApiTests \
             --require-ran tests.test_data_source_status.PostgresStatusTests \
+            --require-ran tests.test_split_processes.SplitProcessTests \
             apps/healthcare-demo/database-suite.log
 
       - name: Apply migrations
