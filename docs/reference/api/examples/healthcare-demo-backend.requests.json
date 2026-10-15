@@ -833,6 +833,54 @@
         "items": 6,
         "chars": 300
       }
+    },
+    {
+      "id": "deployments",
+      "endpoint": "GET /api/v1/deployments",
+      "title": "Read whether this server can add a hospital (the combined process cannot)",
+      "request": {
+        "path": "/api/v1/deployments"
+      },
+      "status": 200
+    },
+    {
+      "id": "deploy-not-here",
+      "endpoint": "POST /api/v1/deployments",
+      "title": "Ask the combined process to add a hospital",
+      "request": {
+        "path": "/api/v1/deployments",
+        "json": {
+          "site_id": "pl-290"
+        }
+      },
+      "status": 403
+    },
+    {
+      "id": "deploy-other-origin",
+      "endpoint": "POST /api/v1/deployments",
+      "title": "Ask from a page on another host",
+      "request": {
+        "path": "/api/v1/deployments",
+        "headers": {
+          "Origin": "https://example.github.io"
+        },
+        "json": {
+          "site_id": "pl-290"
+        }
+      },
+      "status": 403
+    },
+    {
+      "id": "deploy-unknown-site",
+      "endpoint": "POST /api/v1/deployments",
+      "title": "Ask for a hospital that cannot join",
+      "request": {
+        "path": "/api/v1/deployments",
+        "json": {
+          "site_id": "uk-134"
+        }
+      },
+      "status": 422
     }
   ]
 }

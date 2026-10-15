@@ -74,13 +74,17 @@ clinical advice.
 ## The healthcare demo
 
 The healthcare backend is one FastAPI app, `apps/healthcare-demo/backend/app/main.py`,
-with 27 endpoints. Three hospitals take part:
+with 29 endpoints. Three hospitals take part:
 
 | `site_id` | Name | Country | Records from the IST |
 |---|---|---|---|
 | `uk-134` | Hospital 134 | United Kingdom | 524 |
 | `it-002` | Hospital 2 | Italy | 292 |
 | `ch-245` | Hospital 245 | Switzerland | 198 |
+
+A fourth, Hospital 290 (`pl-290`, Poland, 263 records), is not in the consortium
+at start. A split run on your own machine can add it while it runs; see
+[Adding a hospital](#adding-a-hospital).
 
 Terms used in this part:
 
@@ -102,7 +106,8 @@ Terms used in this part:
 
 ```mermaid
 flowchart TB
-    Routes["main.py: 27 routes"] --> Limits["RateLimiter, HourlyCap, SingleFlight, BodySizeLimit"]
+    Routes["main.py: 29 routes"] --> Limits["RateLimiter, HourlyCap, SingleFlight, BodySizeLimit"]
+    Routes --> Deployer["HospitalDeployer: off unless a split run turns it on"]
     Routes --> Consortium["Consortium: the coordinator"]
     Routes --> Charts["ChartService"]
     Routes --> Framework["FrameworkClient"]
@@ -956,7 +961,8 @@ not `improves_on_current_release`, which needs the baseline's 0.777 plus 0.02.
 The action is `reject`, so the candidate's status is `rejected`. The example is
 trimmed to 3 items per list and 200 characters per string.
 
-**Errors.** `409` when a pilot is already running; one runs at a time. `422`
+**Errors.** `409` when a pilot is already running, or a hospital is being
+added; one of them runs at a time, and the message says which. `422`
 for a `round_prefix` other than `ui` or `api`, or any other key. `429` beyond 3
 pilots per minute from one client, or 20 pilots in any hour from all clients
 together. `503` when the planner cannot be run.
@@ -1011,6 +1017,123 @@ request was refused with `Retry-After: 30`.
 
 **Related.** [List the model versions](#healthcare-demo-backend-get-api-v1-models),
 [run the pilot](#healthcare-demo-backend-post-api-v1-pilot-run).
+
+## Adding a hospital
+
+```api-interface
+service: healthcare-demo-backend
+status: complete
+code: apps/healthcare-demo/backend/app/api/deploy_routes.py, apps/healthcare-demo/backend/app/services/deployment.py
+classes:
+- HospitalDeployer (apps/healthcare-demo/backend/app/services/deployment.py)
+- CoreServiceClient (apps/healthcare-demo/backend/app/services/framework_client.py)
+- GmaRoundClient (apps/healthcare-demo/backend/app/services/remote.py)
+- Consortium (apps/healthcare-demo/backend/app/services/consortium.py)
+- Forwarder (apps/healthcare-demo/backend/app/api/forward.py)
+- LocalProcessApplier (agents/common/infrastructure/compose_apply.py)
+- DockerComposeApplier (agents/common/infrastructure/compose_apply.py)
+- SingleFlight (apps/healthcare-demo/backend/app/api/limits.py)
+endpoints:
+- GET /api/v1/deployments
+- POST /api/v1/deployments
+```
+
+A split run on your own machine can add Hospital 290 (`pl-290`) to the running
+consortium. The app starts the hospital's LMA from a Compose file that
+core-service renders, and the Dagents GMA accepts the LMA's address and enrols
+it. From the next round on, the GMA's planner decides whether to select it, as
+for the other three. The app writes no Compose and makes no selection rule.
+
+The action is off unless `HEALTHCARE_DEMO_DEPLOYER` is `process` (a local
+process) or `compose` (a container, with `docker compose`), and the app refuses
+to start with either value in any role but `app`, or when `RENDER` is set. The
+hosted demo runs the combined role, so both examples below show a server that
+cannot add a hospital. An LMA answers `404` for both routes.
+[Adding a hospital is off on every host](../../../apps/healthcare-demo/docs/deployment.md#adding-a-hospital-is-off-on-every-host)
+lists the settings.
+
+| Step | What happens |
+|---|---|
+| `plan` | core-service renders the LMA's Compose file (`POST /api/v1/manifests/compose`, the planner's `manifest compile`). Issues fail the step |
+| `start` | The applier starts that one service from the file as rendered. A port that already answers for something else fails the step; a service this app started earlier is kept (`adopted`) |
+| `answer` | The new LMA answers `/api/v1/health` within `HEALTHCARE_DEMO_DEPLOY_TIMEOUT_SECONDS` and reports site `pl-290` |
+| `attach` | The GMA accepts the LMA's address (`PUT /api/v1/federation/sites/pl-290/address`), only at the address in its `GMA_FEDERATION_JOINABLE_SITES` |
+| `enrol` | The GMA enrols the site with the registration the LMA reports |
+| `join` | The app adds the hospital to its consortium and forwards `/api/v1/hospitals/pl-290` to the LMA. `skipped` when it is already in |
+| `check` | The GMA's planner plans the next analytics round, without running it, and says whether it selects the hospital |
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant App as app (HospitalDeployer)
+    participant Core as core-service
+    participant Applier as process or compose applier
+    participant LMA as LMA pl-290
+    participant GMA as Dagents GMA
+    Client->>App: POST /api/v1/deployments
+    App->>Core: POST /api/v1/manifests/compose
+    Core-->>App: compose_yaml, issues
+    App->>Applier: check, then apply the file as rendered
+    Applier->>LMA: start
+    App->>LMA: GET /api/v1/health, GET /api/v1/site/report
+    App->>GMA: PUT /api/v1/federation/sites/pl-290/address
+    App->>GMA: register the site
+    App->>App: add the hospital, forward its pages
+    App->>GMA: plan the next round
+    App-->>Client: 200 with each step
+```
+
+### Read whether this server can add a hospital
+
+```api-endpoint
+GET /api/v1/deployments
+```
+
+Says whether `POST /api/v1/deployments` can add a hospital now, and if not,
+why: the first of these that fails. The role must be `app`, the deployer must
+be on, core-service must answer its health check, and the GMA must answer
+`GET /api/v1/federation/site-addresses` and list every joining hospital as
+`joinable`. The checks of core-service and the GMA are reused for 15 seconds.
+It lists every hospital that can join, with the records it starts with, taken
+from the dataset module and never read from the hospital, and the attempts
+since the app started, newest first, at most 20, in memory. Nothing is stored,
+and no planner command runs.
+
+**Errors.** None of its own. An LMA answers `404`.
+
+**Related.** [Add a hospital](#healthcare-demo-backend-post-api-v1-deployments),
+[Read where the records are](#healthcare-demo-backend-get-api-v1-framework-status).
+
+### Add a hospital
+
+```api-endpoint
+POST /api/v1/deployments
+```
+
+Runs the seven steps above and returns each one with its status, its detail
+and its seconds, with the Compose file core-service rendered. `status` is
+`joined` when `plan` to `join` are done or skipped, and `failed` otherwise;
+steps after a failure are `not_run`. A failure in `start` to `join` undoes this
+attempt's work, newest first: a done `enrol` is withdrawn (`undone`), and a
+service this attempt started is stopped (`undone`). An address the GMA accepted
+stays until the GMA restarts; no round uses it without an enrolment. A failed
+`check` keeps the hospital: `status` stays `joined`, and `next_round` gives the
+planner's reason. The request holds the pilot's flight, so no pilot runs while a
+hospital is added. It runs the planner's `manifest compile` at core-service,
+and `federation round plan` at the GMA.
+
+**Errors.** `403` when the request carries an `Origin` header whose host is
+not `127.0.0.1`, `localhost` or `::1` (including `Origin: null`); this is
+checked first. `403` when adding a hospital is not available, with the reason
+`GET /api/v1/deployments` gives. `409` while a pilot runs or a hospital is
+being added, and when the hospital is already in the consortium and its LMA
+answers its health check within 2 seconds. `422` for a `site_id` that is not
+a hospital that can join, or any other key.
+
+**Related.** [Read whether this server can add a hospital](#healthcare-demo-backend-get-api-v1-deployments),
+[Run the federated pilot](#healthcare-demo-backend-post-api-v1-pilot-run),
+[Render a Compose file](framework-services.md#core-service-post-api-v1-manifests-compose),
+[Accept a site's address on the GMA](agents.md#gma-put-api-v1-federation-sites-site-id-address).
 
 ## The framework
 
@@ -1330,6 +1453,32 @@ example: healthcare-demo-backend pilot /request/json
 
 What `POST /api/v1/pilot:run` takes. It has one field, the start of the pilot
 id and of every round id. Any other key is refused with `422`.
+
+### The DeploymentsView object
+
+```api-object
+class: app.models.DeploymentsView
+service: healthcare-demo-backend
+example: healthcare-demo-backend deployments /response/body
+```
+
+What `GET /api/v1/deployments` returns: whether this server can add a hospital,
+the reason when it cannot, how it would start one, the hospitals that can join
+and the attempts so far. The example is the combined process, which never adds
+a hospital.
+
+### The Deployment object
+
+```api-object
+class: app.models.Deployment
+service: healthcare-demo-backend
+```
+
+One attempt to add a hospital, as `POST /api/v1/deployments` returns it. `steps`
+always holds the seven steps in order. `compose_yaml` is the file exactly as
+core-service rendered it, and `issues` holds core-service's reasons when it
+rendered none. The examples come from the combined process, which refuses the
+request, so none shows this object.
 
 ### The ErrorResponse object
 

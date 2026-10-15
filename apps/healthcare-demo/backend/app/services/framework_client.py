@@ -30,6 +30,7 @@ from agents.common.infrastructure.dagents_runner import (
 )
 
 from app.core.config import Settings
+from app.services.remote import RemoteServiceUnavailable
 from app.domain.conditions import (
     STROKE_APPROVED_PURPOSES,
     STROKE_CLASSIFICATION,
@@ -41,6 +42,74 @@ from app.models import ENTRY_REQUIRED_FIELDS
 #: Seconds a service check is reused. The status endpoint is called on every
 #: page load, and each check can wait for a timeout.
 STATUS_CACHE_SECONDS = 15.0
+
+#: Longest wait for core-service's health check.
+CORE_HEALTH_TIMEOUT_SECONDS = 2.0
+
+CORE_SERVICE_NAME = "The Dagents core service"
+
+
+class CoreServiceClient:
+    """The Dagents core service, which renders the Compose file of a hospital that joins.
+
+    The app never writes Compose itself. It sends a workload spec to
+    ``POST /api/v1/manifests/compose``, where the OCaml manifest compiler
+    renders it, and applies the file it gets back.
+
+    Params:
+    - `base_url`: core-service, ``CORE_SERVICE_PUBLIC_URL``.
+    - `timeout`: seconds to wait for a rendered file.
+    - `client`: an ``httpx.Client`` to send through, for tests.
+    """
+
+    def __init__(self, base_url: str, *, timeout: float, client: httpx.Client | None = None) -> None:
+        self.base_url = base_url.rstrip("/")
+        self._timeout = timeout
+        self._client = client
+
+    def _request(self, method: str, path: str, *, timeout: float, json: Any = None) -> httpx.Response:
+        url = f"{self.base_url}{path}"
+        try:
+            if self._client is not None:
+                return self._client.request(method, url, json=json, timeout=timeout)
+            with httpx.Client(timeout=timeout) as client:
+                return client.request(method, url, json=json)
+        except httpx.HTTPError as error:
+            raise RemoteServiceUnavailable(
+                f"{CORE_SERVICE_NAME} cannot be reached right now.", f"{method} {url}: {error}"
+            ) from error
+
+    def render_compose(self, request: dict[str, Any]) -> dict[str, Any]:
+        """Render a Compose file: ``{services, issues, compose_yaml}``, as core-service answers.
+
+        Any status but 200, or an answer that is not a JSON object, raises
+        :class:`RemoteServiceUnavailable`. A file the planner refuses is a 200
+        with ``issues`` and no ``compose_yaml``.
+        """
+        path = "/api/v1/manifests/compose"
+        response = self._request("POST", path, timeout=self._timeout, json=request)
+        if response.status_code != 200:
+            raise RemoteServiceUnavailable(
+                f"{CORE_SERVICE_NAME} could not render the Compose file.",
+                f"POST {self.base_url}{path} answered {response.status_code}: {response.text[:200]}",
+            )
+        try:
+            answer = response.json()
+        except ValueError as error:
+            raise RemoteServiceUnavailable(f"{CORE_SERVICE_NAME} sent an answer the app cannot read.", str(error)) from error
+        if not isinstance(answer, dict):
+            raise RemoteServiceUnavailable(f"{CORE_SERVICE_NAME} sent an answer the app cannot read.", repr(answer)[:200])
+        return answer
+
+    def health(self) -> bool:
+        """Whether core-service answers its health check. Never raises."""
+        try:
+            response = self._request(
+                "GET", "/api/v1/health", timeout=min(self._timeout, CORE_HEALTH_TIMEOUT_SECONDS)
+            )
+        except RemoteServiceUnavailable:
+            return False
+        return response.status_code == 200
 
 
 class FrameworkClient:

@@ -39,6 +39,8 @@ from agents.common.domain.federation import (
     RoundManifest,
     RoundPlan,
     RoundRecord,
+    SiteAddress,
+    SiteAddressList,
     SiteRegistration,
 )
 from agents.common.domain.governance import DataClassification, GuardDecision, RestrictionRequest
@@ -419,6 +421,31 @@ class GmaRoundClient:
 
     def list_sites(self) -> list[SiteRegistration]:
         return [SiteRegistration.model_validate(row) for row in self._gma.call("GET", "/api/v1/federation/sites")]
+
+    def register_site_address(self, site_id: str, url: str) -> SiteAddress:
+        """Give the GMA the address of a site that joins while it runs.
+
+        The GMA accepts only the address its ``GMA_FEDERATION_JOINABLE_SITES``
+        lists for the site. A refusal (403 or 409) raises ``PermissionError``
+        with the GMA's message. A GMA that cannot be reached raises
+        :class:`RemoteServiceUnavailable`.
+        """
+        path = f"/api/v1/federation/sites/{quote(site_id, safe='')}/address"
+        response = self._gma.request("PUT", path, json={"url": url})
+        if response.status_code in (403, 409):
+            raise PermissionError(_detail(response))
+        if response.status_code != 200:
+            raise self._gma.server_error("PUT", path, response)
+        try:
+            return SiteAddress.model_validate(response.json())
+        except ValueError as error:
+            raise RemoteServiceUnavailable(
+                f"{GMA_NAME} sent an answer the app cannot read.", f"PUT {path}: {error}"
+            ) from error
+
+    def list_site_addresses(self) -> SiteAddressList:
+        """The site addresses the GMA uses, and the sites it would accept at run time."""
+        return SiteAddressList.model_validate(self._gma.call("GET", "/api/v1/federation/site-addresses"))
 
     def plan_round(self, manifest: RoundManifest) -> RoundPlan:
         return RoundPlan.model_validate(

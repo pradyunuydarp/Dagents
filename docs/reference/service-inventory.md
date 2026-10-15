@@ -10,7 +10,7 @@ their Spring controllers. Regenerate with:
 .venv/bin/python scripts/service_inventory.py --write
 ```
 
-**183 endpoints across 9 services.**
+**185 endpoints across 9 services.**
 
 Ports come from `env/`; never hardcode them — each service has distinct
 `*_PUBLIC_URL` (host) and `*_INTERNAL_URL` (compose network) values.
@@ -21,7 +21,7 @@ Ports come from `env/`; never hardcode them — each service has distinct
 |---|---|---|---|---|
 | [`core-service`](#core-service) | python | framework-service | 8040 | 7 |
 | [`gma`](#gma) | python | agent | 8020 | 67 |
-| [`healthcare-demo-backend`](#healthcare-demo-backend) | python | demo-app | 8080 | 27 |
+| [`healthcare-demo-backend`](#healthcare-demo-backend) | python | demo-app | 8080 | 29 |
 | [`lma`](#lma) | python | agent | 8010 | 29 |
 | [`model-service`](#model-service) | python | framework-service | 8000 | 14 |
 | [`nl2sql-demo-backend`](#nl2sql-demo-backend) | python | demo-app | 8070 | 5 |
@@ -119,13 +119,15 @@ Ports come from `env/`; never hardcode them — each service has distinct
 
 ## healthcare-demo-backend
 
-`python` · `fastapi` · port `8080` · 27 endpoints
+`python` · `fastapi` · port `8080` · 29 endpoints
 
 | Method | Path | Handler | Notes |
 |---|---|---|---|
 | GET | `/api/v1/charts` | `consortium_charts` | The consortium charts, from site summaries and the last pilot. Never a 4xx |
 | GET | `/api/v1/charts/{chart_id}.svg` | `consortium_chart_svg` | One consortium chart as SVG. 404 for a chart that needs a pilot that has not run |
 | GET | `/api/v1/conditions` | `conditions` | The condition this app implements, the conditions it plans, its contract and classification |
+| GET | `/api/v1/deployments` | `list_deployments` | Whether this server can add a hospital now, and if not, why |
+| POST | `/api/v1/deployments` | `add_hospital` | Add a hospital to the running consortium, and report each step |
 | GET | `/api/v1/extension` | `extension` | What this app contributes to the framework, and what each side owns |
 | GET | `/api/v1/framework/status` | `framework_status` | Where the records are stored, which framework services answer, and the allowed origins |
 | GET | `/api/v1/framework/trace` | `framework_trace` | Run one hospital's records through the framework's planners, at that hospital |

@@ -44,7 +44,20 @@ largest hospital in each of the three countries with the most patients:
 | `ch-245` | Hospital 245 | Switzerland | 198 | 68.7% |
 
 A poor outcome is death or dependency at six months (the trial's `OCCODE`). Every
-record in the extract has one.
+record of the three hospitals has one.
+
+A fourth hospital can join while the demo runs. It is chosen by the same rule,
+for the country with the fourth most patients:
+
+| Site | Hospital | Country | Records | Poor outcome at six months |
+|---|---|---|---|---|
+| `pl-290` | Hospital 290 | Poland | 263 | 58.1% of the 260 records with an outcome |
+
+`data/ist/ist_joining_hospitals.csv` holds its records; 3 of them have no
+six-month outcome. It is not in the consortium when the demo starts, so the
+three hospitals' extract and every number above are the same with or without
+it. Only a split run on your own machine can add it
+([Add a hospital while the demo runs](#add-a-hospital-while-the-demo-runs)).
 
 `data/ist/ist_three_hospitals.csv` holds the 1,014 records, mapped to the demo's
 feature contract. `scripts/extract_ist.py` regenerates it from a pinned copy of
@@ -451,6 +464,65 @@ port. The app's public port, 8080, serves no route that another process calls.
 The UI's dev server, which `run_frontend_demo.sh --split` and the compose file
 start, listens on every interface and passes `/api` requests to port 8080.
 
+### Add a hospital while the demo runs
+
+A split run can add Hospital 290 (`pl-290`) to the consortium while it runs.
+`POST /api/v1/deployments` with `{"site_id": "pl-290"}` starts the hospital's
+LMA, and from the next round on the GMA's planner decides whether to select it,
+as it does for the other three. The framework makes each decision, and the app
+does the side effects:
+
+| Step | What happens | Done by |
+|---|---|---|
+| `plan` | The app sends a workload spec for the LMA to core-service's `POST /api/v1/manifests/compose`. The OCaml manifest compiler renders a Compose file with one service, `lma-pl-290`, or lists the issues | core-service's planner |
+| `start` | An applier starts that one service from the file as rendered: a local process (`process`) or a container (`compose`). It refuses when the port already answers for a service it did not start, and keeps a service it started earlier | `agents/common/infrastructure/compose_apply.py` |
+| `answer` | The new LMA answers `/api/v1/health` and reports site `pl-290`. It loads its own 263 records; the app never reads them | the LMA |
+| `attach` | The GMA accepts the LMA's address, only the exact address in its `GMA_FEDERATION_JOINABLE_SITES` | the GMA |
+| `enrol` | The GMA enrols the site with the registration the LMA reports | the GMA |
+| `join` | The app adds the hospital to its consortium and forwards `/api/v1/hospitals/pl-290` to the LMA | the app |
+| `check` | The GMA's planner plans the next analytics round, without running it, and says whether it selects the hospital | the GMA's planner (`federation_compiler`) |
+
+The answer lists each step with its status, its detail and its seconds, and the
+Compose file core-service rendered. A failure in `start` to `join` undoes what
+this attempt did, newest first: it withdraws the enrolment and stops the
+service it started. The GMA keeps an address it accepted until it restarts; no
+round uses it without an enrolment. A `check` that fails keeps the hospital in
+the consortium, and the answer gives the planner's reason.
+
+Once Hospital 290 has joined, each round invites four hospitals, so the app
+waits up to (2 x 4 + 1) times the federation timeout for a round. When the GMA
+restarts, the app sends the address and the enrolment again before the next
+round. Hospital 290's charts are drawn in neutral ink, because the design
+system has three hospital colours and the first three hospitals use them.
+
+**Turning it on.** It is off by default (`HEALTHCARE_DEMO_DEPLOYER=off`), and
+`scripts/run_split_demo.sh` does not turn it on. A split run that adds a
+hospital also needs core-service (`services/core-service`, port 8040) running
+with the planner, and these settings:
+
+- the GMA: `GMA_FEDERATION_JOINABLE_SITES=pl-290=http://127.0.0.1:8085`;
+- the app, and only the app: `HEALTHCARE_DEMO_DEPLOYER=process`,
+  `HEALTHCARE_DEMO_JOINING_LMA_URLS=pl-290=http://127.0.0.1:8085` (the same
+  pair) and `CORE_SERVICE_PUBLIC_URL=http://127.0.0.1:8040`. An LMA refuses
+  to start with the deployer on.
+
+The new LMA is a child process of the app, and it stops when the app stops.
+[`docs/deployment.md`](docs/deployment.md#adding-a-hospital-is-off-on-every-host)
+lists every setting and the rules the app checks when it starts.
+
+**What keeps it off the public demo.**
+
+- The app refuses to start with the deployer on in any role but `app`, or when
+  `RENDER` is set. The hosted demo runs the one-process layout:
+  `GET /api/v1/deployments` says why it cannot add a hospital, and the `POST`
+  answers 403.
+- The `POST` is accepted only without an `Origin` header, as curl sends it, or
+  from a page on 127.0.0.1, localhost or ::1. Any other page, and
+  `Origin: null`, gets 403.
+- A pilot and an addition hold the same flight, so a request for one while the
+  other runs gets 409.
+- A hospital's LMA answers 404 for both routes.
+
 ## What the framework owns and what the app owns
 
 `backend/app/extension.py` is the whole integration with the extension registry:
@@ -468,6 +540,8 @@ about a hundred declarative lines that import no framework internals.
 | Running statistics (`RunningProfile`) | The data-entry form and its field ranges |
 | The SVG chart renderer | Which charts each view shows |
 | Pipeline DAG planning, workload compilation | FHIR mapping into the contract |
+| Rendering a service's Compose file (core-service, `manifest_compiler`) | Which hospital can join, and the LMA spec the app sends for it |
+| Starting one rendered service (`compose_apply.py`), and the GMA's run-time site addresses | When a hospital is added, the order of the steps and what a failure undoes |
 | — | The seed rule, the logistic regression and its parameter-averaging runtime |
 
 Nothing in `agents/` knows what a stroke is, and nothing here implements a quorum
@@ -503,6 +577,8 @@ owner and safety evidence.
 | `GET /api/v1/models` | the model in use and the 20 newest registered versions |
 | `POST /api/v1/models/{version}:approve` | release a candidate whose gates all passed |
 | `GET /api/v1/framework/status` | where the records are stored, whether every store is ready, each hospital's record counts, and which framework services answer |
+| `GET /api/v1/deployments` | whether this server can add a hospital and, if not, why; the hospitals that can join; the attempts so far |
+| `POST /api/v1/deployments` | add a hospital that can join (`{"site_id": "pl-290"}`), only on a split run with the deployer on; returns each step ([Add a hospital while the demo runs](#add-a-hospital-while-the-demo-runs)) |
 
 A store or database failure returns a JSON `503` with a plain message, and any
 other error a JSON `500`; [`docs/deployment.md`](docs/deployment.md#what-the-api-returns-when-something-fails)
@@ -601,6 +677,14 @@ Three suites cover the split layout:
 The tests that need the planner skip without it. CI requires the
 `SplitProcessTests` class of `test_split_processes.py` to run.
 
+Three suites cover adding a hospital:
+
+| Suite | What it checks |
+|---|---|
+| `tests/test_deployments_api.py` | The settings the app refuses at start-up, the reason `GET /api/v1/deployments` gives in each case, the `Origin` check, the shared flight, and that the combined process and an LMA never add a hospital |
+| `tests/test_deployment_flow.py` | Every step against a split run in the test process, with the real GMA app, a real core-service process and an applier that starts the LMA in process: the join, a pilot that includes Hospital 290, each failure and what it undoes, a GMA restart, and the exact file the applier gets |
+| `tests/test_deployment_spec.py` | The exact Compose request in each mode, rendered by a real core-service, and accepted by both appliers and by `docker compose config` (skipped without Docker) |
+
 Good tests to read first:
 
 - `tests/test_federated_pilot.py`: `test_no_patient_level_data_crosses_the_boundary`,
@@ -617,6 +701,7 @@ backend/app/
   extension.py           the whole Dagents integration
   api/
     forward.py           in the app role, sends each hospital's routes to its LMA
+    deploy_routes.py     GET and POST /api/v1/deployments, with the Origin check
     role_paths.py        which public paths each role serves
     site_routes.py       an LMA's routes for the app and the GMA: its report, round jobs
     coordinator_routes.py  the app's routes for the LMAs (models, updates) and the listener they run on
@@ -635,6 +720,7 @@ backend/app/
     framework_client.py  calls to Dagents services and planners
     roles.py             what each HEALTHCARE_DEMO_ROLE runs: combined, lma or app
     remote.py            the HTTP clients a split run uses for the LMAs, the app and the Dagents GMA
+    deployment.py        adds a hospital while the demo runs: the settings check, the Compose request, the seven steps
   main.py                FastAPI app
 data/ist/                the IST extract, its licence and notice
 supabase/                migrations and the role emulation used by the tests
@@ -680,6 +766,12 @@ planner built, or install Dagents as a dependency.
   or failed rather than retried, and the hosted demo runs the one-process
   layout. The app's parameter-averaging runtime stands in for a federated
   learning runtime such as Flower or NVIDIA FLARE.
+- **Adding a hospital is for one machine.** The routes have no
+  authentication: binding to 127.0.0.1, the `Origin` check and the setting are
+  the controls. The app keeps a joined hospital in memory only, so a restarted
+  app does not have it, and there is no way to remove one. Hospital 290 keeps
+  its records in memory even when the others use Postgres. Its charts have no
+  colour of their own.
 - **Digests are not signatures.** The round digest is a content hash that
   detects changes. It does not prove who sent the round; signing is separate work.
 - **The audit chain is not an audit store.** Chaining makes tampering detectable

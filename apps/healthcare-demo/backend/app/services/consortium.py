@@ -47,6 +47,7 @@ from agents.common.domain.federation import (
     ReleaseGate,
     RoundManifest,
     RoundPhase,
+    RoundPlan,
     RoundRecord,
     SiteRegistration,
 )
@@ -145,6 +146,8 @@ class RoundController(Protocol):
     def register_site(self, registration: SiteRegistration) -> SiteRegistration: ...
 
     def list_sites(self) -> list[SiteRegistration]: ...
+
+    def plan_round(self, manifest: RoundManifest) -> RoundPlan: ...
 
     def digest(self, manifest: RoundManifest) -> str: ...
 
@@ -305,6 +308,9 @@ class Consortium:
         self._running_lock = threading.Lock()
         self._pilot_lock = threading.Lock()
         self._last_pilot: dict[str, Any] | None = None
+        # Hospitals that joined while the app runs, with the address their LMA
+        # listens on. See add_hospital.
+        self._joined: dict[str, str] = {}
 
     def _store_factory(self, site: Site, injected: SiteStore | None) -> Callable[[], SiteStore]:
         if injected is not None:
@@ -335,6 +341,41 @@ class Consortium:
         for hospital in self.hospitals.values():
             hospital.close()
         self.coordinator_store.close()
+
+    # --- Hospitals that join while the app runs ------------------------------------
+
+    def add_hospital(self, site: Site, hospital: Any, *, address: str) -> None:
+        """Add a hospital whose LMA was started while the app runs.
+
+        ``hospital`` is the app's view of the LMA at ``address``, a
+        :class:`~app.services.remote.RemoteHospital`. The maps are replaced,
+        not changed in place: ``hospitals`` first, then ``sites``, so a reader
+        that sees the new site always finds its hospital. The next manifest
+        invites the hospital, and the GMA's planner decides whether to select
+        it. Raises ``ValueError`` when the hospital is in the consortium.
+        """
+        with self._lock:
+            if site.site_id in self.hospitals:
+                raise ValueError(f"{site.site_id} is in the consortium")
+            self.hospitals = {**self.hospitals, site.site_id: hospital}
+            self.sites = (*self.sites, site)
+            self._joined = {**self._joined, site.site_id: address}
+
+    @property
+    def joined_addresses(self) -> dict[str, str]:
+        """The hospitals that joined while the app runs, with their LMA's address. A copy."""
+        return dict(self._joined)
+
+    def preview_round(self, round_id: str) -> RoundPlan:
+        """The planner's plan for an analytics round of every hospital, without running it.
+
+        The manifest is the one the next round would use, so the plan says
+        whether the planner would select each hospital, and why not. Nothing is
+        dispatched or stored, apart from the refreshed enrolments every
+        manifest sends.
+        """
+        with self._lock:
+            return self.controller.plan_round(self.manifest(round_id, phase="analytics"))
 
     # --- Lookups -------------------------------------------------------------------
 
@@ -390,14 +431,19 @@ class Consortium:
         must answer while the stores do not. The error goes to the log, and the
         response names no host or user. Builds the stores if needed; a Postgres
         store opens no connection to report its kind.
+
+        A hospital that joined while the app runs is left out: it always keeps
+        its records in memory, so it would make a database-backed demo report a
+        mixed source.
         """
-        kinds = sorted({hospital.store.kind for hospital in self.hospitals.values()})
+        sites = [site for site in self.sites if site.site_id not in self._joined]
+        kinds = sorted({self.hospitals[site.site_id].store.kind for site in sites})
         cohort_source: str | list[str] = kinds[0] if len(kinds) == 1 else kinds
         layout = {"postgres": "schema-per-site", "in-memory": "in-memory-per-site"}
         hospitals: list[dict[str, Any]] | None
         try:
             hospitals = []
-            for site in self.sites:
+            for site in sites:
                 counts = self.hospitals[site.site_id].counts()
                 hospitals.append(
                     {"site_id": site.site_id, "record_count": counts["total"], "labelled_count": counts["labelled"]}
@@ -454,7 +500,19 @@ class Consortium:
         each hospital reports now, including entered records. A registration
         made explicitly, such as a site on an older contract, keeps its other
         fields.
+
+        The address of each hospital that joined while the app runs is sent
+        first, when the controller takes addresses. The GMA keeps it in memory
+        only, so a restarted GMA learns it again here. A refused address is
+        logged and the other hospitals are still enrolled.
         """
+        register_address = getattr(self.controller, "register_site_address", None)
+        if register_address is not None:
+            for site_id, address in self._joined.items():
+                try:
+                    register_address(site_id, address)
+                except Exception as error:  # noqa: BLE001 - one hospital's address must not stop the round
+                    logger.warning("the GMA did not take the address of %s again: %s", site_id, error)
         known = {registration.site_id: registration for registration in self.controller.list_sites()}
         for site in self.sites:
             reported = self.hospitals[site.site_id].registration()

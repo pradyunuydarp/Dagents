@@ -1,7 +1,7 @@
 {
   "framework": "dagents",
   "generated_by": "scripts/service_inventory.py",
-  "endpoint_count": 183,
+  "endpoint_count": 185,
   "services": [
     {
       "name": "core-service",
@@ -729,6 +729,22 @@
           "handler": "conditions",
           "status_code": null,
           "summary": "The condition this app implements, the conditions it plans, its contract and classification.",
+          "alias_of": null
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/deployments",
+          "handler": "list_deployments",
+          "status_code": null,
+          "summary": "Whether this server can add a hospital now, and if not, why.",
+          "alias_of": null
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/deployments",
+          "handler": "add_hospital",
+          "status_code": null,
+          "summary": "Add a hospital to the running consortium, and report each step.",
           "alias_of": null
         },
         {

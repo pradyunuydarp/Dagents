@@ -197,7 +197,11 @@ misuse and are not a security control.
 A split run on your own machine can add Hospital 290 (`pl-290`) to the
 consortium while the demo runs. That starts a process or a container, so the
 public demo never offers it: `render.yaml` sets `HEALTHCARE_DEMO_DEPLOYER=off`,
-and the app refuses to start with another value when `RENDER` is set.
+and the app refuses to start with another value when `RENDER` is set. The
+hosted API answers `GET /api/v1/deployments` with `available: false` and the
+reason, and `POST /api/v1/deployments` with 403.
+[Add a hospital while the demo runs](../README.md#add-a-hospital-while-the-demo-runs)
+in the README describes the steps.
 
 | Setting | Default | What it does |
 |---|---|---|

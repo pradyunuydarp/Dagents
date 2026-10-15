@@ -158,6 +158,15 @@ class Forwarder:
             self._loop = loop
         return self._client
 
+    def add_site(self, site_id: str, url: str) -> None:
+        """Send ``site_id``'s routes to its LMA at ``url`` from now on.
+
+        For a hospital that joins while the app runs. The map is replaced, not
+        changed in place, so a request being forwarded sees the old map or the
+        new one.
+        """
+        self.lma_urls = {**self.lma_urls, site_id: url.rstrip("/")}
+
     async def aclose(self) -> None:
         """Close the connections to the LMAs. The next request opens them again."""
         if self._client is not None and self._loop is asyncio.get_running_loop():

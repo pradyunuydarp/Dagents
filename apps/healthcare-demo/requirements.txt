@@ -14,3 +14,6 @@ psycopg[binary]>=3.2,<3.4
 # image needs no compiler.
 matplotlib>=3.9,<4
 numpy>=2,<3
+# Adding a hospital while the demo runs. The appliers read the Compose file
+# core-service renders (agents/common/infrastructure/compose_apply.py).
+pyyaml>=6.0,<7

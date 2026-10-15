@@ -24,6 +24,7 @@ from app.domain.conditions import (
     STROKE_FIELD_DOMAINS,
     STROKE_LABEL_FIELD,
 )
+from app.domain.dataset import JOINING_SITE_IDS
 
 #: Fields an entry must have. Every IST record has them, and without them the
 #: record cannot be scored or banded. The four examination findings are in the
@@ -316,6 +317,145 @@ class GuardProbeResponse(BaseModel):
     )
     audit_id: str = Field(description="The id of the record the decision added to the hospital's audit chain.")
     message: str = Field(description="The Guard's decision in words, such as `permitted with restrictions`.")
+
+
+# --- Adding a hospital while the demo runs ----------------------------------------
+
+#: The steps of adding a hospital, in the order they run.
+DEPLOYMENT_STEPS: tuple[str, ...] = ("plan", "start", "answer", "attach", "enrol", "join", "check")
+
+DeploymentStepName = Literal["plan", "start", "answer", "attach", "enrol", "join", "check"]
+DeploymentStepStatus = Literal["done", "skipped", "failed", "undone", "not_run"]
+ServiceState = Literal["running", "stopped", "not_started", "unknown"]
+
+
+class JoinableHospital(BaseModel):
+    """A hospital that is not in the consortium at start and can join while the demo runs."""
+
+    site_id: str = Field(description="The hospital's id, such as `pl-290`.")
+    display_name: str = Field(description="The name the pages use, such as `Hospital 290`.")
+    country: str = Field(description="The country of the IST hospital.")
+    records: int = Field(
+        ge=0,
+        description=(
+            "How many records the hospital starts with: the rows of its IST extract, or 0 when it starts empty. "
+            "The app reads this from the dataset module, never from the hospital's records."
+        ),
+    )
+    records_source: Literal["dataset", "empty"] = Field(
+        description="`dataset` when the hospital loads its rows of the International Stroke Trial, `empty` otherwise."
+    )
+    in_consortium: bool = Field(description="True once the hospital has joined the consortium in this app.")
+    service: ServiceState = Field(
+        description=(
+            "Whether the hospital's LMA runs: `running`, `stopped`, `not_started`, or `unknown` when the app "
+            "cannot tell, which is always the answer when adding a hospital is off."
+        )
+    )
+
+
+class DeploymentStep(BaseModel):
+    """One step of adding a hospital, and what happened in it."""
+
+    step: DeploymentStepName = Field(
+        description=(
+            "`plan`: core-service renders the Compose file. `start`: the app starts the service. `answer`: the "
+            "new LMA answers its health check and reports its site. `attach`: the GMA accepts its address. "
+            "`enrol`: the GMA enrols the site. `join`: the app adds the hospital to the consortium and sends its "
+            "pages to its LMA. `check`: the GMA's planner plans the next round."
+        )
+    )
+    status: DeploymentStepStatus = Field(
+        description=(
+            "`done`, `skipped` (nothing to do), `failed`, `undone` (done, then rolled back after a later step "
+            "failed) or `not_run` (an earlier step failed)."
+        )
+    )
+    detail: str = Field(description="One plain sentence on what happened.")
+    seconds: float = Field(ge=0, description="How long the step took, rounded to 2 decimals.")
+
+
+class NextRound(BaseModel):
+    """Whether the planner selects the new hospital for the next round."""
+
+    selected: bool = Field(description="True when the planned round selects the hospital.")
+    reason: str | None = Field(
+        description="The planner's reason when the round would not select the hospital, otherwise null."
+    )
+
+
+class DeploymentIssue(BaseModel):
+    """One reason core-service gave for not rendering the Compose file, copied as it came."""
+
+    service: str | None = Field(description="The service the issue is about, or null for the whole request.")
+    code: str = Field(description="What is wrong, as core-service's issue code.")
+    value: str | None = Field(description="The name or number the issue is about, or null.")
+
+
+class Deployment(BaseModel):
+    """One attempt to add a hospital to the running consortium."""
+
+    deployment_id: str = Field(description="`dep-` and 12 hex characters.")
+    kind: Literal["lma"] = Field(description="What was added. Only `lma`, a hospital's LMA.")
+    site_id: str = Field(description="The hospital that was added.")
+    service: str = Field(description="The service name in the Compose file, `lma-<site_id>`.")
+    applier: Literal["process", "compose"] = Field(
+        description="How the service was started: as a local process, or as a container with `docker compose`."
+    )
+    status: Literal["joined", "failed"] = Field(
+        description=(
+            "`joined` when every step up to `join` is done or skipped, even if `check` failed. `failed` otherwise."
+        )
+    )
+    adopted: bool = Field(
+        description="True when the service was already running, started earlier by this app, and was kept."
+    )
+    compose_yaml: str | None = Field(
+        description="The Compose file core-service rendered, exactly as it came, or null when it rendered none."
+    )
+    issues: list[DeploymentIssue] = Field(
+        description="Why core-service refused to render the file. Empty when it rendered one."
+    )
+    steps: list[DeploymentStep] = Field(description="The seven steps, in the order they run.")
+    next_round: NextRound | None = Field(
+        description="What the planner decided for the next round, or null when the check did not run."
+    )
+    started_at: str = Field(description="When the attempt started, in UTC, as `YYYY-MM-DDTHH:MM:SSZ`.")
+    finished_at: str = Field(description="When it finished, in UTC, as `YYYY-MM-DDTHH:MM:SSZ`.")
+
+
+class DeploymentsView(BaseModel):
+    """Whether this server can add a hospital, which hospitals can join, and what was tried."""
+
+    available: bool = Field(description="True when `POST /api/v1/deployments` can add a hospital now.")
+    reason: str | None = Field(description="Why adding a hospital is not available, in plain words. Null when it is.")
+    applier: Literal["off", "process", "compose"] = Field(
+        description="`HEALTHCARE_DEMO_DEPLOYER`: how a new hospital is started, or `off`."
+    )
+    hospitals: list[JoinableHospital] = Field(description="Every hospital that can join, in or out of the consortium.")
+    deployments: list[Deployment] = Field(
+        description="The attempts since the app started, newest first, at most 20. They are kept in memory."
+    )
+
+
+class DeploymentRequest(BaseModel):
+    """Add one hospital to the running consortium."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    site_id: str = Field(
+        max_length=64,
+        description="The hospital to add: one of the `hospitals` that `GET /api/v1/deployments` lists, such as `pl-290`.",
+    )
+
+    @field_validator("site_id")
+    @classmethod
+    def _joining_site(cls, site_id: str) -> str:
+        if site_id not in JOINING_SITE_IDS:
+            raise PydanticCustomError(
+                "joining_site", "must be one of {allowed}", {"allowed": ", ".join(JOINING_SITE_IDS)}
+            )
+        return site_id
 
 
 # --- Error bodies, for the OpenAPI document ---------------------------------------

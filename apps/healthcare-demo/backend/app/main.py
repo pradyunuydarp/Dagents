@@ -39,6 +39,7 @@ from agents.common.infrastructure.dagents_runner import PlannerUnavailableError
 from app.api.app_header import APP_HEADER, AppHeader
 from app.api.errors import UNEXPECTED_ERROR_MESSAGE, UnhandledErrors
 from app.api.coordinator_routes import build_coordinator_app, internal_listener
+from app.api.deploy_routes import build_deploy_router
 from app.api.limits import BodySizeLimit, HourlyCap, RateLimiter, SingleFlight, forwarded_for_entries, retry_after
 from app.api.role_paths import OnlyPaths, is_hospital_path, lma_serves
 from app.api.site_routes import build_site_router
@@ -72,10 +73,10 @@ from app.models import (
 )
 from app.services.charts_service import ChartNotAvailable, ChartService, UnknownChartError
 from app.services.consortium import ApprovalRefused, Consortium
-from app.services.framework_client import FrameworkClient
+from app.services.framework_client import CoreServiceClient, FrameworkClient
 from app.services.hospital import EntryLimitReached, Hospital
 from app.services.remote import RemoteServiceUnavailable
-from app.services.deployment import check_deployer
+from app.services.deployment import build_hospital_deployer, check_deployer
 from app.services.roles import build_app_consortium, build_site_node, check_role
 from app.services.site_store import (
     IdempotencyKeyReused,
@@ -194,8 +195,9 @@ def _over_hourly_cap(wait: float, action: str) -> HTTPException:
 async def lifespan(application: FastAPI) -> AsyncIterator[None]:
     """Start the internal listener in the ``app`` role, and close everything when the app shuts down.
 
-    On shutdown the internal listener stops, then every store's database
-    connection and the forwarding client are closed.
+    On shutdown the internal listener stops, then a hospital process this app
+    started while it ran, and then every store's database connection and the
+    forwarding client are closed.
     """
     try:
         async with AsyncExitStack() as stack:
@@ -205,6 +207,11 @@ async def lifespan(application: FastAPI) -> AsyncIterator[None]:
                 )
             yield
     finally:
+        try:
+            # A hospital process this app started stops with it. A container keeps running.
+            deployer.close()
+        except Exception:  # noqa: BLE001 - the stores must still close
+            logger.exception("a hospital this app started could not be stopped")
         consortium.close()
         forwarder = getattr(application.state, "forwarder", None)
         if forwarder is not None:
@@ -245,6 +252,17 @@ if ROLE == "lma":
     app.add_middleware(OnlyPaths, serves=lma_serves)
 elif ROLE == "app":
     _install_forwarding()
+
+#: Adds a hospital while the demo runs. It has no applier, and says why, unless
+#: ``HEALTHCARE_DEMO_DEPLOYER`` turns it on in the ``app`` role. Tests replace it.
+deployer = build_hospital_deployer(
+    settings,
+    consortium=consortium,
+    forwarder=getattr(app.state, "forwarder", None),
+    gma=consortium.controller if ROLE == "app" else None,
+    core=CoreServiceClient(settings.core_service_url, timeout=settings.upstream_timeout_seconds),
+)
+
 app.add_middleware(BodySizeLimit, max_bytes=settings.max_body_bytes)
 # Inside the CORS middleware and the marker, so the 500 it sends for an
 # unhandled error carries both. Starlette's own 500 comes from outside them.
@@ -881,7 +899,7 @@ def governance_probe(request: GuardProbeRequest) -> dict[str, Any]:
     "/api/v1/pilot:run",
     dependencies=[Depends(rate_limits.dependency("pilots"))],
     responses=_errors(
-        (409, "A pilot is already running. One pilot runs at a time."),
+        (409, "A pilot is already running, or a hospital is being added. One of them runs at a time."),
         NOT_VALID,
         (
             429,
@@ -896,7 +914,8 @@ def run_pilot(request: PilotRequest) -> Any:
 
     Analytics, then evaluation of the model in use, then training rounds, then
     validation of the candidate, then the release Guard and gates. One pilot
-    runs at a time; a request while one runs gets 409. Beyond the hourly cap
+    runs at a time, and never while a hospital is being added; a request
+    meanwhile gets 409. Beyond the hourly cap
     on pilots, a request gets 429.
     """
     if not pilot_flight.try_enter("pilot"):
@@ -995,6 +1014,13 @@ def framework_trace(
     hospital = _hospital(site_id) if site_id else consortium.hospitals[consortium.sites[0].site_id]
     records = hospital.local_records(limit)
     return {"site_id": hospital.site_id, "record_count": len(records), "trace": framework.planner_trace(records)}
+
+
+# --- Adding a hospital while the demo runs ------------------------------------------------
+# Declared in every role. An LMA answers 404 for both (``lma_serves``), and a
+# server whose deployer is off says why on GET and refuses the POST.
+
+app.include_router(build_deploy_router(lambda: deployer, pilot_flight))
 
 
 # --- Internal routes of a split run -----------------------------------------------------------

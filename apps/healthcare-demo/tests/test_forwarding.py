@@ -269,6 +269,51 @@ class RoutingTests(ForwardingCase):
                 self.assertFalse(is_clean(path))
 
 
+class AddSiteTests(unittest.TestCase):
+    """A hospital that joins while the app runs gets its routes forwarded from then on."""
+
+    JOINING_URL = "http://lma-pl-290.internal"
+    DOWN_URL = "http://lma-pl-290.down"
+
+    def setUp(self) -> None:
+        self.seen: list[dict] = []
+        mounts: dict[str, httpx.AsyncBaseTransport] = {
+            url: httpx.ASGITransport(app=fake_lma(site_id, self.seen))
+            for site_id, url in {**LMAS, "pl-290": self.JOINING_URL}.items()
+        }
+        mounts[self.DOWN_URL] = Unreachable()
+        self.app, _ = demo_app(mounts, NO_LIMITS)
+        self.client = TestClient(self.app)
+        self.forwarder = self.app.state.forwarder
+
+    def test_a_joining_hospital_is_forwarded_after_it_is_added(self) -> None:
+        response = self.client.get("/api/v1/hospitals/pl-290")
+        self.assertEqual(404, response.status_code)
+        self.assertEqual({"detail": "There is no hospital with the id 'pl-290'."}, response.json())
+        before = self.forwarder.lma_urls
+        self.forwarder.add_site("pl-290", self.JOINING_URL + "/")
+        # The map is replaced, not changed, so a request in flight keeps the map it read.
+        self.assertNotIn("pl-290", before)
+        self.assertEqual(self.JOINING_URL, self.forwarder.lma_urls["pl-290"])
+        self.assertEqual([*LMAS, "pl-290"], list(self.forwarder.lma_urls))
+        self.assertEqual("uk-134", self.forwarder.first_site)
+        response = self.client.get("/api/v1/hospitals/pl-290/worklist?limit=3")
+        self.assertEqual(200, response.status_code, response.text)
+        self.assertEqual(("pl-290", "/api/v1/hospitals/pl-290/worklist"), (response.json()["upstream"], response.json()["path"]))
+        probe = self.client.post("/api/v1/governance:probe", json={"site_id": "pl-290"})
+        self.assertEqual("pl-290", probe.json()["upstream"])
+        self.assertEqual("uk-134", self.client.get("/api/v1/hospitals/uk-134").json()["upstream"])
+
+    def test_an_unreachable_joining_hospital_is_named(self) -> None:
+        self.forwarder.add_site("pl-290", self.DOWN_URL)
+        with self.assertLogs("healthcare_demo.forward", "WARNING"):
+            response = self.client.get("/api/v1/hospitals/pl-290")
+        self.assertEqual(503, response.status_code)
+        self.assertEqual(
+            {"detail": "Hospital 290 cannot be reached right now. Try again in a minute."}, response.json()
+        )
+
+
 class HeaderTests(ForwardingCase):
     def test_request_headers_that_matter_are_passed(self) -> None:
         response = self.client.post(
