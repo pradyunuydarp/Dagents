@@ -255,6 +255,8 @@ placement (`Unknown compose placement: stack`) or condition
 (`Unknown dependency condition: started`), a health check with both or neither
 of `command` and `shell`
 (`Expected exactly one of healthCheck.command and healthCheck.shell`),
+a Compose spec with a string that is not UTF-8, such as an escaped lone
+surrogate (`Expected UTF-8 text in field: image`),
 `--target` together with `--input`
 (`--target is read only without --input; set the input's target key`), or JSON
 that does not parse.

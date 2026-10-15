@@ -131,6 +131,34 @@ def shape_error_payloads() -> dict[str, dict[str, typing.Any]]:
     return cases
 
 
+def surrogate_payloads() -> dict[str, dict[str, typing.Any]]:
+    """Payloads with a lone surrogate, which is not UTF-8, in a string the planner reads.
+
+    `json.loads` reads one from an escape such as `\\ud800`. Yojson refuses a
+    lone high surrogate, and the planner's codec refuses the bytes Yojson reads
+    from a lone low one, so the planner exits with status 2 and the fallback
+    raises ValueError.
+    """
+    base = FIXTURES["lma-merges-into-project"]["payload"]
+    cases: dict[str, dict[str, typing.Any]] = {}
+
+    def case(name: str, edit: typing.Callable[[dict, dict], typing.Any]) -> None:
+        payload = copy.deepcopy(base)
+        edit(payload, payload["components"][0])
+        cases[name] = payload
+
+    case("high surrogate in the image", lambda spec, component: component.update(image="\ud800"))
+    case("low surrogate in the image", lambda spec, component: component.update(image="a\udc80b"))
+    case("in an argument", lambda spec, component: component["args"].append("\udfff"))
+    case("in an env file", lambda spec, component: component["env_files"].append("\udc80.env"))
+    case("in an environment value", lambda spec, component: component["env"][0].update(value="\udc80"))
+    case("in a health check", lambda spec, component: component["health_check"]["command"].append("\udc80"))
+    case("in a dependency", lambda spec, component: component["depends_on"][0].update(service="\udc80"))
+    case("in a running service", lambda spec, component: spec["target"]["existing_services"].append("\udc80"))
+    case("in the plan id", lambda spec, component: spec.update(plan_id="\udc80"))
+    return cases
+
+
 # The planner's integers are OCaml's 63-bit `int`: -2**62 to 2**62 - 1.
 LARGEST_PLANNER_INT = 2**62 - 1
 
@@ -207,6 +235,11 @@ class ComposeFallbackTests(unittest.TestCase):
 
     def test_refuses_each_shape_error(self) -> None:
         for name, payload in shape_error_payloads().items():
+            with self.subTest(case=name), self.assertRaises(ValueError):
+                render_compose_plan(payload)
+
+    def test_refuses_text_that_is_not_utf_8(self) -> None:
+        for name, payload in surrogate_payloads().items():
             with self.subTest(case=name), self.assertRaises(ValueError):
                 render_compose_plan(payload)
 
@@ -299,6 +332,15 @@ class ComposePlannerTests(unittest.TestCase):
                 run_dagentsc(PLANNER_COMMAND, payload)
             self.assertIn("Invalid_argument", str(raised.exception))
 
+    def test_refuses_text_that_is_not_utf_8(self) -> None:
+        for name, payload in surrogate_payloads().items():
+            with self.subTest(case=name), self.assertRaises(PlannerUnavailableError) as raised:
+                run_dagentsc(PLANNER_COMMAND, payload)
+            self.assertTrue(
+                "Expected UTF-8 text" in str(raised.exception) or "surrogate" in str(raised.exception),
+                str(raised.exception),
+            )
+
     def test_refuses_a_number_it_cannot_read(self) -> None:
         for value in (LARGEST_PLANNER_INT + 1, -(LARGEST_PLANNER_INT + 2)):
             for name, payload in number_payloads(value).items():
@@ -376,6 +418,26 @@ class ComposeApiTests(unittest.TestCase):
         body = lma_request(lambda body, component: component["ports"][0].update(host_port=10**20))
         response = TestClient(app, raise_server_exceptions=False).post("/api/v1/manifests/compose", json=body)
         self.assertEqual(response.status_code, 500)
+
+    def test_answers_500_for_text_that_is_not_utf_8(self) -> None:
+        # The models accept a lone surrogate, which `json.loads` reads from an
+        # escape. Both renderers refuse it, so the answer is 500 with or
+        # without the planner. The body is sent as text, because the client
+        # cannot encode a lone surrogate.
+        client = TestClient(app, raise_server_exceptions=False)
+        bodies = {
+            "high surrogate in a field the answer does not hold": '{"components": [{"name": "A", "image": "\\ud800"}]}',
+            "low surrogate in a field the answer does not hold": '{"components": [{"name": "A", "image": "\\udc80"}]}',
+            "low surrogate in an environment value": (
+                '{"components": [{"name": "a", "image": "x", "env": [{"name": "V", "value": "\\udc80"}]}]}'
+            ),
+        }
+        for name, body in bodies.items():
+            with self.subTest(case=name):
+                response = client.post(
+                    "/api/v1/manifests/compose", content=body, headers={"Content-Type": "application/json"}
+                )
+                self.assertEqual(response.status_code, 500)
 
     def test_kubernetes_routes_still_answer(self) -> None:
         component = {"name": "lma-hospital-d", "image": "dagents/healthcare-demo-backend:local"}

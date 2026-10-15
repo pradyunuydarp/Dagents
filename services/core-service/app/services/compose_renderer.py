@@ -287,6 +287,29 @@ def _as_object(value: Any, what: str) -> dict[str, Any]:
     return value
 
 
+def _require_utf_8(value: Any, field: str) -> None:
+    """Refuse a string, or an object key, that cannot be written as UTF-8. Copies `require_utf_8`.
+
+    A Python string holds such text only as a lone surrogate, which `json.loads`
+    reads from an escape such as `\\udc80`. The planner refuses it with exit
+    status 2: Yojson refuses an escaped lone high surrogate, and the codec
+    refuses the bytes Yojson reads from a lone low one. `field` names the
+    nearest enclosing key, for the message.
+    """
+    if isinstance(value, str):
+        try:
+            value.encode("utf-8")
+        except UnicodeEncodeError:
+            raise ValueError(f"Expected UTF-8 text in field: {field}") from None
+    elif isinstance(value, dict):
+        for key, item in value.items():
+            _require_utf_8(key, field)
+            _require_utf_8(item, key)
+    elif isinstance(value, list):
+        for item in value:
+            _require_utf_8(item, field)
+
+
 def _read_target(payload: dict[str, Any]) -> _Target:
     """Read a Compose `target`. Copies `deployment_target_of_yojson`.
 
@@ -591,7 +614,8 @@ def render_compose_plan(payload: dict[str, Any]) -> dict[str, Any]:
 
     Raises ValueError where the planner exits with status 2: an unknown word,
     a missing required field, a number outside the planner's 63-bit integers,
-    or a health check with both or neither of `command` and `shell`. It reads
+    a health check with both or neither of `command` and `shell`, or a string
+    with a lone surrogate, which is not UTF-8. It reads
     only the fields the Compose target uses, so it does not check the fields
     only the Kubernetes target reads (`schedule`, `resources` and others); the
     route's request models refuse those fields.
@@ -599,6 +623,7 @@ def render_compose_plan(payload: dict[str, Any]) -> dict[str, Any]:
     target = _read_target(payload)
     raw_components = payload.get("components")
     components = [_read_component(raw) for raw in raw_components] if isinstance(raw_components, list) else []
+    _require_utf_8(payload, "spec")
     plan_id = payload.get("plan_id")
     issues = compose_issues(target, components)
 

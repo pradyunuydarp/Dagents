@@ -1575,6 +1575,35 @@ let test_deployment_target_codec () =
       {|{"components": [{"name": "a", "image": "x", "ports": [{"containerPort": 80, "hostPort": "80"}]}]}|};
     ]
 
+(** Verifies that a Compose spec with a string that is not UTF-8 is refused
+    before planning, wherever the string is, and that a Kubernetes spec is
+    read as before. Yojson reads an escaped lone low surrogate as bytes that
+    are not UTF-8 and refuses an escaped lone high surrogate itself. *)
+let test_compose_codec_refuses_text_that_is_not_utf_8 () =
+  let compose_spec component = Printf.sprintf {|{"target": "compose", "components": [%s]}|} component in
+  List.iter
+    (fun text ->
+      expect_invalid_argument ("should be refused: " ^ String.escaped text) (fun () -> spec_of_json text))
+    [
+      compose_spec {|{"name": "a", "image": "\udc80"}|};
+      compose_spec "{\"name\": \"a\", \"image\": \"x\255y\"}";
+      compose_spec {|{"name": "a", "image": "x", "env": [{"name": "V", "value": "a\udfffb"}]}|};
+      compose_spec {|{"name": "a", "image": "x", "args": ["ok", "\udc80"]}|};
+      compose_spec {|{"name": "a", "image": "x", "dependsOn": [{"service": "\udc80"}]}|};
+      compose_spec "{\"name\": \"a\", \"image\": \"x\", \"x\192\": 1}";
+      {|{"target": {"kind": "compose", "existingServices": ["\udc80"]}, "components": [{"name": "a", "image": "x"}]}|};
+      {|{"planId": "\udc80", "target": "compose", "components": [{"name": "a", "image": "x"}]}|};
+    ];
+  (try
+     ignore (spec_of_json (compose_spec {|{"name": "a", "image": "\ud800"}|}));
+     failwith "an escaped lone high surrogate should be refused"
+   with Yojson.Json_error _ -> ());
+  assert_true "valid UTF-8 and escaped surrogate pairs should be read"
+    ((component_of_json (compose_spec {|{"name": "a", "image": "z\u00fcrich \ud83d\ude00 \u2028"}|})).image
+    = "z\195\188rich \240\159\152\128 \226\128\168");
+  assert_true "the UTF-8 check should apply to Compose specs only"
+    ((component_of_json {|{"components": [{"name": "a", "image": "\udc80"}]}|}).image = "\237\178\128")
+
 (** Verifies how caller values are quoted in a Compose file: YAML escapes,
     [$] doubled so Compose does not read a variable, and UTF-8 copied. *)
 let test_compose_quoting () =
@@ -2342,6 +2371,7 @@ let () =
       ("manifest Kubernetes output is pinned", test_manifest_kubernetes_output_is_pinned);
       ("JSON codec round trip", test_json_codec_roundtrip);
       ("deployment target codec", test_deployment_target_codec);
+      ("compose codec refuses text that is not UTF-8", test_compose_codec_refuses_text_that_is_not_utf_8);
       ("compose quoting", test_compose_quoting);
       ("compose renders an LMA merged into a project", test_compose_renders_an_lma_merged_into_a_project);
       ("compose maps every workload kind", test_compose_maps_every_workload_kind);

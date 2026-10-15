@@ -468,33 +468,59 @@ let workload_component_of_yojson = function
       }
   | _ -> fail "Expected workload component object"
 
+(** Raise unless every string in [json], object keys included, is valid
+    UTF-8. [field] names the nearest enclosing key, for the message.
+
+    JSON text is UTF-8, but Yojson copies bytes that are not, and it reads an
+    escaped lone low surrogate such as [\udc80] as bytes that are not. A
+    Compose file written from such a string is not UTF-8, and Docker Compose
+    refuses it. *)
+let rec require_utf_8 field (json : Yojson.Safe.t) =
+  let refuse () = fail ("Expected UTF-8 text in field: " ^ field) in
+  match json with
+  | `String value -> if not (String.is_valid_utf_8 value) then refuse ()
+  | `Assoc fields ->
+      List.iter
+        (fun (key, value) ->
+          if not (String.is_valid_utf_8 key) then refuse ();
+          require_utf_8 key value)
+        fields
+  | `List values -> List.iter (require_utf_8 field) values
+  | _ -> ()
+
 (** Parse a full workload spec for manifest compilation.
 
     Missing [planId] and [namespace] receive stable defaults so demo payloads
     can stay compact. A missing [target] means Kubernetes, so specs written
-    before the Compose target keep their meaning. *)
-let workload_spec_of_yojson = function
+    before the Compose target keep their meaning. A Compose spec with a string
+    that is not UTF-8 is refused. *)
+let workload_spec_of_yojson json =
+  match json with
   | `Assoc fields ->
-      {
-        plan_id =
-          (match List.assoc_opt "planId" fields with
-          | Some (`String value) -> value
-          | _ -> "dagents-plan");
-        namespace =
-          (match List.assoc_opt "namespace" fields with
-          | Some (`String value) -> value
-          | _ -> "dagents");
-        components =
-          (match List.assoc_opt "components" fields with
-          | Some (`List values) -> List.map workload_component_of_yojson values
-          | _ -> []);
-        include_services = bool_field_with_default "includeServices" true fields;
-        include_config_maps = bool_field_with_default "includeConfigMaps" false fields;
-        target =
-          (match List.assoc_opt "target" fields with
-          | Some value -> deployment_target_of_yojson value
-          | None -> Kubernetes);
-      }
+      let spec =
+        {
+          plan_id =
+            (match List.assoc_opt "planId" fields with
+            | Some (`String value) -> value
+            | _ -> "dagents-plan");
+          namespace =
+            (match List.assoc_opt "namespace" fields with
+            | Some (`String value) -> value
+            | _ -> "dagents");
+          components =
+            (match List.assoc_opt "components" fields with
+            | Some (`List values) -> List.map workload_component_of_yojson values
+            | _ -> []);
+          include_services = bool_field_with_default "includeServices" true fields;
+          include_config_maps = bool_field_with_default "includeConfigMaps" false fields;
+          target =
+            (match List.assoc_opt "target" fields with
+            | Some value -> deployment_target_of_yojson value
+            | None -> Kubernetes);
+        }
+      in
+      (match spec.target with Compose _ -> require_utf_8 "spec" json | Kubernetes -> ());
+      spec
   | _ -> fail "Expected workload spec object"
 
 (** Serialize one rendered workload manifest. *)

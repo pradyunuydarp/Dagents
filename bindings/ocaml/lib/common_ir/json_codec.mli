@@ -10,6 +10,9 @@ open Dagents_common_ir
 
 (** Parse a JSON workload spec into typed manifest-compiler input.
 
+    Raises [Invalid_argument] for a Compose spec with a string, or an object
+    key, that is not valid UTF-8, such as an escaped lone surrogate.
+
     Example test case:
     {[
       let spec = workload_spec_of_yojson (`Assoc [ ("components", `List []) ]) in
