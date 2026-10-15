@@ -72,6 +72,10 @@ PRESENTATION_FIELDS: tuple[str, ...] = (
 )
 
 
+#: Why a hospital refuses a job whose digest is not the one it computed.
+DIGEST_MISMATCH = "job digest does not match the manifest this site computed"
+
+
 class EntryLimitReached(RuntimeError):
     """The hospital already holds the most entered records the demo accepts."""
 
@@ -207,12 +211,20 @@ class HospitalWorker:
     digest, and the manifest's code digest must be the code this hospital runs
     for that kind of model. After each job it records what it sent in the
     coordinator store's site contributions, as itself.
+
+    ``expected_digest`` is the manifest digest the hospital computed. The
+    framework's worker checks it when a job is offered. :meth:`execute` checks
+    it again, because a hospital in its own process receives the offer and the
+    execution as two separate requests.
     """
 
-    def __init__(self, hospital: "Hospital", inner: LocalFederatedWorker) -> None:
+    def __init__(
+        self, hospital: "Hospital", inner: LocalFederatedWorker, expected_digest: str | None = None
+    ) -> None:
         self.site_id = hospital.site_id
         self._hospital = hospital
         self._inner = inner
+        self._expected_digest = expected_digest
 
     def offer(self, job: FederatedJob) -> JobAcceptance:
         reason = self._hospital.verify_manifest(job.manifest)
@@ -236,6 +248,10 @@ class HospitalWorker:
         return acceptance
 
     def execute(self, job: FederatedJob) -> SiteResult:
+        if self._expected_digest and job.manifest_digest != self._expected_digest:
+            result = _refused_result(job, self.site_id, DIGEST_MISMATCH)
+            self._hospital.record_contribution(job.manifest.phase, result, reason=DIGEST_MISMATCH)
+            return result
         try:
             result = self._inner.execute(job)
         except ModelVerificationError as error:
@@ -574,7 +590,7 @@ class Hospital:
             # the hospital uses the same rule to check what the runtime stored.
             update_digest=update_digest,
         )
-        return HospitalWorker(self, inner)
+        return HospitalWorker(self, inner, expected_digest=expected_digest)
 
     def record_contribution(self, phase: str, result: SiteResult, reason: str | None = None) -> dict[str, Any]:
         """Record what this hospital sent in a round, acting as the hospital."""
