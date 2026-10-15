@@ -189,6 +189,49 @@ class SuppressedRateChartTests(ApiTestCase):
         self.assertEqual("withheld: the planner could not be asked", rows["Tiny clinic"][2])
 
 
+class NeutralInkChartTests(ApiTestCase):
+    """With four hospitals no hospital has a series colour, so every chart of a hospital is in neutral ink.
+
+    The design system has three series colours, and a colour marks which
+    hospital a chart is about. A fourth hospital drawn in the first colour
+    would look like the first hospital.
+    """
+
+    @classmethod
+    def make_consortium(cls) -> Consortium:
+        tiny, store = tiny_site(60)
+        return Consortium(sites=[*SITES, tiny], site_stores={tiny.site_id: store})
+
+    def colours(self, path: str, theme: str) -> set[str]:
+        import re
+
+        response = self.client.get(f"{path}?theme={theme}")
+        parse_svg(self, response)
+        return {colour.lower() for colour in re.findall(r"#[0-9a-fA-F]{6}\b", response.text)}
+
+    def test_a_hospital_without_a_slot_has_none(self) -> None:
+        from app.services.charts_service import _slot
+
+        self.assertIsNone(_slot(self.consortium.hospital("tiny-001")))
+        self.assertIsNone(_slot(object()))
+        self.assertEqual(2, _slot(mock.Mock(series_slot=2)))
+
+    def test_hospital_and_consortium_charts_use_no_series_colour(self) -> None:
+        from agents.common.infrastructure import charts as renderer
+
+        paths = [f"/api/v1/hospitals/tiny-001/charts/{chart_id}.svg" for chart_id in SITE_CHART_IDS]
+        paths += [f"/api/v1/hospitals/uk-134/charts/{chart_id}.svg" for chart_id in SITE_CHART_IDS]
+        paths += ["/api/v1/charts/hospital-records.svg", "/api/v1/charts/hospital-outcome-rates.svg"]
+        for theme in ("light", "dark"):
+            tokens = renderer.TOKENS[theme]
+            series = {tokens[f"--ds-series-{n}"].lower() for n in (1, 2, 3)}
+            for path in paths:
+                with self.subTest(path=path, theme=theme):
+                    used = self.colours(path, theme)
+                    self.assertIn(tokens["--ds-ink-2"].lower(), used)
+                    self.assertEqual(set(), used & series)
+
+
 class GateThresholdTests(unittest.TestCase):
     """The gate chart shows the threshold the planner reported, and computes none itself."""
 

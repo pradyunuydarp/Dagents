@@ -178,9 +178,14 @@ def _rounded(values: Sequence[float | None], digits: int = 4) -> list[float | No
 # --- Hospital charts ------------------------------------------------------------------
 
 
-def _slot(hospital: Any) -> int:
-    """The hospital's colour slot, so its charts match its colour on the consortium charts."""
-    return getattr(hospital, "series_slot", None) or 1
+def _slot(hospital: Any) -> int | None:
+    """The hospital's colour slot, so its charts match its colour on the consortium charts.
+
+    ``None`` for a hospital without a slot, such as a fourth hospital when the
+    design system has three series colours. Its charts are drawn in neutral
+    ink, so they never take another hospital's colour.
+    """
+    return getattr(hospital, "series_slot", None)
 
 
 def _outcome_by_age_band(hospital: Any) -> ChartSpec:
@@ -384,9 +389,11 @@ def _hospital_records(data: ConsortiumData) -> ChartSpec:
         table=table,
     )
     if data.slots is None:
+        # More hospitals than series colours: one bar per hospital in neutral
+        # ink, because a series colour would mark one of them.
         spec.kind = "bar"
         spec.args = (data.names, [s["record_count"] for s in data.summaries])
-        spec.kwargs = {"value_label": "Records", "category_label": "Hospital"}
+        spec.kwargs = {"value_label": "Records", "category_label": "Hospital", "series_slot": None}
         return spec
     spec.kind = "grouped_bar"
     spec.args = (categories, _hospital_series(data, values))
@@ -435,7 +442,7 @@ def _hospital_outcome_rates(data: ConsortiumData) -> ChartSpec:
         spec.kind = "bar"
         spec.args = (data.names, rates)
         spec.kwargs = {"value_label": "Share with a poor outcome", "value_format": "{:.0%}",
-                       "value_limits": (0.0, 1.0)}
+                       "value_limits": (0.0, 1.0), "series_slot": None}
         return spec
     spec.kind = "grouped_bar"
     spec.args = (["Poor outcome at six months"], {name: [rate] for name, rate in zip(data.names, rates, strict=True)})

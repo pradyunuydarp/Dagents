@@ -748,7 +748,9 @@ GET /api/v1/hospitals/{site_id}/charts/{chart_id}.svg
 
 Returns one of the hospital's charts as SVG, with the same headers and
 conditional requests as a consortium chart. The hospital's series colour is the
-same as on the consortium charts. Nothing is stored.
+same as on the consortium charts. The design system has three series colours,
+so a hospital without one, such as a fourth hospital, is drawn in neutral ink.
+Nothing is stored.
 
 **Errors.** `404` when no hospital or no chart has this id, or the hospital's
 store holds no records. `422` for a `theme` other than `light` or `dark`.
