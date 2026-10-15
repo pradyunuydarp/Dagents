@@ -892,8 +892,15 @@
   max-width: 40rem;
 }
 
+/* The results float over the page, so the page under them does not move. */
 .site-results {
+  position: absolute;
+  z-index: 20;
+  top: 100%;
+  left: 0;
+  right: 0;
   margin-top: var(--ds-2);
+  box-shadow: var(--fx-edge), var(--fx-lift);
   border: 1px solid var(--ds-line-strong);
   border-radius: var(--ds-r-2);
   background: var(--ds-raised);
@@ -903,7 +910,7 @@
 
 .site-results ul { list-style: none; padding: 0; margin: 0; }
 
-.site-result-count { padding: var(--ds-2) var(--ds-3); border-bottom: 1px solid var(--ds-line); }
+.site-result-count { max-width: none; padding: var(--ds-2) var(--ds-3); border-bottom: 1px solid var(--ds-line); }
 
 .site-results a {
   display: flex;
