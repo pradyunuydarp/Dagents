@@ -616,11 +616,20 @@ textarea.ds-input {
 
 /* ===== Motion ============================================================= */
 
+/* SVG content is left out of the transition rule. transition-property starts
+ * as "all", so a duration on every element makes each SVG attribute change
+ * transition, and Mermaid then laid out the home page diagram many times too
+ * large and blank. */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
   *::after {
     animation-duration: 0.01ms !important;
+  }
+
+  :not(svg, svg *),
+  :not(svg, svg *)::before,
+  :not(svg, svg *)::after {
     transition-duration: 0.01ms !important;
   }
 }
