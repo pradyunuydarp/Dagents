@@ -5,6 +5,7 @@ import App from "./App";
 import { installGlow } from "./glow";
 import "./design-system.css";
 import "./styles.css";
+import "./futuristic.css";
 
 installGlow();
 

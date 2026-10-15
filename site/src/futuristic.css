@@ -1,0 +1,10 @@
+/* Shared surface styles for the guide, the API reference and the Resources
+   page: a sliding section underline, quiet hover states, a short fade when a page
+   opens. Every colour is a design system token, mixed only with transparent,
+   so nothing here adds a hue. Motion runs only when the reader allows it. */
+
+:root {
+  --fx-ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --fx-fast: 150ms;
+  --fx-slow: 320ms;
+}
