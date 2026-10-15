@@ -352,11 +352,54 @@
 .card .ds-panel-body { height: 100%; }
 .card .actions { margin-top: auto; }
 
-.guide-list {
-  display: flex;
-  flex-direction: column;
+/* Learn and build: numbered rows instead of a plain list. */
+.home .guide-list {
+  display: grid;
   gap: var(--ds-2);
-  padding-left: var(--ds-5);
+  padding: 0;
+  list-style: none;
+  counter-reset: guide;
+}
+
+@media (min-width: 800px) {
+  .home .guide-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+.home .guide-list li { counter-increment: guide; }
+
+.home .guide-list a {
+  display: flex;
+  align-items: baseline;
+  gap: var(--ds-3);
+  height: 100%;
+  padding: var(--ds-3) var(--ds-4);
+  border: 1px solid var(--ds-line);
+  border-radius: var(--ds-r-2);
+  background: var(--ds-panel);
+  color: var(--ds-ink);
+  text-decoration: none;
+  transition: border-color 160ms ease;
+}
+
+.home .guide-list a::before {
+  content: counter(guide, decimal-leading-zero);
+  font-family: var(--ds-font-mono);
+  font-size: var(--ds-step--1);
+  color: var(--ds-ink-3);
+}
+
+.home .guide-list a::after {
+  content: "\2192";
+  margin-left: auto;
+  color: var(--ds-ink-3);
+  transition: transform 160ms ease, color 160ms ease;
+}
+
+.home .guide-list a:hover { border-color: var(--ds-line-strong); }
+
+.home .guide-list a:hover::after {
+  color: var(--ds-ink);
+  transform: translateX(3px);
 }
 
 @media (prefers-reduced-motion: reduce) {
