@@ -432,9 +432,11 @@ What travels between them:
   waits for one call to a hospital; give the GMA's
   `GMA_FEDERATION_TIMEOUT_SECONDS` the same value. The GMA offers and runs each
   job at one hospital after another, so the app waits up to (2 x hospitals + 1)
-  times this for a round, 14 minutes with three hospitals. A hospital waits a
-  quarter of it for each call to the app. So a slow hospital is recorded as
-  refused or failed in the round, and the pilot keeps its report.
+  times this for a round, 14 minutes with three hospitals. The app counts the
+  hospitals each round invites, so the wait grows when a hospital joins. A
+  hospital waits a quarter of it for each call to the app. So a slow hospital
+  is recorded as refused or failed in the round, and the pilot keeps its
+  report.
 
 The calls between the processes have no authentication. So the run script
 binds every process to 127.0.0.1, and the compose file publishes the GMA's and

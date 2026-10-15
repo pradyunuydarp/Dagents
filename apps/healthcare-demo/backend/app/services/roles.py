@@ -276,7 +276,9 @@ def build_app_consortium(
             settings.gma_url,
             runtime,
             timeout=settings.federation_timeout_seconds,
-            round_timeout=round_timeout(settings.federation_timeout_seconds, len(hospitals)),
+            # Computed for each round from the hospitals it invites, so a
+            # hospital that joins while the app runs lengthens the wait.
+            round_timeout=lambda sites: round_timeout(settings.federation_timeout_seconds, sites),
             client=gma_client,
         ),
         release_guard=GmaReleaseGuard(

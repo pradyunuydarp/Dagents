@@ -429,7 +429,7 @@ class TimeoutTests(unittest.TestCase):
             return self.request("POST", url, **kwargs)
 
     @staticmethod
-    def manifest(round_id: str, phase: str) -> RoundManifest:
+    def manifest(round_id: str, phase: str, invited: list[str] | None = None) -> RoundManifest:
         return RoundManifest(
             round_id=round_id,
             study_id="stroke-study",
@@ -439,6 +439,7 @@ class TimeoutTests(unittest.TestCase):
             model_artifact_digest="sha256:m",
             training_code_digest="sha256:c",
             feature_contract_version="v3",
+            invited_sites=sorted(LMA_URLS) if invited is None else invited,
         )
 
     def settings(self) -> Any:
@@ -465,6 +466,37 @@ class TimeoutTests(unittest.TestCase):
         self.assertGreater(gma.timeouts[("POST", "/api/v1/federation/rounds")], calls_in_a_round * self.JOB_TIMEOUT)
         self.assertEqual(self.JOB_TIMEOUT, gma.timeouts[("GET", "/api/v1/federation/sites")])
         consortium.close()
+
+    def test_the_wait_grows_with_the_hospitals_a_round_invites(self) -> None:
+        """A hospital that joins while the app runs is one more offer and one more run in each round."""
+        from app.services.roles import build_app_consortium, round_timeout
+
+        gma = self.Recording()
+        consortium = build_app_consortium(self.settings(), gma_client=gma)  # type: ignore[arg-type]
+        waits = {}
+        for invited in (["uk-134", "it-002"], sorted(LMA_URLS), [*sorted(LMA_URLS), "pl-290"]):
+            with self.assertRaises(RemoteServiceUnavailable):
+                consortium.controller.dispatch_round(self.manifest(f"r-{len(invited)}", "analytics", invited))
+            waits[len(invited)] = gma.timeouts[("POST", "/api/v1/federation/rounds")]
+        self.assertEqual({count: round_timeout(self.JOB_TIMEOUT, count) for count in (2, 3, 4)}, waits)
+        self.assertLess(waits[3], waits[4])
+        self.assertGreater(waits[4], 2 * 4 * self.JOB_TIMEOUT)
+        consortium.close()
+
+    def test_a_fixed_round_timeout_is_still_accepted(self) -> None:
+        from app.services.runtime import ModelRegistry, ParameterAveragingRuntime
+        from app.services.site_store import MemoryCoordinatorStore
+
+        gma = self.Recording()
+        runtime = ParameterAveragingRuntime(ModelRegistry(MemoryCoordinatorStore()))
+        client = GmaRoundClient(GMA_URL, runtime, timeout=2.0, round_timeout=7.5, client=gma)  # type: ignore[arg-type]
+        with self.assertRaises(RemoteServiceUnavailable):
+            client.dispatch_round(self.manifest("r-fixed", "analytics"))
+        self.assertEqual(7.5, gma.timeouts[("POST", "/api/v1/federation/rounds")])
+        default = GmaRoundClient(GMA_URL, runtime, timeout=2.0, client=gma)  # type: ignore[arg-type]
+        with self.assertRaises(RemoteServiceUnavailable):
+            default.dispatch_round(self.manifest("r-default", "analytics"))
+        self.assertEqual(2.0, gma.timeouts[("POST", "/api/v1/federation/rounds")])
 
     def test_a_hospital_answers_the_gma_before_the_gma_stops_waiting(self) -> None:
         import dataclasses

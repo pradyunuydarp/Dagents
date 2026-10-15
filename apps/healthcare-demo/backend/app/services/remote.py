@@ -26,7 +26,7 @@ from __future__ import annotations
 import logging
 import threading
 from collections import OrderedDict
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 from urllib.parse import quote
 
 import httpx
@@ -390,7 +390,9 @@ class GmaRoundClient:
     - `timeout`: seconds to wait for each call but a dispatch.
     - `round_timeout`: seconds to wait for a dispatch, which answers after the
       GMA has offered and run the job at every hospital, one after another.
-      Defaults to `timeout`. See :func:`app.services.roles.round_timeout`.
+      Either a number, or a function of the number of hospitals the round
+      invites, so a hospital that joins while the app runs lengthens the
+      wait. Defaults to `timeout`. See :func:`app.services.roles.round_timeout`.
     - `client`: an ``httpx.Client`` to send through, for tests.
     """
 
@@ -400,11 +402,11 @@ class GmaRoundClient:
         runtime: ParameterAveragingRuntime,
         *,
         timeout: float = DEFAULT_TIMEOUT_SECONDS,
-        round_timeout: float | None = None,
+        round_timeout: float | Callable[[int], float] | None = None,
         client: httpx.Client | None = None,
     ) -> None:
         self._gma = _GmaEndpoint(GMA_NAME, gma_url, timeout=timeout, client=client)
-        self._round_timeout = timeout if round_timeout is None else round_timeout
+        self._round_timeout: float | Callable[[int], float] = timeout if round_timeout is None else round_timeout
         self._runtime = runtime
 
     @property
@@ -427,10 +429,19 @@ class GmaRoundClient:
         """The manifest's digest, as the GMA's planner computes it."""
         return self.plan_round(manifest).round_digest
 
+    def round_timeout_for(self, manifest: RoundManifest) -> float:
+        """Seconds to wait for the dispatch of this round, from the hospitals it invites."""
+        if callable(self._round_timeout):
+            return float(self._round_timeout(len(manifest.invited_sites)))
+        return float(self._round_timeout)
+
     def dispatch_round(self, manifest: RoundManifest) -> RoundRecord:
         return RoundRecord.model_validate(
             self._gma.call(
-                "POST", "/api/v1/federation/rounds", manifest.model_dump(mode="json"), timeout=self._round_timeout
+                "POST",
+                "/api/v1/federation/rounds",
+                manifest.model_dump(mode="json"),
+                timeout=self.round_timeout_for(manifest),
             )
         )
 
