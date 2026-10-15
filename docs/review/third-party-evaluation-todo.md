@@ -77,7 +77,7 @@ Treat each finding as a claim to confirm against the code before acting on it.
 | D2 | Measure the cost of governance | P1 | M |
 | D3 | Run a cold-start test of the guide | P1 | S |
 | E1 | Add property tests for the planner rules | P1 | M |
-| E2 | Add lint, format and type checks to CI | P1 | S |
+| E2 | Add Python and OCaml lint, format and type checks to CI | P1 | S |
 | E3 | Manage dependencies | P2 | S |
 | E4 | Report test coverage | P2 | S |
 | F1 | Clean the repository root | P1 | S |
@@ -278,13 +278,16 @@ README links to it.
 
 ### C2. Authenticate and authorize service calls (P0, L)
 
-**Finding.** A search of `agents/` and the `core`, `pipeline` and `model`
-services for authorization headers, API keys, bearer tokens, JWT, TLS and mTLS
-found only database role settings. The Spring control service's `pom.xml` lists
-the web, actuator, validation and test starters, with no security starter. The
-NL2SQL demo backend allows every origin (`services/nl2sql-demo/backend/app/main.py`).
-That demo only replays recordings, but the agents are meant to run at separate
-organizations. The healthcare demo was not checked.
+**Finding.** A text search of the Python code in `agents/`, `services/` and
+`apps/` (tests excluded) for authorization headers, API keys, bearer tokens,
+JWT, TLS and mTLS found only database role settings. The one request header
+the healthcare demo reads is an `Idempotency-Key`, which is not a credential.
+The Spring control service's `pom.xml` lists the web, actuator, validation and
+test starters, with no security starter. The NL2SQL demo backend allows every
+origin (`services/nl2sql-demo/backend/app/main.py`). That demo only replays
+recordings, but the agents are meant to run at separate organizations. A text
+search does not prove that no check exists, for example in a proxy in front of
+the services, so confirm this against a running deployment.
 
 **Work.**
 
@@ -422,27 +425,39 @@ property tests fit them.
 **Done when.** CI runs the properties on every pull request, and each rule in
 the guide's strategy and round tables names the property that covers it.
 
-### E2. Add lint, format and type checks to CI (P1, S)
+### E2. Add Python and OCaml lint, format and type checks to CI (P1, S)
 
-**Finding.** I found no linter, formatter or type checker in
-`.github/workflows/ci.yml` and no `.ocamlformat` file.
+**Finding.** The checks differ by language.
 
-**Work.** Add a `lint` job: Ruff for Python, a type checker (mypy or pyright)
-on `agents/common/`, `ocamlformat --check` for OCaml, and the TypeScript
-type check for each frontend if not already run. Fix or baseline the existing
-findings, then make the job required in the `ci` gate.
+| Language | What CI checks today | Gap |
+|---|---|---|
+| TypeScript | The `frontends` job runs `npm run build` for the site and both demo frontends. Each build script runs `tsc -b` before `vite build`, so types are checked. | No linter or formatter: the three `package.json` files list no ESLint, Prettier or Biome. |
+| Python | I found no linter, formatter or type checker in `.github/workflows/` or in `apps/healthcare-demo/pyproject.toml`. | All three. |
+| OCaml | The `planners` job builds and tests. There is no `.ocamlformat` file. | Format check. |
+
+**Work.** Add a `lint` job:
+
+- Ruff for Python, and a type checker (mypy or pyright) on `agents/common/`.
+- `ocamlformat --check` for OCaml.
+- Optionally, a linter and formatter for the TypeScript code. Do not add a
+  second type check there.
+
+Fix or baseline the existing findings, then make the job required in the `ci`
+gate.
 
 **Done when.** The `ci` gate job depends on `lint`, and a deliberate style
-error in a test branch fails it.
+error and a deliberate type error in a test branch each fail it.
 
 ### E3. Manage dependencies (P2, S)
 
 **Finding.** The Python requirements files mix exact pins (for example FastAPI
-and Uvicorn) with ranges (for example Pydantic). I did not find lock files, an
-automated update service or a vulnerability scan.
+and Uvicorn) with ranges (for example Pydantic). The three frontends have a
+`package-lock.json`. I found no lock file for the Python services or the OCaml
+planner, no automated update service and no vulnerability scan in
+`.github/workflows/`.
 
 **Work.** Add Dependabot or Renovate for pip, npm, Maven, GitHub Actions and
-Docker. Generate lock files with hashes for the deployable services. Add
+Docker. Generate lock files with hashes for the deployable Python services. Add
 `pip-audit` and an SBOM step to the release workflow. Commit an `opam` lock
 file for the planner.
 
