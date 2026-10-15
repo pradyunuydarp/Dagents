@@ -85,6 +85,15 @@ LMA does not serve the two site paths yet. The healthcare demo's hospital
 services do, so its split mode runs each hospital, the Dagents GMA and the
 demo's backend as separate processes.
 
+A site can also get its address while the GMA runs.
+`GMA_FEDERATION_JOINABLE_SITES` lists, in the same `site_id=url` format, the
+sites that may join and the one address each may use.
+`HttpFederationEngine.attach_site` accepts only those exact pairs and builds
+the site's worker once. The address lives in the GMA's memory: a restarted GMA
+forgets it, and the caller sends it again. The address does not enrol the
+site. The planner selects it only after its enrolment arrives, as for any other
+site.
+
 ## Suggested Run Flow
 
 1. GMA registers an LMA and records its scope/capabilities.

@@ -566,3 +566,73 @@ class RoundSubmission(DagentsModel):
     dispatched_sites: list[str] = Field(default_factory=list)
     acceptances: list[JobAcceptance] = Field(default_factory=list)
     message: str = ""
+
+
+#: Where the GMA learned a site's address: from ``GMA_FEDERATION_SITES`` at
+#: start-up (``configured``), or from a call at run time (``joined``).
+SiteAddressSource = Literal["configured", "joined"]
+
+#: Why the GMA refused an address offered at run time.
+SiteAddressRefusalReason = Literal["not_joinable", "address_differs", "configured_elsewhere"]
+
+
+class SiteAddress(DagentsModel):
+    """The address the GMA uses to reach one site's LMA.
+
+    An address alone never enrols a site. Enrolment stays a separate call, so
+    a site with an address and no enrolment is never selected for a round.
+    """
+
+    site_id: str = Field(description="The site's id.")
+    url: str = Field(
+        description="The base address the GMA sends the site's jobs to, without a trailing `/`."
+    )
+    source: SiteAddressSource = Field(
+        description=(
+            "`configured` when the address comes from `GMA_FEDERATION_SITES` at start-up, `joined` when it was "
+            "accepted at run time from `GMA_FEDERATION_JOINABLE_SITES`."
+        )
+    )
+
+
+class SiteAddressList(DagentsModel):
+    """The addresses the GMA knows, and the sites it would accept at run time."""
+
+    joinable: list[str] = Field(
+        default_factory=list,
+        description=(
+            "The ids listed in `GMA_FEDERATION_JOINABLE_SITES`, sorted, whether or not they have joined. Empty when "
+            "the GMA accepts no address at run time."
+        ),
+    )
+    addresses: list[SiteAddress] = Field(
+        default_factory=list,
+        description="Every address the GMA uses: the configured ones first, then the joined ones, each group sorted by `site_id`.",
+    )
+
+
+class SiteAddressRequest(DagentsModel):
+    """An address offered for one site at run time."""
+
+    url: str = Field(
+        min_length=1,
+        max_length=2048,
+        description=(
+            "The site's base address. It must equal the site's entry in `GMA_FEDERATION_JOINABLE_SITES`; a trailing "
+            "`/` is ignored. 1 to 2048 characters."
+        ),
+    )
+
+
+class SiteAddressRefused(ValueError):
+    """The GMA does not accept this address for this site.
+
+    ``reason`` says which rule refused it: the site is not joinable, the
+    address differs from the joinable entry, or the site is configured at
+    start-up with another address.
+    """
+
+    def __init__(self, site_id: str, reason: SiteAddressRefusalReason) -> None:
+        super().__init__(f"site {site_id}: {reason}")
+        self.site_id = site_id
+        self.reason = reason

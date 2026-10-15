@@ -38,12 +38,24 @@ def build_federation_engine(config: Settings = settings) -> FederationEngine:
 
     With ``GMA_FEDERATION_SITES`` set, each listed site is an LMA in its own
     process, reached over HTTP with ``GMA_FEDERATION_TIMEOUT_SECONDS`` per call.
-    Without it, the engine runs in this process with no site attached, and
-    sites send their own results.
+    With ``GMA_FEDERATION_JOINABLE_SITES`` set, each listed site may get its
+    address at run time, and only the address listed for it. With neither,
+    the engine runs in this process with no site attached, and sites send
+    their own results.
+
+    Raises ``ValueError`` when an entry cannot be read, or when a site is in
+    both lists.
     """
     sites = parse_site_urls(config.federation_sites)
-    if sites:
-        return HttpFederationEngine(sites, timeout=config.federation_timeout_seconds)
+    joinable = parse_site_urls(config.federation_joinable_sites)
+    overlap = sorted(set(sites) & set(joinable))
+    if overlap:
+        raise ValueError(
+            f"site {overlap[0]} is in both GMA_FEDERATION_SITES and GMA_FEDERATION_JOINABLE_SITES; "
+            "list it in one of them"
+        )
+    if sites or joinable:
+        return HttpFederationEngine(sites, joinable=joinable, timeout=config.federation_timeout_seconds)
     return InProcessFederationEngine()
 
 

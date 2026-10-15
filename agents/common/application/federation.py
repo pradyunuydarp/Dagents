@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import time
 import uuid
-from typing import Any, Callable, Protocol, TypeVar
+from typing import Any, Callable, Protocol, TypeVar, runtime_checkable
 
 from pydantic import ValidationError
 
@@ -35,6 +35,8 @@ from agents.common.domain.federation import (
     RoundPlan,
     RoundRecord,
     RoundSubmission,
+    SiteAddress,
+    SiteAddressList,
     SiteRegistration,
     SiteResult,
 )
@@ -98,6 +100,25 @@ class FederationEngine(Protocol):
         self, manifest: RoundManifest, readiness: AggregationReadiness, results: list[SiteResult]
     ) -> CandidateModel:
         """Combine permitted contributions into a candidate model."""
+
+
+@runtime_checkable
+class SiteAddressBook(Protocol):
+    """An engine that can learn a site's address while it runs.
+
+    An engine whose sites are fixed at start-up does not implement this. One
+    that does accepts only the (site id, address) pairs its configuration
+    allows, and raises
+    :class:`~agents.common.domain.federation.SiteAddressRefused` for any other.
+    An address alone never enrols a site: enrolment stays
+    :meth:`FederatedRoundController.register_site`.
+    """
+
+    def attach_site(self, site_id: str, url: str) -> SiteAddress:
+        """Accept one site's address, or raise ``SiteAddressRefused``."""
+
+    def addresses(self) -> SiteAddressList:
+        """List the addresses in use and the sites that may join."""
 
 
 class SiteRegistry(Protocol):
@@ -300,6 +321,11 @@ class FederatedRoundController:
         self._rounds = rounds or InMemoryRoundRepository()
 
     @property
+    def engine(self) -> FederationEngine:
+        """The federated runtime this controller was built with."""
+        return self._engine
+
+    @property
     def engine_name(self) -> str:
         """Which federated runtime is attached."""
         return self._engine.name
@@ -440,6 +466,7 @@ __all__ = [
     "InMemorySiteRegistry",
     "InProcessFederationEngine",
     "RoundRepository",
+    "SiteAddressBook",
     "SiteRegistry",
     "SiteWorker",
     "new_round_id",

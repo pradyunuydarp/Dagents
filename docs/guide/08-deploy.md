@@ -85,6 +85,15 @@ job. Each source's service must answer `POST /api/v1/federation/jobs:offer` and
 The [GMA README](../../agents/gma/README.md#federated-rounds-over-http) has the
 details.
 
+A source that starts after the GMA can join it while it runs. List the source
+in `GMA_FEDERATION_JOINABLE_SITES`, in the same `site_id=url` format, with the
+one address it will use. The GMA accepts that exact address at run time and
+builds the source's worker then. It keeps the address in memory, so send it
+again after the GMA restarts. The address does not enrol the source: the
+source takes part in a round only after its enrolment arrives. The
+[GMA README](../../agents/gma/README.md#sites-that-join-while-the-gma-runs)
+lists the rules.
+
 The stroke demo runs this split on one machine:
 `apps/healthcare-demo/scripts/run_split_demo.sh` starts the Dagents GMA with
 `GMA_FEDERATION_SITES` and one LMA process per hospital. Its

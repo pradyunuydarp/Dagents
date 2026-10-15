@@ -14,8 +14,10 @@ both ends of that transport:
   Guard-bounded update through it exactly as it would in one process.
 - :class:`HttpFederationEngine` is the in-process engine with one
   :class:`HttpSiteWorker` per site, built from a map of site ids to addresses.
-  The GMA uses it when ``GMA_FEDERATION_SITES`` is set; :func:`parse_site_urls`
-  reads that variable.
+  The GMA uses it when ``GMA_FEDERATION_SITES`` or
+  ``GMA_FEDERATION_JOINABLE_SITES`` is set; :func:`parse_site_urls` reads both
+  variables. A joinable site gets its worker when its address arrives at run
+  time (:meth:`HttpFederationEngine.attach_site`).
 
 The paths are fixed here, so both ends agree:
 
@@ -35,6 +37,7 @@ organisations needs mutual TLS or signed requests in front of it.
 
 from __future__ import annotations
 
+import threading
 from collections.abc import Mapping
 from typing import Any
 
@@ -43,7 +46,14 @@ from pydantic import Field
 
 from agents.common.application.federation import InProcessFederationEngine
 from agents.common.domain.base import DagentsModel
-from agents.common.domain.federation import FederatedJob, JobAcceptance, SiteResult
+from agents.common.domain.federation import (
+    FederatedJob,
+    JobAcceptance,
+    SiteAddress,
+    SiteAddressList,
+    SiteAddressRefused,
+    SiteResult,
+)
 
 #: Where a site accepts or refuses a job.
 OFFER_PATH = "/api/v1/federation/jobs:offer"
@@ -246,9 +256,18 @@ class HttpFederationEngine(InProcessFederationEngine):
     request at a time, does not retry, has no authentication, and trains
     nothing at the coordinator.
 
+    A site can also get its address while the engine runs, through
+    :meth:`attach_site`, which makes this engine a
+    :class:`~agents.common.application.federation.SiteAddressBook`. Only the
+    exact (site id, address) pairs in `joinable` are accepted. A joined address
+    lives in memory: a restarted engine forgets it, and the caller sends it
+    again. An address alone never enrols a site.
+
     Params:
     - `site_urls`: each site's id and address, such as the result of
-      :func:`parse_site_urls`.
+      :func:`parse_site_urls`. It may be empty.
+    - `joinable`: the sites that may join at run time, each with the one
+      address it may use. No id may also be in `site_urls`.
     - `timeout`: seconds to wait for each call to a site.
     - `client`: an ``httpx.Client`` shared by every site, for tests.
     """
@@ -259,11 +278,60 @@ class HttpFederationEngine(InProcessFederationEngine):
         self,
         site_urls: Mapping[str, str],
         *,
+        joinable: Mapping[str, str] | None = None,
         timeout: float = DEFAULT_TIMEOUT_SECONDS,
         client: httpx.Client | None = None,
     ) -> None:
-        super().__init__(
-            [HttpSiteWorker(site_id, url, timeout=timeout, client=client) for site_id, url in site_urls.items()]
-        )
         self.site_urls = {site_id: _base(url) for site_id, url in site_urls.items()}
+        self.joinable = {site_id: _base(url) for site_id, url in (joinable or {}).items()}
+        overlap = sorted(set(self.site_urls) & set(self.joinable))
+        if overlap:
+            raise ValueError(f"site {overlap[0]} is both configured and joinable")
         self.timeout = timeout
+        self._client = client
+        self._joined: dict[str, str] = {}
+        self._lock = threading.Lock()
+        super().__init__([self._worker(site_id, url) for site_id, url in self.site_urls.items()])
+
+    def _worker(self, site_id: str, url: str) -> HttpSiteWorker:
+        """The worker for one site, the same for a configured and a joined site."""
+        return HttpSiteWorker(site_id, url, timeout=self.timeout, client=self._client)
+
+    def attach_site(self, site_id: str, url: str) -> SiteAddress:
+        """Accept one site's address at run time, or raise :class:`SiteAddressRefused`.
+
+        The checks run in this order: a configured site with the same address
+        is accepted as it is; a configured site with another address, a site
+        that is not joinable, and an address that differs from the joinable
+        entry are refused; a site that has already joined is accepted again
+        without a second worker. A trailing ``/`` is ignored.
+        """
+        wanted = _base(url)
+        with self._lock:
+            configured = self.site_urls.get(site_id)
+            if configured is not None:
+                if configured == wanted:
+                    return SiteAddress(site_id=site_id, url=configured, source="configured")
+                raise SiteAddressRefused(site_id, "configured_elsewhere")
+            allowed = self.joinable.get(site_id)
+            if allowed is None:
+                raise SiteAddressRefused(site_id, "not_joinable")
+            if allowed != wanted:
+                raise SiteAddressRefused(site_id, "address_differs")
+            if site_id not in self._joined:
+                self.register_worker(self._worker(site_id, allowed))
+                self._joined[site_id] = allowed
+            return SiteAddress(site_id=site_id, url=allowed, source="joined")
+
+    def addresses(self) -> SiteAddressList:
+        """The addresses in use, configured first, then joined, and the joinable ids."""
+        with self._lock:
+            joined = dict(self._joined)
+        return SiteAddressList(
+            joinable=sorted(self.joinable),
+            addresses=[
+                SiteAddress(site_id=site_id, url=self.site_urls[site_id], source="configured")
+                for site_id in sorted(self.site_urls)
+            ]
+            + [SiteAddress(site_id=site_id, url=joined[site_id], source="joined") for site_id in sorted(joined)],
+        )

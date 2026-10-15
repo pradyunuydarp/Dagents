@@ -19,6 +19,12 @@ class Settings:
     # The sites the GMA dispatches rounds to over HTTP, as site_id=url entries
     # separated by commas. Empty: rounds run in the GMA's own process.
     federation_sites: str = field(default_factory=lambda: os.getenv("GMA_FEDERATION_SITES", ""))
+    # The sites that may get their address at run time, in the same format.
+    # Each entry is the one address the GMA accepts for that site. Empty: no
+    # site may join while the GMA runs.
+    federation_joinable_sites: str = field(
+        default_factory=lambda: os.getenv("GMA_FEDERATION_JOINABLE_SITES", "")
+    )
     # Seconds to wait for each call to a site. A training job runs before the
     # site answers.
     federation_timeout_seconds: float = field(
