@@ -22,3 +22,17 @@
 
 .masthead nav a:hover { background-size: 100% 1px; }
 .masthead nav a[aria-current="page"] { background-size: 100% 2px; }
+
+/* ===== Headings =========================================================== */
+
+.doc h1,
+.api-page h1,
+.resources h1 {
+  letter-spacing: -0.02em;
+}
+
+.doc h2,
+.api-page h2,
+.resources h2 {
+  letter-spacing: -0.01em;
+}
