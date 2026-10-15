@@ -13,8 +13,14 @@
 #   scripts/run_frontend_demo.sh --screenshots <dir>    # run the smoke test, save the README
 #                                                       # screenshots to <dir>, and exit
 #
+# Add --split to any of these to run the backend as five processes instead of
+# one: the Dagents GMA, one LMA per hospital and the app the UI calls
+# (scripts/run_split_demo.sh starts them). For example:
+#
+#   scripts/run_frontend_demo.sh --split --check
+#
 # HEALTHCARE_DEMO_API_PORT and HEALTHCARE_DEMO_UI_PORT change the ports (8080
-# and 5174 by default). Ctrl-C stops both servers.
+# and 5174 by default). Ctrl-C stops every server.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -23,22 +29,27 @@ DAGENTS_HOME="${DAGENTS_HOME:-$(cd "${APP_ROOT}/../.." && pwd)}"
 
 MODE="run"
 SHOT_DIR=""
-case "${1:-}" in
-  --verify) MODE="verify" ;;
-  --check) MODE="check" ;;
-  --screenshots)
-    MODE="check"
-    SHOT_DIR="${2:-}"
-    if [[ -z "${SHOT_DIR}" ]]; then
-      echo "--screenshots needs a directory" >&2
-      exit 2
-    fi
-    mkdir -p "${SHOT_DIR}"
-    SHOT_DIR="$(cd "${SHOT_DIR}" && pwd)"
-    ;;
-  "") ;;
-  *) echo "unknown option: $1" >&2; exit 2 ;;
-esac
+SPLIT=0
+while (( $# > 0 )); do
+  case "$1" in
+    --verify) MODE="verify" ;;
+    --check) MODE="check" ;;
+    --split) SPLIT=1 ;;
+    --screenshots)
+      MODE="check"
+      SHOT_DIR="${2:-}"
+      if [[ -z "${SHOT_DIR}" ]]; then
+        echo "--screenshots needs a directory" >&2
+        exit 2
+      fi
+      shift
+      mkdir -p "${SHOT_DIR}"
+      SHOT_DIR="$(cd "${SHOT_DIR}" && pwd)"
+      ;;
+    *) echo "unknown option: $1" >&2; exit 2 ;;
+  esac
+  shift
+done
 
 bold() { printf '\033[1m%s\033[0m\n' "$*"; }
 dim() { printf '\033[2m%s\033[0m\n' "$*"; }
@@ -102,6 +113,7 @@ kill_tree() {
 
 cleanup() {
   trap - EXIT INT TERM
+  if (( SPLIT )) && declare -F split_stop >/dev/null; then split_stop; fi
   kill_tree "${FRONTEND_PID}" TERM
   kill_tree "${BACKEND_PID}" TERM
   local waited=0
@@ -131,14 +143,23 @@ wait_for() {
   return 1
 }
 
-bold "Starting the API on :${API_PORT}"
-(
-  cd "${APP_ROOT}/backend"
-  PYTHONPATH="${DAGENTS_HOME}:${APP_ROOT}/backend" \
-    "${PYTHON}" -m uvicorn app.main:app --host 127.0.0.1 --port "${API_PORT}"
-) >"${LOG_DIR}/backend.log" 2>&1 &
-BACKEND_PID=$!
-wait_for "http://127.0.0.1:${API_PORT}/api/v1/health" "The API" "${LOG_DIR}/backend.log"
+if (( SPLIT )); then
+  # The Dagents GMA, one LMA per hospital, and the app on API_PORT.
+  # shellcheck source=run_split_demo.sh
+  source "${HERE}/run_split_demo.sh"
+  split_preflight
+  bold "Starting the GMA, the three hospitals and the API on :${API_PORT}"
+  split_start "${LOG_DIR}"
+else
+  bold "Starting the API on :${API_PORT}"
+  (
+    cd "${APP_ROOT}/backend"
+    PYTHONPATH="${DAGENTS_HOME}:${APP_ROOT}/backend" \
+      "${PYTHON}" -m uvicorn app.main:app --host 127.0.0.1 --port "${API_PORT}"
+  ) >"${LOG_DIR}/backend.log" 2>&1 &
+  BACKEND_PID=$!
+  wait_for "http://127.0.0.1:${API_PORT}/api/v1/health" "The API" "${LOG_DIR}/backend.log"
+fi
 
 bold "Starting the UI on :${UI_PORT}"
 (
@@ -178,6 +199,12 @@ fi
 
 # --- the tour --------------------------------------------------------------
 
+if (( SPLIT )); then
+  LAYOUT="five processes: the Dagents GMA, one LMA per hospital, and the API"
+else
+  LAYOUT="one process"
+fi
+
 cat <<TOUR
 
 $(bold "The Dagents stroke triage demo is running")
@@ -186,6 +213,7 @@ $(bold "The Dagents stroke triage demo is running")
   API docs  http://127.0.0.1:${API_PORT}/docs
   planner   ${DAGENTSC_BIN:-dagentsc (on PATH)}
   records   ${STORAGE}
+  backend   ${LAYOUT}
 
 $(dim "The records are real, de-identified patient records from the International")
 $(dim "Stroke Trial (1991-1996), from three of its hospitals. The models are")
@@ -229,7 +257,7 @@ $(bold "What to try, page by page")
      hospital page, and see it listed and counted. Record its outcome with
      "Yes" or "No"; the next pilot then trains and evaluates on it.
 
-$(dim "Ctrl-C stops both servers.")
+$(dim "Ctrl-C stops every server.")
 
 TOUR
 
