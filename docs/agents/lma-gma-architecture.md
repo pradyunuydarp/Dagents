@@ -73,6 +73,18 @@ In Dagents, the shared contract lives at:
 
 - `contracts/grpc/dagents/agents/v1/lma_gma.proto`
 
+Federated rounds have an HTTP transport in
+`agents/common/infrastructure/federation_http.py`. When `GMA_FEDERATION_SITES`
+lists each site's address, the GMA sends a round's job to each site with
+`HttpSiteWorker` (`POST /api/v1/federation/jobs:offer`, then
+`POST /api/v1/federation/jobs:execute`). The site sends its Guard-bounded model
+update to the service that stores updates with `HttpUpdateChannel`
+(`POST /api/v1/federation/rounds/{round_id}/updates`). Without the variable,
+rounds run in the GMA's process and sites post their own results. The Dagents
+LMA does not serve the two site paths yet. The healthcare demo's hospital
+services do, so its split mode runs each hospital, the Dagents GMA and the
+demo's backend as separate processes.
+
 ## Suggested Run Flow
 
 1. GMA registers an LMA and records its scope/capabilities.

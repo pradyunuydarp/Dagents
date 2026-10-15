@@ -631,7 +631,10 @@ the planner for the rest. Do not write a planning rule again in Python.
 
 The federated protocol belongs to a dedicated runtime behind `FederationEngine`.
 The in-process engine is a simulator for tests and demos; do not turn it into a
-federated optimizer.
+federated optimizer. `HttpFederationEngine`
+(`agents/common/infrastructure/federation_http.py`) is the same simulator with
+each site reached over HTTP. The GMA uses it when `GMA_FEDERATION_SITES` lists
+the sites as `site_id=url` entries.
 
 Two rules always hold, and both have tests: aggregation produces a candidate,
 never a release; and a release gate whose metric is missing blocks the release.

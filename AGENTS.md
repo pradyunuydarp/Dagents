@@ -267,7 +267,8 @@ Implemented framework capabilities currently include:
 Deliberately **not** implemented, and named so nobody assumes otherwise:
 
 - a federated optimizer or secure-aggregation protocol; `FederationEngine` is an adapter seam and
-  the bundled engine is an in-process simulator
+  the bundled engines are simulators: one runs every site in process, and one
+  (`HttpFederationEngine`, chosen with `GMA_FEDERATION_SITES`) reaches each site over HTTP
 - differential privacy accounting; the Guard's noise strategy shows where a mechanism belongs, and
   a privacy budget is separate work
 - cryptographic signing; round digests detect drift and carry no authenticity guarantee

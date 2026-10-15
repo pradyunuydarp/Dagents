@@ -33,14 +33,17 @@ flowchart LR
     GMA --> Planner
 ```
 
-In this version the agents do not call each other: a caller sends each request
-to the agent it is for. The GMA runs the sites' part of a federated round
-through `InProcessFederationEngine`, a simulator in the GMA's own process; a
-deployment replaces it with an adapter for a federated runtime.
+In this version a caller sends each request to the agent it is for. The GMA
+runs the sites' part of a federated round through an engine. By default that is
+`InProcessFederationEngine`, a simulator in the GMA's own process. When
+`GMA_FEDERATION_SITES` lists the sites, it is `HttpFederationEngine`, which
+sends each round's job to each site's service over HTTP. A deployment can
+replace either with an adapter for a federated runtime.
 
 The [Spring control service](spring-services.md) serves the GMA's agent
 registry paths again for JVM applications. The healthcare demo runs the same
-shared classes in its own process instead of calling the agents over HTTP
+shared classes in its own process by default. In its split mode it calls this
+GMA, which sends round jobs to one service per hospital
 ([Demo apps](demo-apps.md)).
 
 ## The local monitoring agent
@@ -835,9 +838,11 @@ Terms used in this part of the page:
 
 How the GMA relates to the other modules:
 
-- **It calls no other service.** No endpoint calls an LMA. An LMA, an operator
-  or an application sends every request: registrations, heartbeats, telemetry
-  and site results.
+- **It calls sites only to dispatch a round, and only when configured.** With
+  `GMA_FEDERATION_SITES` set, [dispatching a round](#dispatch-a-round) sends
+  the job to each selected site over HTTP. No other endpoint calls another
+  service. An LMA, an operator or an application sends every other request:
+  registrations, heartbeats, telemetry and site results.
 - **It calls the planner for every decision.** The governance plan and enforce
   endpoints run [`dagentsc governance restrict`](dagentsc.md#dagentsc-governance-restrict).
   Planning, dispatch, readiness, aggregation and release evaluation run
@@ -846,20 +851,23 @@ How the GMA relates to the other modules:
   and [`federation release evaluate`](dagentsc.md#dagentsc-federation-release-evaluate).
   The other endpoints call no planner command.
 - **Sites run their part through an engine.** `FederatedRoundController` hands
-  a dispatched round to a `FederationEngine`. The GMA builds
-  `InProcessFederationEngine`, a simulator that runs site workers inside the
-  GMA's process. A plain GMA attaches no worker, so a dispatched round records a
-  `failed` result for each selected site until the site sends its own. A
-  deployment replaces the engine with an adapter for a federated runtime, such
-  as NVIDIA FLARE.
+  a dispatched round to a `FederationEngine`. Without `GMA_FEDERATION_SITES`,
+  the GMA builds `InProcessFederationEngine`, a simulator that runs site
+  workers inside the GMA's process. A plain GMA attaches no worker, so a
+  dispatched round records a `failed` result for each selected site until the
+  site sends its own. With `GMA_FEDERATION_SITES`, the GMA builds
+  `HttpFederationEngine`, the same simulator with one `HttpSiteWorker` per
+  listed site (`agents/common/infrastructure/federation_http.py`). A deployment
+  replaces the engine with an adapter for a federated runtime, such as NVIDIA
+  FLARE.
 - **The Spring control service serves the registry again.**
   [spring-control-service](spring-services.md) serves the versioned agent
   registry and deployment paths for JVM applications, with its own store.
 - **The core service knows its address.** The core service lists the GMA in its
   [catalog](framework-services.md#core-service-get-api-v1-services).
-- **Applications can run its code in process.** The healthcare demo creates its
-  own `FederatedRoundController` and `GovernanceService` inside its backend and
-  does not call the GMA over HTTP ([Demo apps](demo-apps.md)). The
+- **Applications can run its code in process.** By default the healthcare demo
+  creates its own `FederatedRoundController` and `GovernanceService` inside its
+  backend and does not call the GMA over HTTP ([Demo apps](demo-apps.md)). The
   [guide to federated rounds](../../guide/06-federated-rounds.md) does the same
   in a small example.
 
@@ -878,8 +886,8 @@ flowchart TB
     Rounds --> Sites["InMemorySiteRegistry"]
     Rounds --> RoundStore["InMemoryRoundRepository"]
     Rounds --> Federation["dagentsc federation: round plan, aggregate readiness, release evaluate"]
-    Rounds --> Engine["InProcessFederationEngine"]
-    Engine -.-> Workers["Site workers, when an application attaches them"]
+    Rounds --> Engine["InProcessFederationEngine, or HttpFederationEngine with GMA_FEDERATION_SITES"]
+    Engine -.-> Workers["Site workers: attached by an application, or one HttpSiteWorker per listed site"]
 ```
 
 ### What the GMA stores
@@ -1691,6 +1699,8 @@ code: agents/gma/main.py
 classes:
 - FederatedRoundController (agents/common/application/federation.py)
 - InProcessFederationEngine (agents/common/application/federation.py)
+- HttpFederationEngine (agents/common/infrastructure/federation_http.py)
+- HttpSiteWorker (agents/common/infrastructure/federation_http.py)
 - InMemoryRoundRepository (agents/common/application/federation.py)
 - InMemorySiteRegistry (agents/common/application/federation.py)
 endpoints:
@@ -1846,6 +1856,20 @@ application that runs the controller in its own process attaches a worker per
 site with `InProcessFederationEngine.register_worker`. A worker such as
 `LocalFederatedWorker` checks the job's digest, may refuse the job, and returns
 its result during the dispatch. A refusal is stored as a `rejected` result.
+
+A GMA started with `GMA_FEDERATION_SITES` reaches each listed site over HTTP
+instead. For each selected site it sends the job to
+`POST {site}/api/v1/federation/jobs:offer`, and, if the site accepts, to
+`POST {site}/api/v1/federation/jobs:execute`. The site answers with a
+`JobAcceptance` and then a `SiteResult`. This request waits until every
+selected site has answered or timed out (`GMA_FEDERATION_TIMEOUT_SECONDS` per
+call, default 120). A site that does not answer, answers with an error status,
+or answers for another site or round gets a `failed` result whose evidence
+pointer is `unreachable://<site_id>#<reason>`. The reason never contains the
+site's address. A selected site that is not listed gets the same result as with
+no worker attached. The Dagents LMA does not serve these two paths; a site
+service that runs `LocalFederatedWorker` does, as the healthcare demo's
+hospital services do in split mode.
 
 Dispatching a manifest whose `round_id` is already stored replaces that round,
 with its results, readiness and decision, and the round keeps its place in the
