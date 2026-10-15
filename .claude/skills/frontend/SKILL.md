@@ -46,6 +46,12 @@ with the link preview plugin `design/social/social-meta.mjs` (section 3b), and
 - Charts have three series tokens, `--ds-series-1` to `--ds-series-3`, used only
   inside charts. They mark identity (which hospital), never a decision. A
   hospital keeps its slot in every chart.
+- Code blocks have syntax tokens, `--ds-syntax-*`, used only inside code
+  blocks. They are GitHub's Primer light and dark syntax colours, and each
+  has at least 4.5:1 contrast against `--ds-inset`. On the site,
+  `site/src/highlight.ts` highlights every code block (guide pages, API
+  samples and responses) with highlight.js, which registers only the
+  languages the site shows. Plain text and unknown languages stay plain.
 - Mermaid diagrams on the site take their colours from the tokens
   (`site/src/Mermaid.tsx`), so they stay grey and follow light and dark mode.
 
