@@ -1,8 +1,9 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
 
 import { RenderedHtml } from "../Mermaid";
 import { REPO_URL } from "../config";
 import type { GuidePage } from "../learn";
+import { replayAnimations } from "../replay";
 import { href } from "../router";
 
 /**
@@ -50,6 +51,13 @@ function PageList({ set, current }: { set: DocSet; current: string }) {
 export function DocPages({ set, slug, anchor }: { set: DocSet; slug: string; anchor: string | null }) {
   const page = set.pages.find((entry) => entry.slug === slug);
   const html = useMemo(() => (page ? set.render(page) : ""), [page, set]);
+  const main = useRef<HTMLElement>(null);
+
+  // The article stays in place from page to page, so a focused Previous or
+  // Next link keeps its focus; only its opening fade runs again.
+  useLayoutEffect(() => {
+    replayAnimations(main.current);
+  }, [page?.slug]);
 
   useEffect(() => {
     document.title = page ? `${page.title} · Dagents` : "Not found · Dagents";
@@ -77,7 +85,7 @@ export function DocPages({ set, slug, anchor }: { set: DocSet; slug: string; anc
         <PageList set={set} current={page.slug} />
       </nav>
 
-      <article className="learn-main" key={page.slug}>
+      <article className="learn-main" ref={main}>
         {/* On narrow screens the page list folds into this menu. */}
         <details className="learn-menu" key={page.slug}>
           <summary>
