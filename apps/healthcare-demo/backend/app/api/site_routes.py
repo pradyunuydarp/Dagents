@@ -8,8 +8,10 @@ are left out of the OpenAPI document, which describes the public API.
   Dagents GMA (see ``agents.common.infrastructure.federation_http``).
 
 The hospital computes each job's digest itself with the planner and never
-trusts the digest the job carries. A training job sends its bounded update to
-the app process, not to the GMA.
+trusts the digest the job carries. ``:execute`` runs only a job that
+``:offer`` accepted (``Hospital.accepted_jobs``), so a job sent straight to
+``:execute`` cannot skip the offer's checks. A training job sends its bounded
+update to the app process, not to the GMA.
 """
 
 from __future__ import annotations

@@ -28,6 +28,7 @@ import httpx
 
 from tests.split_support import APP_INTERNAL_URL, GMA_URL, LMA_URLS, SplitRun, load_main  # noqa: E402  (sets sys.path)
 
+from agents.common.application.federation import FederatedRoundController, InProcessFederationEngine
 from agents.common.domain.federation import (
     AggregationMethod,
     FederatedJob,
@@ -41,6 +42,7 @@ from app.domain import stroke_model
 from app.domain.conditions import STROKE_CLASSIFICATION, STROKE_FEATURE_CONTRACT
 from app.domain.dataset import SITES
 from app.services.consortium import Consortium
+from app.services.hospital import NOT_ACCEPTED, AcceptedJobs
 from app.services.remote import (
     MODEL_IN_USE_PATH,
     GmaReleaseGuard,
@@ -239,6 +241,26 @@ class RegistryTests(SplitTestCase):
             self.split.router.down.clear()
 
 
+class AcceptedJobsTests(SplitTestCase):
+    """A hospital keeps the jobs it accepted until each runs once."""
+
+    def test_a_job_runs_once_and_only_as_it_was_accepted(self) -> None:
+        accepted = AcceptedJobs(limit=2)
+        job = self.training_job("r-1")
+        self.assertFalse(accepted.take(job))
+        accepted.add(job)
+        self.assertFalse(accepted.take(job.model_copy(update={"task": "evaluate"})))
+        self.assertTrue(accepted.take(job))
+        self.assertFalse(accepted.take(job))
+
+    def test_the_oldest_accepted_job_is_dropped_beyond_the_limit(self) -> None:
+        accepted = AcceptedJobs(limit=2)
+        jobs = [self.training_job(f"r-{number}") for number in range(3)]
+        for job in jobs:
+            accepted.add(job)
+        self.assertEqual([False, True, True], [accepted.take(job) for job in jobs])
+
+
 class InternalListenerTests(SplitTestCase):
     """The app's internal routes are on their own listener, never on the public port."""
 
@@ -435,6 +457,46 @@ class SplitPlannerTests(SplitTestCase):
         refused = [row for row in dashboard["contributions"] if row["round_id"] == "r-wrong-digest"]
         self.assertTrue(refused)
         self.assertTrue(all("digest" in (row["reason"] or "") for row in refused))
+
+    def evaluation_job(self, round_id: str, **changes: Any) -> FederatedJob:
+        """An evaluation job whose digest is the one the planner computes for its manifest.
+
+        A hospital computes the same digest, so its digest check passes even
+        when ``changes`` make the manifest one the hospital refuses.
+        """
+        manifest = self.split.app.consortium.manifest(round_id, "evaluation").model_copy(update=changes)
+        digest = FederatedRoundController(engine=InProcessFederationEngine()).digest(manifest)
+        return FederatedJob(round_id=round_id, site_id=FIRST, manifest=manifest, manifest_digest=digest, task="evaluate")
+
+    def test_an_lma_runs_only_a_job_it_accepted_when_it_was_offered(self) -> None:
+        client = self.split.lma_client(FIRST)
+        job = self.evaluation_job("r-offer-first").model_dump(mode="json")
+        result = self.ok(client.post(EXECUTE_PATH, json=job))
+        self.assertEqual("rejected", result["participation"])
+        self.assertEqual({}, result["metrics"])
+        self.assertIn(NOT_ACCEPTED, result["local_evidence_pointer"])
+
+        self.assertTrue(self.ok(client.post(OFFER_PATH, json=job))["accepted"])
+        result = self.ok(client.post(EXECUTE_PATH, json=job))
+        self.assertEqual("completed", result["participation"])
+        self.assertIn("auc", result["metrics"])
+        # Each accepted job runs once.
+        self.assertEqual("rejected", self.ok(client.post(EXECUTE_PATH, json=job))["participation"])
+
+    def test_an_lma_does_not_run_a_job_its_offer_checks_refuse(self) -> None:
+        client = self.split.lma_client(FIRST)
+        cases = {
+            "code digest": {"training_code_digest": "sha256:" + "0" * 64},
+            "feature contract": {"feature_contract_version": "some-other-contract-v9"},
+        }
+        for name, changes in cases.items():
+            with self.subTest(case=name):
+                job = self.evaluation_job(f"r-refused-{len(name)}", **changes).model_dump(mode="json")
+                self.assertFalse(self.ok(client.post(OFFER_PATH, json=job))["accepted"])
+                result = self.ok(client.post(EXECUTE_PATH, json=job))
+                self.assertEqual("rejected", result["participation"])
+                self.assertEqual({}, result["metrics"])
+                self.assertEqual(0, result["contributed_examples"])
 
     def test_a_pilot_over_the_split_processes_has_the_rounds_of_one_process(self) -> None:
         split_report = self.split.app.consortium.run_pilot("split", training_rounds=2)
