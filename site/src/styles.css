@@ -308,7 +308,6 @@
   gap: var(--ds-4);
   padding: 0;
   list-style: none;
-  counter-reset: step;
 }
 
 @media (min-width: 800px) {
@@ -316,7 +315,6 @@
 }
 
 .steps li {
-  counter-increment: step;
   display: flex;
   flex-direction: column;
   gap: var(--ds-2);
@@ -324,11 +322,20 @@
   border: 1px solid var(--ds-line);
   border-radius: var(--ds-r-2);
   background: var(--ds-panel);
+  transition: border-color 160ms ease, transform 160ms ease;
 }
 
-.steps li h3::before {
-  content: counter(step) ". ";
+.steps li:hover {
+  border-color: var(--ds-line-strong);
+  transform: translateY(-2px);
+}
+
+.step-index {
+  font-family: var(--ds-font-mono);
+  font-size: var(--ds-step--1);
   color: var(--ds-ink-3);
+  padding-bottom: var(--ds-2);
+  border-bottom: 1px solid var(--ds-line);
 }
 
 .steps li p { color: var(--ds-ink-2); }
