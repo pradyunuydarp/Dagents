@@ -115,14 +115,17 @@ jobs:
         # agents draw no charts and charts.py imports matplotlib only when it
         # draws one. They are installed here so the chart rendering tests run.
         # The ranges match apps/healthcare-demo/requirements.txt;
-        # tests/test_ci_guards.py checks that.
+        # tests/test_ci_guards.py checks that. PyYAML is not in the agents'
+        # requirements either: only compose_apply.py reads YAML, and it imports
+        # PyYAML when it parses a file. It is installed so the appliers' tests run.
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r agents/lma/requirements.txt \
                                 -r agents/gma/requirements.txt \
                                 httpx \
                                 "matplotlib>=3.9,<4" \
-                                "numpy>=2,<3"
+                                "numpy>=2,<3" \
+                                "pyyaml>=6.0,<7"
 
       - name: Run the agent suite
         env:
@@ -131,7 +134,7 @@ jobs:
           set -o pipefail
           python -m unittest discover -s agents/tests -t . -v 2>&1 | tee agents-suite.log
 
-      - name: Fail if the governance or chart tests skipped
+      - name: Fail if the governance, chart, site address or applier tests skipped
         # This job has no database, so the database tests in
         # agents/tests/test_postgres_roles.py skip here. They run in the
         # demo-apps job, which has a PostgreSQL service.
@@ -142,6 +145,10 @@ jobs:
             --require-ran agents.tests.test_governance.EthicalGuardTests \
             --require-ran agents.tests.test_federation.RoundLifecycleTests \
             --require-ran agents.tests.test_charts.RenderTests \
+            --require-ran agents.tests.test_site_addresses.SiteAttachTests \
+            --require-ran agents.tests.test_site_addresses.SiteAddressRouteTests \
+            --require-ran agents.tests.test_compose_apply.LocalProcessApplierTests \
+            --require-ran agents.tests.test_compose_apply.DockerComposeApplierTests \
             agents-suite.log
 
       - name: Run the getting-started example and check the guide

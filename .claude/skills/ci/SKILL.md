@@ -42,6 +42,12 @@ and **wrong in CI**.
 The same holds for two other kinds of test: the Postgres tests skip without a
 test database URL, and the chart tests skip without matplotlib.
 
+The Compose appliers' tests (`agents/tests/test_compose_apply.py`) need PyYAML,
+which is not in the agents' requirements. The `agents` job installs it with
+matplotlib and numpy, and requires `LocalProcessApplierTests`,
+`DockerComposeApplierTests` and the two site address classes of
+`agents/tests/test_site_addresses.py` to have run.
+
 Defence: `scripts/ci_no_skipped_tests.py` reads the verbose test log and fails
 on any skip in a forbidden category. The suites must run with `-v`; the guard
 treats a log without verbose output as a failure.
