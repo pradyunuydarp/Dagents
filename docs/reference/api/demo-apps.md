@@ -24,8 +24,14 @@ How each app uses the framework:
   hospital is its own process on ports 8082 to 8084, the backend runs the
   rounds through the GMA service's API, and the GMA sends the jobs to the
   hospitals. The backend forwards each hospital's routes to that hospital, so
-  the endpoints below answer the same way. The hospitals load models and send
-  their updates on the backend's second port, 8081. Those routes are not in
+  the endpoints below take the same requests and return the same fields.
+  Three things differ. `engine` in the overview and the pilot report is
+  `dagents-gma`. The pilot report's `coordinator_audit` counts the release
+  Guard's chain at the GMA, which keeps it in memory. An endpoint that needs a
+  hospital or the GMA answers `503` when that process cannot be reached or does
+  not answer in time, with a message that names the hospital or the GMA but not
+  its address. The **Errors** lines below describe one process. The hospitals
+  load models and send their updates on the backend's second port, 8081. Those routes are not in
   this reference, and port 8080 answers 404 for them. The demo's
   [README](../../../apps/healthcare-demo/README.md#one-process-per-hospital)
   describes the layout.
@@ -177,7 +183,7 @@ the answer is kept per count. Nothing is stored.
 | `dataset` | The IST citation, licence, source address, notice and credit |
 | `feature_contract` | The contract's id, version and its 9 required fields |
 | `field_labels` | Each record field's label, as the entry form shows it |
-| `engine` | The federation engine: `in-process-parameter-averaging` |
+| `engine` | The federation engine: `in-process-parameter-averaging`, or `dagents-gma` in a split run |
 | `secure_aggregation_threshold` | 3. It raises the number of hospitals a round needs to 3 |
 | `minimum_cohort` | 20 |
 | `current_model` | The version and kind of the model in use |
@@ -940,7 +946,7 @@ operation is a round trip, so a pilot takes longer.
 | `release` | `guard`: the release Guard's decision. `gates`: the [release decision](agents.md#the-releasedecision-object) |
 | `baseline_metrics` | The model in use, measured at every hospital and averaged by size |
 | `stop_reason` | Why training stopped early, or `null` |
-| `site_audits`, `coordinator_audit` | Whether each audit chain verifies and how many records it holds. No audit record is in the report |
+| `site_audits`, `coordinator_audit` | Whether each audit chain verifies and how many records it holds. In a split run `coordinator_audit` is the release chain at the GMA. No audit record is in the report |
 | `notice`, `dataset_notice` | What the records are, and the IST licence notice |
 
 In the example, the candidate's AUC of 0.786 passes the AUC floor of 0.70 but
