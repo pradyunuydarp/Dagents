@@ -192,6 +192,11 @@ backend and replays.
 - **Data entry is disabled in a replay**, with a plain explanation. The
   recording holds no answers to new entries or approvals, and a replay must not
   invent one.
+- **A replay never offers to add a hospital.** Adding one starts a process on
+  the machine that runs the demo. The capture records `GET /api/v1/deployments`
+  from one process with `HEALTHCARE_DEMO_DEPLOYER=off`, and
+  `check_demo_recordings.py` refuses a recording whose answer is available or
+  lists an attempt.
 - **Never record without the planner.** The Guard fails closed, so a recording
   made without `dagentsc` holds only denials. `capture_demo_recordings.py`
   refuses to run without it, and `check_demo_recordings.py` refuses a recording
