@@ -89,6 +89,19 @@
   --ds-series-2: #8665f0;
   --ds-series-3: #7b1b94;
 
+  /* Code syntax, used only inside code blocks. The values are GitHub's Primer
+   * light and dark syntax colours, so code reads as it does on GitHub. A
+   * highlighted token never marks a decision, and code reads the same in
+   * greyscale. Each value has at least 4.5:1 contrast against --ds-inset in
+   * its theme. */
+  --ds-syntax-keyword: #cf222e;
+  --ds-syntax-string: #0a3069;
+  --ds-syntax-number: #0550ae;
+  --ds-syntax-function: #6639ba;
+  --ds-syntax-builtin: #953800;
+  --ds-syntax-tag: #116329;
+  --ds-syntax-comment: #59636e;
+
   /* Type. */
   --ds-font-display: "Archivo", "Helvetica Neue", Arial, sans-serif;
   --ds-font-body: "Archivo", "Helvetica Neue", Arial, sans-serif;
@@ -144,6 +157,13 @@
     --ds-series-1: #1b8abd;
     --ds-series-2: #8567f3;
     --ds-series-3: #8f4e8c;
+    --ds-syntax-keyword: #ff7b72;
+    --ds-syntax-string: #a5d6ff;
+    --ds-syntax-number: #79c0ff;
+    --ds-syntax-function: #d2a8ff;
+    --ds-syntax-builtin: #ffa657;
+    --ds-syntax-tag: #7ee787;
+    --ds-syntax-comment: #8b949e;
   }
 }
 
@@ -171,6 +191,13 @@
   --ds-series-1: #1b8abd;
   --ds-series-2: #8567f3;
   --ds-series-3: #8f4e8c;
+  --ds-syntax-keyword: #ff7b72;
+  --ds-syntax-string: #a5d6ff;
+  --ds-syntax-number: #79c0ff;
+  --ds-syntax-function: #d2a8ff;
+  --ds-syntax-builtin: #ffa657;
+  --ds-syntax-tag: #7ee787;
+  --ds-syntax-comment: #8b949e;
 }
 
 /* ===== Base =============================================================== */
@@ -556,6 +583,37 @@ textarea.ds-input {
   line-height: 1.6;
   tab-size: 2;
 }
+
+/* Highlighted tokens inside a code block (highlight.js class names). Text the
+ * highlighter does not mark keeps the block's ink colour. */
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-type,
+.hljs-meta .hljs-keyword { color: var(--ds-syntax-keyword); }
+.hljs-string,
+.hljs-regexp,
+.hljs-meta .hljs-string { color: var(--ds-syntax-string); }
+.hljs-number,
+.hljs-literal,
+.hljs-attr,
+.hljs-attribute,
+.hljs-variable,
+.hljs-template-variable,
+.hljs-operator,
+.hljs-meta { color: var(--ds-syntax-number); }
+.hljs-title,
+.hljs-title.function_,
+.hljs-title.class_,
+.hljs-section { color: var(--ds-syntax-function); }
+.hljs-built_in,
+.hljs-symbol { color: var(--ds-syntax-builtin); }
+.hljs-name,
+.hljs-tag,
+.hljs-selector-id,
+.hljs-selector-class,
+.hljs-bullet { color: var(--ds-syntax-tag); }
+.hljs-comment,
+.hljs-quote { color: var(--ds-syntax-comment); font-style: italic; }
 
 /* ===== Reasons ============================================================ */
 
