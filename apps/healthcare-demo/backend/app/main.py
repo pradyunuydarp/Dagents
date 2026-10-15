@@ -12,6 +12,12 @@ database is configured. Nothing this app returns is clinical advice.
 
 Building the app reads no records and opens no database connection. The
 stores are opened on first use and closed when the app shuts down.
+
+``HEALTHCARE_DEMO_ROLE`` chooses what this process runs (see
+``app.services.roles``). ``combined``, the default, runs every hospital and
+the coordinator here. In a split run, ``lma`` runs one hospital and ``app``
+runs the study through the Dagents GMA service and sends each hospital's pages
+to that hospital's LMA. The public API is the same in every role.
 """
 
 from __future__ import annotations
@@ -32,7 +38,10 @@ from agents.common.infrastructure.dagents_runner import PlannerUnavailableError
 
 from app.api.app_header import APP_HEADER, AppHeader
 from app.api.errors import UNEXPECTED_ERROR_MESSAGE, UnhandledErrors
+from app.api.coordinator_routes import build_coordinator_router
 from app.api.limits import BodySizeLimit, HourlyCap, RateLimiter, SingleFlight, forwarded_for_entries, retry_after
+from app.api.role_paths import OnlyPaths, is_hospital_path, lma_serves
+from app.api.site_routes import build_site_router
 from app.core.config import settings
 from app.domain import stroke_rule
 from app.domain.conditions import (
@@ -65,6 +74,8 @@ from app.services.charts_service import ChartNotAvailable, ChartService, Unknown
 from app.services.consortium import ApprovalRefused, Consortium
 from app.services.framework_client import FrameworkClient
 from app.services.hospital import EntryLimitReached, Hospital
+from app.services.remote import RemoteServiceUnavailable
+from app.services.roles import build_app_consortium, build_site_node, check_role
 from app.services.site_store import (
     IdempotencyKeyReused,
     OutcomeAlreadyRecorded,
@@ -121,11 +132,22 @@ PILOT_BUSY_MESSAGE = "A pilot is already running. Try again when it finishes."
 if settings.register_extension:
     install()
 
-consortium = Consortium(
-    database_url=settings.database_url,
-    secure_aggregation_threshold=settings.secure_aggregation_threshold,
-    max_entered_per_site=settings.max_entered_per_site,
-)
+#: ``combined``, ``lma`` or ``app`` (see ``app.services.roles``).
+ROLE = check_role(settings)
+
+consortium: Any
+if ROLE == "lma":
+    # One hospital. Its pages and its round jobs run here.
+    consortium = build_site_node(settings)
+elif ROLE == "app":
+    # The study, run through the Dagents GMA. Each hospital is its own LMA.
+    consortium = build_app_consortium(settings)
+else:
+    consortium = Consortium(
+        database_url=settings.database_url,
+        secure_aggregation_threshold=settings.secure_aggregation_threshold,
+        max_entered_per_site=settings.max_entered_per_site,
+    )
 framework = FrameworkClient(settings)
 chart_service = ChartService()
 
@@ -175,6 +197,31 @@ app = FastAPI(
     ),
     lifespan=lifespan,
 )
+
+
+def _install_forwarding() -> None:
+    """In the ``app`` role, send each hospital-specific request to that hospital's LMA.
+
+    Installed first, so the forwarding sits inside the body limit, the CORS
+    middleware and the app header, and its answers carry their headers. If the
+    forwarding module is missing, hospital-specific paths answer 404 here
+    instead of reaching routes that need a hospital in this process.
+    """
+    try:
+        from app.api.forward import install_forwarding
+    except ModuleNotFoundError as error:
+        if error.name != "app.api.forward":
+            raise
+        logger.warning("app.api.forward is missing, so hospital pages answer 404 in the app role")
+        app.add_middleware(OnlyPaths, serves=lambda path: not is_hospital_path(path))
+        return
+    install_forwarding(app, settings, rate_limits)
+
+
+if ROLE == "lma":
+    app.add_middleware(OnlyPaths, serves=lma_serves)
+elif ROLE == "app":
+    _install_forwarding()
 app.add_middleware(BodySizeLimit, max_bytes=settings.max_body_bytes)
 # Inside the CORS middleware and the marker, so the 500 it sends for an
 # unhandled error carries both. Starlette's own 500 comes from outside them.
@@ -238,6 +285,13 @@ if psycopg is not None:
             return _not_set_up(request, exc)
         logger.error("database error on %s %s: %s: %s", request.method, request.url.path, type(exc).__name__, exc)
         return JSONResponse(status_code=503, content={"detail": STORE_UNAVAILABLE_MESSAGE})
+
+
+@app.exception_handler(RemoteServiceUnavailable)
+def remote_unavailable(request: Request, exc: RemoteServiceUnavailable) -> JSONResponse:
+    """Another process of a split run cannot be reached: a 503 that names it, never its address."""
+    logger.warning("remote service unavailable on %s %s: %s", request.method, request.url.path, exc)
+    return JSONResponse(status_code=503, content={"detail": exc.public_message})
 
 
 @app.exception_handler(PlannerUnavailableError)
@@ -916,3 +970,13 @@ def framework_trace(
     hospital = _hospital(site_id) if site_id else consortium.hospitals[consortium.sites[0].site_id]
     records = hospital.local_records(limit)
     return {"site_id": hospital.site_id, "record_count": len(records), "trace": framework.planner_trace(records)}
+
+
+# --- Internal routes of a split run -----------------------------------------------------------
+# Mounted only in their role and left out of the OpenAPI document. The combined
+# process has neither.
+
+if ROLE == "lma":
+    app.include_router(build_site_router(lambda: consortium))
+elif ROLE == "app":
+    app.include_router(build_coordinator_router(lambda: consortium))
