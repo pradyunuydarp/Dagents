@@ -66,7 +66,7 @@ copies of one rule drift apart; this repo has had that bug (see §5).
 | `lib/dataset_compiler` | Source validation, profiling, schema contracts, quality rules, transforms |
 | `lib/pipeline_compiler` | Whether a pipeline is a valid DAG, and the order of its steps |
 | `lib/model_router` | Dataset profile + task → model family + packaging mode |
-| `lib/manifest_compiler` | Typed workload spec → Kubernetes YAML |
+| `lib/manifest_compiler` | Typed workload spec → Kubernetes YAML or a Docker Compose file |
 | `lib/governance_compiler` | GRAILS: the protection each field of a request needs |
 | `lib/federation_compiler` | Round manifests, eligibility, quorum, aggregation readiness, release gates |
 
