@@ -1,0 +1,255 @@
+{
+  "payload": {
+    "plan_id": "every-issue",
+    "target": {
+      "kind": "compose",
+      "placement": "own",
+      "network": "Bad Net",
+      "existing_services": [
+        "gma",
+        "Bad Name",
+        "core"
+      ]
+    },
+    "components": [
+      {
+        "name": "Lma_1",
+        "image": "",
+        "kind": "CronJob",
+        "replicas": 3,
+        "env": [
+          {
+            "name": "9X",
+            "value": "a"
+          },
+          {
+            "name": "A",
+            "value": "b"
+          },
+          {
+            "name": "A",
+            "value": "c"
+          }
+        ],
+        "ports": [
+          {
+            "container_port": 0
+          },
+          {
+            "container_port": 8080,
+            "host_port": 70000,
+            "host_ip": "localhost"
+          },
+          {
+            "container_port": 8081,
+            "host_port": 8085
+          }
+        ],
+        "health_check": {
+          "command": [],
+          "interval_seconds": 0
+        }
+      },
+      {
+        "name": "gma",
+        "image": "x",
+        "ports": [
+          {
+            "container_port": 8086,
+            "host_port": 8085,
+            "host_ip": "127.0.0.01"
+          }
+        ],
+        "depends_on": [
+          {
+            "service": "gma"
+          },
+          {
+            "service": "b"
+          },
+          {
+            "service": "b"
+          },
+          {
+            "service": "nowhere"
+          }
+        ]
+      },
+      {
+        "name": "b",
+        "image": "x",
+        "depends_on": [
+          {
+            "service": "c"
+          }
+        ]
+      },
+      {
+        "name": "c",
+        "image": "x",
+        "depends_on": [
+          {
+            "service": "b"
+          },
+          {
+            "service": "gma"
+          },
+          {
+            "service": "core"
+          }
+        ]
+      },
+      {
+        "name": "b",
+        "image": "x",
+        "health_check": {
+          "shell": "",
+          "retries": 0
+        }
+      }
+    ]
+  },
+  "expected": {
+    "plan_id": "every-issue",
+    "services": [
+      "Lma_1",
+      "gma",
+      "b",
+      "c",
+      "b"
+    ],
+    "issues": [
+      {
+        "service": null,
+        "code": "invalid_network_name",
+        "value": "Bad Net"
+      },
+      {
+        "service": null,
+        "code": "invalid_service_name",
+        "value": "Bad Name"
+      },
+      {
+        "service": "Lma_1",
+        "code": "invalid_service_name",
+        "value": "Lma_1"
+      },
+      {
+        "service": "Lma_1",
+        "code": "empty_image",
+        "value": null
+      },
+      {
+        "service": "Lma_1",
+        "code": "no_compose_equivalent",
+        "value": "CronJob"
+      },
+      {
+        "service": "Lma_1",
+        "code": "unsupported_replicas",
+        "value": "3"
+      },
+      {
+        "service": "Lma_1",
+        "code": "invalid_environment_name",
+        "value": "9X"
+      },
+      {
+        "service": "Lma_1",
+        "code": "duplicate_environment_name",
+        "value": "A"
+      },
+      {
+        "service": "Lma_1",
+        "code": "invalid_port",
+        "value": "0"
+      },
+      {
+        "service": "Lma_1",
+        "code": "invalid_host_ip",
+        "value": "localhost"
+      },
+      {
+        "service": "Lma_1",
+        "code": "invalid_port",
+        "value": "70000"
+      },
+      {
+        "service": "Lma_1",
+        "code": "empty_health_check",
+        "value": null
+      },
+      {
+        "service": "Lma_1",
+        "code": "invalid_health_check_timing",
+        "value": null
+      },
+      {
+        "service": "gma",
+        "code": "service_name_in_use",
+        "value": null
+      },
+      {
+        "service": "gma",
+        "code": "invalid_host_ip",
+        "value": "127.0.0.01"
+      },
+      {
+        "service": "gma",
+        "code": "host_port_conflict",
+        "value": "8085"
+      },
+      {
+        "service": "gma",
+        "code": "self_dependency",
+        "value": null
+      },
+      {
+        "service": "gma",
+        "code": "duplicate_dependency",
+        "value": "b"
+      },
+      {
+        "service": "gma",
+        "code": "unknown_dependency",
+        "value": "nowhere"
+      },
+      {
+        "service": "gma",
+        "code": "dependency_cycle",
+        "value": null
+      },
+      {
+        "service": "b",
+        "code": "dependency_cycle",
+        "value": null
+      },
+      {
+        "service": "c",
+        "code": "dependency_outside_project",
+        "value": "core"
+      },
+      {
+        "service": "c",
+        "code": "dependency_cycle",
+        "value": null
+      },
+      {
+        "service": "b",
+        "code": "duplicate_service_name",
+        "value": null
+      },
+      {
+        "service": "b",
+        "code": "empty_health_check",
+        "value": null
+      },
+      {
+        "service": "b",
+        "code": "invalid_health_check_timing",
+        "value": null
+      }
+    ],
+    "compose_yaml": null
+  }
+}

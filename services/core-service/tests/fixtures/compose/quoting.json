@@ -1,0 +1,52 @@
+{
+  "payload": {
+    "plan_id": "quoting",
+    "target": {
+      "kind": "compose"
+    },
+    "components": [
+      {
+        "name": "quoting",
+        "image": "registry.example/zürich:1",
+        "args": [
+          "say \"hi\"",
+          "C:\\path",
+          "$HOME",
+          "line1\nline2",
+          "tab\there",
+          "bell\u0001",
+          "del\u007f",
+          "cr\rx"
+        ],
+        "env_files": [
+          "env/$SITE.env"
+        ],
+        "env": [
+          {
+            "name": "PRICE",
+            "value": "$5 and ${VAR}"
+          },
+          {
+            "name": "_under_score9",
+            "value": ""
+          }
+        ],
+        "health_check": {
+          "shell": "test \"$(cat /tmp/ready)\" = ok",
+          "interval_seconds": 5,
+          "timeout_seconds": 2,
+          "retries": 10,
+          "start_period_seconds": 0
+        }
+      }
+    ]
+  },
+  "expected": {
+    "plan_id": "quoting",
+    "services": [
+      "quoting"
+    ],
+    "issues": [],
+    "compose_yaml": "services:\n  quoting:\n    image: \"registry.example/zürich:1\"\n    command: [\"say \\\"hi\\\"\", \"C:\\\\path\", \"$$HOME\", \"line1\\nline2\", \"tab\\there\", \"bell\\x01\", \"del\\x7F\", \"cr\\rx\"]\n    env_file:\n      - \"env/$$SITE.env\"\n    environment:\n      PRICE: \"$$5 and $${VAR}\"\n      _under_score9: \"\"\n    healthcheck:\n      test: [\"CMD-SHELL\", \"test \\\"$$(cat /tmp/ready)\\\" = ok\"]\n      interval: 5s\n      timeout: 2s\n      retries: 10\n      start_period: 0s\n    networks:\n      - default\n    restart: unless-stopped\nnetworks:\n  default: {}"
+  }
+}

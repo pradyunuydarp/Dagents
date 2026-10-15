@@ -1,0 +1,19 @@
+{
+  "payload": {
+    "plan_id": "no-services",
+    "target": "compose",
+    "components": []
+  },
+  "expected": {
+    "plan_id": "no-services",
+    "services": [],
+    "issues": [
+      {
+        "service": null,
+        "code": "no_services",
+        "value": null
+      }
+    ],
+    "compose_yaml": null
+  }
+}
