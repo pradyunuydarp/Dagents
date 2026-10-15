@@ -228,6 +228,59 @@ first rule that fails:
    network, not 127.0.0.1 or localhost.
 8. In process mode, each address is on 127.0.0.1 or localhost.
 
+### Adding a hospital as a container
+
+`docker-compose.deploy.yml` turns the action on for the Compose layout, on one
+machine. **It mounts the Docker socket into the backend, which gives the
+backend control of Docker on that machine. Never use it on a shared or public
+host.** From `apps/healthcare-demo`:
+
+```bash
+DOCKER_GID=$(stat -c %g /var/run/docker.sock) \
+  docker compose -f docker-compose.yml -f docker-compose.deploy.yml up --build
+```
+
+Without `DOCKER_GID`, Compose stops with "set DOCKER_GID to the group id of
+/var/run/docker.sock". The file changes four services:
+
+| Service | Change |
+|---|---|
+| `core-service` | added, from `services/core-service/Dockerfile`, with no published port. It renders the new hospital's Compose file |
+| `gma` | `GMA_FEDERATION_JOINABLE_SITES=pl-290=http://lma-pl-290:8085` |
+| `healthcare-demo-backend` | the hospitals' image plus the Docker command-line tool (`docker:29.8.1-cli`), the socket, the socket's group, `HEALTHCARE_DEMO_DEPLOYER=compose` and the other settings above; port 8080 on 127.0.0.1 only |
+| `healthcare-demo-frontend` | port 5174 on 127.0.0.1 only |
+
+Adding Hospital 290 starts `lma-pl-290` from the image the other hospitals
+run, in its own Compose project, `healthcare-demo-lma-pl-290`, on the demo's
+network. The project name `healthcare-demo` gives that network its name,
+`healthcare-demo_default`; with another project name (`-p`), set
+`HEALTHCARE_DEMO_DEPLOY_NETWORK` to `<project>_default`. `docker compose down`
+on the demo does not remove the new container. Remove it with:
+
+```bash
+docker rm -f $(docker ps -aq --filter label=com.docker.compose.project=healthcare-demo-lma-pl-290)
+```
+
+A container outlives the backend. A restarted backend keeps a running
+`lma-pl-290` when Hospital 290 is added again (the `start` step says "Already
+running; kept."), but it does not add the hospital by itself.
+
+Docker is not in CI. `tests/test_compose_override.py` checks the merged file
+that `docker compose config` prints, without a daemon. Check a running stack by
+hand:
+
+1. Start the stack with the command above, and wait until
+   `curl http://127.0.0.1:8080/api/v1/deployments` shows `"available": true`.
+2. Add Hospital 290:
+   `curl -X POST http://127.0.0.1:8080/api/v1/deployments -H 'Content-Type: application/json' -d '{"site_id": "pl-290"}'`.
+   Every step should be `done`, and `next_round.selected` should be `true`.
+3. `docker ps --filter label=com.docker.compose.project=healthcare-demo-lma-pl-290`
+   lists one running container, `lma-pl-290`.
+4. Run a pilot:
+   `curl -X POST http://127.0.0.1:8080/api/v1/pilot:run -H 'Content-Type: application/json' -d '{"round_prefix": "api"}'`.
+   Its rounds list `pl-290` among the selected sites.
+5. Remove the container with the command above, then stop the demo.
+
 ### Use a pooler host, not the direct host
 
 Supabase shows the direct host `db.<project-ref>.supabase.co` first. That host

@@ -1,0 +1,89 @@
+# Adds a hospital to the running demo as a container. Opt-in, for one machine.
+#
+# WARNING: this file mounts the Docker socket into the backend. That gives the
+# backend control of Docker on this machine: it can start, stop and remove any
+# container. Never use this file on a shared or public host.
+#
+# Use it on top of docker-compose.yml, from apps/healthcare-demo:
+#
+#   DOCKER_GID=$(stat -c %g /var/run/docker.sock) \
+#     docker compose -f docker-compose.yml -f docker-compose.deploy.yml up --build
+#
+# What it changes:
+#
+#   core-service              the Dagents core service, which renders the new
+#                             hospital's Compose file. No published port.
+#   gma                       accepts the address of Hospital 290 (lma-pl-290:8085)
+#                             while it runs (GMA_FEDERATION_JOINABLE_SITES).
+#   healthcare-demo-backend   the backend image plus the Docker command-line tool,
+#                             with the Docker socket, and HEALTHCARE_DEMO_DEPLOYER
+#                             set to compose. It publishes 8080 on 127.0.0.1 only.
+#   healthcare-demo-frontend  publishes 5174 on 127.0.0.1 only.
+#
+# Adding Hospital 290 (POST /api/v1/deployments) starts lma-pl-290 in its own
+# Compose project, healthcare-demo-lma-pl-290, on this project's network.
+# `docker compose down` on the demo does not remove it; remove it with
+#
+#   docker rm -f $(docker ps -aq --filter label=com.docker.compose.project=healthcare-demo-lma-pl-290)
+#
+# The network is healthcare-demo_default because the project is named
+# healthcare-demo. With another project name (-p), set
+# HEALTHCARE_DEMO_DEPLOY_NETWORK to <project>_default.
+
+services:
+  core-service:
+    build:
+      context: ../..
+      dockerfile: services/core-service/Dockerfile
+    image: dagents/core-service:local
+    env_file:
+      - ../../env/.env.shared
+      - ../../env/.env.core-service
+    healthcheck:
+      test: ["CMD-SHELL", "python -c 'import os, urllib.request; urllib.request.urlopen(\"http://127.0.0.1:%s/api/v1/health\" % os.environ[\"API_PORT\"])'"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
+  gma:
+    environment:
+      GMA_FEDERATION_JOINABLE_SITES: pl-290=http://lma-pl-290:8085
+
+  healthcare-demo-backend:
+    build:
+      dockerfile: !reset null
+      # The image the hospitals run, plus the Docker command-line tool and its
+      # Compose plugin. The backend runs `docker compose` on the file
+      # core-service renders.
+      additional_contexts:
+        backend-image: "service:lma-uk-134"
+      dockerfile_inline: |
+        FROM docker:29.8.1-cli AS docker-cli
+        FROM backend-image
+        USER root
+        COPY --from=docker-cli /usr/local/bin/docker /usr/local/bin/docker
+        COPY --from=docker-cli /usr/local/libexec/docker/cli-plugins/docker-compose /usr/local/libexec/docker/cli-plugins/docker-compose
+        USER appuser
+    image: dagents/healthcare-demo-backend-deploy:local
+    group_add:
+      - "${DOCKER_GID:?set DOCKER_GID to the group id of /var/run/docker.sock}"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      HEALTHCARE_DEMO_DEPLOYER: compose
+      HEALTHCARE_DEMO_JOINING_LMA_URLS: pl-290=http://lma-pl-290:8085
+      HEALTHCARE_DEMO_DEPLOY_IMAGE: dagents/healthcare-demo-backend:local
+      HEALTHCARE_DEMO_DEPLOY_NETWORK: healthcare-demo_default
+      HEALTHCARE_DEMO_DEPLOY_DIR: /tmp/healthcare-demo-deploy
+      HEALTHCARE_DEMO_COORDINATOR_URL: http://healthcare-demo-backend:8081
+    depends_on:
+      core-service:
+        condition: service_healthy
+    ports: !override
+      - "127.0.0.1:8080:8080"
+
+  healthcare-demo-frontend:
+    ports: !override
+      - "127.0.0.1:5174:5174"

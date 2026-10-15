@@ -510,6 +510,13 @@ The new LMA is a child process of the app, and it stops when the app stops.
 [`docs/deployment.md`](docs/deployment.md#adding-a-hospital-is-off-on-every-host)
 lists every setting and the rules the app checks when it starts.
 
+**As a container.** `docker-compose.deploy.yml`, on top of `docker-compose.yml`,
+adds core-service and starts the new hospital as a container in its own Compose
+project. It mounts the Docker socket into the backend, so use it on your own
+machine only; it publishes the backend and the UI on 127.0.0.1 only.
+[Adding a hospital as a container](docs/deployment.md#adding-a-hospital-as-a-container)
+has the command, how to remove the container, and a check to run by hand.
+
 **What keeps it off the public demo.**
 
 - The app refuses to start with the deployer on in any role but `app`, or when
@@ -677,13 +684,14 @@ Three suites cover the split layout:
 The tests that need the planner skip without it. CI requires the
 `SplitProcessTests` class of `test_split_processes.py` to run.
 
-Three suites cover adding a hospital:
+Four suites cover adding a hospital:
 
 | Suite | What it checks |
 |---|---|
 | `tests/test_deployments_api.py` | The settings the app refuses at start-up, the reason `GET /api/v1/deployments` gives in each case, the `Origin` check, the shared flight, and that the combined process and an LMA never add a hospital |
 | `tests/test_deployment_flow.py` | Every step against a split run in the test process, with the real GMA app, a real core-service process and an applier that starts the LMA in process: the join, a pilot that includes Hospital 290, each failure and what it undoes, a GMA restart, and the exact file the applier gets |
 | `tests/test_deployment_spec.py` | The exact Compose request in each mode, rendered by a real core-service, and accepted by both appliers and by `docker compose config` (skipped without Docker) |
+| `tests/test_compose_override.py` | What `docker-compose.deploy.yml` publishes and sets, from the merged file `docker compose config` prints, and that the base file is unchanged (skipped without Docker) |
 
 Good tests to read first:
 
