@@ -168,6 +168,10 @@ class RegisteredModel:
             release_decision=dict(decision) if decision is not None else None,
         )
 
+    def row(self) -> dict[str, Any]:
+        """Every field, with the parameters: the shape :meth:`from_row` reads."""
+        return {**self.summary(), "params": dict(self.params)}
+
     def summary(self) -> dict[str, Any]:
         """The version, kind, digest, status, parent and release decision. No parameters."""
         return {
@@ -225,6 +229,22 @@ class RegisteredModel:
             "data_quality_issues": list(checks.data_quality_issues),
             "suppressed": False,
         }
+
+
+def verify_model(model: RegisteredModel, expected_digest: str) -> RegisteredModel:
+    """Check a loaded model against its stored digest and the digest a round names.
+
+    Returns the model. Raises :class:`ModelVerificationError` when its
+    parameters do not match its stored digest or ``expected_digest``. A
+    hospital runs this check whether it reads the registry from the
+    coordinator store or over HTTP.
+    """
+    computed = model_digest(model.kind, model.params)
+    if computed != model.digest:
+        raise ModelVerificationError(f"the stored parameters of {model.version} do not match its stored digest")
+    if computed != expected_digest:
+        raise ModelVerificationError(f"the parameters of {model.version} do not match the digest the round names")
+    return model
 
 
 class ModelRegistry:
@@ -343,12 +363,7 @@ class ModelRegistry:
         model = self.get(version)
         if model is None:
             raise ModelVerificationError(f"model {version} is not in the registry")
-        computed = model_digest(model.kind, model.params)
-        if computed != model.digest:
-            raise ModelVerificationError(f"the stored parameters of {version} do not match its stored digest")
-        if computed != expected_digest:
-            raise ModelVerificationError(f"the parameters of {version} do not match the digest the round names")
-        return model
+        return verify_model(model, expected_digest)
 
     def register_candidate(self, version: str, params: Mapping[str, float], parent_version: str) -> RegisteredModel:
         """Store a version a training round produced, with status ``candidate``."""
