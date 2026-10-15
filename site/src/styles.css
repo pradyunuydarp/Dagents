@@ -933,26 +933,94 @@
 
 .api-page .doc { max-width: 52rem; }
 
+.api-index {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-4);
+}
+
+.api-index h2,
+.api-index h3 { margin: 0; }
+
+.api-index > h3 { margin-top: var(--ds-4); }
+
+/* Cards keep their own height, so a short list leaves no empty panel. */
 .api-index-grid {
   display: grid;
   gap: var(--ds-4);
   grid-template-columns: repeat(auto-fit, minmax(min(15rem, 100%), 1fr));
+  align-items: start;
 }
 
 .api-index-module {
-  padding: var(--ds-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-3);
+  padding: var(--ds-4) var(--ds-4) var(--ds-3);
   border: 1px solid var(--ds-line);
   border-radius: var(--ds-r-2);
   background: var(--ds-panel);
 }
 
-.api-index-module ul,
-.api-object-index { padding-left: var(--ds-5); }
+.api-index-module h3,
+.api-index-module .ds-note { margin: 0; }
+
+.api-index-module h3 { font-size: var(--ds-step-1); }
+
+.api-index-module h3 a {
+  color: var(--ds-ink);
+  text-decoration: none;
+}
+
+/* The index is navigation, so its links read like the side menus: grey,
+   ink on hover, with a hairline rule between the card's head and list. */
+.api-index-module ul {
+  margin: 0;
+  padding: var(--ds-2) 0 0;
+  list-style: none;
+  border-top: 1px solid var(--ds-line);
+}
+
+.api-index-module li a {
+  display: block;
+  padding: var(--ds-1) 0;
+}
+
+.api-index-module li a,
+.api-object-index a {
+  color: var(--ds-ink-2);
+  text-decoration: none;
+  line-height: 1.35;
+}
+
+.api-index-module h3 a:hover,
+.api-index-module li a:hover,
+.api-object-index a:hover {
+  color: var(--ds-ink);
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+}
+
+.api-object-index {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  columns: 3 16rem;
+  column-gap: var(--ds-5);
+}
+
+.api-object-index li {
+  padding: var(--ds-1) 0;
+  line-height: 1.35;
+  break-inside: avoid;
+}
+
+.api-object-index .ds-note { font-size: var(--ds-step--1); }
 
 .api-index h2,
 .api-interface > h2 {
   font-size: var(--ds-step-3);
-  padding-top: var(--ds-2);
+  padding-top: var(--ds-4);
   border-top: 1px solid var(--ds-line-strong);
   scroll-margin-top: 5rem;
 }
