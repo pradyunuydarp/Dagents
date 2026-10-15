@@ -340,6 +340,45 @@
 
 .steps li p { color: var(--ds-ink-2); }
 
+/* The line drawings in the steps (StepArt.tsx). They move only while the
+ * card is hovered, and not at all under reduced motion. */
+.step-art {
+  display: block;
+  width: 100%;
+  max-width: 15rem;
+  height: auto;
+  margin: var(--ds-2) auto var(--ds-1);
+  overflow: visible;
+}
+
+.step-art .art-fill { fill: var(--ds-inset); }
+.step-art .art-line,
+.step-art .art-ink,
+.step-art .art-link,
+.step-art .art-orbit,
+.step-art .art-scan { fill: none; stroke-width: 1.25; stroke-linecap: round; stroke-linejoin: round; }
+.step-art .art-fill.art-ink,
+.step-art .art-fill.art-line { fill: var(--ds-inset); }
+.step-art .art-line { stroke: var(--ds-line-strong); }
+.step-art .art-ink { stroke: var(--ds-ink-2); }
+.step-art .art-link { stroke: var(--ds-line-strong); stroke-dasharray: 3 3; }
+.step-art .art-orbit { stroke: var(--ds-line); stroke-dasharray: 2 4; }
+.step-art .art-dot,
+.step-art .art-antenna,
+.step-art .art-runner { fill: var(--ds-ink-2); }
+.step-art .art-chosen { stroke: var(--ds-ink-2); }
+.step-art .art-scan { stroke: var(--ds-ink-3); opacity: 0; }
+.step-art .art-runner { opacity: 0; offset-path: path("M70 48 H104 L120 48 H184"); }
+.step-art .art-text { fill: var(--ds-ink-2); font-family: var(--ds-font-mono); font-size: 12px; }
+
+.step-art .art-spin,
+.step-art .art-eyes {
+  transform-box: view-box;
+  transform-origin: 120px 48px;
+}
+
+.step-art .art-eyes { transform-origin: 174px 45px; }
+
 .cards {
   display: grid;
   gap: var(--ds-4);
