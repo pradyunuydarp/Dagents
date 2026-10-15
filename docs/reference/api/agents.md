@@ -839,7 +839,7 @@ Terms used in this part of the page:
 How the GMA relates to the other modules:
 
 - **It calls sites only to dispatch a round, and only when configured.** With
-  `GMA_FEDERATION_SITES` set, [dispatching a round](#dispatch-a-round) sends
+  `GMA_FEDERATION_SITES` set, [dispatching a round](#gma-post-api-v1-federation-rounds) sends
   the job to each selected site over HTTP. No other endpoint calls another
   service. An LMA, an operator or an application sends every other request:
   registrations, heartbeats, telemetry and site results.
