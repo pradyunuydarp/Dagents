@@ -234,21 +234,69 @@ class Settings:
         default_factory=lambda: float(os.getenv("HEALTHCARE_DEMO_UPSTREAM_TIMEOUT_SECONDS", "30"))
     )
 
-    def lma_url_map(self) -> dict[str, str]:
-        """``HEALTHCARE_DEMO_LMA_URLS`` as ``{site_id: url}``, in the order given.
+    #: How the ``app`` process starts a hospital that joins while the demo
+    #: runs: ``off`` (the default), ``process`` (a local process) or
+    #: ``compose`` (a Docker container, through ``docker compose``). Only the
+    #: ``app`` role of a split run on one's own machine may turn it on; the
+    #: app refuses to start with it on under ``RENDER`` or in another role
+    #: (see ``app.services.deployment.check_deployer``).
+    deployer: str = field(default_factory=lambda: os.getenv("HEALTHCARE_DEMO_DEPLOYER", "off").strip().lower())
 
-        Raises ``ValueError`` for an entry that is not ``site=url``.
-        """
+    #: Where each hospital that can join will listen, for the ``app``
+    #: process: ``pl-290=http://127.0.0.1:8085``. The Dagents GMA accepts the
+    #: same address through its ``GMA_FEDERATION_JOINABLE_SITES``.
+    joining_lma_urls: str = field(
+        default_factory=lambda: os.getenv("HEALTHCARE_DEMO_JOINING_LMA_URLS", "pl-290=http://127.0.0.1:8085")
+    )
+
+    #: Seconds the ``app`` process waits for a new hospital to start and
+    #: answer its health check.
+    deploy_timeout_seconds: float = field(
+        default_factory=lambda: float(os.getenv("HEALTHCARE_DEMO_DEPLOY_TIMEOUT_SECONDS", "90"))
+    )
+
+    #: Where the deployer keeps the Compose files it applies and, in process
+    #: mode, the new hospital's log. Empty means a new temporary directory.
+    deploy_dir: str = field(default_factory=lambda: os.getenv("HEALTHCARE_DEMO_DEPLOY_DIR", ""))
+
+    #: The image a new hospital's container runs, in compose mode. It is the
+    #: image ``docker-compose.yml`` builds for the backend.
+    deploy_image: str = field(
+        default_factory=lambda: os.getenv("HEALTHCARE_DEMO_DEPLOY_IMAGE", "dagents/healthcare-demo-backend:local")
+    )
+
+    #: The Compose network a new hospital's container joins, in compose mode:
+    #: the network of the running demo, so the GMA and the app reach it by name.
+    deploy_network: str = field(
+        default_factory=lambda: os.getenv("HEALTHCARE_DEMO_DEPLOY_NETWORK", "healthcare-demo_default")
+    )
+
+    @staticmethod
+    def _url_map(value: str, name: str) -> dict[str, str]:
         urls: dict[str, str] = {}
-        for entry in self.lma_urls.split(","):
+        for entry in value.split(","):
             entry = entry.strip()
             if not entry:
                 continue
             site_id, sep, url = entry.partition("=")
             if not sep or not site_id.strip() or not url.strip():
-                raise ValueError(f"HEALTHCARE_DEMO_LMA_URLS entry {entry!r} is not site=url")
+                raise ValueError(f"{name} entry {entry!r} is not site=url")
             urls[site_id.strip()] = url.strip().rstrip("/")
         return urls
+
+    def lma_url_map(self) -> dict[str, str]:
+        """``HEALTHCARE_DEMO_LMA_URLS`` as ``{site_id: url}``, in the order given.
+
+        Raises ``ValueError`` for an entry that is not ``site=url``.
+        """
+        return self._url_map(self.lma_urls, "HEALTHCARE_DEMO_LMA_URLS")
+
+    def joining_lma_url_map(self) -> dict[str, str]:
+        """``HEALTHCARE_DEMO_JOINING_LMA_URLS`` as ``{site_id: url}``, in the order given.
+
+        Raises ``ValueError`` for an entry that is not ``site=url``.
+        """
+        return self._url_map(self.joining_lma_urls, "HEALTHCARE_DEMO_JOINING_LMA_URLS")
 
     def client_proxy_hops(self) -> int:
         """The proxies the rate limits trust: ``forwarded_for_hops``, or 0 when the header is not trusted."""

@@ -192,6 +192,38 @@ of entries the proxies appended, and it should equal `forwarded_for_hops`. The
 deployed-API tests check this. The limits apply per process, so they slow casual
 misuse and are not a security control.
 
+### Adding a hospital is off on every host
+
+A split run on your own machine can add Hospital 290 (`pl-290`) to the
+consortium while the demo runs. That starts a process or a container, so the
+public demo never offers it: `render.yaml` sets `HEALTHCARE_DEMO_DEPLOYER=off`,
+and the app refuses to start with another value when `RENDER` is set.
+
+| Setting | Default | What it does |
+|---|---|---|
+| `HEALTHCARE_DEMO_DEPLOYER` | `off` | `off`; `process`, which starts the new hospital as a local process; or `compose`, which starts it as a container with `docker compose` |
+| `HEALTHCARE_DEMO_JOINING_LMA_URLS` | `pl-290=http://127.0.0.1:8085` | where each hospital that can join will listen. The GMA's `GMA_FEDERATION_JOINABLE_SITES` must list the same pair |
+| `HEALTHCARE_DEMO_DEPLOY_TIMEOUT_SECONDS` | 90 | how long the app waits for the new hospital to start and answer its health check |
+| `HEALTHCARE_DEMO_DEPLOY_DIR` | a new temporary directory | where the app writes the Compose files it applies and, in process mode, the new hospital's log |
+| `HEALTHCARE_DEMO_DEPLOY_IMAGE` | `dagents/healthcare-demo-backend:local` | the image of the new hospital's container, in compose mode |
+| `HEALTHCARE_DEMO_DEPLOY_NETWORK` | `healthcare-demo_default` | the Compose network the container joins, in compose mode |
+
+The app checks these settings when it starts, and stops with a message at the
+first rule that fails:
+
+1. `HEALTHCARE_DEMO_DEPLOYER` is `off`, `process` or `compose`. With `off`, no
+   other rule applies.
+2. Only `HEALTHCARE_DEMO_ROLE=app` adds hospitals.
+3. `RENDER` is not set.
+4. `HEALTHCARE_DEMO_JOINING_LMA_URLS` names at least one hospital, and each one
+   is a hospital that can join.
+5. No joining hospital is in `HEALTHCARE_DEMO_LMA_URLS`, by id or by address.
+6. Each address is `http` with an explicit port.
+7. In compose mode, each address is `http://lma-<id>:<port>`, and
+   `HEALTHCARE_DEMO_COORDINATOR_URL` is the app's address on the Compose
+   network, not 127.0.0.1 or localhost.
+8. In process mode, each address is on 127.0.0.1 or localhost.
+
 ### Use a pooler host, not the direct host
 
 Supabase shows the direct host `db.<project-ref>.supabase.co` first. That host

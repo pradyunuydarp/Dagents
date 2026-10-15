@@ -75,6 +75,7 @@ from app.services.consortium import ApprovalRefused, Consortium
 from app.services.framework_client import FrameworkClient
 from app.services.hospital import EntryLimitReached, Hospital
 from app.services.remote import RemoteServiceUnavailable
+from app.services.deployment import check_deployer
 from app.services.roles import build_app_consortium, build_site_node, check_role
 from app.services.site_store import (
     IdempotencyKeyReused,
@@ -141,6 +142,9 @@ if settings.register_extension:
 
 #: ``combined``, ``lma`` or ``app`` (see ``app.services.roles``).
 ROLE = check_role(settings)
+# Adding a hospital starts a process or a container. The app refuses to start
+# with a setting that would let a visitor of a public demo do that.
+check_deployer(settings)
 
 consortium: Any
 if ROLE == "lma":

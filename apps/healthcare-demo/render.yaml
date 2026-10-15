@@ -128,6 +128,11 @@ services:
       # hospital as its own LMA process and the study through the Dagents GMA.
       - key: HEALTHCARE_DEMO_ROLE
         value: "combined"
+      # Adding a hospital starts a process or a container. The public demo
+      # never does that, and the app refuses to start with another value when
+      # RENDER is set.
+      - key: HEALTHCARE_DEMO_DEPLOYER
+        value: "off"
 
       # Not set here:
       #
@@ -136,6 +141,11 @@ services:
       # HEALTHCARE_DEMO_LMA_URLS, HEALTHCARE_DEMO_FEDERATION_TIMEOUT_SECONDS and
       # HEALTHCARE_DEMO_UPSTREAM_TIMEOUT_SECONDS. Only the lma and app roles
       # read them, and the hosted demo runs the combined role.
+      #
+      # HEALTHCARE_DEMO_JOINING_LMA_URLS,
+      # HEALTHCARE_DEMO_DEPLOY_TIMEOUT_SECONDS, HEALTHCARE_DEMO_DEPLOY_DIR,
+      # HEALTHCARE_DEMO_DEPLOY_IMAGE and HEALTHCARE_DEMO_DEPLOY_NETWORK. Only
+      # the deployer reads them, and it is off here.
       #
       # HEALTHCARE_DEMO_API_PORT. Render injects `PORT` and routes to it. The
       # image's command uses `PORT` when this repository's own variable is
