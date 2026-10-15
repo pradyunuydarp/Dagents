@@ -166,6 +166,19 @@
   .page::after { display: none; }
 }
 
+/* Diagrams: the grid sits behind the drawing and fades toward the border.
+   Mermaid fills its boxes and labels, so the lines show only between them. */
+.diagram,
+.doc .mermaid {
+  background-color: var(--ds-panel);
+  background-image:
+    radial-gradient(ellipse 75% 80% at 50% 50%, transparent 25%, var(--ds-panel) 90%),
+    var(--fx-grid);
+  background-size: auto, 24px 24px, 24px 24px;
+  background-position: center, center, center;
+  box-shadow: var(--fx-edge);
+}
+
 /* ===== Motion ============================================================= */
 /* A page fades up a few pixels when it opens. Nothing moves for readers who
    ask for less motion, and nothing loops. */
