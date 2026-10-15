@@ -704,6 +704,53 @@
   background: none;
 }
 
+/* ===== Copy button ======================================================== */
+/* Every code block has an icon button in its top right corner. The block keeps
+ * room for it on the right, so code is never under the button until a long
+ * line is scrolled sideways, and then the button's own background hides it. */
+
+.code-block { position: relative; }
+
+.doc .code-block > pre.code,
+.code-block > pre.ds-code { padding-right: 3rem; }
+
+.code-copy {
+  position: absolute;
+  top: var(--ds-2);
+  right: var(--ds-2);
+  z-index: 1;
+  display: inline-grid;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  border: 1px solid var(--ds-line);
+  border-radius: var(--ds-r-1);
+  background: var(--ds-inset);
+  color: var(--ds-ink-3);
+  cursor: pointer;
+  transition: color 120ms ease, border-color 120ms ease;
+}
+
+.code-copy:hover { color: var(--ds-ink); border-color: var(--ds-line-strong); }
+
+.code-copy:focus-visible { outline: 2px solid var(--ds-focus); outline-offset: 1px; }
+
+.code-copy svg {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.code-copy .code-copy-done,
+.code-copy[data-copied] .code-copy-icon { display: none; }
+
+.code-copy[data-copied] .code-copy-done { display: block; }
+
+.code-copy[data-copied] { color: var(--ds-ink); }
+
 .doc .table-scroll { overflow-x: auto; }
 
 .doc .figure-link { display: block; }
@@ -1143,7 +1190,17 @@ td.api-type { min-width: 10ch; }
   border-bottom-color: var(--ds-ink);
 }
 
-.api-tabs .api-copy { margin-left: auto; border-right: 0; border-left: 1px solid var(--ds-line); }
+.api-tabs .code-copy {
+  position: static;
+  margin-left: auto;
+  width: auto;
+  height: auto;
+  padding: var(--ds-1) var(--ds-3);
+  border: 0;
+  border-left: 1px solid var(--ds-line);
+  border-radius: 0;
+  background: transparent;
+}
 
 .api-code-panel { border-radius: 0 0 var(--ds-r-1) var(--ds-r-1); white-space: pre; }
 

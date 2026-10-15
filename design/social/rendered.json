@@ -63,7 +63,7 @@
         "HEALTHCARE_DEMO_PUBLIC_SITE_URL": "https://pradyunuydarp.github.io/Dagents/healthcare-demo/"
       },
       "sources": {
-        "design/dagents-design-system.css": "63546c4c12e2e418675299d5bb09c28eccf8b74887c09ed142742fedc20d8c2e",
+        "design/dagents-design-system.css": "b1af1599890e013f850f279c36256ece1ecdddab424d66bfde82f81549a93836",
         "design/social/card.css": "419cf6e97c864892ad71c45cf9969137df5b0a70621b2995ffb597453da92ec8",
         "design/social/healthcare.html": "1dc53cbb57a3ce75daf13d251a1d81528688cf209a13a6ab830a68196518d10f",
         "design/social/mark.svg": "d7d22e9a71fad284d6f0ab600176da0942072decf2480e2d4d40e034203bcaf6",
@@ -132,7 +132,7 @@
         "NL2SQL_DEMO_PUBLIC_SITE_URL": "https://pradyunuydarp.github.io/Dagents/nl2sql-demo/"
       },
       "sources": {
-        "design/dagents-design-system.css": "63546c4c12e2e418675299d5bb09c28eccf8b74887c09ed142742fedc20d8c2e",
+        "design/dagents-design-system.css": "b1af1599890e013f850f279c36256ece1ecdddab424d66bfde82f81549a93836",
         "design/social/card.css": "419cf6e97c864892ad71c45cf9969137df5b0a70621b2995ffb597453da92ec8",
         "design/social/mark.svg": "d7d22e9a71fad284d6f0ab600176da0942072decf2480e2d4d40e034203bcaf6",
         "design/social/nl2sql.html": "88dccce137f142879b4ac5e5644bf9167def434020b48b51a4402a0440fb63f8",
@@ -201,7 +201,7 @@
         "DAGENTS_PUBLIC_SITE_URL": "https://pradyunuydarp.github.io/Dagents/"
       },
       "sources": {
-        "design/dagents-design-system.css": "63546c4c12e2e418675299d5bb09c28eccf8b74887c09ed142742fedc20d8c2e",
+        "design/dagents-design-system.css": "b1af1599890e013f850f279c36256ece1ecdddab424d66bfde82f81549a93836",
         "design/social/card.css": "419cf6e97c864892ad71c45cf9969137df5b0a70621b2995ffb597453da92ec8",
         "design/social/framework.html": "ad59bd6b99d27df82694e8ac9fb60ebc162eb66a8327d2d6cdc8e104b625b717",
         "design/social/mark.svg": "d7d22e9a71fad284d6f0ab600176da0942072decf2480e2d4d40e034203bcaf6",

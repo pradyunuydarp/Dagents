@@ -517,7 +517,9 @@ meaning only.** Colours mark the decision states (permit, narrow, deny) and
 links. A decorative colour could be mistaken for a decision, so there is no
 accent colour; hierarchy comes from type, weight and thin rules. Charts add
 three series tokens (`--ds-series-1` to `--ds-series-3`), used only inside
-charts, that mark identity (which hospital), never a decision.
+charts, that mark identity (which hospital), never a decision. Code blocks
+add syntax tokens (`--ds-syntax-*`, GitHub's Primer light and dark colours),
+used only inside code blocks and applied on the site by `site/src/highlight.ts`.
 
 ### Published demos replay a real run or call a real API
 

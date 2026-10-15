@@ -1,6 +1,8 @@
 import { Fragment, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
 
 import { renderDiagrams, useColorScheme } from "../Mermaid";
+import { COPY_BUTTON_INNER, COPY_LABEL } from "../codeCopy";
+import { highlight } from "../highlight";
 import { apiRoute, renderMarkdown } from "../markdown";
 import { commandSamples, httpSamples, type CodeSample } from "./codegen";
 import {
@@ -100,11 +102,29 @@ function statusText(status: string): string {
 }
 
 function JsonBlock({ value }: { value: unknown }) {
-  const text = typeof value === "string" ? value : JSON.stringify(value, null, 2);
+  // A string body (plain text, standard error) is shown as it is.
+  const isText = typeof value === "string";
+  const text = isText ? value : JSON.stringify(value, null, 2);
   return (
-    <pre className="ds-code api-json">
-      <code>{text}</code>
-    </pre>
+    <div className="code-block" data-copy-scope>
+      <CopyButton />
+      <pre className="ds-code api-json">
+        <code dangerouslySetInnerHTML={{ __html: highlight(text, isText ? undefined : "json") }} />
+      </pre>
+    </div>
+  );
+}
+
+/** The copy button of a code block. `codeCopy.ts` handles its clicks. */
+function CopyButton() {
+  return (
+    <button
+      type="button"
+      className="code-copy"
+      aria-label={COPY_LABEL}
+      title={COPY_LABEL}
+      dangerouslySetInnerHTML={{ __html: COPY_BUTTON_INNER }}
+    />
   );
 }
 
@@ -325,19 +345,9 @@ function ParameterTable({ parameters, context }: { parameters: Parameter[]; cont
 
 export function CodeTabs({ samples, id }: { samples: CodeSample[]; id: string }) {
   const [active, setActive] = useState(0);
-  const [copied, setCopied] = useState(false);
   const sample = samples[active];
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(sample.code);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1500);
-    } catch {
-      setCopied(false);
-    }
-  };
   return (
-    <div className="api-code">
+    <div className="api-code" data-copy-scope>
       <div className="api-tabs" role="tablist" aria-label="Request code">
         {samples.map((item, index) => (
           <button
@@ -353,12 +363,10 @@ export function CodeTabs({ samples, id }: { samples: CodeSample[]; id: string })
             {item.label}
           </button>
         ))}
-        <button type="button" className="api-copy" onClick={copy}>
-          {copied ? "Copied" : "Copy"}
-        </button>
+        <CopyButton />
       </div>
       <pre className="ds-code api-code-panel" role="tabpanel" id={`${id}-panel`} aria-labelledby={`${id}-tab-${active}`}>
-        <code>{sample.code}</code>
+        <code dangerouslySetInnerHTML={{ __html: highlight(sample.code, sample.label) }} />
       </pre>
     </div>
   );
@@ -425,9 +433,12 @@ function ExampleView({ example, owner, port }: { example: Example; owner: string
           <summary>
             <code>{pointer}</code> as text
           </summary>
-          <pre className="ds-code">
-            <code>{text}</code>
-          </pre>
+          <div className="code-block" data-copy-scope>
+            <CopyButton />
+            <pre className="ds-code">
+              <code>{text}</code>
+            </pre>
+          </div>
         </details>
       ))}
       {response.trimmed.length > 0 && (

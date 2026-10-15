@@ -1,6 +1,8 @@
 import { Marked, type Tokens } from "marked";
 
 import { RAW_URL, REPO_URL, SITE_URL } from "./config";
+import { COPY_BUTTON_HTML } from "./codeCopy";
+import { highlight } from "./highlight";
 
 /**
  * Markdown to HTML for the learning guide.
@@ -11,7 +13,8 @@ import { RAW_URL, REPO_URL, SITE_URL } from "./config";
  *   the repository go to GitHub.
  * - Headings get the same ids GitHub gives them, so `04-apis.md#some-heading`
  *   works in both places.
- * - `mermaid` code blocks become placeholders that `Mermaid.tsx` renders.
+ * - `mermaid` code blocks become placeholders that `Mermaid.tsx` renders, and
+ *   other code blocks are highlighted by `highlight.ts` and get a copy button.
  */
 
 /** GitHub's heading id: lower case, punctuation removed, spaces as hyphens. */
@@ -152,7 +155,7 @@ export function renderMarkdown(markdown: string, resolve: LinkResolver, base = "
         if (token.lang === "mermaid") {
           return `<div class="mermaid" data-diagram="${encodeURIComponent(token.text)}"></div>\n`;
         }
-        return `<pre class="code"><code>${escapeHtml(token.text)}</code></pre>\n`;
+        return `<div class="code-block" data-copy-scope>${COPY_BUTTON_HTML}<pre class="code"><code>${highlight(token.text, token.lang)}</code></pre></div>\n`;
       }
     }
   });
