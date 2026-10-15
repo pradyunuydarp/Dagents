@@ -6,6 +6,7 @@ import { MODULE_DOCS, OVERVIEW, moduleDoc } from "../api/modules";
 import { buildIndex, search, type SearchEntry } from "../api/search";
 import { REPO_URL } from "../config";
 import { apiRoute } from "../markdown";
+import { replayAnimations } from "../replay";
 import { href } from "../router";
 
 /**
@@ -311,8 +312,16 @@ function ModulePage({ slug, data }: { slug: string; data: ApiData | null }) {
   const module = moduleDoc(slug)!;
   const anchors = useMemo(objectAnchors, []);
   const firstStructured = module.segments.findIndex((item) => item.kind !== "prose");
+  const page = useRef<HTMLElement>(null);
+
+  // Moving to another module keeps this article, so its opening fade is
+  // replayed rather than the article replaced.
+  useLayoutEffect(() => {
+    replayAnimations(page.current);
+  }, [slug]);
+
   return (
-    <article className="api-page" data-module={slug}>
+    <article className="api-page" data-module={slug} ref={page}>
       <p className="ds-eyebrow">
         <a href={href("api")}>API reference</a>
       </p>
