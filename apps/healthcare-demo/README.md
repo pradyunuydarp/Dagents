@@ -422,6 +422,12 @@ What travels between them:
   `site_id` query). It answers every consortium route itself and reads no
   hospital's records. An unknown hospital is a 404; a hospital that cannot be
   reached is a 503 that names it.
+- `HEALTHCARE_DEMO_LMA_URLS` lists only the three hospitals the demo starts
+  with. Hospital 290 (`pl-290`) can join while the demo runs, so the app
+  refuses to start when that list names it. An LMA started with
+  `HEALTHCARE_DEMO_SITE_ID=pl-290` keeps its records and its round
+  contributions in memory, even when a database URL is set, because the
+  migrations create no schema or role for it.
 - The GMA runs the release Guard, and its audit chain is in the GMA's memory:
   the GMA keeps no database. The pilot report's `coordinator_audit` counts that
   chain. The release decisions stay in the app's coordinator store.

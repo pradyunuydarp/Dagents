@@ -41,7 +41,7 @@ from fastapi.responses import JSONResponse
 from fastapi.routing import APIRoute
 
 from app.api.limits import RateLimiter
-from app.domain.dataset import UnknownSiteError, site_for
+from app.domain.dataset import UnknownSiteError, any_site_for
 
 logger = logging.getLogger("healthcare_demo.forward")
 
@@ -80,7 +80,7 @@ def unknown_hospital(site_id: str) -> JSONResponse:
 def hospital_name(site_id: str) -> str:
     """The name a visitor knows the hospital by, for error messages."""
     try:
-        return site_for(site_id).display_name
+        return any_site_for(site_id).display_name
     except UnknownSiteError:
         return f"Hospital {_short(site_id, 64)}"
 

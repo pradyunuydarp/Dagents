@@ -64,7 +64,15 @@ from app.domain.conditions import (
     STROKE_RELEASE_GATES,
     STROKE_STUDY_ID,
 )
-from app.domain.dataset import DATASET, DATASET_NOTICE, SITES, Site, UnknownSiteError, load_site_records
+from app.domain.dataset import (
+    DATASET,
+    DATASET_NOTICE,
+    SITES,
+    Site,
+    UnknownSiteError,
+    is_joining,
+    load_site_records,
+)
 from app.services.hospital import DEFAULT_MAX_ENTERED, Hospital
 from app.services.runtime import (
     INITIAL_VERSION,
@@ -182,7 +190,12 @@ def build_site_store(site: Site, database_url: str, environ: Mapping[str, str] |
     With a database URL (or the hospital's own
     ``HEALTHCARE_DEMO_SITE_<SITE>_DATABASE_URL``), the hospital's schema in
     Postgres. Without one, an in-memory store loaded from the committed extract.
+
+    A hospital that joins while the demo runs always gets an in-memory store:
+    the migrations create no schema or role for it.
     """
+    if is_joining(site.site_id):
+        return MemorySiteStore(site, load_site_records(site.site_id))
     if database_url.strip() or site_database_url(site, "", environ):
         return PostgresSiteStore.from_environment(site, database_url.strip(), environ)
     return MemorySiteStore(site, load_site_records(site.site_id))

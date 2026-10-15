@@ -188,6 +188,117 @@ class LmaTests(SplitTestCase):
         self.assertFalse(lma_serves("/api/v1/framework/status"))
 
 
+class JoiningLmaTests(unittest.TestCase):
+    """A hospital that joins while the demo runs runs as an LMA like the others, from memory."""
+
+    JOINING = "pl-290"
+
+    def ok(self, response: httpx.Response, status: int = 200) -> Any:
+        self.assertEqual(status, response.status_code, response.text[:500])
+        return response.json()
+
+    def node(self, **overrides: Any) -> Any:
+        import dataclasses
+
+        from app.core import config
+        from app.services.roles import build_site_node
+
+        settings = dataclasses.replace(
+            config.settings, **{"site_id": self.JOINING, "coordinator_url": APP_INTERNAL_URL, **overrides}
+        )
+        return build_site_node(settings)
+
+    def test_its_lma_reports_its_extract_from_memory(self) -> None:
+        from app.domain.dataset import expected_record_count, joining_site_for
+
+        node = self.node()
+        try:
+            report = node.report()
+            self.assertEqual(self.JOINING, report["site_id"])
+            self.assertEqual("in-memory", report["store_kind"])
+            expected = expected_record_count(joining_site_for(self.JOINING))
+            self.assertEqual(263, expected)
+            self.assertEqual(expected, report["counts"]["total"])
+            self.assertEqual(expected, report["registration"]["cohort_size"])
+            self.assertFalse(_keys(report) & RECORD_FIELDS)
+            self.assertIsNone(node.hospital(self.JOINING).series_slot)
+        finally:
+            node.close()
+
+    def test_a_database_url_does_not_move_it_out_of_memory(self) -> None:
+        """The migrations create no schema or role for a joining hospital."""
+        from app.services.site_store import MemoryCoordinatorStore
+
+        node = self.node(database_url="postgresql://nobody@127.0.0.1:9/none")
+        try:
+            self.assertEqual("in-memory", node.report()["store_kind"])
+            self.assertIsInstance(node._contributions(), MemoryCoordinatorStore)
+        finally:
+            node.close()
+
+    def test_its_lma_app_serves_its_pages(self) -> None:
+        module = load_main("lma", site_id=self.JOINING, coordinator_url=APP_INTERNAL_URL)
+        try:
+            from fastapi.testclient import TestClient
+
+            client = TestClient(module.app)
+            report = self.ok(client.get("/api/v1/site/report"))
+            self.assertEqual(self.JOINING, report["site_id"])
+            self.assertEqual(263, report["summary"]["record_count"])
+            form = self.ok(client.get(f"/api/v1/hospitals/{self.JOINING}/entry-form"))
+            self.assertEqual("Hospital 290", form["display_name"])
+            self.assertEqual(404, client.get("/api/v1/hospitals/uk-134").status_code)
+        finally:
+            module.consortium.close()
+
+    def test_an_unknown_site_id_names_every_site_an_lma_can_run(self) -> None:
+        with self.assertRaises(ValueError) as caught:
+            self.node(site_id="xx-999")
+        self.assertIn("uk-134", str(caught.exception))
+        self.assertIn(self.JOINING, str(caught.exception))
+
+    def test_the_lma_list_of_the_app_refuses_a_joining_hospital(self) -> None:
+        import dataclasses
+
+        from app.core import config
+        from app.services.roles import build_app_consortium
+
+        lma_urls = ",".join(f"{site_id}={url}" for site_id, url in LMA_URLS.items())
+        settings = dataclasses.replace(config.settings, lma_urls=f"{lma_urls},{self.JOINING}=http://lma-{self.JOINING}")
+        with self.assertRaises(ValueError) as caught:
+            build_app_consortium(settings)
+        self.assertEqual(
+            f"{self.JOINING} joins at run time. List it in HEALTHCARE_DEMO_JOINING_LMA_URLS, not "
+            "HEALTHCARE_DEMO_LMA_URLS.",
+            str(caught.exception),
+        )
+        settings = dataclasses.replace(config.settings, lma_urls="xx-999=http://lma-x")
+        with self.assertRaisesRegex(ValueError, "each site must be one of uk-134, it-002, ch-245"):
+            build_app_consortium(settings)
+
+    def test_the_app_builds_a_joining_hospital_without_a_colour(self) -> None:
+        import dataclasses
+
+        from app.core import config
+        from app.domain.dataset import joining_site_for
+        from app.services.remote import RemoteHospital
+        from app.services.roles import build_joining_hospital
+
+        settings = dataclasses.replace(config.settings, upstream_timeout_seconds=7.0)
+        hospital = build_joining_hospital(settings, joining_site_for(self.JOINING), "http://lma-pl-290/")
+        self.assertIsInstance(hospital, RemoteHospital)
+        self.assertIsNone(hospital.series_slot)
+        self.assertEqual("Hospital 290", hospital.display_name)
+        self.assertEqual("http://lma-pl-290", hospital._endpoint.base_url)
+        self.assertEqual(7.0, hospital._endpoint._timeout)
+
+    def test_the_forwarded_error_names_a_joining_hospital(self) -> None:
+        from app.api.forward import hospital_name
+
+        self.assertEqual("Hospital 290", hospital_name(self.JOINING))
+        self.assertEqual("Hospital xx-999", hospital_name("xx-999"))
+
+
 class RegistryTests(SplitTestCase):
     """The app serves models; a hospital checks every one it loads."""
 

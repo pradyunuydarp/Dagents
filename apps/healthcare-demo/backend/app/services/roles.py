@@ -5,7 +5,9 @@
 - ``lma``: :class:`SiteNode`, one hospital. It loads models from the app
   process with :class:`~app.services.remote.RemoteModelRegistry`, sends its
   bounded updates there with ``HttpUpdateChannel``, and keeps its round
-  contributions in a store of its own.
+  contributions in a store of its own. The hospital is one of ``SITES``, or a
+  hospital that joins while the demo runs (``JOINING_SITES``), which keeps its
+  records and contributions in memory.
 - ``app``: a ``Consortium`` built by :func:`build_app_consortium`. Its
   hospitals are the LMAs (:class:`~app.services.remote.RemoteHospital`), the
   Dagents GMA runs its rounds (:class:`~app.services.remote.GmaRoundClient`)
@@ -24,7 +26,7 @@ from agents.common.infrastructure.charts import MAX_SERIES as MAX_CHART_SERIES
 
 from app.core.config import Settings
 from app.domain.conditions import STROKE_CLASSIFICATION
-from app.domain.dataset import SITES, Site, UnknownSiteError, site_for
+from app.domain.dataset import JOINING_SITE_IDS, SITES, Site, UnknownSiteError, any_site_for, is_joining, site_for
 from app.services.consortium import Consortium, build_site_store
 from app.services.hospital import Hospital
 from app.services.remote import GmaReleaseGuard, GmaRoundClient, RemoteHospital, RemoteModelRegistry
@@ -101,7 +103,8 @@ class SiteNode:
     - `database_url`: ``HEALTHCARE_DEMO_DATABASE_URL``, or empty for an
       in-memory store loaded from the committed extract. The hospital's own
       ``HEALTHCARE_DEMO_SITE_<SITE>_DATABASE_URL`` takes precedence, as in one
-      process.
+      process. A joining hospital ignores both: its records and its
+      contributions stay in this process's memory.
     - `max_entered`: most records the data-entry form may add.
     - `timeout`: seconds to wait for each call to the app process. See
       :func:`coordinator_timeout`.
@@ -152,10 +155,11 @@ class SiteNode:
 
         In Postgres, the coordinator schema reached with the hospital's own
         connection string, acting as the hospital, as in one process. In
-        memory, a store of this process.
+        memory, a store of this process. A joining hospital has no schema or
+        role in the database, so it always keeps them in memory.
         """
         if self._contribution_store is None:
-            dsn = site_database_url(self.site, self._database_url, self._environ)
+            dsn = "" if is_joining(self.site_id) else site_database_url(self.site, self._database_url, self._environ)
             if dsn:
                 self._contribution_store = PostgresCoordinatorStore(dsn, self.sites)
             else:
@@ -206,11 +210,14 @@ def build_site_node(
     site_store: SiteStore | None = None,
     contribution_store: CoordinatorStore | None = None,
 ) -> SiteNode:
-    """The ``lma`` role's hospital, from ``HEALTHCARE_DEMO_SITE_ID`` and the other settings."""
+    """The ``lma`` role's hospital, from ``HEALTHCARE_DEMO_SITE_ID`` and the other settings.
+
+    The hospital is one of ``SITES`` or one that joins while the demo runs.
+    """
     try:
-        site = site_for(settings.site_id)
+        site = any_site_for(settings.site_id)
     except UnknownSiteError:
-        known = ", ".join(site.site_id for site in SITES)
+        known = ", ".join([*(site.site_id for site in SITES), *JOINING_SITE_IDS])
         raise ValueError(f"HEALTHCARE_DEMO_SITE_ID is {settings.site_id!r}; it must be one of {known}") from None
     return SiteNode(
         site,
@@ -223,6 +230,50 @@ def build_site_node(
         contribution_store=contribution_store,
         client=client,
     )
+
+
+def build_joining_hospital(
+    settings: Settings,
+    site: Site,
+    url: str,
+    *,
+    client: httpx.Client | None = None,
+    series_slot: int | None = None,
+) -> RemoteHospital:
+    """The app's view of one hospital's LMA at ``url``.
+
+    The app builds the configured hospitals with it at start-up, and a
+    hospital that joins while the app runs. A joining hospital has no chart
+    colour (``series_slot=None``): the design system has three, and the three
+    configured hospitals use them.
+    """
+    return RemoteHospital(
+        site,
+        url,
+        series_slot=series_slot,
+        timeout=settings.upstream_timeout_seconds,
+        federation_timeout=settings.federation_timeout_seconds,
+        client=client,
+    )
+
+
+def check_lma_urls(urls: Mapping[str, str]) -> None:
+    """Refuse a ``HEALTHCARE_DEMO_LMA_URLS`` entry that is not one of ``SITES``.
+
+    A joining hospital is added while the app runs, from
+    ``HEALTHCARE_DEMO_JOINING_LMA_URLS``, so listing it here is refused with
+    a message that says where it belongs.
+    """
+    for site_id in urls:
+        if is_joining(site_id):
+            raise ValueError(
+                f"{site_id} joins at run time. List it in HEALTHCARE_DEMO_JOINING_LMA_URLS, not HEALTHCARE_DEMO_LMA_URLS."
+            )
+        try:
+            site_for(site_id)
+        except UnknownSiteError:
+            known = ", ".join(site.site_id for site in SITES)
+            raise ValueError(f"HEALTHCARE_DEMO_LMA_URLS names {site_id!r}; each site must be one of {known}") from None
 
 
 def build_app_consortium(
@@ -249,22 +300,17 @@ def build_app_consortium(
     urls = settings.lma_url_map()
     if not urls:
         raise ValueError("HEALTHCARE_DEMO_LMA_URLS names no hospital")
+    check_lma_urls(urls)
     hospitals: dict[str, RemoteHospital] = {}
     # A hospital's chart colour is its place in the consortium, as in one process.
     slots = len(urls) <= MAX_CHART_SERIES
     for position, (site_id, url) in enumerate(urls.items(), start=1):
-        try:
-            site = site_for(site_id)
-        except UnknownSiteError:
-            known = ", ".join(site.site_id for site in SITES)
-            raise ValueError(f"HEALTHCARE_DEMO_LMA_URLS names {site_id!r}; each site must be one of {known}") from None
-        hospitals[site_id] = RemoteHospital(
-            site,
+        hospitals[site_id] = build_joining_hospital(
+            settings,
+            site_for(site_id),
             url,
-            series_slot=position if slots else None,
-            timeout=settings.upstream_timeout_seconds,
-            federation_timeout=settings.federation_timeout_seconds,
             client=clients.get(site_id),
+            series_slot=position if slots else None,
         )
     return Consortium(
         database_url=settings.database_url,
