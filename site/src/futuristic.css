@@ -12,6 +12,10 @@
     0 8px 24px -12px color-mix(in srgb, var(--ds-ink) 18%, transparent);
   /* A one-pixel highlight along the top edge of a panel. */
   --fx-edge: inset 0 1px 0 color-mix(in srgb, var(--ds-ink) 4%, transparent);
+  /* The measuring grid of the home page, drawn with the rule token. It is
+     two layers, so a background-size or -position list names each twice. */
+  --fx-grid: linear-gradient(to right, var(--ds-line) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--ds-line) 1px, transparent 1px);
 }
 
 /* ===== Masthead =========================================================== */
@@ -117,6 +121,13 @@
 }
 
 .resource:hover .resource-preview { border-color: var(--ds-line-strong); }
+
+/* ===== Grid ============================================================= */
+/* The home page's measuring grid, repeated where it frames content: in the
+   side margins of every page, behind diagrams and figures, and in a corner of
+   each code block. Each copy fades out before it reaches the text, so the
+   grid reads as structure and never competes with what it frames. The grid
+   is a background image, so it costs no script and no extra elements. */
 
 /* ===== Motion ============================================================= */
 /* A page fades up a few pixels when it opens. Nothing moves for readers who
