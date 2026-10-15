@@ -16,13 +16,19 @@ parameters.
   bounded update (``UpdateSubmission``), stored in the app's runtime until the
   round is aggregated. 409 when the consortium refuses it (see
   ``Consortium.accept_update``).
+
+A pilot needs these routes to answer while it runs, so their work runs in a
+thread pool of their own (``INTERNAL_THREADS``). The public routes share
+AnyIO's default pool of 40 threads, and requests that wait for the running
+pilot, such as approvals, can fill it.
 """
 
 from __future__ import annotations
 
 import asyncio
 import contextlib
-from typing import Any, AsyncIterator, Callable, Iterator, Mapping
+from concurrent.futures import ThreadPoolExecutor
+from typing import Any, AsyncIterator, Callable, Iterator, Mapping, TypeVar
 
 import uvicorn
 from fastapi import APIRouter, FastAPI, HTTPException
@@ -35,26 +41,39 @@ from app.services.consortium import Consortium, UpdateRefused
 from app.services.remote import MODEL_IN_USE_PATH, MODEL_PATH
 from app.services.site_store import UnknownModelError
 
+#: Threads the internal routes run their work in. A round sends the app at
+#: most one call from each hospital at a time.
+INTERNAL_THREADS = 8
+
+_T = TypeVar("_T")
+
 
 def build_coordinator_router(consortium: Callable[[], Consortium]) -> APIRouter:
     """The app's internal routes. ``consortium`` returns the process's consortium."""
     router = APIRouter(include_in_schema=False)
+    threads = ThreadPoolExecutor(max_workers=INTERNAL_THREADS, thread_name_prefix="internal-routes")
 
-    @router.get(MODEL_IN_USE_PATH)
-    def registry_model_in_use() -> dict[str, Any]:
-        return consortium().registry.model_in_use().row()
+    async def run(work: Callable[[], _T]) -> _T:
+        return await asyncio.get_running_loop().run_in_executor(threads, work)
 
-    @router.get(MODEL_PATH)
-    def registry_model(version: str) -> dict[str, Any]:
+    def model_row(version: str) -> dict[str, Any]:
         model = consortium().registry.get(version)
         if model is None:
             raise UnknownModelError(version)
         return model.row()
 
+    @router.get(MODEL_IN_USE_PATH)
+    async def registry_model_in_use() -> dict[str, Any]:
+        return await run(lambda: consortium().registry.model_in_use().row())
+
+    @router.get(MODEL_PATH)
+    async def registry_model(version: str) -> dict[str, Any]:
+        return await run(lambda: model_row(version))
+
     @router.post(UPDATE_PATH)
-    def submit_update(round_id: str, submission: UpdateSubmission) -> dict[str, Any]:
+    async def submit_update(round_id: str, submission: UpdateSubmission) -> dict[str, Any]:
         try:
-            digest = consortium().accept_update(round_id, submission.job, submission.update)
+            digest = await run(lambda: consortium().accept_update(round_id, submission.job, submission.update))
         except UpdateRefused as error:
             raise HTTPException(status_code=409, detail=f"The update was not stored: {error}.") from None
         return UpdateReceipt(update_digest=digest).model_dump(mode="json")

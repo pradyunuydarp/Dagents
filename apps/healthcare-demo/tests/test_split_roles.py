@@ -18,9 +18,11 @@ everywhere.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 import socket
+import threading
 import unittest
 from typing import Any
 
@@ -280,6 +282,30 @@ class InternalListenerTests(SplitTestCase):
         self.ok(client.get(MODEL_IN_USE_PATH))
         for path in ("/api/v1/overview", "/api/v1/models", "/api/v1/health", "/openapi.json", "/docs"):
             self.assertEqual(404, client.get(path).status_code, path)
+
+    def test_the_internal_routes_answer_while_every_public_thread_is_busy(self) -> None:
+        """A pilot holds the consortium's lock, so public requests such as approvals wait for it in
+        AnyIO's default threads. The hospitals' calls during the pilot must not wait for those threads."""
+        import anyio
+        import anyio.to_thread
+
+        async def scenario() -> int:
+            # The public app and the internal listener share one event loop, and so its default threads.
+            anyio.to_thread.current_default_thread_limiter().total_tokens = 1
+            release = threading.Event()
+            async with anyio.create_task_group() as group:
+                group.start_soon(anyio.to_thread.run_sync, release.wait)
+                await anyio.sleep(0.1)
+                try:
+                    transport = httpx.ASGITransport(app=self.split.app.internal_app)
+                    async with httpx.AsyncClient(transport=transport, base_url=APP_INTERNAL_URL) as client:
+                        with anyio.fail_after(10):
+                            response = await client.get(MODEL_IN_USE_PATH)
+                finally:
+                    release.set()
+            return response.status_code
+
+        self.assertEqual(200, asyncio.run(scenario()))
 
     def test_the_app_process_opens_its_internal_listener_while_it_runs(self) -> None:
         from fastapi.testclient import TestClient
