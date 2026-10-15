@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
 
 import { renderDiagrams, useColorScheme } from "../Mermaid";
+import { highlight } from "../highlight";
 import { apiRoute, renderMarkdown } from "../markdown";
 import { commandSamples, httpSamples, type CodeSample } from "./codegen";
 import {
@@ -100,10 +101,12 @@ function statusText(status: string): string {
 }
 
 function JsonBlock({ value }: { value: unknown }) {
-  const text = typeof value === "string" ? value : JSON.stringify(value, null, 2);
+  // A string body (plain text, standard error) is shown as it is.
+  const isText = typeof value === "string";
+  const text = isText ? value : JSON.stringify(value, null, 2);
   return (
     <pre className="ds-code api-json">
-      <code>{text}</code>
+      <code dangerouslySetInnerHTML={{ __html: highlight(text, isText ? undefined : "json") }} />
     </pre>
   );
 }
@@ -358,7 +361,7 @@ export function CodeTabs({ samples, id }: { samples: CodeSample[]; id: string })
         </button>
       </div>
       <pre className="ds-code api-code-panel" role="tabpanel" id={`${id}-panel`} aria-labelledby={`${id}-tab-${active}`}>
-        <code>{sample.code}</code>
+        <code dangerouslySetInnerHTML={{ __html: highlight(sample.code, sample.label) }} />
       </pre>
     </div>
   );
