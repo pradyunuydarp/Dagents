@@ -66,6 +66,18 @@ International Stroke Trial records in memory, loaded from
 `apps/healthcare-demo/data/ist/`, so the demo needs no database. Records you
 enter are lost when you stop it. Press Ctrl-C to stop it.
 
+To run each hospital in its own process, add `--split`:
+
+```bash
+apps/healthcare-demo/scripts/run_frontend_demo.sh --split
+```
+
+This starts the Dagents GMA on port 8020, one LMA per hospital on ports 8082,
+8083 and 8084, and the API on port 8080. The GMA sends each round's jobs to the
+hospitals over HTTP, and the API forwards each hospital's pages to that
+hospital's process. The calls between the processes have no authentication, so
+every process listens on 127.0.0.1 only.
+
 ## 6. Run the tests
 
 ```bash
