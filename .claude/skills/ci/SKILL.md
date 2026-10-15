@@ -116,8 +116,11 @@ demo script turns that into a friendly message and exits 0. That is right for a
 developer and wrong for CI.
 
 Defence: the `frontends` job installs a browser, sets `CHROMIUM_PATH`, and fails
-if the smoke log contains a skip or no passing assertions. `npm run check`
-returns exit 2 to the step directly, which fails it.
+if the smoke log contains a skip or no passing assertions. It runs the
+healthcare smoke test twice: against the single-process backend, and with
+`--split` against the five-process layout (the Dagents GMA, one LMA per
+hospital and the app). `npm run check` returns exit 2 to the step directly,
+which fails it.
 
 Never let a job accept exit 2, and never report a skipped browser test as a pass.
 

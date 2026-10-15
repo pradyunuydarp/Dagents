@@ -593,6 +593,26 @@ jobs:
             exit 1
           }
 
+      - name: Smoke-test the real UI against the split backend
+        # The same smoke test, with the backend run as five processes: the
+        # Dagents GMA, one LMA per hospital and the app
+        # (scripts/run_split_demo.sh). It proves the UI works when every
+        # round crosses a process boundary.
+        env:
+          DAGENTSC_BIN: ${{ env.PLANNER_DIR }}/dagentsc.exe
+          PYTHON: python
+        run: |
+          set -o pipefail
+          apps/healthcare-demo/scripts/run_frontend_demo.sh --split --check 2>&1 | tee smoke-split.log
+          if grep -qi "smoke test skipped\|^SKIP" smoke-split.log; then
+            echo "The split smoke test skipped instead of running." >&2
+            exit 1
+          fi
+          grep -q "ok  " smoke-split.log || {
+            echo "The split smoke test produced no passing assertions." >&2
+            exit 1
+          }
+
   # ---------------------------------------------------------------------------
   # The framework site publishes docs/ from main, so a code change and the docs
   # it feeds land together. This fails when a change touches a code area that
