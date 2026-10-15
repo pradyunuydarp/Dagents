@@ -180,12 +180,15 @@ def _over_hourly_cap(wait: float, action: str) -> HTTPException:
 
 
 @asynccontextmanager
-async def lifespan(_: FastAPI) -> AsyncIterator[None]:
-    """Close every store's database connection when the app shuts down."""
+async def lifespan(application: FastAPI) -> AsyncIterator[None]:
+    """Close every store's database connection, and the forwarding client, when the app shuts down."""
     try:
         yield
     finally:
         consortium.close()
+        forwarder = getattr(application.state, "forwarder", None)
+        if forwarder is not None:
+            await forwarder.aclose()
 
 
 app = FastAPI(
