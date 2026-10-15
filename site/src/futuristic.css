@@ -7,6 +7,9 @@
   --fx-ease: cubic-bezier(0.2, 0.7, 0.2, 1);
   --fx-fast: 150ms;
   --fx-slow: 320ms;
+  /* A soft lift for hovered cards, drawn in ink so it follows the theme. */
+  --fx-lift: 0 1px 2px color-mix(in srgb, var(--ds-ink) 6%, transparent),
+    0 8px 24px -12px color-mix(in srgb, var(--ds-ink) 18%, transparent);
   /* A one-pixel highlight along the top edge of a panel. */
   --fx-edge: inset 0 1px 0 color-mix(in srgb, var(--ds-ink) 4%, transparent);
 }
@@ -64,4 +67,29 @@
 .learn-menu,
 .api-menu {
   box-shadow: var(--fx-edge);
+}
+
+/* ===== Cards ============================================================== */
+
+.pager a,
+.resource,
+.api-endpoint,
+.api-object,
+.api-index-module {
+  box-shadow: var(--fx-edge);
+  transition: border-color var(--fx-fast) var(--fx-ease), box-shadow var(--fx-slow) var(--fx-ease),
+    transform var(--fx-slow) var(--fx-ease);
+}
+
+.pager a:hover,
+.resource:hover,
+.api-index-module:hover {
+  border-color: var(--ds-line-strong);
+  box-shadow: var(--fx-edge), var(--fx-lift);
+}
+
+/* Endpoint cards are long; only their border answers the pointer. */
+.api-endpoint:hover,
+.api-object:hover {
+  border-color: var(--ds-line-strong);
 }
