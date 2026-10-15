@@ -53,6 +53,14 @@ let int_field_with_default name default fields =
   | None -> default
   | _ -> fail ("Expected int field: " ^ name)
 
+(** Read an optional integer field, returning [None] when absent or null. *)
+let int_option_field name fields =
+  match List.assoc_opt name fields with
+  | Some (`Int value) -> Some value
+  | Some (`Intlit value) -> Some (int_of_string value)
+  | Some `Null | None -> None
+  | _ -> fail ("Expected nullable int field: " ^ name)
+
 (** Read an optional string-list field, defaulting to an empty list. *)
 let string_list_field name fields =
   match List.assoc_opt name fields with
@@ -693,14 +701,6 @@ let float_option_field name fields =
   | Some (`Intlit value) -> Some (float_of_string value)
   | Some `Null | None -> None
   | _ -> fail ("Expected nullable float field: " ^ name)
-
-(** Read an optional integer field, returning [None] when absent or null. *)
-let int_option_field name fields =
-  match List.assoc_opt name fields with
-  | Some (`Int value) -> Some value
-  | Some (`Intlit value) -> Some (int_of_string value)
-  | Some `Null | None -> None
-  | _ -> fail ("Expected nullable int field: " ^ name)
 
 (** Read an object of numeric values, such as a metric bundle. *)
 let float_assoc_field name fields =
