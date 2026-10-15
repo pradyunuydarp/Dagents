@@ -1,0 +1,86 @@
+{
+  "payload": {
+    "plan_id": "yaml-typed-names",
+    "target": {
+      "kind": "compose",
+      "placement": "merge",
+      "network": "123",
+      "external_network": false,
+      "existing_services": [
+        "null"
+      ]
+    },
+    "components": [
+      {
+        "name": "134",
+        "image": "x",
+        "env": [
+          {
+            "name": "NULL",
+            "value": "a"
+          },
+          {
+            "name": "True",
+            "value": "b"
+          },
+          {
+            "name": "false",
+            "value": "c"
+          },
+          {
+            "name": "Y",
+            "value": "d"
+          }
+        ],
+        "depends_on": [
+          {
+            "service": "null",
+            "condition": "service_started"
+          },
+          {
+            "service": "true",
+            "condition": "service_started"
+          }
+        ]
+      },
+      {
+        "name": "true",
+        "image": "x"
+      },
+      {
+        "name": "1e3",
+        "image": "x"
+      },
+      {
+        "name": "0x1f",
+        "image": "x"
+      },
+      {
+        "name": "1.0",
+        "image": "x"
+      },
+      {
+        "name": "1_000",
+        "image": "x"
+      },
+      {
+        "name": "2024-01-01",
+        "image": "x"
+      }
+    ]
+  },
+  "expected": {
+    "plan_id": "yaml-typed-names",
+    "services": [
+      "134",
+      "true",
+      "1e3",
+      "0x1f",
+      "1.0",
+      "1_000",
+      "2024-01-01"
+    ],
+    "issues": [],
+    "compose_yaml": "services:\n  \"134\":\n    image: \"x\"\n    environment:\n      \"NULL\": \"a\"\n      \"True\": \"b\"\n      \"false\": \"c\"\n      \"Y\": \"d\"\n    depends_on:\n      \"null\":\n        condition: service_started\n      \"true\":\n        condition: service_started\n    networks:\n      - \"123\"\n    restart: unless-stopped\n  \"true\":\n    image: \"x\"\n    networks:\n      - \"123\"\n    restart: unless-stopped\n  \"1e3\":\n    image: \"x\"\n    networks:\n      - \"123\"\n    restart: unless-stopped\n  \"0x1f\":\n    image: \"x\"\n    networks:\n      - \"123\"\n    restart: unless-stopped\n  \"1.0\":\n    image: \"x\"\n    networks:\n      - \"123\"\n    restart: unless-stopped\n  \"1_000\":\n    image: \"x\"\n    networks:\n      - \"123\"\n    restart: unless-stopped\n  \"2024-01-01\":\n    image: \"x\"\n    networks:\n      - \"123\"\n    restart: unless-stopped\nnetworks:\n  \"123\": {}"
+  }
+}

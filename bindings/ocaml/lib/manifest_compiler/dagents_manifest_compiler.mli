@@ -73,8 +73,8 @@ val quote_compose_scalar : string -> string
     Output:
     - [compose_plan]: the plan id, every component name in request order, the
       issues in the documented order, and the file. The file is [None] exactly
-      when there are issues. A spec that cannot become a Compose file is
-      reported, not raised.
+      when there are issues. Every name and value in it is double-quoted. A
+      spec that cannot become a Compose file is reported, not raised.
 
     Example test case:
     {[

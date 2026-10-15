@@ -110,8 +110,9 @@ For Docker Compose, it renders one Compose file:
   exits with code 0. The issue codes are in `compose_issue_code_and_value`.
 - **Quoting.** Every value a caller chose is written as a double-quoted YAML
   scalar, and `$` is written as `$$` so Compose passes it to the container
-  instead of reading a variable. Names are checked before they are written as
-  YAML keys.
+  instead of reading a variable. Names are checked, then written double-quoted
+  too, because YAML reads a bare name such as `134`, `null` or `True` as a
+  number, null or a boolean, and Compose refuses such a key.
 
 The Kubernetes renderers ignore the Compose fields, and the Compose renderer
 ignores the Kubernetes-only fields such as `resources` and `namespace`. Neither
@@ -271,16 +272,16 @@ The Compose file it prints:
 
 ```yaml
 services:
-  lma-hospital-d:
+  "lma-hospital-d":
     image: "dagents/healthcare-demo-backend:local"
     command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8085"]
     env_file:
       - "../../env/.env.shared"
       - "env/.env.healthcare-demo"
     environment:
-      HEALTHCARE_DEMO_ROLE: "lma"
-      HEALTHCARE_DEMO_SITE_ID: "hospital-d"
-      HEALTHCARE_DEMO_API_PORT: "8085"
+      "HEALTHCARE_DEMO_ROLE": "lma"
+      "HEALTHCARE_DEMO_SITE_ID": "hospital-d"
+      "HEALTHCARE_DEMO_API_PORT": "8085"
     ports:
       - "127.0.0.1:8085:8085"
     healthcheck:
@@ -290,13 +291,13 @@ services:
       retries: 3
       start_period: 10s
     depends_on:
-      gma:
+      "gma":
         condition: service_healthy
     networks:
-      - default
+      - "default"
     restart: unless-stopped
 networks:
-  default: {}
+  "default": {}
 ```
 
 Saved as `generated.yml`, it starts inside the running project with the

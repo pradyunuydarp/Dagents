@@ -268,6 +268,8 @@ What the file contains:
   `host_port` is listed under `expose` and is not published on the host.
 - Every value is quoted, and each `$` is written as `$$`. Docker Compose then
   passes the value to the container unchanged instead of reading a variable.
+  Names are quoted too, so that a service named `134` or an environment
+  variable named `NULL` stays a string.
 - `env_files` keeps secrets, such as a database address with a password, out of
   the file. The file is returned to the caller, which may show it.
 - A `Deployment` gets `restart: unless-stopped` and a `Job` gets

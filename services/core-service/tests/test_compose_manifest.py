@@ -43,6 +43,7 @@ FIXTURE_NAMES = (
     "lma-merges-into-project",
     "job-on-external-network",
     "quoting",
+    "yaml-typed-names",
     "every-issue",
     "no-services",
 )

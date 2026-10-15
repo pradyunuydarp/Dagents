@@ -342,14 +342,19 @@ let is_digit c = c >= '0' && c <= '9'
 
 (** A Compose service or network name: [[a-z0-9][a-z0-9_.-]*].
 
-    Only names that pass this check are written as YAML keys or bare values,
-    so a caller's name cannot add a key or end a line. *)
+    Only names that pass this check are written to the file, so a caller's
+    name cannot add a key or end a line. They are still written double-quoted,
+    because YAML reads a bare name such as [134], [null], [true] or
+    [2024-01-01] as a number, null, a boolean or a date, and Compose refuses a
+    key that is not a string. *)
 let valid_compose_name name =
   name <> ""
   && is_lower_or_digit name.[0]
   && String.for_all (fun c -> is_lower_or_digit c || c = '-' || c = '_' || c = '.') name
 
-(** An environment variable name: [[A-Za-z_][A-Za-z0-9_]*]. *)
+(** An environment variable name: [[A-Za-z_][A-Za-z0-9_]*]. It is written
+    double-quoted, like a service name, because YAML reads [NULL] or [True] as
+    null or a boolean. *)
 let valid_environment_name name =
   let letter c = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c = '_' in
   name <> "" && letter name.[0] && String.for_all (fun c -> letter c || is_digit c) name
@@ -540,14 +545,15 @@ let render_compose_service network (component : workload_component) =
       component.ports
   in
   let section key lines = match lines with [] -> [] | _ -> ("  " ^ key ^ ":") :: lines in
-  [ component.name ^ ":"; "  image: " ^ quote_compose_scalar component.image ]
+  [ quote_compose_scalar component.name ^ ":"; "  image: " ^ quote_compose_scalar component.image ]
   @ (match component.args with
     | [] -> []
     | args -> [ "  command: " ^ flow_list (List.map quote_compose_scalar args) ])
   @ section "env_file" (List.map (fun path -> "    - " ^ quote_compose_scalar path) component.env_files)
   @ section "environment"
       (List.map
-         (fun (variable : env_var) -> "    " ^ variable.name ^ ": " ^ quote_compose_scalar variable.value)
+         (fun (variable : env_var) ->
+           "    " ^ quote_compose_scalar variable.name ^ ": " ^ quote_compose_scalar variable.value)
          component.env)
   @ section "expose" (List.map (fun (port : port) -> "    - \"" ^ string_of_int port.container_port ^ "\"") exposed)
   @ section "ports"
@@ -575,19 +581,19 @@ let render_compose_service network (component : workload_component) =
       (List.concat_map
          (fun dependency ->
            [
-             "    " ^ dependency.dependency_service ^ ":";
+             "    " ^ quote_compose_scalar dependency.dependency_service ^ ":";
              "      condition: " ^ string_of_dependency_condition dependency.dependency_condition;
            ])
          component.service_dependencies)
-  @ [ "  networks:"; "    - " ^ network; "  restart: " ^ compose_restart_policy component.kind ]
+  @ [ "  networks:"; "    - " ^ quote_compose_scalar network; "  restart: " ^ compose_restart_policy component.kind ]
 
 (** Render a spec that has no issues as one Compose file. *)
 let render_compose_file (target : compose_target) (spec : workload_spec) =
   let network = compose_network_name target.compose_network in
   let networks =
     match target.compose_network with
-    | ProjectNetwork name -> [ "networks:"; "  " ^ name ^ ": {}" ]
-    | ExternalNetwork name -> [ "networks:"; "  " ^ name ^ ":"; "    external: true" ]
+    | ProjectNetwork name -> [ "networks:"; "  " ^ quote_compose_scalar name ^ ": {}" ]
+    | ExternalNetwork name -> [ "networks:"; "  " ^ quote_compose_scalar name ^ ":"; "    external: true" ]
   in
   String.concat "\n"
     (("services:" :: List.concat_map (fun c -> indent "  " (render_compose_service network c)) spec.components)

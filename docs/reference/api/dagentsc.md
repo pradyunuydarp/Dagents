@@ -191,7 +191,10 @@ environment variables, ports and dependencies. The file has no top-level
 an image, an argument or an environment value, is written as a double-quoted
 YAML string, and a `$` in it is written as `$$`, so Compose passes one `$` to
 the container instead of reading a variable of the shell that runs it. Names
-are checked before they are written as YAML keys.
+of services, networks and environment variables are checked, then written
+double-quoted too: unquoted, YAML reads a name such as `134`, `null`, `true` or
+`2024-01-01` as a number, null, a boolean or a date, and Compose refuses a key
+that is not a string.
 
 The Kubernetes JSON output has `planId`, `namespace`, `manifests` (per
 component: `componentName`, `kind`, `deploymentYaml`, `serviceYaml`,

@@ -1665,16 +1665,16 @@ let lma_merge_json =
 (** The Compose file [lma_merge_json] renders, byte for byte. *)
 let lma_merge_yaml =
   {|services:
-  lma-hospital-d:
+  "lma-hospital-d":
     image: "dagents/healthcare-demo-backend:local"
     command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8085"]
     env_file:
       - "../../env/.env.shared"
       - "env/.env.healthcare-demo"
     environment:
-      HEALTHCARE_DEMO_ROLE: "lma"
-      HEALTHCARE_DEMO_SITE_ID: "hospital-d"
-      HEALTHCARE_DEMO_API_PORT: "8085"
+      "HEALTHCARE_DEMO_ROLE": "lma"
+      "HEALTHCARE_DEMO_SITE_ID": "hospital-d"
+      "HEALTHCARE_DEMO_API_PORT": "8085"
     ports:
       - "127.0.0.1:8085:8085"
     healthcheck:
@@ -1684,13 +1684,13 @@ let lma_merge_yaml =
       retries: 3
       start_period: 10s
     depends_on:
-      gma:
+      "gma":
         condition: service_healthy
     networks:
-      - default
+      - "default"
     restart: unless-stopped
 networks:
-  default: {}|}
+  "default": {}|}
 
 (** Verifies the reference example: an LMA merged into a running project
     renders byte for byte, [compile_for_target] dispatches on the target, and
@@ -1907,7 +1907,7 @@ let job_on_external_network_json =
 let test_compose_network_and_placement () =
   assert_equal_text "the external-network job file changed"
     {|services:
-  lma-hospital-e:
+  "lma-hospital-e":
     image: "dagents/lma:1"
     expose:
       - "8010"
@@ -1920,26 +1920,26 @@ let test_compose_network_and_placement () =
       retries: 3
       start_period: 10s
     networks:
-      - healthcare-demo_default
+      - "healthcare-demo_default"
     restart: unless-stopped
-  seed-hospital-e:
+  "seed-hospital-e":
     image: "dagents/lma:1"
     command: ["seed"]
     depends_on:
-      lma-hospital-e:
+      "lma-hospital-e":
         condition: service_healthy
-      lma-hospital-e-init:
+      "lma-hospital-e-init":
         condition: service_completed_successfully
     networks:
-      - healthcare-demo_default
+      - "healthcare-demo_default"
     restart: "no"
-  lma-hospital-e-init:
+  "lma-hospital-e-init":
     image: "dagents/lma:1"
     networks:
-      - healthcare-demo_default
+      - "healthcare-demo_default"
     restart: "no"
 networks:
-  healthcare-demo_default:
+  "healthcare-demo_default":
     external: true|}
     (compose_yaml_of_json job_on_external_network_json);
   let two_services network =
@@ -1949,10 +1949,10 @@ networks:
   in
   let yaml = compose_yaml_of_json (two_services "dagents.net-1") in
   assert_true "a network the file declares should be an empty mapping"
-    (contains yaml "\nnetworks:\n  dagents.net-1: {}" && not (contains yaml "external"));
+    (contains yaml "\nnetworks:\n  \"dagents.net-1\": {}" && not (contains yaml "external"));
   assert_true "every service should join the network"
-    (contains yaml "  a:\n    image: \"x\"\n    networks:\n      - dagents.net-1\n"
-    && contains yaml "  b:\n    image: \"x\"\n    networks:\n      - dagents.net-1\n");
+    (contains yaml "  \"a\":\n    image: \"x\"\n    networks:\n      - \"dagents.net-1\"\n"
+    && contains yaml "  \"b\":\n    image: \"x\"\n    networks:\n      - \"dagents.net-1\"\n");
   (* Each pair is the name as JSON text and as the parsed value. *)
   List.iter
     (fun (json_text, network) ->
@@ -2012,14 +2012,14 @@ let quoting_json =
 let test_compose_quoted_file () =
   assert_equal_text "the quoting fixture's Compose file changed"
     {|services:
-  quoting:
+  "quoting":
     image: "registry.example/zürich:1"
     command: ["say \"hi\"", "C:\\path", "$$HOME", "line1\nline2", "tab\there", "bell\x01", "del\x7F", "cr\rx"]
     env_file:
       - "env/$$SITE.env"
     environment:
-      PRICE: "$$5 and $${VAR}"
-      _under_score9: ""
+      "PRICE": "$$5 and $${VAR}"
+      "_under_score9": ""
     healthcheck:
       test: ["CMD-SHELL", "test \"$$(cat /tmp/ready)\" = ok"]
       interval: 5s
@@ -2027,11 +2027,90 @@ let test_compose_quoted_file () =
       retries: 10
       start_period: 0s
     networks:
-      - default
+      - "default"
     restart: unless-stopped
 networks:
-  default: {}|}
+  "default": {}|}
     (compose_yaml_of_json quoting_json)
+
+(** The names fixture: valid names that YAML reads as a number, null, a
+    boolean or a date when they are not quoted. *)
+let yaml_typed_names_json =
+  {|{"planId": "yaml-typed-names",
+     "target": {"kind": "compose", "placement": "merge", "network": "123", "existingServices": ["null"]},
+     "components": [
+       {"name": "134", "image": "x",
+        "env": [{"name": "NULL", "value": "a"}, {"name": "True", "value": "b"}, {"name": "false", "value": "c"}, {"name": "Y", "value": "d"}],
+        "dependsOn": [{"service": "null"}, {"service": "true"}]},
+       {"name": "true", "image": "x"},
+       {"name": "1e3", "image": "x"},
+       {"name": "0x1f", "image": "x"},
+       {"name": "1.0", "image": "x"},
+       {"name": "1_000", "image": "x"},
+       {"name": "2024-01-01", "image": "x"}]}|}
+
+(** Verifies that service, dependency, network and environment names are
+    double-quoted. Unquoted, YAML reads [134], [true], [1e3], [0x1f], [1.0],
+    [1_000], [2024-01-01], [NULL] and [True] as numbers, booleans, null or a
+    date, and Docker Compose refuses a key that is not a string. *)
+let test_compose_quotes_names () =
+  let plan = compose_plan_of_json yaml_typed_names_json in
+  assert_true "names YAML would read as other types are valid names" (plan.compose_issues = []);
+  assert_equal_text "the names fixture's Compose file changed"
+    {|services:
+  "134":
+    image: "x"
+    environment:
+      "NULL": "a"
+      "True": "b"
+      "false": "c"
+      "Y": "d"
+    depends_on:
+      "null":
+        condition: service_started
+      "true":
+        condition: service_started
+    networks:
+      - "123"
+    restart: unless-stopped
+  "true":
+    image: "x"
+    networks:
+      - "123"
+    restart: unless-stopped
+  "1e3":
+    image: "x"
+    networks:
+      - "123"
+    restart: unless-stopped
+  "0x1f":
+    image: "x"
+    networks:
+      - "123"
+    restart: unless-stopped
+  "1.0":
+    image: "x"
+    networks:
+      - "123"
+    restart: unless-stopped
+  "1_000":
+    image: "x"
+    networks:
+      - "123"
+    restart: unless-stopped
+  "2024-01-01":
+    image: "x"
+    networks:
+      - "123"
+    restart: unless-stopped
+networks:
+  "123": {}|}
+    (Option.get plan.compose_yaml);
+  assert_true "an external network's name should be quoted too"
+    (contains
+       (compose_yaml_of_json
+          {|{"target": {"kind": "compose", "network": "123", "externalNetwork": true}, "components": [{"name": "a", "image": "x"}]}|})
+       "\nnetworks:\n  \"123\":\n    external: true")
 
 (** A spec with 19 of the 20 issue codes; only [no_services] is missing. *)
 let every_issue_json =
@@ -2151,8 +2230,8 @@ let test_compose_output_is_deterministic () =
     find 0
   in
   assert_true "services should appear in request order, not sorted"
-    (position "\n  lma-hospital-e-init:\n" < position "\n  seed-hospital-e:\n"
-    && position "\n  seed-hospital-e:\n" < position "\n  lma-hospital-e:\n");
+    (position "\n  \"lma-hospital-e-init\":\n" < position "\n  \"seed-hospital-e\":\n"
+    && position "\n  \"seed-hospital-e\":\n" < position "\n  \"lma-hospital-e\":\n");
   let ordered =
     compose_yaml_of_json
       {|{"target": {"kind": "compose", "placement": "merge", "existingServices": ["zeta", "alpha"]}, "components": [{"name": "a", "image": "x",
@@ -2163,9 +2242,9 @@ let test_compose_output_is_deterministic () =
   assert_true "environment variables, ports and dependencies should keep their order"
     (contains ordered
        {|    environment:
-      Z: "1"
-      A: "2"
-      M: "3"
+      "Z": "1"
+      "A": "2"
+      "M": "3"
     expose:
       - "9000"
       - "80"
@@ -2173,9 +2252,9 @@ let test_compose_output_is_deterministic () =
       - "127.0.0.1:9081:81"
       - "127.0.0.1:8082:82"
     depends_on:
-      zeta:
+      "zeta":
         condition: service_started
-      alpha:
+      "alpha":
         condition: service_started
 |})
 
@@ -2252,6 +2331,7 @@ let () =
       ("compose ports", test_compose_ports);
       ("compose network and placement", test_compose_network_and_placement);
       ("compose quoted file", test_compose_quoted_file);
+      ("compose quotes names", test_compose_quotes_names);
       ("compose reports every issue in order", test_compose_reports_every_issue_in_order);
       ("compose dependency cycles", test_compose_dependency_cycles);
       ("compose output is deterministic", test_compose_output_is_deterministic);

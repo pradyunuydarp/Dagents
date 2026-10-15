@@ -525,8 +525,12 @@ def _flow_list(values: list[str]) -> str:
 
 
 def _service_lines(component: _Component, network: str) -> list[str]:
-    """Render one component as the lines of its Compose service, unindented. Copies `render_compose_service`."""
-    lines = [f"{component.name}:", f"  image: {quote(component.image)}"]
+    """Render one component as the lines of its Compose service, unindented. Copies `render_compose_service`.
+
+    Names are quoted like values: YAML reads a bare `134`, `null` or `True` as
+    a number, null or a boolean, and Docker Compose refuses such a key.
+    """
+    lines = [f"{quote(component.name)}:", f"  image: {quote(component.image)}"]
     if component.args:
         lines.append("  command: " + _flow_list([quote(arg) for arg in component.args]))
     if component.env_files:
@@ -534,7 +538,7 @@ def _service_lines(component: _Component, network: str) -> list[str]:
         lines.extend(f"    - {quote(path)}" for path in component.env_files)
     if component.env:
         lines.append("  environment:")
-        lines.extend(f"    {name}: {quote(value)}" for name, value in component.env)
+        lines.extend(f"    {quote(name)}: {quote(value)}" for name, value in component.env)
     exposed = [port for port in component.ports if port.host_port is None]
     published = [port for port in component.ports if port.host_port is not None]
     if exposed:
@@ -562,8 +566,8 @@ def _service_lines(component: _Component, network: str) -> list[str]:
     if component.depends_on:
         lines.append("  depends_on:")
         for name, condition in component.depends_on:
-            lines.extend([f"    {name}:", f"      condition: {condition}"])
-    lines.extend(["  networks:", f"    - {network}"])
+            lines.extend([f"    {quote(name)}:", f"      condition: {condition}"])
+    lines.extend(["  networks:", f"    - {quote(network)}"])
     lines.append('  restart: "no"' if component.kind == "Job" else "  restart: unless-stopped")
     return lines
 
@@ -599,9 +603,9 @@ def render_compose_plan(payload: dict[str, Any]) -> dict[str, Any]:
         for component in components:
             lines.extend("  " + line for line in _service_lines(component, target.network))
         if target.external_network:
-            lines.extend(["networks:", f"  {target.network}:", "    external: true"])
+            lines.extend(["networks:", f"  {quote(target.network)}:", "    external: true"])
         else:
-            lines.extend(["networks:", f"  {target.network}: {{}}"])
+            lines.extend(["networks:", f"  {quote(target.network)}: {{}}"])
         compose_yaml = "\n".join(lines)
 
     return {
