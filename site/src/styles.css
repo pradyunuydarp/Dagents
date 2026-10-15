@@ -349,6 +349,9 @@
   .cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
+.card { transition: border-color 160ms ease; }
+
+.card:hover { border-color: var(--ds-line-strong); }
 .card .ds-panel-body { height: 100%; }
 .card .actions { margin-top: auto; }
 
@@ -1253,6 +1256,42 @@ td.api-type { min-width: 10ch; }
   -webkit-mask-image: radial-gradient(ellipse 55% 140% at 50% 100%, var(--ds-ink) 5%, transparent 75%);
   mask-image: radial-gradient(ellipse 55% 140% at 50% 100%, var(--ds-ink) 5%, transparent 75%);
 }
+
+/* The highlight under the mouse (glow.ts sets data-glow, --mx and --my). It
+ * lies over the element's own background colour, in ink at low strength. */
+[data-glow] {
+  background-image: radial-gradient(
+    20rem circle at var(--mx, 50%) var(--my, 50%),
+    color-mix(in srgb, var(--ds-ink) 5%, transparent),
+    transparent 70%
+  );
+}
+
+/* On the hero the highlight sits in the grid layer and fades out with it, so
+ * it never shows the edge of the hero's box. */
+.hero[data-glow] { background-image: none; }
+
+.hero[data-glow]::after {
+  content: "";
+  position: absolute;
+  inset: calc(var(--ds-5) * -1) calc(var(--ds-4) * -1) 0;
+  z-index: -1;
+  background: radial-gradient(
+    24rem circle at calc(var(--mx, 50%) + var(--ds-4)) calc(var(--my, 50%) + var(--ds-5)),
+    color-mix(in srgb, var(--ds-ink) 6%, transparent),
+    transparent 70%
+  );
+  -webkit-mask-image: radial-gradient(ellipse 70% 75% at 65% 45%, var(--ds-ink) 20%, transparent 75%);
+  mask-image: radial-gradient(ellipse 70% 75% at 65% 45%, var(--ds-ink) 20%, transparent 75%);
+  pointer-events: none;
+}
+
+.resource,
+.api-index-module,
+.pager a { transition: border-color 160ms ease; }
+
+[data-glow].resource,
+[data-glow].api-index-module { border-color: var(--ds-line-strong); }
 
 /* JSON pointers in example notes are long single words. */
 .api-example .ds-note code { overflow-wrap: anywhere; }
