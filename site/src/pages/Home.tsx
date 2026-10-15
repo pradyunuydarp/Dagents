@@ -1,23 +1,27 @@
 import { useLayoutEffect } from "react";
 
 import { Diagram } from "../Mermaid";
+import { StepArt, type StepArtKind } from "../StepArt";
 import { Topology } from "../Topology";
 import { DEMOS, REPO_URL, demoHref } from "../config";
 import { BUILD_GUIDE } from "../guide";
 import { GUIDE, firstDiagram } from "../learn";
 import { href } from "../router";
 
-const STEPS = [
+const STEPS: { title: string; art: StepArtKind; text: string }[] = [
   {
     title: "Local agents",
+    art: "agents",
     text: "An LMA runs next to each data source. It profiles the data, runs local jobs, and checks every request before data is read, used for training or sent out."
   },
   {
     title: "A coordinator",
+    art: "coordinator",
     text: "The GMA registers the local agents, plans federated rounds and combines their results. A candidate model must pass its release gates before it can be used."
   },
   {
     title: "Typed planners",
+    art: "planners",
     text: "Decisions such as which protection a request needs, or whether enough sites can join a round, are made by pure OCaml functions. The services call them through a command-line tool and apply the result."
   }
 ];
@@ -88,6 +92,7 @@ export function Home({ anchor }: { anchor: string | null }) {
               <span className="step-index" aria-hidden="true">
                 {String(index + 1).padStart(2, "0")}
               </span>
+              <StepArt kind={step.art} />
               <h3>{step.title}</h3>
               <p>{step.text}</p>
             </li>
