@@ -12,6 +12,10 @@ both ends of that transport:
 - :class:`HttpUpdateChannel` is the site's handle on the coordinator's update
   store. It implements ``UpdateChannel``, so ``LocalFederatedWorker`` sends its
   Guard-bounded update through it exactly as it would in one process.
+- :class:`HttpFederationEngine` is the in-process engine with one
+  :class:`HttpSiteWorker` per site, built from a map of site ids to addresses.
+  The GMA uses it when ``GMA_FEDERATION_SITES`` is set; :func:`parse_site_urls`
+  reads that variable.
 
 The paths are fixed here, so both ends agree:
 
@@ -31,11 +35,13 @@ organisations needs mutual TLS or signed requests in front of it.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any
 
 import httpx
 from pydantic import Field
 
+from agents.common.application.federation import InProcessFederationEngine
 from agents.common.domain.base import DagentsModel
 from agents.common.domain.federation import FederatedJob, JobAcceptance, SiteResult
 
@@ -197,3 +203,67 @@ class HttpUpdateChannel:
                 detail = answer["detail"]
             raise RuntimeError(f"the coordinator answered {response.status_code}: {_short(detail)}")
         return UpdateReceipt.model_validate(response.json()).update_digest
+
+
+def parse_site_urls(text: str) -> dict[str, str]:
+    """Read a list of ``site_id=url`` entries separated by commas.
+
+    This is the format of ``GMA_FEDERATION_SITES``, for example
+    ``uk-134=http://lma-uk-134:8082,it-002=http://lma-it-002:8083``. Spaces
+    around entries are ignored, and an empty text gives an empty map. An entry
+    without ``=``, with an empty id, with an address that is not ``http`` or
+    ``https``, or with an id already listed raises ``ValueError`` naming the
+    entry, so a typing mistake stops the service at start-up instead of
+    leaving a site out of every round.
+    """
+    sites: dict[str, str] = {}
+    for entry in (part.strip() for part in text.split(",")):
+        if not entry:
+            continue
+        site_id, separator, url = (piece.strip() for piece in entry.partition("="))
+        if not separator or not site_id or not url:
+            raise ValueError(f"the site entry {entry!r} is not in the form site_id=url")
+        try:
+            parsed = httpx.URL(url)
+        except httpx.InvalidURL as error:
+            raise ValueError(f"the site entry {entry!r} has an address that is not a URL") from error
+        if parsed.scheme not in ("http", "https") or not parsed.host or any(c.isspace() for c in url):
+            raise ValueError(f"the site entry {entry!r} needs an http:// or https:// address")
+        if site_id in sites:
+            raise ValueError(f"the site {site_id!r} is listed more than once")
+        sites[site_id] = url
+    return sites
+
+
+class HttpFederationEngine(InProcessFederationEngine):
+    """The in-process engine, with each site reached over HTTP.
+
+    The round runs as in :class:`InProcessFederationEngine`: the GMA offers
+    the job to each selected site in turn, waits for its answer, and combines
+    the metrics of the results that count. The only difference is the worker:
+    each site is an :class:`HttpSiteWorker`, so its part runs in the site's
+    own process, next to its records. It is still a simulator. It sends one
+    request at a time, does not retry, has no authentication, and trains
+    nothing at the coordinator.
+
+    Params:
+    - `site_urls`: each site's id and address, such as the result of
+      :func:`parse_site_urls`.
+    - `timeout`: seconds to wait for each call to a site.
+    - `client`: an ``httpx.Client`` shared by every site, for tests.
+    """
+
+    name = "http-sites"
+
+    def __init__(
+        self,
+        site_urls: Mapping[str, str],
+        *,
+        timeout: float = DEFAULT_TIMEOUT_SECONDS,
+        client: httpx.Client | None = None,
+    ) -> None:
+        super().__init__(
+            [HttpSiteWorker(site_id, url, timeout=timeout, client=client) for site_id, url in site_urls.items()]
+        )
+        self.site_urls = {site_id: _base(url) for site_id, url in site_urls.items()}
+        self.timeout = timeout
