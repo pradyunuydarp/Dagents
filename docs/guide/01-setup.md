@@ -78,7 +78,7 @@ you export yourself takes precedence over the file.
 | LMA (local agent) | 8010 | `env/.env.lma` | Guard, profiling and model runs at one data source |
 | GMA (global agent) | 8020 | `env/.env.gma` | Site enrolment, federated rounds, release decisions |
 | pipeline-service | 8030 | `env/.env.pipeline-service` | Pipeline definitions and runs |
-| core-service | 8040 | `env/.env.core-service` | Workload plans and Kubernetes manifests |
+| core-service | 8040 | `env/.env.core-service` | Workload plans, Kubernetes manifests and Docker Compose files |
 | model-service | 8000 | `env/.env.model-service` | Model families, training and checks |
 
 Each service has a `*_PUBLIC_URL` (the address from your machine) and a

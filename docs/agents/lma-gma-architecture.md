@@ -128,5 +128,5 @@ The current framework implementation now includes:
 - LMA source dataset profiling and model execution
 - GMA assimilated dataset profiling and aggregate model execution
 - pipeline-level dataset profiling and model job steps
-- core-service Kubernetes manifest generation for workload deployment
+- core-service Kubernetes manifest and Docker Compose file generation for workload deployment
 - env-driven Docker and compose startup for agents and services

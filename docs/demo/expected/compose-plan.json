@@ -1,0 +1,6 @@
+{
+  "planId": "add-hospital-d",
+  "services": [ "lma-hospital-d" ],
+  "issues": [],
+  "composeYaml": "services:\n  \"lma-hospital-d\":\n    image: \"dagents/healthcare-demo-backend:local\"\n    command: [\"uvicorn\", \"app.main:app\", \"--host\", \"0.0.0.0\", \"--port\", \"8085\"]\n    env_file:\n      - \"../../env/.env.shared\"\n      - \"env/.env.healthcare-demo\"\n    environment:\n      \"HEALTHCARE_DEMO_ROLE\": \"lma\"\n      \"HEALTHCARE_DEMO_SITE_ID\": \"hospital-d\"\n      \"HEALTHCARE_DEMO_API_PORT\": \"8085\"\n    ports:\n      - \"127.0.0.1:8085:8085\"\n    healthcheck:\n      test: [\"CMD\", \"python\", \"-c\", \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8085/api/v1/health')\"]\n      interval: 30s\n      timeout: 5s\n      retries: 3\n      start_period: 10s\n    depends_on:\n      \"gma\":\n        condition: service_healthy\n    networks:\n      - \"default\"\n    restart: unless-stopped\nnetworks:\n  \"default\": {}"
+}

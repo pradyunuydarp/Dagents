@@ -397,7 +397,8 @@ endpoints:
 
 The core service's catalog, topology and workload compiler, for the JVM. See
 the [workload compiler](framework-services.md#workload-compiler) for what the
-Python service does on the same paths. This service does not start at this
+Python service does on the same paths. It has no Docker Compose route:
+`POST /api/v1/manifests/compose` is in the Python core service only. This service does not start at this
 commit (see the top of the page), so these sections describe the code, and no
 example could be captured.
 

@@ -441,16 +441,24 @@ include Routing_types
     from pipeline/model contracts because it concerns deployment artifacts, not
     runtime data processing. *)
 module Workload_types = struct
-  (** Kubernetes environment variable declaration. *)
+  (** Container environment variable. *)
   type env_var = {
     name : string;
     value : string;
   }
 
-  (** Kubernetes container port declaration. *)
+  (** Whether a container port is reachable from the host. Only the Compose
+      target reads it: Kubernetes reaches a port through a Service. *)
+  type port_publication =
+    | NotPublished  (** reachable only by services on the same network *)
+    | PublishedOn of { host_ip : string; host_port : int }
+        (** bound to [host_port] on the host address [host_ip] *)
+
+  (** Container port declaration. *)
   type port = {
     port_name : string;
     container_port : int;
+    publication : port_publication;
   }
 
   (** Kubernetes resource requests and limits. *)
@@ -461,7 +469,34 @@ module Workload_types = struct
     memory_limit : string;
   }
 
-  (** One component that should become Kubernetes YAML. *)
+  (** The command a Compose health check runs inside the container. *)
+  type health_test =
+    | ExecTest of string list  (** run without a shell: [["CMD", ...]] *)
+    | ShellTest of string  (** run by the container's shell: [["CMD-SHELL", ...]] *)
+
+  (** A container health check. Only the Compose target reads it. *)
+  type health_check = {
+    health_test : health_test;
+    interval_seconds : int;
+    timeout_seconds : int;
+    retries : int;
+    start_period_seconds : int;
+  }
+
+  (** When a Compose service may start, relative to a service it depends on. *)
+  type dependency_condition =
+    | ServiceStarted  (** once the other service's container has started *)
+    | ServiceHealthy  (** once the other service's health check passes *)
+    | ServiceCompletedSuccessfully  (** once the other service has exited with code 0 *)
+
+  (** One Compose [depends_on] entry. *)
+  type service_dependency = {
+    dependency_service : string;
+    dependency_condition : dependency_condition;
+  }
+
+  (** One deployable component in a generated workload bundle: a Kubernetes
+      object or a Compose service. *)
   type workload_component = {
     name : string;
     image : string;
@@ -476,7 +511,35 @@ module Workload_types = struct
     service_account_name : string option;
     service_type : string;
     config_map_data : (string * string) list;
+    env_files : string list;  (** Compose only: files of [NAME=value] lines read at start *)
+    health_check : health_check option;
+        (** Compose only; [None] keeps the image's own [HEALTHCHECK] *)
+    service_dependencies : service_dependency list;  (** Compose only: [depends_on] *)
   }
+
+  (** The network every service in a Compose file joins. *)
+  type compose_network =
+    | ProjectNetwork of string  (** declared by this file *)
+    | ExternalNetwork of string  (** exists already; this is its real Docker name *)
+
+  (** How a rendered Compose file relates to a project that already runs. *)
+  type compose_placement =
+    | OwnProject  (** the file is a whole project *)
+    | MergedProject
+        (** the file is passed with [-f] after the files of the project that
+            runs [existing_services] *)
+
+  (** Settings of the Docker Compose target. *)
+  type compose_target = {
+    compose_placement : compose_placement;
+    compose_network : compose_network;
+    existing_services : string list;
+        (** services the running project already has; new services may depend
+            on them only when merged, and may not reuse their names *)
+  }
+
+  (** Where the rendered workloads run. *)
+  type deployment_target = Kubernetes | Compose of compose_target
 
   (** Full manifest-compiler input. *)
   type workload_spec = {
@@ -485,6 +548,7 @@ module Workload_types = struct
     components : workload_component list;
     include_services : bool;
     include_config_maps : bool;
+    target : deployment_target;
   }
 
   (** Rendered YAML fragments for one component. *)
@@ -505,6 +569,46 @@ module Workload_types = struct
     combined_yaml : string;
   }
 
+  (** Why a spec cannot become a Compose file. *)
+  type compose_issue_reason =
+    | NoServices
+    | InvalidNetworkName of string
+    | InvalidServiceName of string
+    | DuplicateServiceName
+    | ServiceNameInUse
+    | EmptyImage
+    | NoComposeEquivalent of workload_kind
+    | UnsupportedReplicas of int
+    | InvalidEnvironmentName of string
+    | DuplicateEnvironmentName of string
+    | InvalidPort of int
+    | InvalidHostIp of string
+    | HostPortConflict of int
+    | EmptyHealthCheck
+    | InvalidHealthCheckTiming
+    | SelfDependency
+    | DuplicateDependency of string
+    | DependencyOutsideProject of string
+    | UnknownDependency of string
+    | DependencyCycle
+
+  (** One reason a spec cannot become a Compose file. *)
+  type compose_issue = {
+    issue_service : string option;  (** [None]: an issue with the whole spec *)
+    issue_reason : compose_issue_reason;
+  }
+
+  (** A rendered Compose file, or the issues that stopped it. *)
+  type compose_plan = {
+    compose_plan_id : string;
+    compose_service_names : string list;  (** every component name, in request order *)
+    compose_issues : compose_issue list;
+    compose_yaml : string option;  (** [None] exactly when [compose_issues] is not empty *)
+  }
+
+  (** A plan rendered for the target its spec names. *)
+  type target_plan = KubernetesPlan of workload_plan | ComposePlan of compose_plan
+
   (** Conservative default resources used when callers do not tune a component. *)
   let default_resources =
     {
@@ -513,6 +617,11 @@ module Workload_types = struct
       memory_request = "256Mi";
       memory_limit = "1Gi";
     }
+
+  (** The Compose target a bare ["compose"] means: its own project, on the
+      network [default], with no existing services. *)
+  let default_compose_target =
+    { compose_placement = OwnProject; compose_network = ProjectNetwork "default"; existing_services = [] }
 end
 
 include Workload_types
@@ -1109,3 +1218,44 @@ let site_participation_of_string = function
   | "failed" -> SiteFailed
   | "dropped" -> SiteDropped
   | value -> invalid_arg ("Unknown site participation: " ^ value)
+
+(** Convert a Compose dependency condition to the word Compose uses. *)
+let string_of_dependency_condition = function
+  | ServiceStarted -> "service_started"
+  | ServiceHealthy -> "service_healthy"
+  | ServiceCompletedSuccessfully -> "service_completed_successfully"
+
+(** Parse the word Compose uses for a dependency condition. *)
+let dependency_condition_of_string = function
+  | "service_started" -> ServiceStarted
+  | "service_healthy" -> ServiceHealthy
+  | "service_completed_successfully" -> ServiceCompletedSuccessfully
+  | value -> invalid_arg ("Unknown dependency condition: " ^ value)
+
+(** The stable code and value of a Compose issue.
+
+    The code is the issue's snake_case name. The value is the constructor's
+    payload as text, or [None] when it has none. JSON output, the CLI and the
+    core-service fallback renderer all use these codes, and core-service's
+    tests read this match to check that its list of codes is the same. *)
+let compose_issue_code_and_value = function
+  | NoServices -> ("no_services", None)
+  | InvalidNetworkName name -> ("invalid_network_name", Some name)
+  | InvalidServiceName name -> ("invalid_service_name", Some name)
+  | DuplicateServiceName -> ("duplicate_service_name", None)
+  | ServiceNameInUse -> ("service_name_in_use", None)
+  | EmptyImage -> ("empty_image", None)
+  | NoComposeEquivalent kind -> ("no_compose_equivalent", Some (string_of_workload_kind kind))
+  | UnsupportedReplicas replicas -> ("unsupported_replicas", Some (string_of_int replicas))
+  | InvalidEnvironmentName name -> ("invalid_environment_name", Some name)
+  | DuplicateEnvironmentName name -> ("duplicate_environment_name", Some name)
+  | InvalidPort port -> ("invalid_port", Some (string_of_int port))
+  | InvalidHostIp host_ip -> ("invalid_host_ip", Some host_ip)
+  | HostPortConflict port -> ("host_port_conflict", Some (string_of_int port))
+  | EmptyHealthCheck -> ("empty_health_check", None)
+  | InvalidHealthCheckTiming -> ("invalid_health_check_timing", None)
+  | SelfDependency -> ("self_dependency", None)
+  | DuplicateDependency name -> ("duplicate_dependency", Some name)
+  | DependencyOutsideProject name -> ("dependency_outside_project", Some name)
+  | UnknownDependency name -> ("unknown_dependency", Some name)
+  | DependencyCycle -> ("dependency_cycle", None)

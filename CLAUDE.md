@@ -23,8 +23,8 @@ with typed planners, and deploy through services.
   call Dagents instead of rebuilding profiling, orchestration, model routing and
   manifest generation.
 - **OCaml planners**: pure, typed compilers for validation, DAG planning, model
-  routing, Kubernetes manifests, governance (ethical restrictions) and federated
-  rounds.
+  routing, Kubernetes manifests and Docker Compose files, governance (ethical
+  restrictions) and federated rounds.
 
 Intended consumers: Watchdog, Datalytics, the NL2SQL demo app and the healthcare
 stroke-triage demo app, both in this repository.
@@ -59,7 +59,7 @@ bindings/ocaml/  the planners (dune workspace)
   lib/dataset_compiler    source validation, profiling, schema contracts, quality, transforms
   lib/pipeline_compiler   DAG validation + topological ordering
   lib/model_router        dataset profile + task -> model family + packaging mode
-  lib/manifest_compiler   typed workload spec -> Kubernetes YAML
+  lib/manifest_compiler   typed workload spec -> Kubernetes YAML or a Docker Compose file
   lib/governance_compiler GRAILS ethical restrictions: what protection a request needs
   lib/federation_compiler federated round manifests, eligibility, quorum, release gates
   bin/dagentsc.ml         the command-line program services call

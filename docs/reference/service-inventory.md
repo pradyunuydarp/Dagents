@@ -10,7 +10,7 @@ their Spring controllers. Regenerate with:
 .venv/bin/python scripts/service_inventory.py --write
 ```
 
-**178 endpoints across 9 services.**
+**179 endpoints across 9 services.**
 
 Ports come from `env/`; never hardcode them — each service has distinct
 `*_PUBLIC_URL` (host) and `*_INTERNAL_URL` (compose network) values.
@@ -19,7 +19,7 @@ Ports come from `env/`; never hardcode them — each service has distinct
 
 | Service | Language | Role | Port | Endpoints |
 |---|---|---|---|---|
-| [`core-service`](#core-service) | python | framework-service | 8040 | 6 |
+| [`core-service`](#core-service) | python | framework-service | 8040 | 7 |
 | [`gma`](#gma) | python | agent | 8020 | 63 |
 | [`healthcare-demo-backend`](#healthcare-demo-backend) | python | demo-app | 8080 | 27 |
 | [`lma`](#lma) | python | agent | 8010 | 29 |
@@ -31,11 +31,12 @@ Ports come from `env/`; never hardcode them — each service has distinct
 
 ## core-service
 
-`python` · `fastapi` · port `8040` · 6 endpoints
+`python` · `fastapi` · port `8040` · 7 endpoints
 
 | Method | Path | Handler | Notes |
 |---|---|---|---|
 | GET | `/api/v1/health` | `health` | Return service health and basic runtime metadata |
+| POST | `/api/v1/manifests/compose` | `render_compose_manifest` | Render one Docker Compose file for a list of workloads |
 | POST | `/api/v1/manifests/pods` | `generate_workload_manifests` | Render workload manifests directly without persisting a retrievable plan |
 | GET | `/api/v1/services` | `services` | Expose the configured Dagents service catalog |
 | GET | `/api/v1/topology` | `topology` | Expose a framework topology view suitable for operators and tests |
