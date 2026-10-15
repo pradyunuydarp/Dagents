@@ -294,9 +294,12 @@ then fails, the service does not use the port.
   `Deployment` or `Job`, an unknown `placement` or `condition`, a health check
   with both or neither of `command` and `shell`, or a field the request does
   not have, such as `replicas`. Each problem is one entry in `detail`.
-- `500` when the planner starts and then fails. The request models refuse the
-  shapes the planner refuses, so this happens only when the two disagree or a
-  number does not fit in the planner's 63-bit integers.
+- `500` when a number does not fit in the planner's 63-bit integers (-2^62 to
+  2^62 - 1). The planner and its Python port both refuse such a number, so the
+  answer is the same with or without the planner.
+- `500` when the planner starts and then fails for another reason. The request
+  models refuse the other shapes the planner refuses, so this means the models
+  and the planner disagree.
 
 A value that breaks a planner rule is not an error: the answer is `200` with
 `issues`.

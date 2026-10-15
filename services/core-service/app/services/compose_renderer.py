@@ -58,6 +58,12 @@ _ENV_CHARS = _ENV_FIRST_CHARS | _DIGITS
 
 _DEFAULT_HOST_IP = "127.0.0.1"
 
+# The planner's integers are OCaml's 63-bit `int` (`min_int` and `max_int` on a
+# 64-bit machine). The codec's `int_of_string` fails on a JSON number outside
+# this range, and dagentsc exits with status 2.
+_PLANNER_INT_MIN = -(2**62)
+_PLANNER_INT_MAX = 2**62 - 1
+
 
 @dataclass(frozen=True)
 class _Target:
@@ -197,6 +203,13 @@ def _is_int(value: Any) -> bool:
     return isinstance(value, int) and not isinstance(value, bool)
 
 
+def _planner_int(value: int, key: str) -> int:
+    """Copies the codec's `int_of_string` on a large JSON number: refuse what does not fit in 63 bits."""
+    if not _PLANNER_INT_MIN <= value <= _PLANNER_INT_MAX:
+        raise ValueError(f"Integer field does not fit in the planner's int: {key}")
+    return value
+
+
 def _required_string(fields: dict[str, Any], key: str) -> str:
     """Copies `string_field`."""
     if key not in fields:
@@ -222,14 +235,16 @@ def _int_with_default(fields: dict[str, Any], key: str, default: int) -> int:
     value = fields[key]
     if not _is_int(value):
         raise ValueError(f"Expected int field: {key}")
-    return value
+    return _planner_int(value, key)
 
 
 def _optional_int(fields: dict[str, Any], key: str) -> int | None:
     """Copies `int_option_field`: absent or null gives None."""
     value = fields.get(key)
-    if value is None or _is_int(value):
-        return value
+    if value is None:
+        return None
+    if _is_int(value):
+        return _planner_int(value, key)
     raise ValueError(f"Expected nullable int field: {key}")
 
 
@@ -566,8 +581,11 @@ def render_compose_plan(payload: dict[str, Any]) -> dict[str, Any]:
     when `issues` is not empty.
 
     Raises ValueError where the planner exits with status 2: an unknown word,
-    a missing required field, or a health check with both or neither of
-    `command` and `shell`.
+    a missing required field, a number outside the planner's 63-bit integers,
+    or a health check with both or neither of `command` and `shell`. It reads
+    only the fields the Compose target uses, so it does not check the fields
+    only the Kubernetes target reads (`schedule`, `resources` and others); the
+    route's request models refuse those fields.
     """
     target = _read_target(payload)
     raw_components = payload.get("components")

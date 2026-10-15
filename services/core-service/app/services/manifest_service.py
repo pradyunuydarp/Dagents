@@ -171,7 +171,8 @@ class ManifestService:
         planner did not render. The request models refuse the shapes the
         planner refuses (unknown words, missing fields, a health check with
         both or neither test), so this happens only when the two disagree or
-        a number does not fit in the planner's 63-bit integers.
+        a number does not fit in the planner's 63-bit integers. The Python
+        port refuses the same numbers with a ValueError, which is also a 500.
         """
         from agents.common.infrastructure.dagents_runner import PlannerUnavailableError, run_dagentsc
 

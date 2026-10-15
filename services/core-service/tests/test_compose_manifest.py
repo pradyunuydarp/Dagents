@@ -130,6 +130,44 @@ def shape_error_payloads() -> dict[str, dict[str, typing.Any]]:
     return cases
 
 
+# The planner's integers are OCaml's 63-bit `int`: -2**62 to 2**62 - 1.
+LARGEST_PLANNER_INT = 2**62 - 1
+
+
+def number_payloads(value: int) -> dict[str, dict[str, typing.Any]]:
+    """Payloads with `value` in each integer field the Compose target reads.
+
+    Each changes one number in the first golden file. A value outside the
+    planner's 63-bit integers makes the planner exit with status 2 and the
+    fallback raise ValueError, so the route answers 500 on both paths.
+    """
+    base = FIXTURES["lma-merges-into-project"]["payload"]
+    cases: dict[str, dict[str, typing.Any]] = {}
+
+    def case(name: str, edit: typing.Callable[[dict], typing.Any]) -> None:
+        payload = copy.deepcopy(base)
+        edit(payload["components"][0])
+        cases[name] = payload
+
+    case("replicas", lambda component: component.update(replicas=value))
+    case("container port", lambda component: component["ports"][0].update(container_port=value))
+    case("host port", lambda component: component["ports"][0].update(host_port=value))
+    case("health check retries", lambda component: component["health_check"].update(retries=value))
+    return cases
+
+
+def largest_number_issues() -> list[dict[str, typing.Any]]:
+    """The issues both renderers report for each `number_payloads(LARGEST_PLANNER_INT)` case, in its order."""
+    service = "lma-hospital-d"
+    value = str(LARGEST_PLANNER_INT)
+    return [
+        [{"service": service, "code": "unsupported_replicas", "value": value}],
+        [{"service": service, "code": "invalid_port", "value": value}],
+        [{"service": service, "code": "invalid_port", "value": value}],
+        [],
+    ]
+
+
 class ComposeFallbackTests(unittest.TestCase):
     """The Python renderer gives the golden answer for every fixture."""
 
@@ -145,6 +183,17 @@ class ComposeFallbackTests(unittest.TestCase):
         for name, payload in shape_error_payloads().items():
             with self.subTest(case=name), self.assertRaises(ValueError):
                 render_compose_plan(payload)
+
+    def test_refuses_a_number_the_planner_cannot_read(self) -> None:
+        for value in (LARGEST_PLANNER_INT + 1, -(LARGEST_PLANNER_INT + 2)):
+            for name, payload in number_payloads(value).items():
+                with self.subTest(field=name, value=value), self.assertRaises(ValueError):
+                    render_compose_plan(payload)
+
+    def test_reads_the_largest_planner_number(self) -> None:
+        for (name, payload), issues in zip(number_payloads(LARGEST_PLANNER_INT).items(), largest_number_issues()):
+            with self.subTest(field=name):
+                self.assertEqual(render_compose_plan(payload)["issues"], issues)
 
     def test_refuses_a_kubernetes_target(self) -> None:
         payload = copy.deepcopy(FIXTURES["lma-merges-into-project"]["payload"])
@@ -219,6 +268,18 @@ class ComposePlannerTests(unittest.TestCase):
                 run_dagentsc(PLANNER_COMMAND, payload)
             self.assertIn("Invalid_argument", str(raised.exception))
 
+    def test_refuses_a_number_it_cannot_read(self) -> None:
+        for value in (LARGEST_PLANNER_INT + 1, -(LARGEST_PLANNER_INT + 2)):
+            for name, payload in number_payloads(value).items():
+                with self.subTest(field=name, value=value), self.assertRaises(PlannerUnavailableError) as raised:
+                    run_dagentsc(PLANNER_COMMAND, payload)
+                self.assertIn("int_of_string", str(raised.exception))
+
+    def test_reads_the_largest_number(self) -> None:
+        for (name, payload), issues in zip(number_payloads(LARGEST_PLANNER_INT).items(), largest_number_issues()):
+            with self.subTest(field=name):
+                self.assertEqual(run_dagentsc(PLANNER_COMMAND, payload)["issues"], issues)
+
 
 class ComposeApiTests(unittest.TestCase):
     """POST /api/v1/manifests/compose, through whichever renderer is active.
@@ -271,6 +332,14 @@ class ComposeApiTests(unittest.TestCase):
         for name, edit in cases.items():
             with self.subTest(case=name):
                 self.assertEqual(self.post(lma_request(edit)).status_code, 422)
+
+    def test_answers_500_for_a_number_the_planner_cannot_read(self) -> None:
+        # The models set no numeric range, and the planner's integers have 63
+        # bits. Both renderers refuse a larger number, so the answer is 500 with
+        # or without the planner.
+        body = lma_request(lambda body, component: component["ports"][0].update(host_port=10**20))
+        response = TestClient(app, raise_server_exceptions=False).post("/api/v1/manifests/compose", json=body)
+        self.assertEqual(response.status_code, 500)
 
     def test_kubernetes_routes_still_answer(self) -> None:
         component = {"name": "lma-hospital-d", "image": "dagents/healthcare-demo-backend:local"}
