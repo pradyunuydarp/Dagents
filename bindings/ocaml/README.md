@@ -241,8 +241,11 @@ Quality rules:
 ```
 
 A Compose workload spec that adds one hospital's LMA to a running Compose
-project. The project already runs a GMA named `gma`, three hospital LMAs and
-the demo's backend and frontend (`dagentsc manifest compile --input -`):
+project (`dagentsc manifest compile --input -`). The example assumes a project
+that runs the services listed in `existingServices`, among them a GMA named
+`gma`, and an image whose LMA reads `HEALTHCARE_DEMO_ROLE` and
+`HEALTHCARE_DEMO_SITE_ID`. The planner checks neither assumption: it sees only
+the names in `existingServices`, not the running project or the image:
 
 ```json
 {
@@ -305,11 +308,14 @@ networks:
 ```
 
 Saved as `generated.yml`, it starts inside the running project with the
-project's name and its own Compose file first:
+project's name and the project's own Compose file first:
 
 ```sh
-docker compose -p healthcare-demo -f docker-compose.yml -f generated.yml up -d lma-hospital-d
+docker compose -p <project> -f <the project's file> -f generated.yml up -d lma-hospital-d
 ```
+
+With a project that lacks a `gma` service, Docker Compose refuses the merged
+files (`service "lma-hospital-d" depends on undefined service "gma"`).
 
 Relative paths, such as the env files, resolve against the directory of the
 first file. With `"placement": "own"`, the same spec has one issue and no file,

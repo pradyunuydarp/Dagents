@@ -60,8 +60,8 @@ FIXTURES = load_fixtures()
 
 PLANNER_COMMAND = ["manifest", "compile", "--input", "-", "--output", "json"]
 
-# The first golden file as an HTTP request body: one LMA merged into the
-# running healthcare demo project.
+# The first golden file as an HTTP request body: one LMA merged into a running
+# project with a GMA and three hospital LMAs.
 LMA_REQUEST: dict[str, typing.Any] = {
     "placement": "merge",
     "existing_services": [

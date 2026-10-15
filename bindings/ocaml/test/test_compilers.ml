@@ -1673,8 +1673,9 @@ let compose_yaml_of_json text =
         ("expected a Compose file, got issues: "
         ^ String.concat ", " (List.map (fun (_, code, _) -> code) (issue_triples plan)))
 
-(** One LMA merged into the running healthcare project: the reference
-    example of the Compose target, in camelCase as dagentsc reads it. *)
+(** One LMA merged into a running project with a GMA and three hospital
+    LMAs: the reference example of the Compose target, in camelCase as
+    dagentsc reads it. *)
 let lma_merge_json =
   {|{
   "planId": "add-hospital-d",
