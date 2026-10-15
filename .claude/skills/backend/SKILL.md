@@ -106,6 +106,46 @@ copies of one rule drift apart; this repo has had that bug (see §5).
   `FederationEngine`. The in-process engine is a simulator for tests and demos.
   **Never** turn it into a federated optimizer.
 
+### Starting a service and adding a site at run time
+
+- **Rendering is a planner decision; starting is a side effect.** The manifest
+  compiler renders a Compose file, served by core-service's
+  `POST /api/v1/manifests/compose`. The appliers in
+  `agents/common/infrastructure/compose_apply.py` start one service of that
+  file, behind the `ComposeApplier` protocol: `LocalProcessApplier`
+  (`process`) and `DockerComposeApplier` (`compose`). **Never** write Compose
+  YAML in an application or an applier. Hand the applier the exact
+  `compose_yaml` text core-service returned. An applier starts one service,
+  without its dependencies, and the caller checks its health.
+- `LocalProcessApplier` starts only programs on its allowlist and refuses a
+  key it cannot apply. `DockerComposeApplier` sends every command through one
+  injected runner. **Never** write a test that starts a container: CI has no
+  Docker daemon. Test the Docker path with a fake runner and `docker compose
+  config`.
+- **The GMA accepts a site's address at run time only for an exact pair in
+  `GMA_FEDERATION_JOINABLE_SITES`.** `HttpFederationEngine` implements
+  `SiteAddressBook` (`agents/common/application/federation.py`). The routes
+  are `PUT /federation/sites/{site_id}/address` and
+  `GET /federation/site-addresses`, each with its `/api/v1` form. A site that
+  is not listed, or another address, gets 403. A site configured in
+  `GMA_FEDERATION_SITES` with another address gets 409. An address never
+  enrols a site, and the planner still decides eligibility. There is no route
+  that removes an address. A restarted GMA forgets it, so the caller sends it
+  again before the next round.
+- **Undo what one attempt did when a later step fails**, newest first:
+  withdraw the enrolment (`enrolled=False`) and stop a service this attempt
+  started. Leave a service it adopted running. `HospitalDeployer` in
+  `apps/healthcare-demo/backend/app/services/deployment.py` is the reference.
+- **Never let a public host start a process or a container.** An action that
+  starts one is off unless a setting turns it on. The app refuses to start
+  with the setting on under `RENDER`, or in any role but the coordinating
+  app. Its `POST` is accepted only without an `Origin` header or from a page
+  on 127.0.0.1, localhost or ::1 (`Origin: null` gets 403), and every port
+  that reaches it listens on 127.0.0.1. The opt-in Compose override mounts the
+  Docker socket into the app, so it is for one person's machine only.
+- The framework code says site, LMA and service. Which site may join, and
+  where its records come from, is the application's choice.
+
 ### Site data
 
 The healthcare demo shows how a site's data is kept. Each hospital has a store of

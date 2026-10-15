@@ -50,7 +50,8 @@ its own, and keeps the Kubernetes deployment simple.
 
 ```text
 agents/
-  common/        shared domain contracts + dagents_runner (the dagentsc bridge)
+  common/        shared domain contracts + dagents_runner (the dagentsc bridge) +
+                 compose_apply (starts one service of a rendered Compose file)
   lma/           Local Monitoring Agent service
   gma/           Global Monitoring Agent service
   tests/         agent + control-plane + runner tests
@@ -73,8 +74,8 @@ services/
 apps/
   healthcare-demo/    self-contained stroke-triage demo on real International Stroke Trial
                       records from three hospitals, one store per hospital, with its own
-                      README, tests and compose file; scripts/extract_repo.sh turns it into
-                      its own repository
+                      README, tests and compose file; a split run can add a fourth hospital
+                      while it runs; scripts/extract_repo.sh turns it into its own repository
 examples/
   getting-started/    the worked example of docs/guide: two stores check a rule together;
                       every Python block in the guide is copied from it
@@ -218,6 +219,24 @@ database and fails if one is missing from that list; a new class goes in both
 `ci.yml` and `healthcare-data.yml`. `scripts/ci_no_skipped_planner_tests.py
 LOG` still works; it runs the guard with `--forbid planner`.
 
+The jobs also require classes that need no database, so that a class that
+stops running fails the job:
+
+| Job | Classes, besides the governance, federation and chart classes |
+|---|---|
+| `agents` | `test_site_addresses.SiteAttachTests` and `SiteAddressRouteTests`; `test_compose_apply.LocalProcessApplierTests` and `DockerComposeApplierTests`, which need PyYAML (the job installs the app's range) |
+| `demo-apps`, and the same list in `healthcare-data.yml` | `test_split_processes.SplitProcessTests`; `test_deployment_flow.DeploymentFlowTests`; `test_deployment_spec.ComposeRequestTests`; `test_split_deploy.SplitDeployTests`; `test_compose_override.ComposeOverrideTests` |
+
+The four deploy classes in `demo-apps` test adding a hospital while the demo
+runs. `ComposeOverrideTests` skips without the docker CLI and runs only
+`docker compose config`; CI starts no container. The other three skip without
+the planner.
+
+The `frontends` job runs the healthcare smoke test twice: against one process,
+and with `run_frontend_demo.sh --deploy --check`, which runs the split layout,
+adds Hospital 290 after every other check, and must print
+`ok  deploy: hospital pl-290 joined`.
+
 Docker and Minikube are not in CI; see **Current state**. The suites set
 `DAGENTSC_BIN`, so they pass even when an image lacks the planner. One check
 covers the images without building them: `tests/test_planner_in_images.py`
@@ -355,6 +374,9 @@ apps/healthcare-demo/scripts/run_pilot.sh                  # no UI: one pilot, p
 apps/healthcare-demo/scripts/run_local_demo.sh             # the API alone on :8080
 apps/healthcare-demo/scripts/run_split_demo.sh             # the API as five processes (below)
 apps/healthcare-demo/scripts/run_frontend_demo.sh --split  # the UI in front of those five
+apps/healthcare-demo/scripts/run_split_demo.sh --deploy    # the five, core-service, and the deploy action on
+apps/healthcare-demo/scripts/run_frontend_demo.sh --deploy # the UI in front of those, with "Add Hospital 290"
+apps/healthcare-demo/scripts/run_frontend_demo.sh --deploy --check  # the smoke test, which also adds it
 ```
 
 The split run starts the Dagents GMA (`agents.gma.main`, :8020, with
@@ -373,6 +395,39 @@ passes `/api` to the public port.
 `apps/healthcare-demo/tests/test_split_processes.py` starts the five processes
 and runs a pilot through them; CI requires it to run.
 
+**Adding a hospital while the demo runs.** A split run started with
+`--deploy` can add a fourth hospital, Hospital 290 in Poland (`pl-290`, 263
+real IST records from `data/ist/ist_joining_hospitals.csv`), from the
+consortium page or with `POST /api/v1/deployments`. The app asks core-service
+(`POST /api/v1/manifests/compose`, :8040) for the new LMA's Compose file and
+never writes Compose itself. A framework applier
+(`agents/common/infrastructure/compose_apply.py`) starts that one service as a
+local process on 127.0.0.1:8085. The GMA accepts the LMA's address
+(`GMA_FEDERATION_JOINABLE_SITES`), enrols the site, and its planner decides
+whether the next round selects it. A failure in a later step stops the service
+this attempt started and withdraws the enrolment. Rules that keep it off the
+public demo:
+
+- `HEALTHCARE_DEMO_DEPLOYER` is `off` by default; `process` or `compose`
+  turns it on. The app refuses to start with it on in any role but `app`, or
+  when `RENDER` is set, so the hosted demo never starts a process or a
+  container. The Pages replay shows the panel with a note and no button.
+- The `POST` is accepted only without an `Origin` header (curl, tests) or from
+  a page on 127.0.0.1, localhost or ::1. Every port that can reach it listens
+  on 127.0.0.1 only; with `--deploy` the UI's dev server does too.
+- A pilot and a deployment hold one flight, so a request for one while the
+  other runs gets 409.
+
+`apps/healthcare-demo/docker-compose.deploy.yml` turns the action on for the
+container layout (`HEALTHCARE_DEMO_DEPLOYER=compose`): the new hospital starts
+as a container in its own Compose project. **It mounts the Docker socket into
+the backend, which gives the backend control of Docker on that machine. Never
+use it on a shared or public host.** Run it from `apps/healthcare-demo` with
+`DOCKER_GID=$(stat -c %g /var/run/docker.sock) docker compose -f
+docker-compose.yml -f docker-compose.deploy.yml up --build`. CI checks it with
+`docker compose config` only; `apps/healthcare-demo/docs/deployment.md` has
+the check to run by hand and the settings.
+
 All of them need `dagentsc`. Without it the Ethical Guard denies every request,
 which is correct but makes every panel a denial, so the scripts check first.
 Without `HEALTHCARE_DEMO_DATABASE_URL`, each hospital keeps its records in
@@ -385,7 +440,11 @@ view and checks that its charts draw, submits a data entry and checks that the
 record appears, switches to the dark theme and checks that the charts are drawn
 again, checks that a 503 without the app's `X-Dagents-App` header shows the
 connecting banner while the app's own 503 shows at once, and fails on any
-console error. A typecheck
+console error. With `--expect-join pl-290`, which `run_frontend_demo.sh
+--deploy --check` passes, it then presses "Add Hospital 290", checks that
+every step is done, that the hospital's page draws its charts and that a pilot
+includes it. Without that option it checks that the Add a hospital panel shows
+a reason and no button. A typecheck
 and a bundle only prove that the app compiles. The smoke test exits 2 and prints
 `SKIP` when no browser is available; report that as skipped, not passed.
 
@@ -403,7 +462,9 @@ and a bundle only prove that the app compiles. The smoke test exits 2 and prints
 | nl2sql-demo backend | 8070 |
 | nl2sql-demo frontend | 5173 |
 | healthcare-demo backend | 8080 |
+| healthcare-demo internal listener (split run, 127.0.0.1) | 8081 |
 | healthcare-demo hospital LMAs (split run) | 8082, 8083, 8084 |
+| healthcare-demo joining hospital LMA (split run with `--deploy`) | 8085 |
 | healthcare-demo frontend | 5174 |
 | framework site (dev) | 5175 |
 
@@ -448,6 +509,27 @@ An image whose service calls the planner builds it in an `ocaml/opam` stage and
 copies it to `/usr/local/bin/dagentsc`. Copy that stage from
 `services/core-service/Dockerfile`. `tests/test_planner_in_images.py` fails if
 an image lacks it.
+
+### Starting a service the planner rendered
+
+Rendering a Compose file is a planner decision; starting the service is a side
+effect. So an application asks core-service (`POST /api/v1/manifests/compose`)
+for the file, never writes Compose itself, and hands the exact `compose_yaml`
+text to an applier in `agents/common/infrastructure/compose_apply.py`:
+
+- `LocalProcessApplier` (`process`) runs the service's `command` as a local
+  process in its own process group, with its `environment`. It starts only a
+  program on its allowlist, and refuses a key it cannot apply (such as a
+  non-empty `depends_on`) and variable interpolation. It needs no Docker, so
+  tests and CI use it.
+- `DockerComposeApplier` (`compose`) checks the file with `docker compose
+  config`, then runs `docker compose up --detach --no-build --pull never
+  --no-deps --wait` for the one service, in its own project. Every command
+  goes through one runner, so tests replace it with a fake.
+
+Both accept a file with exactly one service. PyYAML is imported only when a
+file is parsed. The caller checks the service's health itself, and stops what
+it started when a later step fails.
 
 ### Adding to the OCaml layer
 
@@ -546,7 +628,11 @@ meaning only.** Colours mark the decision states (permit, narrow, deny) and
 links. A decorative colour could be mistaken for a decision, so there is no
 accent colour; hierarchy comes from type, weight and thin rules. Charts add
 three series tokens (`--ds-series-1` to `--ds-series-3`), used only inside
-charts, that mark identity (which hospital), never a decision. Code blocks
+charts, that mark identity (which hospital), never a decision. A series
+without one of those slots, such as a fourth hospital that joins while the
+demo runs, is drawn in neutral ink (`--ds-ink-2`, `series_slot=None` in
+`agents/common/infrastructure/charts.py`); never reuse another hospital's
+colour for it. Code blocks
 add syntax tokens (`--ds-syntax-*`, GitHub's Primer light and dark colours),
 used only inside code blocks and applied on the site by `site/src/highlight.ts`.
 
@@ -655,6 +741,16 @@ federated optimizer. `HttpFederationEngine`
 each site reached over HTTP. The GMA uses it when `GMA_FEDERATION_SITES` lists
 the sites as `site_id=url` entries.
 
+`GMA_FEDERATION_JOINABLE_SITES`, in the same format, lists the sites the GMA
+may reach from run time on. `PUT /api/v1/federation/sites/{site_id}/address`
+attaches a listed site only at the exact listed address. Any other site or
+address gets 403, and a site that `GMA_FEDERATION_SITES` lists with another
+address gets 409. An address alone never enrols a site: enrolment stays
+`PUT /api/v1/federation/sites/{site_id}`, and the planner still decides
+eligibility. A joined address lives in memory, so a restarted GMA forgets it
+and the caller sends it again. There is no route that removes an address.
+Each GMA reads its own list.
+
 Two rules always hold, and both have tests: aggregation produces a candidate,
 never a release; and a release gate whose metric is missing blocks the release.
 
@@ -686,7 +782,10 @@ The two demos show the boundary:
   statement. Dagents owns governance, federation, role scoping
   (`postgres_roles.py`), the running profile, the chart renderer and everything
   else generic. See `apps/healthcare-demo/backend/app/extension.py` for the
-  extension.
+  extension. When a hospital joins, the app owns which hospital, the workload
+  spec it sends and the order of the steps; Dagents renders the Compose file
+  (core-service), starts the service (`compose_apply.py`), accepts the address
+  and enrols the site (the GMA), and decides eligibility (the planner).
 
 Nothing in `agents/` knows what a stroke is, and nothing in the healthcare app
 implements a quorum rule. Apply that test to a new capability: if it would need a

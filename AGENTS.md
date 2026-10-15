@@ -90,6 +90,9 @@ Current in-memory implementation includes:
 - aggregate model execution endpoint
 - run dispatch tracking
 - in-memory storage of agent registrations and model-run history
+- site addresses learned at run time: a site listed in `GMA_FEDERATION_JOINABLE_SITES` is reached
+  at its listed address once a caller sends that exact address to
+  `PUT /api/v1/federation/sites/{site_id}/address`; the address alone never enrols the site
 
 ## Shared Run Flow
 
@@ -259,7 +262,13 @@ Implemented framework capabilities currently include:
 - incremental per-field statistics (`RunningProfile`), so a site updates its summary with each new
   record instead of recomputing it
 - a server-side SVG chart renderer (`agents/common/infrastructure/charts.py`, matplotlib) that
-  uses the design system's tokens and returns a table view with every chart
+  uses the design system's tokens and returns a table view with every chart; a series without
+  one of the three series colours is drawn in neutral ink (`--ds-ink-2`)
+- appliers for one service of a Compose file that core-service rendered
+  (`agents/common/infrastructure/compose_apply.py`): a local process, or a container started with
+  `docker compose`. The stroke demo uses them to add a fourth hospital to a running split demo.
+  The action is off unless `HEALTHCARE_DEMO_DEPLOYER` turns it on, and the hosted demo refuses
+  to start with it on
 - a published site at <https://pradyunuydarp.github.io/Dagents/> carrying the documentation, the
   generated API reference, and both demos. The stroke demo calls a deployed healthcare API that
   keeps each of three hospitals' International Stroke Trial records in its own Postgres schema,
@@ -272,7 +281,8 @@ Deliberately **not** implemented, and named so nobody assumes otherwise:
 
 - a federated optimizer or secure-aggregation protocol; `FederationEngine` is an adapter seam and
   the bundled engines are simulators: one runs every site in process, and one
-  (`HttpFederationEngine`, chosen with `GMA_FEDERATION_SITES`) reaches each site over HTTP
+  (`HttpFederationEngine`, chosen with `GMA_FEDERATION_SITES` or
+  `GMA_FEDERATION_JOINABLE_SITES`) reaches each site over HTTP
 - differential privacy accounting; the Guard's noise strategy shows where a mechanism belongs, and
   a privacy budget is separate work
 - cryptographic signing; round digests detect drift and carry no authenticity guarantee
@@ -369,6 +379,14 @@ This keeps failure isolation, upgrade independence, explicit contracts, and simp
   what sites report (counts, rates the site's planner permits, each audit chain's state and length)
   and round results. Training labels never leave the site, and a model update never goes into a
   `SiteResult`, which the coordinator sees; only its digest and clipped norm do.
+- Start a service from the file the planner rendered. An application asks core-service
+  (`POST /api/v1/manifests/compose`) for the Compose file and hands the exact text to an applier
+  in `agents/common/infrastructure/compose_apply.py`; it never writes Compose itself. When a later
+  step fails, it stops the service it started and withdraws the enrolment.
+- Never let a public host start a process or a container. Such an action is off unless a setting
+  turns it on, the app refuses to start with it on under `RENDER`, its `POST` is accepted only
+  without an `Origin` header or from a loopback page, and every port that reaches it listens on
+  127.0.0.1. The Compose override that mounts the Docker socket is for one person's machine only.
 - Accept only typed data entry: enums, numeric ranges and yes/no fields, with no free text and no
   identifiers. A behaviour with two implementations (the in-memory and Postgres stores, the OCaml
   and Python manifest renderers) runs one test suite against both.
@@ -413,7 +431,8 @@ Two consumers in this repository show the boundary, and both are published:
   feature contract, the dataset extract, the per-hospital stores, the seed rule, the logistic
   regression and its parameter-averaging runtime, the FHIR mapping and the intended-use
   statement; nothing in `agents/` knows what a stroke is, and nothing in the app re-implements a
-  quorum rule.
+  quorum rule. A split run on your own machine can add a fourth hospital, Hospital 290 in Poland,
+  while it runs (`scripts/run_frontend_demo.sh --deploy`).
 - [`services/nl2sql-demo/`](services/nl2sql-demo/README.md) — validation, planning, service checks
   and workload compilation. Live: <https://pradyunuydarp.github.io/Dagents/nl2sql-demo/>. The app
   owns its UI and its SQL generation.

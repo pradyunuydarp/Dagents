@@ -121,7 +121,11 @@ For Docker Compose, it renders one Compose file:
 The Kubernetes renderers ignore the Compose fields, and the Compose renderer
 ignores the Kubernetes-only fields such as `resources` and `namespace`. Neither
 renderer applies a file: Core service is the public orchestration facade, and
-the OCaml compiler is its deterministic manifest backend.
+the OCaml compiler is its deterministic manifest backend. Python applies a
+rendered file that holds one service with
+`agents/common/infrastructure/compose_apply.py`, as a local process or with
+`docker compose`; the stroke demo uses it to add a hospital while it runs, with
+no change to this planner.
 
 ### `governance_compiler`
 
