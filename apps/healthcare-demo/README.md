@@ -582,12 +582,16 @@ submits a data entry, and fails on any console error or failed request. Without
 a browser it exits 2 and prints `SKIP`. `scripts/run_frontend_demo.sh --split
 --check` runs the same test against the five processes.
 
-Two suites cover the split layout. `tests/test_forwarding.py` checks which
-routes the app forwards to which hospital, the headers it passes, its limits
-and its 404 and 503 answers, against small stand-in LMAs.
-`tests/test_split_processes.py` starts the Dagents GMA, the three LMAs and the
-app as real processes on free ports and runs a pilot through them. Its pilot
-test needs the planner; CI requires the class to run.
+Three suites cover the split layout:
+
+| Suite | What it checks |
+|---|---|
+| `tests/test_forwarding.py` | Which routes the app forwards to which hospital, the headers it passes, its limits and its 404 and 503 answers, against small stand-in LMAs |
+| `tests/test_split_roles.py` | The boundary between the processes, each run as an app in the test process: a hospital reports no record, checks the digests of every model it loads and runs only a job it accepted; the app stores an update only for a round being dispatched, on its internal listener only; a process that cannot be reached is a 503 that names it without its address |
+| `tests/test_split_processes.py` | The Dagents GMA, the three LMAs and the app as real processes on free ports, with a pilot through them, and the run script's signal handling |
+
+The tests that need the planner skip without it. CI requires the
+`SplitProcessTests` class of `test_split_processes.py` to run.
 
 Good tests to read first:
 
@@ -603,7 +607,11 @@ Good tests to read first:
 ```text
 backend/app/
   extension.py           the whole Dagents integration
-  api/forward.py         in the app role, sends each hospital's routes to its LMA
+  api/
+    forward.py           in the app role, sends each hospital's routes to its LMA
+    role_paths.py        which public paths each role serves
+    site_routes.py       an LMA's routes for the app and the GMA: its report, round jobs
+    coordinator_routes.py  the app's routes for the LMAs (models, updates) and the listener they run on
   domain/
     conditions.py        feature contract, classification, condition pack, release gates, field domains
     dataset.py           the three IST hospitals and the extract loader
@@ -617,6 +625,8 @@ backend/app/
     runtime.py           the model registry and the parameter-averaging runtime
     charts_service.py    the charts each view shows
     framework_client.py  calls to Dagents services and planners
+    roles.py             what each HEALTHCARE_DEMO_ROLE runs: combined, lma or app
+    remote.py            the HTTP clients a split run uses for the LMAs, the app and the Dagents GMA
   main.py                FastAPI app
 data/ist/                the IST extract, its licence and notice
 supabase/                migrations and the role emulation used by the tests
