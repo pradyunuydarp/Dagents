@@ -65,5 +65,8 @@ run_json model-route.json "$DAGENTSC" model route --task anomaly_detection --out
 section "11. Render Kubernetes manifests from a typed workload plan"
 run_json manifest-plan.json "$DAGENTSC" manifest compile --input "$INPUT_DIR/workload-plan.json" --output json
 
+section "12. Render a Docker Compose file that adds an LMA to a running project"
+run_json compose-plan.json "$DAGENTSC" manifest compile --input "$INPUT_DIR/compose-workload-plan.json" --output json
+
 section "Functional layer demo complete"
 printf 'Saved outputs are in %s\n' "$EXPECTED_DIR"
