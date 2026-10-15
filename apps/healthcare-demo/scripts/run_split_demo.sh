@@ -174,7 +174,11 @@ split_main() {
   split_preflight
   local log_dir
   log_dir="$(mktemp -d)"
-  trap 'trap - EXIT INT TERM; split_stop; rm -rf "'"${log_dir}"'"' EXIT INT TERM
+  trap 'trap - EXIT INT TERM; split_stop; rm -rf "'"${log_dir}"'"' EXIT
+  # Exit on a signal, which runs the EXIT trap. A trap that only stopped the
+  # processes would leave the loop below running over none.
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
 
   echo "Dagents healthcare stroke-triage demo, one process per part"
   echo "  framework : ${DAGENTS_HOME}"
