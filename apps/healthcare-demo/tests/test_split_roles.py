@@ -384,6 +384,84 @@ class AppTests(SplitTestCase):
             self.split.router.down.clear()
 
 
+class TimeoutTests(unittest.TestCase):
+    """The app waits for a whole round longer than the GMA waits for one hospital's call."""
+
+    JOB_TIMEOUT = 4.0
+
+    class Recording:
+        """An HTTP client that records the timeout of each request and answers 503."""
+
+        def __init__(self) -> None:
+            self.timeouts: dict[tuple[str, str], float] = {}
+
+        def request(self, method: str, url: str, **kwargs: Any) -> httpx.Response:
+            self.timeouts[(method, httpx.URL(url).path)] = kwargs["timeout"]
+            return httpx.Response(503, json={"detail": "not here"})
+
+        def post(self, url: str, **kwargs: Any) -> httpx.Response:
+            return self.request("POST", url, **kwargs)
+
+    @staticmethod
+    def manifest(round_id: str, phase: str) -> RoundManifest:
+        return RoundManifest(
+            round_id=round_id,
+            study_id="stroke-study",
+            condition_id="suspected_stroke",
+            phase=phase,  # type: ignore[arg-type]
+            model_version="m",
+            model_artifact_digest="sha256:m",
+            training_code_digest="sha256:c",
+            feature_contract_version="v3",
+        )
+
+    def settings(self) -> Any:
+        import dataclasses
+
+        from app.core import config
+
+        lma_urls = ",".join(f"{site_id}={url}" for site_id, url in LMA_URLS.items())
+        return dataclasses.replace(
+            config.settings, federation_timeout_seconds=self.JOB_TIMEOUT, lma_urls=lma_urls, gma_url=GMA_URL
+        )
+
+    def test_the_app_waits_for_every_call_the_gma_makes_in_a_round(self) -> None:
+        from app.services.roles import build_app_consortium
+
+        gma = self.Recording()
+        consortium = build_app_consortium(self.settings(), gma_client=gma)  # type: ignore[arg-type]
+        with self.assertRaises(RemoteServiceUnavailable):
+            consortium.controller.dispatch_round(self.manifest("r-slow", "analytics"))
+        with self.assertRaises(RemoteServiceUnavailable):
+            consortium.controller.list_sites()
+        # An offer and a run at each hospital, one after another, each up to JOB_TIMEOUT.
+        calls_in_a_round = 2 * len(LMA_URLS)
+        self.assertGreater(gma.timeouts[("POST", "/api/v1/federation/rounds")], calls_in_a_round * self.JOB_TIMEOUT)
+        self.assertEqual(self.JOB_TIMEOUT, gma.timeouts[("GET", "/api/v1/federation/sites")])
+        consortium.close()
+
+    def test_a_hospital_answers_the_gma_before_the_gma_stops_waiting(self) -> None:
+        import dataclasses
+
+        from app.services.roles import CALLS_TO_THE_APP_PER_JOB_CALL, build_site_node
+
+        app = self.Recording()
+        settings = dataclasses.replace(self.settings(), site_id=FIRST, coordinator_url=APP_INTERNAL_URL)
+        node = build_site_node(settings, client=app)  # type: ignore[arg-type]
+        with self.assertRaises(RemoteServiceUnavailable):
+            node.registry.model_in_use()
+        job = FederatedJob(
+            round_id="r-slow", site_id=FIRST, manifest=self.manifest("r-slow", "training"), manifest_digest="sha256:r", task="train"
+        )
+        with self.assertRaises(RuntimeError):
+            node.update_channel().submit(job, _update(1.0))
+        self.assertEqual(2, len(app.timeouts))
+        for call, timeout in app.timeouts.items():
+            with self.subTest(call=call):
+                self.assertLess(CALLS_TO_THE_APP_PER_JOB_CALL * timeout, self.JOB_TIMEOUT)
+        node.close()
+
+
 class GmaClientTests(SplitTestCase):
     """The app's round controller and release Guard call the Dagents GMA's API."""
 

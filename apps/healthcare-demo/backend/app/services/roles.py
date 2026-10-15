@@ -39,6 +39,35 @@ from app.services.site_store import (
 #: The roles a process can take.
 ROLES = ("combined", "lma", "app")
 
+#: Calls a hospital makes to the app while it answers one call from the GMA:
+#: at most the model a job names and the job's update.
+CALLS_TO_THE_APP_PER_JOB_CALL = 2
+
+
+def round_timeout(job_timeout: float, hospitals: int) -> float:
+    """Seconds the app waits for the Dagents GMA to dispatch one round.
+
+    The GMA offers the job to each hospital and then runs it there, one
+    hospital after another, and waits up to ``job_timeout`` for each call
+    (``GMA_FEDERATION_TIMEOUT_SECONDS``). So a round with one slow hospital
+    takes up to two calls per hospital. One more ``job_timeout`` covers the
+    GMA's own planning. A shorter wait gives up while the GMA is still
+    recording the slow hospital as refused or failed, and the pilot loses its
+    report.
+    """
+    return (2 * hospitals + 1) * job_timeout
+
+
+def coordinator_timeout(job_timeout: float) -> float:
+    """Seconds a hospital waits for each call to the app.
+
+    Every call a hospital makes to the app, for one call from the GMA, must end
+    before the GMA stops waiting for the hospital, so a slow app is reported
+    by the hospital rather than by a GMA timeout. Half of ``job_timeout`` is
+    left for the hospital's own work.
+    """
+    return job_timeout / (2 * CALLS_TO_THE_APP_PER_JOB_CALL)
+
 
 def check_role(settings: Settings) -> str:
     """``settings.role``, or ``ValueError`` naming the roles that exist."""
@@ -74,7 +103,8 @@ class SiteNode:
       ``HEALTHCARE_DEMO_SITE_<SITE>_DATABASE_URL`` takes precedence, as in one
       process.
     - `max_entered`: most records the data-entry form may add.
-    - `timeout`: seconds to wait for the app process.
+    - `timeout`: seconds to wait for each call to the app process. See
+      :func:`coordinator_timeout`.
     - `environ`: where per-site connection strings are read from.
     - `site_store`, `contribution_store`: stores to use instead of building
       them, for tests.
@@ -88,7 +118,7 @@ class SiteNode:
         coordinator_url: str,
         database_url: str = "",
         max_entered: int = 300,
-        timeout: float = 120.0,
+        timeout: float = 30.0,
         environ: Mapping[str, str] | None = None,
         site_store: SiteStore | None = None,
         contribution_store: CoordinatorStore | None = None,
@@ -187,7 +217,7 @@ def build_site_node(
         coordinator_url=settings.coordinator_url,
         database_url=settings.database_url,
         max_entered=settings.max_entered_per_site,
-        timeout=settings.federation_timeout_seconds,
+        timeout=coordinator_timeout(settings.federation_timeout_seconds),
         environ=environ,
         site_store=site_store,
         contribution_store=contribution_store,
@@ -243,7 +273,11 @@ def build_app_consortium(
         coordinator_store=coordinator_store,
         hospitals=hospitals,
         round_controller=lambda runtime: GmaRoundClient(
-            settings.gma_url, runtime, timeout=settings.federation_timeout_seconds, client=gma_client
+            settings.gma_url,
+            runtime,
+            timeout=settings.federation_timeout_seconds,
+            round_timeout=round_timeout(settings.federation_timeout_seconds, len(hospitals)),
+            client=gma_client,
         ),
         release_guard=GmaReleaseGuard(
             settings.gma_url, STROKE_CLASSIFICATION, timeout=settings.federation_timeout_seconds, client=gma_client
