@@ -203,6 +203,20 @@
     0 12px 32px -16px color-mix(in srgb, var(--ds-ink) 30%, transparent);
 }
 
+/* Code blocks: a finer grid in the top right corner, faded out before the
+   first column of text. The fade is painted in the block's own colour, and
+   the layers stay put when a long line scrolls sideways. */
+.doc pre.code,
+.ds-code {
+  background-color: var(--ds-inset);
+  background-image:
+    radial-gradient(circle at 100% 0%, transparent 0, var(--ds-inset) 16rem),
+    var(--fx-grid);
+  background-size: auto, 16px 16px, 16px 16px;
+  background-position: 0 0, right -1px top -1px, right -1px top -1px;
+  box-shadow: var(--fx-edge);
+}
+
 /* ===== Motion ============================================================= */
 /* A page fades up a few pixels when it opens. Nothing moves for readers who
    ask for less motion, and nothing loops. */
