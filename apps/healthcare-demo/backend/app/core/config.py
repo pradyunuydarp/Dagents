@@ -174,6 +174,62 @@ class Settings:
     #: Whether the app registers its Dagents extension on startup.
     register_extension: bool = _bool_env("HEALTHCARE_DEMO_REGISTER_EXTENSION", True)
 
+    #: Which part of the demo this process runs:
+    #:
+    #: - ``combined``: every hospital and the coordinator in this one process.
+    #:   The hosted deployment and the test suite use it.
+    #: - ``lma``: one hospital, ``HEALTHCARE_DEMO_SITE_ID``. It serves that
+    #:   hospital's pages and runs the round jobs the coordinator sends it.
+    #: - ``gma``: the coordinator. It reaches the hospitals at
+    #:   ``HEALTHCARE_DEMO_LMA_URLS`` over HTTP and never reads their records.
+    #:
+    #: The app the frontend calls in a split run is a separate module,
+    #: ``app.gateway``, which routes each request to the GMA or to a hospital.
+    role: str = field(default_factory=lambda: os.getenv("HEALTHCARE_DEMO_ROLE", "combined").strip().lower())
+
+    #: The hospital an ``lma`` process runs, such as ``uk-134``.
+    site_id: str = field(default_factory=lambda: os.getenv("HEALTHCARE_DEMO_SITE_ID", "").strip())
+
+    #: Where the GMA is, for an ``lma`` process and the gateway.
+    gma_url: str = field(default_factory=lambda: os.getenv("HEALTHCARE_DEMO_GMA_URL", "http://127.0.0.1:8081"))
+
+    #: Where each hospital's LMA is, for the GMA and the gateway, in display
+    #: order: ``uk-134=http://127.0.0.1:8082,it-002=...``.
+    lma_urls: str = field(
+        default_factory=lambda: os.getenv(
+            "HEALTHCARE_DEMO_LMA_URLS",
+            "uk-134=http://127.0.0.1:8082,it-002=http://127.0.0.1:8083,ch-245=http://127.0.0.1:8084",
+        )
+    )
+
+    #: Seconds the GMA waits for a hospital to answer a round job, and a
+    #: hospital waits for the GMA. A training job trains before it answers.
+    federation_timeout_seconds: float = field(
+        default_factory=lambda: float(os.getenv("HEALTHCARE_DEMO_FEDERATION_TIMEOUT_SECONDS", "60"))
+    )
+
+    #: Seconds the gateway waits for the GMA or a hospital. A pilot runs every
+    #: round before it answers, so this is long.
+    upstream_timeout_seconds: float = field(
+        default_factory=lambda: float(os.getenv("HEALTHCARE_DEMO_UPSTREAM_TIMEOUT_SECONDS", "300"))
+    )
+
+    def lma_url_map(self) -> dict[str, str]:
+        """``HEALTHCARE_DEMO_LMA_URLS`` as ``{site_id: url}``, in the order given.
+
+        Raises ``ValueError`` for an entry that is not ``site=url``.
+        """
+        urls: dict[str, str] = {}
+        for entry in self.lma_urls.split(","):
+            entry = entry.strip()
+            if not entry:
+                continue
+            site_id, sep, url = entry.partition("=")
+            if not sep or not site_id.strip() or not url.strip():
+                raise ValueError(f"HEALTHCARE_DEMO_LMA_URLS entry {entry!r} is not site=url")
+            urls[site_id.strip()] = url.strip().rstrip("/")
+        return urls
+
     def client_proxy_hops(self) -> int:
         """The proxies the rate limits trust: ``forwarded_for_hops``, or 0 when the header is not trusted."""
         return self.forwarded_for_hops if self.trust_forwarded_for else 0
