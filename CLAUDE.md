@@ -218,7 +218,12 @@ database and fails if one is missing from that list; a new class goes in both
 `ci.yml` and `healthcare-data.yml`. `scripts/ci_no_skipped_planner_tests.py
 LOG` still works; it runs the guard with `--forbid planner`.
 
-Docker and Minikube are not in CI; see **Current state**.
+Docker and Minikube are not in CI; see **Current state**. The suites set
+`DAGENTSC_BIN`, so they pass even when an image lacks the planner. One check
+covers the images without building them: `tests/test_planner_in_images.py`
+follows each Python image's imports from the module uvicorn runs, and fails if
+an image whose service reaches the planner does not copy `dagentsc` to
+`/usr/local/bin`.
 
 ### The published sites
 
@@ -419,6 +424,11 @@ Use `agents/common/infrastructure/dagents_runner.py`. It converts keys between
 snake_case and camelCase and runs the subprocess. The binary comes from
 `DAGENTSC_BIN`, or from `dagentsc` on PATH (containers install it there; local
 runs point at the dune build).
+
+An image whose service calls the planner builds it in an `ocaml/opam` stage and
+copies it to `/usr/local/bin/dagentsc`. Copy that stage from
+`services/core-service/Dockerfile`. `tests/test_planner_in_images.py` fails if
+an image lacks it.
 
 ### Adding to the OCaml layer
 

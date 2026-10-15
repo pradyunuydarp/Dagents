@@ -241,7 +241,9 @@ Implemented framework capabilities currently include:
   readiness, and release gates, with an adapter seam for a specialist federated runtime
 - a consumer extension registry, so an app contributes feature contracts, data classifications,
   condition packs, pipeline steps, and model adapters without forking the framework
-- separate Docker images for `lma`, `gma`, `core-service`, `model-service`, and `pipeline-service`
+- separate Docker images for `lma`, `gma`, `core-service`, `model-service`, and `pipeline-service`;
+  every image whose service calls the planner contains `dagentsc`, and
+  `tests/test_planner_in_images.py` checks the Dockerfiles for it
 - top-level `docker-compose.yml` for multi-container local or cloud-like deployment
 - role-scoped Postgres access (`agents/common/infrastructure/postgres_roles.py`): every operation
   runs in one transaction that starts with `SET LOCAL ROLE` and checks `current_user`, and a
