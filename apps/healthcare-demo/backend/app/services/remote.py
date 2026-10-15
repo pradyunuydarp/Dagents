@@ -109,13 +109,21 @@ class _Endpoint:
         self._client = client
 
     def request(
-        self, method: str, path: str, *, json: Any = None, params: Mapping[str, Any] | None = None
+        self,
+        method: str,
+        path: str,
+        *,
+        json: Any = None,
+        params: Mapping[str, Any] | None = None,
+        timeout: float | None = None,
     ) -> httpx.Response:
+        """Send one request. ``timeout`` replaces the endpoint's for this request."""
         url = f"{self.base_url}{path}"
+        wait = self._timeout if timeout is None else timeout
         try:
             if self._client is not None:
-                return self._client.request(method, url, json=json, params=params, timeout=self._timeout)
-            with httpx.Client(timeout=self._timeout) as client:
+                return self._client.request(method, url, json=json, params=params, timeout=wait)
+            with httpx.Client(timeout=wait) as client:
                 return client.request(method, url, json=json, params=params)
         except httpx.HTTPError as error:
             raise RemoteServiceUnavailable(_unavailable(self.name), f"{method} {url}: {error}") from error
@@ -338,14 +346,14 @@ class RemoteHospital:
 
 
 class _GmaEndpoint(_Endpoint):
-    def call(self, method: str, path: str, body: Any = None) -> Any:
+    def call(self, method: str, path: str, body: Any = None, timeout: float | None = None) -> Any:
         """Send one request and return the JSON answer.
 
         A 404 raises ``KeyError`` and a 409 ``PermissionError``, as the
         in-process controller does. Any other error status raises
         :class:`RemoteServiceUnavailable`.
         """
-        response = self.request(method, path, json=body)
+        response = self.request(method, path, json=body, timeout=timeout)
         if response.status_code == 404:
             raise KeyError(_detail(response))
         if response.status_code == 409:
@@ -379,8 +387,10 @@ class GmaRoundClient:
     Params:
     - `gma_url`: the Dagents GMA, ``GMA_PUBLIC_URL``.
     - `runtime`: the app's runtime, which holds the updates the hospitals sent.
-    - `timeout`: seconds to wait for each call. A dispatch answers after every
-      hospital has run its job.
+    - `timeout`: seconds to wait for each call but a dispatch.
+    - `round_timeout`: seconds to wait for a dispatch, which answers after the
+      GMA has offered and run the job at every hospital, one after another.
+      Defaults to `timeout`. See :func:`app.services.roles.round_timeout`.
     - `client`: an ``httpx.Client`` to send through, for tests.
     """
 
@@ -390,9 +400,11 @@ class GmaRoundClient:
         runtime: ParameterAveragingRuntime,
         *,
         timeout: float = DEFAULT_TIMEOUT_SECONDS,
+        round_timeout: float | None = None,
         client: httpx.Client | None = None,
     ) -> None:
         self._gma = _GmaEndpoint(GMA_NAME, gma_url, timeout=timeout, client=client)
+        self._round_timeout = timeout if round_timeout is None else round_timeout
         self._runtime = runtime
 
     @property
@@ -417,7 +429,9 @@ class GmaRoundClient:
 
     def dispatch_round(self, manifest: RoundManifest) -> RoundRecord:
         return RoundRecord.model_validate(
-            self._gma.call("POST", "/api/v1/federation/rounds", manifest.model_dump(mode="json"))
+            self._gma.call(
+                "POST", "/api/v1/federation/rounds", manifest.model_dump(mode="json"), timeout=self._round_timeout
+            )
         )
 
     def get_round(self, round_id: str) -> RoundRecord | None:

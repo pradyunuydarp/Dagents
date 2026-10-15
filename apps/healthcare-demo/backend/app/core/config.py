@@ -217,9 +217,13 @@ class Settings:
         )
     )
 
-    #: Seconds the ``app`` process waits for the Dagents GMA and a hospital
-    #: waits for the ``app`` process. A round answers only after every
-    #: hospital has run its job.
+    #: Seconds the Dagents GMA waits for one call to a hospital, its
+    #: ``GMA_FEDERATION_TIMEOUT_SECONDS``. Give both the same value. The
+    #: ``app`` process waits this long for each call to the GMA, and
+    #: ``2 * hospitals + 1`` times this for a round's dispatch, because the GMA
+    #: offers and runs the job at each hospital in turn. A hospital waits a
+    #: quarter of it for each call to the ``app`` process, so it answers the
+    #: GMA in time (see ``app.services.roles``).
     federation_timeout_seconds: float = field(
         default_factory=lambda: float(os.getenv("HEALTHCARE_DEMO_FEDERATION_TIMEOUT_SECONDS", "120"))
     )
