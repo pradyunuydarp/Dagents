@@ -129,6 +129,43 @@
    grid reads as structure and never competes with what it frames. The grid
    is a background image, so it costs no script and no extra elements. */
 
+/* Page background: one fixed layer in the margins beside the content column.
+   It does not scroll, so the browser paints it once. The home page has its
+   own grid in the hero. */
+.page::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -2;
+  background-image: var(--fx-grid);
+  background-size: 32px 32px;
+  background-position: center top;
+  opacity: 0.45;
+  pointer-events: none;
+  -webkit-mask-image: linear-gradient(
+    to right,
+    var(--ds-ink),
+    transparent max(3rem, calc(50% - 34rem)),
+    transparent min(calc(100% - 3rem), calc(50% + 34rem)),
+    var(--ds-ink)
+  );
+  mask-image: linear-gradient(
+    to right,
+    var(--ds-ink),
+    transparent max(3rem, calc(50% - 34rem)),
+    transparent min(calc(100% - 3rem), calc(50% + 34rem)),
+    var(--ds-ink)
+  );
+}
+
+.page:has(> .home)::after { display: none; }
+
+/* Below this width the margins are too narrow to hold it without running
+   under the text. */
+@media (max-width: 1399px) {
+  .page::after { display: none; }
+}
+
 /* ===== Motion ============================================================= */
 /* A page fades up a few pixels when it opens. Nothing moves for readers who
    ask for less motion, and nothing loops. */
