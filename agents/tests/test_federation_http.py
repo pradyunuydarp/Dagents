@@ -12,7 +12,9 @@ the worker's Guard calls it. It skips without ``dagentsc``.
 
 from __future__ import annotations
 
+import os
 import unittest
+from unittest import mock
 
 import httpx
 from fastapi import FastAPI, HTTPException
@@ -45,6 +47,8 @@ from agents.tests.test_federation_updates import (
     build_manifest,
     build_worker,
 )
+from agents.gma.config import Settings
+from agents.gma.di import build_federation_engine, build_round_controller
 from agents.tests.test_governance import dagentsc_available
 
 SITE_URL = "http://site-a.internal:8082"
@@ -450,6 +454,41 @@ class HttpFederationEngineTests(unittest.TestCase):
         [result] = engine.collect_results(manifest.round_id)
         self.assertEqual(result.participation, "failed")
         self.assertTrue(result.local_evidence_pointer.startswith("unreachable://site-z#"))
+
+
+class GmaEngineChoiceTests(unittest.TestCase):
+    """The GMA reads ``GMA_FEDERATION_SITES`` to choose its engine."""
+
+    def settings_with(self, **env: str) -> Settings:
+        with mock.patch.dict(os.environ, env):
+            for name in ("GMA_FEDERATION_SITES", "GMA_FEDERATION_TIMEOUT_SECONDS"):
+                if name not in env:
+                    os.environ.pop(name, None)
+            return Settings()
+
+    def test_without_sites_rounds_run_in_process(self) -> None:
+        config = self.settings_with()
+        self.assertEqual(config.federation_sites, "")
+        self.assertEqual(config.federation_timeout_seconds, 120.0)
+        engine = build_federation_engine(config)
+        self.assertIs(type(engine), InProcessFederationEngine)
+        self.assertEqual(build_round_controller(config).engine_name, "in-process-simulator")
+
+    def test_with_sites_rounds_go_to_each_site_over_http(self) -> None:
+        config = self.settings_with(
+            GMA_FEDERATION_SITES="site-a=http://lma-a:8082,site-b=http://lma-b:8083",
+            GMA_FEDERATION_TIMEOUT_SECONDS="45",
+        )
+        engine = build_federation_engine(config)
+        self.assertIsInstance(engine, HttpFederationEngine)
+        self.assertEqual(engine.site_urls, {"site-a": "http://lma-a:8082", "site-b": "http://lma-b:8083"})
+        self.assertEqual(engine.timeout, 45.0)
+        self.assertEqual(build_round_controller(config).engine_name, "http-sites")
+
+    def test_a_mistake_in_the_list_stops_the_gma(self) -> None:
+        config = self.settings_with(GMA_FEDERATION_SITES="site-a")
+        with self.assertRaises(ValueError):
+            build_round_controller(config)
 
 
 if __name__ == "__main__":

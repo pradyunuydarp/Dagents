@@ -77,6 +77,14 @@ it short. In a deployment:
 | The source's worker and runner | The federation engine's coordinator side |
 | `dagentsc` | `dagentsc` |
 
+To let the GMA service send round jobs to sources in other processes, list
+them in `GMA_FEDERATION_SITES` as `site_id=url` entries separated by commas, and
+set `GMA_FEDERATION_TIMEOUT_SECONDS` (default 120) to cover a source's longest
+job. Each source's service must answer `POST /api/v1/federation/jobs:offer` and
+`POST /api/v1/federation/jobs:execute` with its worker's `offer` and `execute`.
+The [GMA README](../../agents/gma/README.md#federated-rounds-over-http) has the
+details.
+
 A round's model update crosses from the left column to the right one only if
 the source's `before_send` Guard permits it. The round's metrics and example
 count cross as the source's runner wrote them

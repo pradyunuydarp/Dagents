@@ -2,11 +2,14 @@
 
 from agents.common.application.federation import (
     FederatedRoundController,
+    FederationEngine,
     InProcessFederationEngine,
 )
 from agents.common.application.governance_service import GovernanceService
+from agents.common.infrastructure.federation_http import HttpFederationEngine, parse_site_urls
 from agents.common.infrastructure.sources import DefaultSourceResolver
 from agents.gma.application.aggregation_service import AggregationService
+from agents.gma.config import Settings, settings
 from agents.gma.infrastructure.persistence import (
     InMemoryAgentRegistryRepository,
     InMemoryControlPlaneRepository,
@@ -30,13 +33,27 @@ def build_governance_service() -> GovernanceService:
     return GovernanceService()
 
 
-def build_round_controller() -> FederatedRoundController:
+def build_federation_engine(config: Settings = settings) -> FederationEngine:
+    """Build the engine that runs the sites' part of a round.
+
+    With ``GMA_FEDERATION_SITES`` set, each listed site is an LMA in its own
+    process, reached over HTTP with ``GMA_FEDERATION_TIMEOUT_SECONDS`` per call.
+    Without it, the engine runs in this process with no site attached, and
+    sites send their own results.
+    """
+    sites = parse_site_urls(config.federation_sites)
+    if sites:
+        return HttpFederationEngine(sites, timeout=config.federation_timeout_seconds)
+    return InProcessFederationEngine()
+
+
+def build_round_controller(config: Settings = settings) -> FederatedRoundController:
     """Build the federated round controller.
 
-    The default engine runs every site in this process, which makes the control
-    plane demonstrable without provisioning a distributed runtime. A deployment
-    swaps in an adapter for NVIDIA FLARE or another approved runtime; nothing
-    above :class:`~agents.common.application.federation.FederationEngine` has to
+    Both engines are simulators, which make the control plane demonstrable
+    without provisioning a distributed runtime. A deployment swaps in an
+    adapter for NVIDIA FLARE or another approved runtime; nothing above
+    :class:`~agents.common.application.federation.FederationEngine` has to
     change when it does.
     """
-    return FederatedRoundController(engine=InProcessFederationEngine())
+    return FederatedRoundController(engine=build_federation_engine(config))
