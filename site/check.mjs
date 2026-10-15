@@ -461,12 +461,12 @@ async function checkApi() {
 
   // The search finds endpoints, classes and objects, and its results open them.
   await open("#/api");
-  await page.fill(".api-search input", "ManifestService");
-  const kinds = await page.$$eval(".api-results .ds-chip", (chips) => chips.map((chip) => chip.textContent));
-  await page.fill(".api-search input", "WorkloadComponent");
-  const objects = await page.$$eval(".api-results .ds-chip", (chips) => chips.map((chip) => chip.textContent));
-  await page.fill(".api-search input", "workloads:compile");
-  await page.locator(".api-results a").first().click();
+  await page.fill(".site-search input", "ManifestService");
+  const kinds = await page.$$eval(".site-results .ds-chip", (chips) => chips.map((chip) => chip.textContent));
+  await page.fill(".site-search input", "WorkloadComponent");
+  const objects = await page.$$eval(".site-results .ds-chip", (chips) => chips.map((chip) => chip.textContent));
+  await page.fill(".site-search input", "workloads:compile");
+  await page.locator(".site-results a").first().click();
   await page.waitForSelector("#core-service-post-api-v1-workloads-compile");
   const landed = await page.evaluate(() => window.location.hash);
   check(

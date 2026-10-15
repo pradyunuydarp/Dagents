@@ -4,6 +4,7 @@
  * objects.
  */
 
+import { FuzzyIndex, type Match } from "../fuzzy";
 import { apiRoute, slugify } from "../markdown";
 import { commandSpec, endpointSpec, type ApiData } from "./data";
 import { MODULE_DOCS, OVERVIEW } from "./modules";
@@ -15,7 +16,8 @@ export interface SearchEntry {
   label: string;
   detail: string;
   href: string;
-  haystack: string;
+  /** Other words that find the entry: handler names, files, the classes it calls. */
+  extra: string;
 }
 
 const KIND_ORDER: EntryKind[] = ["Endpoint", "Command", "Object", "Interface", "Topic", "Class", "Module"];
@@ -23,15 +25,15 @@ const KIND_ORDER: EntryKind[] = ["Endpoint", "Command", "Object", "Interface", "
 export function buildIndex(data: ApiData): SearchEntry[] {
   const entries: SearchEntry[] = [];
   const classes = new Map<string, SearchEntry>();
-  const add = (entry: Omit<SearchEntry, "haystack">, ...extra: (string | null | undefined)[]) => {
-    entries.push({ ...entry, haystack: [entry.label, entry.detail, ...extra].join(" ").toLowerCase() });
+  const add = (entry: Omit<SearchEntry, "extra">, ...extra: (string | null | undefined)[]) => {
+    entries.push({ ...entry, extra: extra.filter(Boolean).join(" ") });
   };
   // A class name such as Settings is used by several services, so a class is
   // listed once per interface that names or calls it.
   const addClass = (name: string, detail: string, href: string, file: string | null) => {
     const key = `${name} ${href}`;
     if (classes.has(key)) return;
-    const entry: SearchEntry = { kind: "Class", label: name, detail, href, haystack: `${name} ${detail} ${file ?? ""}`.toLowerCase() };
+    const entry: SearchEntry = { kind: "Class", label: name, detail, href, extra: file ?? "" };
     classes.set(key, entry);
   };
 
@@ -86,21 +88,24 @@ export function buildIndex(data: ApiData): SearchEntry[] {
   return entries;
 }
 
-export function search(index: SearchEntry[], query: string, limit = 30): SearchEntry[] {
-  const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
-  if (!terms.length) return [];
-  const needle = terms.join(" ");
-  return index
-    .filter((entry) => terms.every((term) => entry.haystack.includes(term)))
-    .map((entry) => {
-      const label = entry.label.toLowerCase();
-      const score =
-        (label === needle ? 0 : label.startsWith(needle) ? 1 : label.includes(needle) ? 2 : 3) * 10 +
-        KIND_ORDER.indexOf(entry.kind);
-      return { entry, score };
-    })
-    .sort((a, b) => a.score - b.score || a.entry.label.localeCompare(b.entry.label))
-    .slice(0, limit)
-    .map(({ entry }) => entry);
+/** The fuzzy index over the entries: a match in the label counts most. */
+export function searchIndex(entries: SearchEntry[]): FuzzyIndex<SearchEntry> {
+  return new FuzzyIndex(entries, (entry) => [
+    { text: entry.label, weight: 1 },
+    { text: entry.detail, weight: 0.5 },
+    { text: entry.extra, weight: 0.4 }
+  ]);
 }
 
+/** The best matches, typos and partial words included; equal scores go by kind, then label. */
+export function search(index: FuzzyIndex<SearchEntry>, query: string, limit = 30): Match<SearchEntry>[] {
+  return index
+    .search(query, Infinity)
+    .sort(
+      (a, b) =>
+        b.score - a.score ||
+        KIND_ORDER.indexOf(a.item.kind) - KIND_ORDER.indexOf(b.item.kind) ||
+        a.item.label.localeCompare(b.item.label)
+    )
+    .slice(0, limit);
+}

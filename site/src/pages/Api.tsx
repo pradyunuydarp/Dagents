@@ -1,9 +1,10 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
 
 import { BreakablePath, InterfaceSection, MethodBadge, ObjectSection, Prose, endpointCards } from "../api/components";
 import { useApiData, type ApiData } from "../api/data";
 import { MODULE_DOCS, OVERVIEW, moduleDoc } from "../api/modules";
-import { buildIndex, search, type SearchEntry } from "../api/search";
+import { buildIndex, search, searchIndex } from "../api/search";
+import { SearchBox, type SearchResult } from "../SearchBox";
 import { REPO_URL } from "../config";
 import { apiRoute } from "../markdown";
 import { replayAnimations } from "../replay";
@@ -186,51 +187,31 @@ function NavTree({ current, data }: { current: string; data: ApiData | null }) {
 
 /* ===== Search ============================================================= */
 
+const SEARCH_LIMIT = 30;
+
 function Search({ data }: { data: ApiData | null }) {
-  const [query, setQuery] = useState("");
-  const index = useMemo(() => (data ? buildIndex(data) : []), [data]);
-  const results = useMemo(() => search(index, query), [index, query]);
-  const go = (entry: SearchEntry) => {
-    window.location.hash = entry.href.slice(1);
-    setQuery("");
-  };
+  const index = useMemo(() => searchIndex(data ? buildIndex(data) : []), [data]);
+  const run = useCallback(
+    (query: string): SearchResult[] =>
+      search(index, query, SEARCH_LIMIT).map(({ item, words }) => ({
+        key: `${item.kind}:${item.href}:${item.label}`,
+        href: item.href,
+        chip: item.kind,
+        label: item.label,
+        detail: item.detail,
+        matched: words
+      })),
+    [index]
+  );
   return (
-    <div className="api-search" role="search">
-      <label className="ds-field">
-        <span>Search topics, modules, interfaces, classes, endpoints and objects</span>
-        <input
-          className="ds-input"
-          type="search"
-          value={query}
-          placeholder={data ? "workloads:compile, ManifestService, federation" : "Loading the reference…"}
-          disabled={!data}
-          onChange={(event) => setQuery(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter" && results[0]) go(results[0]);
-            if (event.key === "Escape") setQuery("");
-          }}
-        />
-      </label>
-      {query.trim() && (
-        <div className="api-results">
-          <p className="ds-note api-result-count" aria-live="polite">
-            {results.length
-              ? `${results.length}${results.length === 30 ? "+" : ""} ${results.length === 1 ? "match" : "matches"}`
-              : `Nothing matches "${query.trim()}".`}
-          </p>
-          <ul>
-            {results.map((entry) => (
-              <li key={`${entry.kind}:${entry.href}:${entry.label}`}>
-                <a href={entry.href} onClick={() => setQuery("")}>
-                  <span className="ds-chip">{entry.kind}</span> <span className="api-result-label">{entry.label}</span>
-                  <span className="ds-note api-result-detail">{entry.detail}</span>
-                </a>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-    </div>
+    <SearchBox
+      label="Search topics, modules, interfaces, classes, endpoints and objects"
+      placeholder={data ? "workloads:compile, ManifestService, federation" : "Loading the reference…"}
+      disabled={!data}
+      limit={SEARCH_LIMIT}
+      code
+      run={run}
+    />
   );
 }
 

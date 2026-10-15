@@ -887,12 +887,12 @@
 
 /* Search */
 
-.api-search {
+.site-search {
   position: relative;
   max-width: 40rem;
 }
 
-.api-results {
+.site-results {
   margin-top: var(--ds-2);
   border: 1px solid var(--ds-line-strong);
   border-radius: var(--ds-r-2);
@@ -901,26 +901,52 @@
   overflow-y: auto;
 }
 
-.api-results ul { list-style: none; padding: 0; margin: 0; }
+.site-results ul { list-style: none; padding: 0; margin: 0; }
 
-.api-result-count { padding: var(--ds-2) var(--ds-3); border-bottom: 1px solid var(--ds-line); }
+.site-result-count { padding: var(--ds-2) var(--ds-3); border-bottom: 1px solid var(--ds-line); }
 
-.api-results a {
+.site-results a {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
   gap: 2px var(--ds-2);
   padding: var(--ds-2) var(--ds-3);
   border-bottom: 1px solid var(--ds-line);
+  border-left: 2px solid transparent;
   color: var(--ds-ink);
   text-decoration: none;
 }
 
-.api-results a:hover,
-.api-results a:focus-visible { background: var(--ds-inset); }
+/* The result Enter opens: the arrow keys and the pointer move it. */
+.site-results a.is-active,
+.site-results a:focus-visible {
+  background: var(--ds-inset);
+  border-left-color: var(--ds-ink);
+}
 
-.api-result-label { font-family: var(--ds-font-mono); font-size: var(--ds-step--1); overflow-wrap: anywhere; }
-.api-result-detail { flex-basis: 100%; }
+.site-result-label { font-weight: 600; overflow-wrap: anywhere; }
+.site-search--code .site-result-label { font-family: var(--ds-font-mono); font-size: var(--ds-step--1); font-weight: 400; }
+.site-result-detail { flex-basis: 100%; }
+
+.site-result-snippet {
+  flex-basis: 100%;
+  color: var(--ds-ink-2);
+  font-size: var(--ds-step--1);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* A matched word: weight and an underline, no colour, since colour marks decisions. */
+.site-results mark {
+  background: none;
+  color: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  text-decoration-color: var(--ds-line-strong);
+  text-underline-offset: 2px;
+}
 
 /* Pages */
 
