@@ -59,14 +59,16 @@ flowchart LR
 
   | Code | When | Standard error |
   |---|---|---|
-  | `0` | The command ran. A decision that refuses something, such as a `deny` plan, a source that is not valid or a Compose spec with issues, is a normal result | empty |
+  | `0` | The command ran. A decision that refuses something, such as a `deny` plan, a source that is not valid or a Compose spec with issues in JSON output, is a normal result | empty |
   | `1` | The command words are not a known command | the usage text, which lists every command |
   | `2` | The input cannot be read or does not make a plan: JSON that does not parse, a missing required key, an unknown value such as a workload kind, or a pipeline with a cycle | `Fatal error: exception Invalid_argument("Missing JSON field: boundary")`, or a `Yojson` parse error |
+  | `3` | `manifest compile` with YAML output found issues in a Compose spec, so it printed the issues as comments and no file | empty |
 
   `dagents_runner.py` turns a non-zero exit into `PlannerUnavailableError`.
   What a service does with it depends on the service: the Guard denies the
-  request and records the denial, the core service renders the YAML in Python
-  instead, and the healthcare demo answers `503`.
+  request and records the denial, the core service renders Kubernetes YAML in
+  Python instead and answers `500` for a Compose file, and the healthcare demo
+  answers `503`. Services read JSON output, so they never see exit code `3`.
 - **Unknown keys** in the input are ignored. Defaults are the cautious value:
   a site is not enrolled unless `enrolled` is true, a release gate is blocking
   unless `blocking` is false, and a field the classification does not list is
@@ -208,18 +210,23 @@ component name, in request order), `issues` (each with `service`, `code` and
 
 #### Compose issues
 
-A spec that cannot become a Compose file still gives a plan, with exit code
-`0`. With `--output yaml`, the command prints one comment line per issue
-instead of a file, with `spec` in place of the service for an issue with the
-whole spec:
+A spec that cannot become a Compose file still gives a plan. With
+`--output json`, the plan lists the issues, `composeYaml` is `null` and the
+exit code is `0`. With `--output yaml`, the command prints one comment line per
+issue instead of a file, with `spec` in place of the service for an issue with
+the whole spec, and exits with code `3`:
 
 ```text
 # No Compose file: the spec has issues.
 # lma-hospital-d: dependency_outside_project gma
 ```
 
-`docker compose` refuses a file of comments, so the output cannot be applied by
-mistake. The issues come in a fixed order: the spec's own issues first, then
+The exit code is what stops a script. `docker compose` refuses a file of
+comments only when it is the sole `-f` file. Passed after a project's own file,
+as `placement: merge` intends, it is merged as nothing: `up -d` without a
+service name starts no new service and exits `0`. So run the two commands with
+`&&`, or check `composeYaml` in the JSON output. The issues come in a fixed
+order: the spec's own issues first, then
 each component's, in request order. Within a component they follow the order
 of this table, except that ports and dependencies are checked one at a time.
 

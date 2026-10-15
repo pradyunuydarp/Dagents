@@ -113,11 +113,16 @@ let output_json json =
   Yojson.Safe.pretty_to_channel stdout json;
   print_newline ()
 
+(** The exit code of [manifest compile --output yaml] for a Compose spec with
+    issues. Docker Compose refuses a file of comments only when it is the sole
+    [-f] file; after a project's own file it merges the comments as nothing and
+    starts no new service. A non-zero exit stops a script before that. *)
+let compose_issues_exit_code = 3
+
 (** Print a Compose plan's issues as YAML comments, for [--output yaml].
 
     The service name and the value are escaped, so a newline in either cannot
-    end the comment and start a line of YAML. [docker compose -f] refuses a
-    file that holds only comments. *)
+    end the comment and start a line of YAML. *)
 let print_compose_issues (plan : compose_plan) =
   print_endline "# No Compose file: the spec has issues.";
   List.iter
@@ -137,9 +142,11 @@ let print_compose_issues (plan : compose_plan) =
     [--target] chooses the target.
 
     Output: the YAML by default, or the plan as JSON with [--output json].
-    For a Compose spec with issues, the YAML output is one comment line per
-    issue and the JSON output lists the issues with a null [composeYaml];
-    both exit with code 0. *)
+    For a Compose spec with issues, the JSON output lists the issues with a
+    null [composeYaml] and exits with code 0, because the plan is the answer.
+    The YAML output is one comment line per issue and exits with code 3, so
+    that [dagentsc ... > file && docker compose -f project.yml -f file up -d]
+    stops instead of merging an empty file into the project. *)
 let manifest_compile args =
   let output = arg_value "--output" args "yaml" in
   let target_name = arg_value "--target" args "kubernetes" in
@@ -199,7 +206,9 @@ let manifest_compile args =
       else
         match plan.compose_yaml with
         | Some yaml -> print_endline yaml
-        | None -> print_compose_issues plan)
+        | None ->
+            print_compose_issues plan;
+            exit compose_issues_exit_code)
 
 (** Handle [dagentsc pipeline compile].
 

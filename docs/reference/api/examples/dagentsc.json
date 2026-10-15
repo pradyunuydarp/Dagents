@@ -243,7 +243,7 @@
    "id": "manifest-compose-with-issues",
    "endpoint": "dagentsc manifest compile",
    "title": "Report why a spec cannot become a Docker Compose file",
-   "description": "The same LMA as its own project cannot depend on a service of another project, so the command prints the issue as a comment and no file.",
+   "description": "The same LMA as its own project cannot depend on a service of another project, so the command prints the issue as a comment and no file, and exits with code 3.",
    "request": {
     "args": [
      "manifest",
@@ -321,8 +321,8 @@
     }
    },
    "response": {
-    "exit_code": 0,
-    "status": 0,
+    "exit_code": 3,
+    "status": 3,
     "headers": {},
     "body": "# No Compose file: the spec has issues.\n# lma-hospital-d: dependency_outside_project gma\n",
     "stderr": "",

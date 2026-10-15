@@ -106,8 +106,11 @@ For Docker Compose, it renders one Compose file:
   (`expose`). A published port binds to `127.0.0.1` unless `hostIp` says
   otherwise, because the LMA and GMA endpoints have no authentication.
 - **Issues.** A spec that cannot become a Compose file still gives a plan. The
-  plan lists every issue, in a fixed order, and has no file, and `dagentsc`
-  exits with code 0. The issue codes are in `compose_issue_code_and_value`.
+  plan lists every issue, in a fixed order, and has no file. With
+  `--output json`, `dagentsc` exits with code 0. With YAML output it prints the
+  issues as comments and exits with code 3, because Docker Compose merges a
+  file of comments as nothing when it follows a project's own file. The issue
+  codes are in `compose_issue_code_and_value`.
 - **Quoting.** Every value a caller chose is written as a double-quoted YAML
   scalar, and `$` is written as `$$` so Compose passes it to the container
   instead of reading a variable. Control characters are escaped, including
@@ -309,7 +312,8 @@ docker compose -p healthcare-demo -f docker-compose.yml -f generated.yml up -d l
 ```
 
 Relative paths, such as the env files, resolve against the directory of the
-first file. With `"placement": "own"`, the same spec has one issue and no file:
+first file. With `"placement": "own"`, the same spec has one issue and no file,
+and `dagentsc` exits with code 3:
 
 ```text
 # No Compose file: the spec has issues.

@@ -329,6 +329,33 @@ class ComposePlannerTests(unittest.TestCase):
                 f"DAGENTSC_BIN={binary} cannot render a Compose file (exit {result.returncode}): "
                 f"{(result.stdout or result.stderr)[:300]!r}"
             )
+        cls.binary = binary
+
+    def compile_yaml(self, spec: dict[str, typing.Any], *flags: str) -> subprocess.CompletedProcess:
+        """Run `dagentsc manifest compile` on a camelCase spec, as a shell script would."""
+        return subprocess.run(
+            [self.binary, "manifest", "compile", "--input", "-", *flags],
+            input=json.dumps(spec),
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+    def test_yaml_output_with_issues_exits_3(self) -> None:
+        # Docker Compose merges a file of comments as nothing when it follows a
+        # project's own file, so the YAML output must not exit 0 without a file.
+        spec = {"target": {"kind": "compose", "placement": "merge"}, "components": [{"name": "lma-x", "image": ""}]}
+        yaml = self.compile_yaml(spec)
+        self.assertEqual(yaml.returncode, 3, yaml.stderr)
+        self.assertEqual(yaml.stdout, "# No Compose file: the spec has issues.\n# lma-x: empty_image\n")
+        self.assertEqual(yaml.stderr, "")
+        plan = self.compile_yaml(spec, "--output", "json")
+        self.assertEqual(plan.returncode, 0, plan.stderr)
+        self.assertIsNone(json.loads(plan.stdout)["composeYaml"])
+        spec["components"][0]["image"] = "x"
+        rendered = self.compile_yaml(spec)
+        self.assertEqual(rendered.returncode, 0, rendered.stderr)
+        self.assertTrue(rendered.stdout.startswith('services:\n  "lma-x":\n'), rendered.stdout)
 
     def test_renders_each_fixture(self) -> None:
         for name, fixture in FIXTURES.items():
