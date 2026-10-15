@@ -37,6 +37,13 @@ standard input. **Never** link the languages directly (FFI). Always go through
 snake_case and camelCase and runs the subprocess. The binary comes from
 `DAGENTSC_BIN`, or from `dagentsc` on PATH.
 
+**Every image whose service calls the planner must contain it.** Build it in an
+`ocaml/opam` stage and copy it to `/usr/local/bin/dagentsc`, as
+`services/core-service/Dockerfile` does. This includes any service that uses the
+Ethical Guard or the federated round controller. The suites set `DAGENTSC_BIN`,
+so they pass without it; `tests/test_planner_in_images.py` reads the
+Dockerfiles and fails instead.
+
 ### Where a decision is allowed to live
 
 Ask one question of every new rule: **does it always give the same answer for
@@ -286,3 +293,5 @@ governance tests skipped is not a pass.
 - A suite was green because its most important tests had skipped.
 - A convention was written down but not checked, so it stopped being followed.
 - An enforcement layer permitted requests when its planner was unreachable.
+- The LMA and GMA images had no planner. Every test passed, and in the compose
+  stack the Guard denied every request.
