@@ -82,7 +82,8 @@ hospital or as the coordinator.
 
 Each hospital's Guard writes its decisions to that hospital's own
 `guard_audit` table. The coordinator's release Guard writes to
-`coordinator.guard_audit`. A pilot report tells the coordinator, for each
+`coordinator.guard_audit`. (In the split layout, which is not deployed, the
+Dagents GMA runs the release Guard and keeps its chain in memory.) A pilot report tells the coordinator, for each
 chain, only whether it verifies and how many decisions it holds
 (`site_audits` and `coordinator_audit`). The decisions themselves stay where
 they were written. A hospital's own view, `GET /api/v1/hospitals/{id}/audit`,
