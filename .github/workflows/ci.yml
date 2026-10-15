@@ -280,6 +280,13 @@ jobs:
           mvn --batch-mode --no-transfer-progress -f services/spring-services/pom.xml
           -pl spring-control-service -am package -DskipTests
 
+      # tests/test_social_previews.py runs each frontend's link preview plugin
+      # (social-meta.mjs) with Node. The plugin imports nothing, so no
+      # npm install is needed.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
       - name: Install every service's dependencies
         # The inventory is extracted by importing each FastAPI app, so this job
         # genuinely needs all of them. That is the cost of checking the contract
@@ -295,6 +302,8 @@ jobs:
                                 -r apps/healthcare-demo/requirements.txt
           # tests/test_site_resources.py reads the text of each published PDF.
           python -m pip install pymupdf==1.28.2
+          # tests/test_social_previews.py reads the steps of pages.yml.
+          python -m pip install pyyaml==6.0.3
 
       - name: The committed inventory matches the code
         run: python scripts/service_inventory.py --check
@@ -311,11 +320,13 @@ jobs:
           set -o pipefail
           python -m unittest discover -s tests -t . -v 2>&1 | tee contracts-suite.log
 
-      - name: Fail if the API example replay skipped
+      - name: Fail if the API example replay or the link preview plugin tests skipped
+        # The plugin tests skip without Node, so the class must have run.
         run: |
           python scripts/ci_no_skipped_tests.py \
             --forbid planner \
             --require-ran tests.test_api_examples.ApiExampleReplayTests \
+            --require-ran tests.test_social_previews.SocialMetaPluginTests \
             contracts-suite.log
 
   # ---------------------------------------------------------------------------
@@ -544,7 +555,8 @@ jobs:
         # reference page shows each endpoint where docs/reference/api places
         # it, that its anchors resolve, and that its code tabs switch. It
         # also fetches every deck and PDF on the Resources page and checks each
-        # file's first bytes. A diagram with a syntax error only fails in a
+        # file's first bytes, and checks the home page's link preview tags and
+        # that its card and icons load. A diagram with a syntax error only fails in a
         # browser, so the build above cannot catch it. Exit 2 (no browser)
         # fails this step.
         working-directory: site

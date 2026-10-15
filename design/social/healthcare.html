@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Stroke triage demo link preview</title>
+<!-- The link preview card for the stroke triage demo, 1200 x 630 px.
+     scripts/render_social_cards.mjs renders it to
+     apps/healthcare-demo/frontend/public/social-preview.png and fills the
+     data-published-url element from env/.env.published.
+
+     The card names each hospital and its schema, and no counts or results,
+     because those change. tests/test_social_previews.py fails when this list
+     differs from SITES in apps/healthcare-demo/backend/app/domain/dataset.py. -->
+<link rel="stylesheet" href="card.css">
+<style>
+  .panel-label { padding-bottom: 14px; }
+  .panel-note { padding-top: 14px; }
+</style>
+</head>
+<body>
+<main class="card">
+  <header class="card-head">
+    <div class="brand">
+      <img src="mark.svg" width="52" height="52" alt="">
+      <span class="brand-name">Dagents</span>
+    </div>
+    <span class="kind">Demo · stroke triage</span>
+  </header>
+  <div class="rule"></div>
+  <div class="card-body">
+    <div class="lede">
+      <h1 class="headline">Stroke triage across three hospitals</h1>
+      <p class="summary">Real records from the International Stroke Trial, in a separate store at each hospital. A model is trained across them without moving the records.</p>
+    </div>
+    <aside class="panel">
+      <span class="panel-label">One store per hospital</span>
+      <ul class="sites">
+        <li class="site" data-site-schema="site_uk_134"><span class="site-name">Hospital 134 · United Kingdom</span><span class="site-schema">schema site_uk_134</span></li>
+        <li class="site" data-site-schema="site_it_002"><span class="site-name">Hospital 2 · Italy</span><span class="site-schema">schema site_it_002</span></li>
+        <li class="site" data-site-schema="site_ch_245"><span class="site-name">Hospital 245 · Switzerland</span><span class="site-schema">schema site_ch_245</span></li>
+      </ul>
+      <span class="panel-note">The coordinator has no access to any hospital's schema.</span>
+    </aside>
+  </div>
+  <footer class="card-foot">
+    <span class="address" data-published-url="HEALTHCARE_DEMO_PUBLIC_SITE_URL">HEALTHCARE_DEMO_PUBLIC_SITE_URL</span>
+    <span class="foot-note">Data: IST-1, ODC Attribution License · Not a medical device</span>
+  </footer>
+</main>
+</body>
+</html>

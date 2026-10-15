@@ -230,6 +230,39 @@ It proves a decision was made, not that the right page changed.
 area map against the real tree, and this job's shape. The map and the trailer
 rules are in the `docs-sync` skill.
 
+### k. A shared link that shows no picture
+
+A LinkedIn share of the framework site once showed "Image unavailable": the
+page had no `og:image`. Crawlers also ignore a relative `og:image`, and a local
+build can only write the base path, so a tag can be present and still useless.
+
+Defence: the published address reaches each build as `PUBLIC_SITE_URL`, never
+written in the HTML (the `frontend` skill, section 3b). `pages.yml` runs
+`scripts/check_link_previews.py` three times:
+
+- **Resolve the published addresses** (`addresses --github-env`) reads each
+  `*_PUBLIC_SITE_URL` from `env/.env.published` and stops the deploy when one
+  is missing or is not a plain https address ending in `/`. The Vite plugin
+  also fails the build when an address's path differs from the base path.
+- **Every page has a link preview at its published address** (`built --tree
+  _site`) checks each built `index.html` for the absolute `og:url`,
+  `og:image`, `og:image:secure_url` and `twitter:image`, no placeholder left,
+  a 1200 x 630 card under 300 KB, and every icon.
+- After the deploy, **Each published page's link preview image loads**
+  (`published`) reads the `og:image` from each live page and requests it.
+  Anything but `200` with an `image/` content type and a body fails the run.
+
+The checks are a script, not inline shell, so a test can show that each one
+fails. An earlier inline version of the built-page step printed `ok` for a
+page that failed. `tests/test_social_previews.py` (in the `contracts` job) runs each command on
+good and broken inputs, the last one against a local stand-in that answers 404
+or `text/html`. It also checks the tags, the plugin's refusals and that each
+committed PNG is current with its source in `design/social/`. The plugin tests
+need Node, so the `contracts` job sets up Node and requires
+`tests.test_social_previews.SocialMetaPluginTests` to have run.
+`site/check.mjs` loads the built site's card and icons. Neither can see a
+crawler's cache: LinkedIn and WhatsApp keep the preview they fetched first.
+
 ## 3. The test loop
 
 CI runs the same commands a contributor runs. Write the failing test first,

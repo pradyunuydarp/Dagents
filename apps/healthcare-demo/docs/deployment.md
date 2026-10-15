@@ -304,6 +304,18 @@ fail the deploy, so a setting on the API cannot stop the framework site and the
 other demo from publishing. The replay page says it is a replay, names its
 commit, and disables data entry, so it never presents recorded data as live.
 
+The link preview is checked separately, and it does fail the deploy. The build
+writes `HEALTHCARE_DEMO_PUBLIC_SITE_URL` from `env/.env.published` into the
+page's `og:url` and `og:image` tags. The workflow stops when that address is
+missing, and after the deploy it requests the published image. An extracted
+copy of this app sets `PUBLIC_SITE_URL` for its own build in the same way
+(`frontend/social-meta.mjs`). The preview image itself,
+`frontend/public/social-preview.png`, prints the Dagents address, and an
+extracted copy has no render script. A copy published at another address must
+replace that image. To render it for the new address, set
+`HEALTHCARE_DEMO_PUBLIC_SITE_URL` in a Dagents checkout's `env/.env.published`
+and run `node scripts/render_social_cards.mjs` there.
+
 To diagnose the API, run the **Healthcare API check** workflow. It fails when the
 API has a problem, and its annotations name the status, the header, the origins
 the API allows, whether the stores are ready and each hospital's record count.

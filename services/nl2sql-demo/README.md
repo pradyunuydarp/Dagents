@@ -11,6 +11,10 @@ services, with the OCaml planner built, and names the commit they came from.
 Only the bundled samples were recorded; an edited question gets no answer. The
 recorded run uses the rule-based fallback adapter, not a GPU model.
 
+A shared link to the page shows the image in `frontend/public/social-preview.png`.
+That image and the icons beside it are rendered from `design/social/`; that
+folder's README says how to change them.
+
 ## What it uses from Dagents
 
 - `agents.common.domain`: shared Pydantic contracts and base models.

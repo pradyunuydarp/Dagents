@@ -1,0 +1,306 @@
+/* Styles shared by the three link preview cards (framework.html,
+ * healthcare.html, nl2sql.html). Each card is 1200 x 630 px, the size LinkedIn,
+ * WhatsApp, Slack and X show for a large link preview.
+ *
+ * Every colour and radius comes from a design system token. The cards are
+ * rendered in the light theme. scripts/render_social_cards.mjs supplies the
+ * fonts (Archivo and IBM Plex Mono, from the @fontsource packages), so these
+ * files load nothing from the network.
+ */
+@import url("../dagents-design-system.css");
+
+html,
+body {
+  margin: 0;
+  background: var(--ds-ground);
+}
+
+/* The design system's base rules are written for pages. These undo the three
+ * that would move the approved layout: the body line height, a font feature
+ * and balanced wrapping of headings. */
+.card {
+  width: 1200px;
+  height: 630px;
+  box-sizing: border-box;
+  padding: 52px 64px 48px;
+  display: flex;
+  flex-direction: column;
+  background: var(--ds-ground);
+  color: var(--ds-ink);
+  font-family: var(--ds-font-body);
+  line-height: normal;
+  font-feature-settings: normal;
+}
+
+.mono {
+  font-family: var(--ds-font-mono);
+}
+
+/* ===== Head: the mark, the name and what the page is ===================== */
+
+.card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.brand-name {
+  font-size: 34px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.kind {
+  font-family: var(--ds-font-mono);
+  font-size: 16px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ds-ink-2);
+}
+
+.rule {
+  height: 1px;
+  margin: 28px 0 36px;
+  background: var(--ds-line);
+}
+
+/* ===== Body: the headline on the left, a panel on the right ============== */
+
+.card-body {
+  display: flex;
+  flex-grow: 1;
+  align-items: flex-start;
+  gap: 48px;
+}
+
+.lede {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+.headline {
+  margin: 0;
+  font-family: var(--ds-font-body);
+  font-size: 60px;
+  font-weight: 700;
+  line-height: 1.04;
+  letter-spacing: -0.025em;
+  text-wrap: wrap;
+}
+
+.summary {
+  margin: 0;
+  max-width: 560px;
+  font-size: 23px;
+  line-height: 1.42;
+  color: var(--ds-ink-2);
+}
+
+.panel {
+  width: 404px;
+  flex: 0 0 404px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  padding: 22px 24px;
+  background: var(--ds-panel);
+  border: 1px solid var(--ds-line);
+  border-radius: var(--ds-r-2);
+}
+
+.panel-label {
+  font-family: var(--ds-font-mono);
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ds-ink-2);
+}
+
+.panel-note {
+  font-size: 15px;
+  line-height: 1.45;
+  color: var(--ds-ink-2);
+}
+
+/* ===== Foot: the published address and a short note ====================== */
+
+.card-foot {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding-top: 20px;
+  border-top: 1px solid var(--ds-line);
+}
+
+.address {
+  font-family: var(--ds-font-mono);
+  font-size: 18px;
+  font-weight: 500;
+  color: var(--ds-ink);
+}
+
+.foot-note {
+  font-size: 15px;
+  color: var(--ds-ink-2);
+}
+
+/* ===== Framework card: one request at three sources ====================== */
+
+.flow {
+  display: flex;
+  align-items: center;
+}
+
+.flow-sources {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.flow-source {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.agent {
+  width: 112px;
+  box-sizing: border-box;
+  padding: 9px 12px;
+  background: var(--ds-inset);
+  border: 1px solid var(--ds-line);
+  border-radius: var(--ds-r-1);
+  font-family: var(--ds-font-mono);
+  font-size: 15px;
+  font-weight: 500;
+}
+
+.flow-links {
+  flex: 0 0 48px;
+}
+
+.flow-links path {
+  fill: none;
+  stroke: var(--ds-line-strong);
+  stroke-width: 1.5;
+}
+
+.agent-global {
+  width: 76px;
+  box-sizing: border-box;
+  padding: 12px 0;
+  background: var(--ds-ink);
+  color: var(--ds-panel);
+  border-radius: var(--ds-r-1);
+  text-align: center;
+  font-family: var(--ds-font-mono);
+  font-size: 15px;
+  font-weight: 500;
+}
+
+/* A decision chip always carries its word, so it reads without colour. */
+.chip {
+  padding: 4px 8px;
+  border-radius: var(--ds-r-1);
+  font-family: var(--ds-font-mono);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.chip-permit {
+  color: var(--ds-permit);
+  background: var(--ds-permit-bg);
+}
+
+.chip-narrow {
+  color: var(--ds-narrow);
+  background: var(--ds-narrow-bg);
+}
+
+.chip-deny {
+  color: var(--ds-deny);
+  background: var(--ds-deny-bg);
+}
+
+/* ===== Stroke triage card: one store per hospital ======================== */
+
+.sites {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.site {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 13px 0;
+  border-top: 1px solid var(--ds-line);
+}
+
+.site:last-child {
+  border-bottom: 1px solid var(--ds-line);
+}
+
+.site-name {
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.site-schema {
+  font-family: var(--ds-font-mono);
+  font-size: 14px;
+  color: var(--ds-ink-2);
+}
+
+/* ===== NL2SQL card: a question and the framework steps =================== */
+
+.question {
+  box-sizing: border-box;
+  padding: 12px 14px;
+  background: var(--ds-inset);
+  border: 1px solid var(--ds-line);
+  border-radius: var(--ds-r-1);
+  font-size: 19px;
+  font-weight: 500;
+}
+
+.steps {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--ds-line);
+}
+
+.step {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--ds-line);
+}
+
+.step-number {
+  width: 18px;
+  font-family: var(--ds-font-mono);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--ds-ink-2);
+}
+
+.step-name {
+  font-size: 17px;
+}

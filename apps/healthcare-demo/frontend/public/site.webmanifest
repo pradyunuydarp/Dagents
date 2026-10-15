@@ -1,0 +1,19 @@
+{
+  "name": "Stroke triage demo",
+  "short_name": "Stroke triage",
+  "icons": [
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    },
+    {
+      "src": "favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ],
+  "theme_color": "#f6f7f9",
+  "background_color": "#f6f7f9",
+  "display": "browser"
+}

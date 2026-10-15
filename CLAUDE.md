@@ -255,6 +255,39 @@ refuses a recording whose guard controls change nothing, or that lacks a
 request the UI sends at the exact path and query string it sends it. Recordings
 are gitignored; the workflow makes them.
 
+**Link previews and icons.** A link to one of the sites, shared on LinkedIn,
+WhatsApp, Slack or X, shows that site's card: the 1200 x 630 PNG named by the
+page's `og:image` tag. The three cards and the logo mark are HTML and SVG files
+in `design/social/` (its README lists each output and which ones are copies).
+`scripts/render_social_cards.mjs` renders them with the fonts from the
+`@fontsource` packages into each frontend's `public/` folder, with the favicons,
+and the PNGs are committed:
+
+```bash
+cd site && npm install && cd -             # playwright-core and the fonts
+node scripts/render_social_cards.mjs       # renders what changed; --force renders everything
+```
+
+Look at every changed PNG, then commit it with `design/social/rendered.json`.
+`tests/test_social_previews.py` fails when a source changes without a new
+render, when a card is not 1200 x 630 or is over 300 KB, when a page lacks a
+tag, or when a description or alt text holds a number, as a digit or a word.
+A card or a description shows structure and purpose only, never a count,
+score, date or result, because those change.
+
+Crawlers ignore a relative `og:image`. So each `index.html` writes
+`%PUBLIC_SITE_URL%`, and the Vite plugin `social-meta.mjs` replaces it at build
+time with the `PUBLIC_SITE_URL` variable, which the Pages workflow reads from
+`env/.env.published`. A build without the variable uses the base path.
+`scripts/check_link_previews.py` runs three times in the Pages workflow: it
+stops the deploy when an address is missing or not plain https, when a built
+page lacks an absolute tag, its card or an icon, and, after the deploy, when a
+published `og:image` does not load. Pages live in the URL hash, so every page of a
+site (`#/learn/...`, `#/api/...`) shares its root page's preview. LinkedIn and
+WhatsApp cache previews, so a changed card can keep showing the old one. The
+[LinkedIn Post Inspector](https://www.linkedin.com/post-inspector/) fetches the
+page again and refreshes LinkedIn's copy; WhatsApp has no such tool.
+
 The site's learning guide is `docs/learn/*.md`. `npm run check` visits every
 guide page in Chromium and fails if a Mermaid diagram does not draw, an image
 does not load, or a link between pages is broken.
@@ -473,7 +506,8 @@ Rules:
 ### The design system
 
 `design/dagents-design-system.css` is the single source.
-`scripts/sync_design_system.py --write` copies it into each frontend, and
+`scripts/sync_design_system.py --write` copies it into each frontend, together
+with the link preview plugin `design/social/social-meta.mjs`, and
 `tests/test_publishing_guards.py` fails if a copy differs. The copies exist
 because `apps/healthcare-demo/` must stay extractable and cannot import across
 the tree. Edit the source, never a copy.

@@ -27,7 +27,8 @@ The healthcare demo and the site use `playwright-core` for browser checks.
 ## 2. The design system
 
 `design/dagents-design-system.css` is the single source.
-`scripts/sync_design_system.py --write` copies it into each frontend, and
+`scripts/sync_design_system.py --write` copies it into each frontend, together
+with the link preview plugin `design/social/social-meta.mjs` (section 3b), and
 `tests/test_publishing_guards.py` fails if a copy differs.
 
 - **Never edit a copy.** Edit the source and run the sync. The copies exist
@@ -77,6 +78,61 @@ The healthcare demo and the site use `playwright-core` for browser checks.
   `dist/resources/` at build time. **Never copy a deck or a PDF into `site/`.**
   After a deck changes, run `scripts/export_presentations.py --write`, look at
   the new PDF and commit it; `tests/test_site_resources.py` fails until then.
+
+## 3b. Link previews and icons
+
+A link to one of the three sites, shared on LinkedIn, WhatsApp, Slack or X,
+shows that site's card: the 1200 x 630 PNG named by the page's `og:image` tag.
+Browser tabs show the logo mark.
+
+- **The sources are in `design/social/`:** one HTML file per card, `card.css`,
+  the mark in its light, dark and small sizes, and `favicon.svg`, which switches
+  to the dark mark with a `prefers-color-scheme` query. The folder's README lists
+  every output and which ones are copies. Every colour is a design system token.
+- **Render, look, commit.** `scripts/render_social_cards.mjs` renders each card
+  in Chromium with the fonts from the `@fontsource` packages (devDependencies
+  of `site/`) and writes `social-preview.png`, `favicon.svg`, `favicon-32.png`,
+  `apple-touch-icon.png` and `icon-512.png` into each frontend's `public/`. It
+  blocks every request outside the repository, so it never uses the network.
+  The PNGs are committed, so publishing needs no browser and no fonts.
+
+  ```bash
+  cd site && npm install && cd -
+  node scripts/render_social_cards.mjs      # renders what changed; --force renders everything
+  ```
+
+  Look at every changed PNG with an image viewer before you commit it with
+  `design/social/rendered.json`. **Never edit an output or a copy by hand.**
+- **A card shows structure and purpose only.** **Never** put a count, score,
+  date or result on a card, in a description or in alt text, because those
+  change. The stroke triage card names the hospitals in `SITES` and the NL2SQL
+  card shows a bundled sample question; the test checks both.
+- **Never write a published address in `index.html`.** Crawlers ignore a
+  relative `og:image`, so each page writes `%PUBLIC_SITE_URL%` and
+  `social-meta.mjs` replaces it at build time with `PUBLIC_SITE_URL`. The Pages
+  workflow reads that from `env/.env.published`. Without the variable the
+  build uses the base path, which works locally but gives crawlers nothing. The
+  plugin refuses an address that is not https, carries a query string, or does
+  not match the base path.
+- Each `index.html` has the description, the `og:` and `twitter:` tags, the
+  icon links, the manifest link and a `theme-color` for each theme. Pages live
+  in the URL hash, so every page of a site shares its root page's preview.
+- The healthcare demo keeps its own copies of the icons and the plugin in
+  `apps/healthcare-demo/frontend/`, so it stays extractable.
+- **Previews are cached.** LinkedIn and WhatsApp keep the preview they fetched
+  first. After a change, paste the address into the
+  [LinkedIn Post Inspector](https://www.linkedin.com/post-inspector/) to refresh
+  LinkedIn's copy. WhatsApp has no such tool.
+
+`tests/test_social_previews.py` fails when a page lacks a tag, when an output
+is stale or the wrong size, when a card is over 300 KB (WhatsApp drops larger
+images), or when a title, description or alt text holds a number, as a digit
+or a word. The stroke demo's texts may give its hospital count, and the test
+ties that count to `SITES`. `site/check.mjs` reads the built home page's HTML
+and loads its card and icons. The Pages workflow runs
+`scripts/check_link_previews.py` on each built page before the upload, and
+after the deploy it requests each published `og:image` and fails on anything
+but a 200 image response.
 
 ## 4. Published demos replay a real run or call a real API
 
@@ -249,7 +305,11 @@ in the inventory, and each dagentsc command, appears once in the interface
 switches the code tabs, runs the search and checks the width at 375 px. It
 fails when a success response shows only "A JSON object." with no field table,
 and when a code sample reads an SVG, a `304` or a refused command as JSON.
-Every page of both guides must fit a 375 px screen.
+Every page of both guides must fit a 375 px screen. It reads the home page's
+HTML as a link preview crawler does, without running the script, and fails
+when a link preview tag is missing, the tags do not name `social-preview.png`
+under the build's address, or the card (a 1200 x 630 PNG under 300 KB), the
+favicons, the touch icon or a manifest icon does not load.
 
 Both scripts use the same exit codes:
 

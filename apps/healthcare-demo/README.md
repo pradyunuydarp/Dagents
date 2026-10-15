@@ -539,6 +539,10 @@ data/ist/                the IST extract, its licence and notice
 supabase/                migrations and the role emulation used by the tests
 frontend/
   src/                   the UI (Vite + React): consortium view, hospital view, data entry
+  public/                the link preview image, the icons and the web manifest, rendered from
+                         Dagents' design/social/ and copied here so the app stays extractable;
+                         the recording capture also writes recording.json here
+  social-meta.mjs        writes the published address (PUBLIC_SITE_URL) into the link preview tags
   smoke.mjs              drives the UI against a live backend
 docs/screenshots/        screenshots of the UI
 scripts/                 run the demo, run the pilot, extract the data, seed a database, move into its own repository

@@ -77,6 +77,7 @@ by hand.** Change its source, run its generator and commit both.
 | `docs/reference/api-reference.json` | each app's OpenAPI document, `Field(description=...)`, docstrings, Spring records, `bindings/ocaml/bin/dagentsc.ml`, the `api-object` blocks | `scripts/api_reference.py --write` |
 | `docs/reference/api/examples/<service>.json` | `docs/reference/api/examples/<service>.requests.json`, replayed against the real app | `scripts/capture_api_examples.py` (needs the planner) |
 | the `facts` of each entry in `docs/presentation/resources.json`, and `docs/presentation/exports/` | the decks | `scripts/export_presentations.py --write` (needs LibreOffice Impress, PyMuPDF and Pillow) |
+| each frontend's `public/social-preview.png` and icons, and `design/social/rendered.json` | the cards and the mark in `design/social/`, the design system, the fonts' versions, the addresses in `env/.env.published` | `node scripts/render_social_cards.mjs` (needs `cd site && npm install` and Chromium); look at every changed PNG |
 
 Docs written by people, and what keeps them in step with the code:
 
@@ -129,6 +130,7 @@ the JSON.
 | `tests/test_getting_started_example.py` | a `source` block differs from its file; a Python block in the guide has no marker; an `output` block differs from what the script prints with the planner; an example file is never shown; a word of the example's domain appears in `agents/` | prose next to a block; commands and outputs the test cannot run (curl calls, Postgres tests) |
 | `tests/test_site_resources.py` | a deck, PDF or preview changed after `--write`; a PDF's page count differs from the deck's slides; a deck or note under `docs/presentation/` is neither listed nor excluded with a reason; a published file contains the API host | a description that no longer matches the deck |
 | `tests/test_publishing_guards.py` | the deployed API's host appears outside `env/` and `.github/`; the README does not link a published site | anything else in the docs |
+| `tests/test_social_previews.py` | a link preview tag is missing; a card or icon is stale, the wrong size or over 300 KB; a title, description or alt text has a digit or a number word; the stroke card's hospitals, or the hospital count in its texts, differ from `SITES`; a Pages check in `scripts/check_link_previews.py` stops failing on a broken input | whether a card's wording is still true |
 | `tests/test_docs_impact.py` | the docs-impact check, its area map or its CI job is broken (section 6) | — |
 | `site/check.mjs` (`npm run check`) | a Mermaid diagram does not draw, an image does not load, a link or anchor between pages is broken, raw Markdown shows, an endpoint is missing from the API page that places it, a Resources download is missing | text that renders and is wrong |
 

@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>NL2SQL demo link preview</title>
+<!-- The link preview card for the NL2SQL demo, 1200 x 630 px.
+     scripts/render_social_cards.mjs renders it to
+     services/nl2sql-demo/frontend/public/social-preview.png and fills the
+     data-published-url element from env/.env.published.
+
+     The question is one of the demo's bundled samples.
+     tests/test_social_previews.py fails when it is no longer in
+     services/nl2sql-demo/backend/app/services/samples.py. -->
+<link rel="stylesheet" href="card.css">
+<style>
+  .summary { max-width: 580px; }
+  .panel { gap: 14px; }
+  .question + .panel-label { margin-top: 4px; }
+</style>
+</head>
+<body>
+<main class="card">
+  <header class="card-head">
+    <div class="brand">
+      <img src="mark.svg" width="52" height="52" alt="">
+      <span class="brand-name">Dagents</span>
+    </div>
+    <span class="kind">Demo · natural language to SQL</span>
+  </header>
+  <div class="rule"></div>
+  <div class="card-body">
+    <div class="lede">
+      <h1 class="headline">Ask a question in plain English, get SQL</h1>
+      <p class="summary">An app built on Dagents. Source validation, planning, schema checks and model routing come from the framework, and each answer shows the steps behind it.</p>
+    </div>
+    <aside class="panel">
+      <span class="panel-label">Question</span>
+      <div class="question" data-sample-question>How many critical incidents are open?</div>
+      <span class="panel-label">Framework steps</span>
+      <ol class="steps">
+        <li class="step"><span class="step-number">1</span><span class="step-name">Validate the source</span></li>
+        <li class="step"><span class="step-number">2</span><span class="step-name">Plan the work</span></li>
+        <li class="step"><span class="step-number">3</span><span class="step-name">Check the schema</span></li>
+        <li class="step"><span class="step-number">4</span><span class="step-name">Route to a model</span></li>
+      </ol>
+    </aside>
+  </div>
+  <footer class="card-foot">
+    <span class="address" data-published-url="NL2SQL_DEMO_PUBLIC_SITE_URL">NL2SQL_DEMO_PUBLIC_SITE_URL</span>
+    <span class="foot-note">Replays a recorded run of the real services</span>
+  </footer>
+</main>
+</body>
+</html>

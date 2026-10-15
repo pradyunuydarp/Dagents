@@ -178,9 +178,22 @@ jobs:
       - name: The design system is in sync
         run: python scripts/sync_design_system.py --check
 
+      - name: Resolve the published addresses
+        # A link preview on LinkedIn, WhatsApp, Slack or X needs an absolute
+        # og:image address; crawlers ignore a relative one. Each page's address
+        # is in env/.env.published, and each build writes it into its tags
+        # through the PUBLIC_SITE_URL variable (social-meta.mjs). A missing or
+        # malformed address stops the deploy here, so a published page never
+        # ships without a usable og:image. The Vite plugin also fails the build
+        # when an address's path differs from the base path the build uses, as
+        # it would after a move to a custom domain without updating that file.
+        # tests/test_social_previews.py runs this check on broken addresses.
+        run: python scripts/check_link_previews.py addresses --github-env "$GITHUB_ENV"
+
       - name: Build the framework site
         env:
           SITE_BASE_PATH: ${{ env.BASE_PATH }}/
+          PUBLIC_SITE_URL: ${{ env.DAGENTS_PUBLIC_SITE_URL }}
         working-directory: site
         run: |
           npm ci
@@ -348,6 +361,7 @@ jobs:
       - name: Build the healthcare demo
         env:
           DEMO_BASE_PATH: ${{ env.BASE_PATH }}/healthcare-demo/
+          PUBLIC_SITE_URL: ${{ env.HEALTHCARE_DEMO_PUBLIC_SITE_URL }}
           VITE_DAGENTS_STATIC: "1"
           # Resolved above, and cleared again if the API failed a check. Then
           # the demo publishes as a replay, the default, instead of a page that
@@ -361,6 +375,7 @@ jobs:
       - name: Build the NL2SQL demo
         env:
           DEMO_BASE_PATH: ${{ env.BASE_PATH }}/nl2sql-demo/
+          PUBLIC_SITE_URL: ${{ env.NL2SQL_DEMO_PUBLIC_SITE_URL }}
           VITE_DAGENTS_STATIC: "1"
         working-directory: services/nl2sql-demo/frontend
         run: |
@@ -405,6 +420,14 @@ jobs:
             echo "ok  ${demo}/recording.json $(wc -c < "_site/${demo}/recording.json") bytes"
           done
 
+      - name: Every page has a link preview at its published address
+        # Each page must name its own card with the absolute address from
+        # env/.env.published, and ship that card, its icons and its web
+        # manifest. A relative og:image, a placeholder left in the page or a
+        # missing card would publish a link that shares without a picture.
+        # tests/test_social_previews.py runs this check on broken trees.
+        run: python scripts/check_link_previews.py built --tree _site
+
       - uses: actions/upload-pages-artifact@v3
         with:
           path: _site
@@ -448,3 +471,13 @@ jobs:
             fi
           done < <(grep -E '^[A-Z0-9_]+_PUBLIC_SITE_URL=' env/.env.published)
           exit "${failed}"
+
+      - name: Each published page's link preview image loads
+        # LinkedIn, WhatsApp and the others fetch the og:image address the
+        # published page names. This reads that tag from each live page and
+        # requests the image, which must answer 200 with an image content type.
+        # LinkedIn and WhatsApp cache a preview, so a fixed image can still show
+        # the old one there until the LinkedIn Post Inspector refreshes it.
+        # tests/test_social_previews.py runs this check against a local
+        # stand-in that answers 404 or text/html.
+        run: python3 scripts/check_link_previews.py published

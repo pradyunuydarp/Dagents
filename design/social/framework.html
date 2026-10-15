@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Dagents framework link preview</title>
+<!-- The link preview card for the framework site, 1200 x 630 px.
+     scripts/render_social_cards.mjs renders it to site/public/social-preview.png.
+     The renderer fills each data-published-url element from env/.env.published,
+     so the address is written in one place. -->
+<link rel="stylesheet" href="card.css">
+<style>
+  .headline { font-size: 56px; line-height: 1.06; }
+  .panel { gap: 16px; }
+  .foot-note { font-size: 18px; }
+</style>
+</head>
+<body>
+<main class="card">
+  <header class="card-head">
+    <div class="brand">
+      <img src="mark.svg" width="52" height="52" alt="">
+      <span class="brand-name">Dagents</span>
+    </div>
+    <span class="kind">Open-source framework</span>
+  </header>
+  <div class="rule"></div>
+  <div class="card-body">
+    <div class="lede">
+      <h1 class="headline">Analytics and machine learning across data sources that can't be pooled</h1>
+      <p class="summary">A local agent at each source. A global agent combines the results. Typed planners decide what each request may see.</p>
+    </div>
+    <aside class="panel">
+      <span class="panel-label">One request at three sources</span>
+      <div class="flow">
+        <div class="flow-sources">
+          <div class="flow-source"><div class="agent">LMA · A</div><span class="chip chip-permit">permit</span></div>
+          <div class="flow-source"><div class="agent">LMA · B</div><span class="chip chip-narrow">narrow</span></div>
+          <div class="flow-source"><div class="agent">LMA · C</div><span class="chip chip-deny">deny</span></div>
+        </div>
+        <svg class="flow-links" width="48" height="132" viewBox="0 0 48 132" aria-hidden="true">
+          <path d="M4 20 C 26 20, 22 66, 44 66"/>
+          <path d="M4 66 L 44 66"/>
+          <path d="M4 112 C 26 112, 22 66, 44 66"/>
+        </svg>
+        <div class="agent-global">GMA</div>
+      </div>
+      <span class="panel-note">Each source's guard decides what leaves it. The GMA sees only what is permitted.</span>
+    </aside>
+  </div>
+  <footer class="card-foot">
+    <span class="address" data-published-url="DAGENTS_PUBLIC_SITE_URL">DAGENTS_PUBLIC_SITE_URL</span>
+    <span class="foot-note">Learn · Guide · API reference · Resources</span>
+  </footer>
+</main>
+</body>
+</html>

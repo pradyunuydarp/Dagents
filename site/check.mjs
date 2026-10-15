@@ -4,7 +4,10 @@
  * A build proves the site compiles. It does not prove that the guide pages
  * render, that every Mermaid diagram draws (a syntax error only shows up in a
  * browser), or that links between pages land somewhere. This serves the built
- * site, visits every page in Chromium and checks each of those.
+ * site, visits every page in Chromium and checks each of those. It also reads
+ * the home page's HTML as a link preview crawler does, without running its
+ * script, and checks the link preview tags and that the image and icons they
+ * name load.
  *
  * Usage:
  *   npm run build && npm run check
@@ -145,6 +148,135 @@ async function wrongFiles(urls) {
     }
   }
   return wrong;
+}
+
+/** Width and height from a PNG's IHDR chunk, or null when the bytes are not a PNG. */
+function pngSize(bytes) {
+  if (bytes.length < 24 || bytes.subarray(0, 8).toString("latin1") !== "\x89PNG\r\n\x1a\n") return null;
+  return `${bytes.readUInt32BE(16)}x${bytes.readUInt32BE(20)}`;
+}
+
+/** Every tag a link preview needs (the same list as tests/test_social_previews.py). */
+const PREVIEW_TAGS = [
+  "description",
+  "og:type",
+  "og:site_name",
+  "og:title",
+  "og:description",
+  "og:url",
+  "og:image",
+  "og:image:secure_url",
+  "og:image:type",
+  "og:image:width",
+  "og:image:height",
+  "og:image:alt",
+  "twitter:card",
+  "twitter:title",
+  "twitter:description",
+  "twitter:image",
+  "twitter:image:alt",
+  "theme-color"
+];
+
+/**
+ * The link preview tags and icons, read from the HTML the server sends. A
+ * crawler does not run the page's script, so the DOM after React starts is not
+ * what it sees.
+ *
+ * The tags name the published address when the build had PUBLIC_SITE_URL (the
+ * Pages build) and the base path otherwise. Either way the address maps to the
+ * root of dist/, which this check serves, so each image is fetched from here.
+ */
+async function checkLinkPreview() {
+  const response = await page.request.get(base);
+  const html = await response.text();
+  const head = await page.evaluate((source) => {
+    const doc = new DOMParser().parseFromString(source, "text/html");
+    const meta = {};
+    for (const node of doc.head.querySelectorAll("meta[property], meta[name]")) {
+      const key = node.getAttribute("property") ?? node.getAttribute("name");
+      (meta[key] ??= []).push(node.getAttribute("content") ?? "");
+    }
+    const links = Array.from(doc.head.querySelectorAll("link[rel]"), (node) => ({
+      rel: node.getAttribute("rel"),
+      href: node.getAttribute("href"),
+      sizes: node.getAttribute("sizes"),
+      type: node.getAttribute("type")
+    }));
+    return { meta, links };
+  }, html);
+  const one = (key) => (head.meta[key]?.length === 1 ? head.meta[key][0] : null);
+
+  const missing = PREVIEW_TAGS.filter((key) => !(head.meta[key] ?? []).some(Boolean));
+  check("the home page has every link preview tag", missing.length === 0, missing.join(", ") || `${PREVIEW_TAGS.length} tags`);
+  check("no link preview placeholder is left in the page", !html.includes("%PUBLIC_SITE_URL%"));
+
+  const prefix = process.env.PUBLIC_SITE_URL || "/";
+  const image = `${prefix}social-preview.png`;
+  const named = ["og:image", "og:image:secure_url", "twitter:image"].filter((key) => one(key) !== image);
+  check(
+    `og:url is ${prefix} and the image tags name ${image}`,
+    one("og:url") === prefix && named.length === 0,
+    named.map((key) => `${key}=${one(key)}`).join(", ") || `og:url=${one("og:url")}`
+  );
+  check(
+    "the card is declared as a 1200 x 630 PNG for a large preview",
+    one("og:image:type") === "image/png" &&
+      one("og:image:width") === "1200" &&
+      one("og:image:height") === "630" &&
+      one("twitter:card") === "summary_large_image"
+  );
+
+  // The static server answers a missing file with index.html and status 200,
+  // so each file is checked by its first bytes and its size.
+  const local = (address) => new URL(address.startsWith(prefix) ? address.slice(prefix.length) : address, base).href;
+  const fetchBytes = async (address) => {
+    const result = await page.request.get(address);
+    return { status: result.status(), type: result.headers()["content-type"] ?? "", body: await result.body() };
+  };
+  const card = await fetchBytes(local(one("og:image") ?? image));
+  check(
+    "the og:image loads: a 1200 x 630 PNG under 300 KB",
+    card.status === 200 && card.type.startsWith("image/png") && pngSize(card.body) === "1200x630" && card.body.length < 300 * 1024,
+    `${card.status} ${card.type} ${pngSize(card.body)} ${card.body.length} bytes`
+  );
+
+  const wrong = [];
+  const expectIcon = async (rel, href, kind, size) => {
+    if (!href) return wrong.push(`no ${rel} ${kind} link`);
+    const file = await fetchBytes(new URL(href, base).href);
+    const ok =
+      file.status === 200 &&
+      (kind === "svg"
+        ? file.body.toString("utf8").includes("<svg") && file.body.toString("utf8").includes("prefers-color-scheme: dark")
+        : pngSize(file.body) === size);
+    if (!ok) wrong.push(`${href} (${file.status}, ${kind === "svg" ? file.type : pngSize(file.body)})`);
+    return file;
+  };
+  const link = (rel, type) => head.links.find((item) => item.rel === rel && (!type || item.type === type))?.href;
+  await expectIcon("icon", link("icon", "image/svg+xml"), "svg");
+  await expectIcon("icon", link("icon", "image/png"), "png", head.links.find((item) => item.type === "image/png")?.sizes ?? "32x32");
+  await expectIcon("apple-touch-icon", link("apple-touch-icon"), "png", "180x180");
+  const manifestHref = link("manifest");
+  if (!manifestHref) {
+    wrong.push("no manifest link");
+  } else {
+    const manifestUrl = new URL(manifestHref, base).href;
+    const manifest = await fetchBytes(manifestUrl);
+    let icons = [];
+    try {
+      icons = JSON.parse(manifest.body.toString("utf8")).icons ?? [];
+    } catch {
+      wrong.push(`${manifestHref} is not JSON`);
+    }
+    for (const icon of icons) {
+      const file = await fetchBytes(new URL(icon.src, manifestUrl).href);
+      const ok = file.status === 200 && (icon.sizes === "any" ? file.body.toString("utf8").includes("<svg") : pngSize(file.body) === icon.sizes);
+      if (!ok) wrong.push(`${icon.src} from the manifest (${file.status}, ${pngSize(file.body)})`);
+    }
+    if (!icons.length) wrong.push(`${manifestHref} lists no icons`);
+  }
+  check("the favicon, the touch icon and the manifest icons load", wrong.length === 0, wrong.join(" | ") || "4 links");
 }
 
 /** The id the site gives a heading (site/src/markdown.ts). */
@@ -548,6 +680,11 @@ try {
   //     answers a missing file with index.html and status 200, so each download
   //     is checked by its first bytes, not only its status.
   await checkResources();
+
+  // 6c. A link to the site shared on LinkedIn, WhatsApp, Slack or X shows the
+  //     card named by og:image. Every tag is there, and the card and the icons
+  //     the page links load.
+  await checkLinkPreview();
 
   // 7. Nothing failed quietly along the way.
   const unique = [...new Set(consoleErrors)];

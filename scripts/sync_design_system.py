@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 """Copy the Dagents design system into each frontend, and check the copies.
 
+Two files are copied: the stylesheet `design/dagents-design-system.css`, and
+`design/social/social-meta.mjs`, the Vite plugin that writes the published
+address into each page's link preview tags.
+
 Three frontends have to read as one system: the framework site and the two demo
 apps. Sharing one file by import is not available to all of them —
 `apps/healthcare-demo/` is extractable into its own repository via
@@ -36,6 +40,23 @@ COPIES = (
     Path("services/nl2sql-demo/frontend/src/design-system.css"),
 )
 
+#: The link preview plugin, imported by each frontend's vite.config.ts.
+PLUGIN_SOURCE = REPO_ROOT / "design" / "social" / "social-meta.mjs"
+PLUGIN_COPIES = (
+    Path("site/social-meta.mjs"),
+    Path("apps/healthcare-demo/frontend/social-meta.mjs"),
+    Path("services/nl2sql-demo/frontend/social-meta.mjs"),
+)
+
+PLUGIN_BANNER = """/* GENERATED FILE — DO NOT EDIT.
+ *
+ * Copied from design/social/social-meta.mjs by scripts/sync_design_system.py.
+ * Edit the source and re-run:
+ *
+ *     python scripts/sync_design_system.py --write
+ */
+"""
+
 BANNER = """/* GENERATED FILE — DO NOT EDIT.
  *
  * Copied from design/dagents-design-system.css by scripts/sync_design_system.py.
@@ -53,6 +74,17 @@ def rendered() -> str:
     return BANNER + "\n" + SOURCE.read_text(encoding="utf-8")
 
 
+def rendered_plugin() -> str:
+    """Return the content each copy of the link preview plugin must have."""
+    return PLUGIN_BANNER + "\n" + PLUGIN_SOURCE.read_text(encoding="utf-8")
+
+
+def expected_copies() -> dict[Path, str]:
+    """Every copy, relative to the repo root, with the content it must have."""
+    css, plugin = rendered(), rendered_plugin()
+    return {**{path: css for path in COPIES}, **{path: plugin for path in PLUGIN_COPIES}}
+
+
 def main(argv: list[str] | None = None) -> int:
     """Write or check the design-system copies.
 
@@ -68,35 +100,36 @@ def main(argv: list[str] | None = None) -> int:
     group.add_argument("--check", action="store_true", help="fail if a copy is stale")
     args = parser.parse_args(argv)
 
-    if not SOURCE.is_file():
-        print(f"Missing design system source: {SOURCE}", file=sys.stderr)
-        return 1
-    expected = rendered()
+    for source in (SOURCE, PLUGIN_SOURCE):
+        if not source.is_file():
+            print(f"Missing design system source: {source}", file=sys.stderr)
+            return 1
+    expected = expected_copies()
 
     if args.write:
-        for relative in COPIES:
+        for relative, content in expected.items():
             target = REPO_ROOT / relative
             target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text(expected, encoding="utf-8")
-        print(f"wrote the design system into {len(COPIES)} frontends")
+            target.write_text(content, encoding="utf-8")
+        print(f"wrote the design system and the link preview plugin into {len(COPIES)} frontends")
         return 0
 
     stale = [
         str(relative)
-        for relative in COPIES
+        for relative, content in expected.items()
         if not (REPO_ROOT / relative).is_file()
-        or (REPO_ROOT / relative).read_text(encoding="utf-8") != expected
+        or (REPO_ROOT / relative).read_text(encoding="utf-8") != content
     ]
     if stale:
         print(
             "These design-system copies are stale or missing: " + ", ".join(stale) + "\n"
             "Refresh them with: python scripts/sync_design_system.py --write\n"
-            "If you edited a copy directly, move the change into "
-            "design/dagents-design-system.css instead.",
+            "If you edited a copy directly, move the change into its source "
+            "(design/dagents-design-system.css or design/social/social-meta.mjs) instead.",
             file=sys.stderr,
         )
         return 1
-    print(f"the design system is in sync across {len(COPIES)} frontends")
+    print(f"the design system and the link preview plugin are in sync across {len(COPIES)} frontends")
     return 0
 
 

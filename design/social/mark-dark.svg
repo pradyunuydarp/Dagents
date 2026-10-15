@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Dagents mark for dark backgrounds">
+  <!-- The mark for dark backgrounds, drawn for 64 px and larger. The tile is
+       the dark theme's ds-ink and the lines and dots are the light theme's
+       ds-ink. -->
+  <rect x="0" y="0" width="64" height="64" rx="12" fill="#e8ebf1"/>
+  <g stroke="#14181f" stroke-width="3" stroke-linecap="round">
+    <line x1="19" y1="18" x2="45" y2="32"/>
+    <line x1="19" y1="32" x2="45" y2="32"/>
+    <line x1="19" y1="46" x2="45" y2="32"/>
+  </g>
+  <g fill="#14181f">
+    <circle cx="19" cy="18" r="4.5"/>
+    <circle cx="19" cy="32" r="4.5"/>
+    <circle cx="19" cy="46" r="4.5"/>
+    <circle cx="45" cy="32" r="8"/>
+  </g>
+</svg>

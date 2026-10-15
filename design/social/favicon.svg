@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="16" height="16">
+  <!-- The browser tab icon. A tab shows it at 16 px, so it uses the heaviest
+       lines and dots. It follows the browser's colour scheme: the light mark by
+       default, the dark mark when the browser prefers dark. -->
+  <style>
+    .tile { fill: #14181f; }
+    .edge { stroke: #ffffff; }
+    .node { fill: #ffffff; }
+    @media (prefers-color-scheme: dark) {
+      .tile { fill: #e8ebf1; }
+      .edge { stroke: #14181f; }
+      .node { fill: #14181f; }
+    }
+  </style>
+  <rect class="tile" x="0" y="0" width="64" height="64" rx="12"/>
+  <g class="edge" stroke-width="5" stroke-linecap="round">
+    <line x1="19" y1="18" x2="45" y2="32"/>
+    <line x1="19" y1="32" x2="45" y2="32"/>
+    <line x1="19" y1="46" x2="45" y2="32"/>
+  </g>
+  <g class="node">
+    <circle cx="19" cy="18" r="7"/>
+    <circle cx="19" cy="32" r="7"/>
+    <circle cx="19" cy="46" r="7"/>
+    <circle cx="45" cy="32" r="11"/>
+  </g>
+</svg>

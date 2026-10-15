@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Dagents NL2SQL Demo</title>
+    <title>NL2SQL demo</title>
     <!-- Apply the stored theme before the first paint, so a dark choice does not
          flash light. `ThemeToggle.tsx` owns the choice; this only reads it. -->
     <script>
@@ -12,15 +12,34 @@
         if (theme === "light" || theme === "dark") document.documentElement.setAttribute("data-theme", theme);
       } catch (error) {}
     </script>
-    <meta
-      name="description"
-      content="A Dagents demo that turns a natural language question into SQL, using the framework's planners and services."
-    />
-    <!-- Inlined so the page makes no request for it. -->
-    <link
-      rel="icon"
-      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%230d1015'/%3E%3Cpath d='M8 11l5 5-5 5' fill='none' stroke='%23e8ebf1' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cpath d='M16 21h8' stroke='%237fa6ff' stroke-width='2.4' stroke-linecap='round'/%3E%3C/svg%3E"
-    />
+    <meta name="description" content="A Dagents demo that turns a question in plain English into SQL. Each answer shows the framework steps behind it, from source validation to model routing." />
+    <!-- Link previews on LinkedIn, WhatsApp, Slack and X. Crawlers ignore a
+         relative address, so social-meta.mjs replaces the PUBLIC_SITE_URL
+         placeholder with the published address at build time. -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Dagents" />
+    <meta property="og:title" content="NL2SQL demo" />
+    <meta property="og:description" content="A Dagents demo that turns a question in plain English into SQL. Each answer shows the framework steps behind it, from source validation to model routing." />
+    <meta property="og:url" content="%PUBLIC_SITE_URL%" />
+    <meta property="og:image" content="%PUBLIC_SITE_URL%social-preview.png" />
+    <meta property="og:image:secure_url" content="%PUBLIC_SITE_URL%social-preview.png" />
+    <meta property="og:image:type" content="image/png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="The NL2SQL demo card: a sample question and the framework steps behind each answer." />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="NL2SQL demo" />
+    <meta name="twitter:description" content="A Dagents demo that turns a question in plain English into SQL. Each answer shows the framework steps behind it, from source validation to model routing." />
+    <meta name="twitter:image" content="%PUBLIC_SITE_URL%social-preview.png" />
+    <meta name="twitter:image:alt" content="The NL2SQL demo card: a sample question and the framework steps behind each answer." />
+    <!-- The icons are rendered from design/social/ in the Dagents repository.
+         The browser colour is the design system's ds-ground token in each theme. -->
+    <link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/site.webmanifest" />
+    <meta name="theme-color" content="#f6f7f9" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0d1015" media="(prefers-color-scheme: dark)" />
     <!-- Archivo for text, IBM Plex Mono for values the framework returns. -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
