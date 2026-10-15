@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Regenerate the committed IST-1 extract for the three demo hospitals.
+"""Regenerate the committed IST-1 extracts for the demo's hospitals.
 
 Source: the International Stroke Trial database, version 2 (IST-1), file
 ``IST_corrected.csv``. It is available under the ODC Attribution License 1.0.
@@ -12,10 +12,13 @@ What the script does:
 3. Decodes it as Windows-1250, the encoding of the published file.
 4. Checks the hospital selection rule (the largest hospital in each of the three
    countries with the most patients) still picks the hospitals in
-   ``app.domain.dataset.SITES``.
+   ``app.domain.dataset.SITES``, and that the same rule for the fourth country
+   picks the joining hospital in ``app.domain.dataset.JOINING_SITES``.
 5. Maps the selected rows onto the demo's record schema (feature contract v3)
    and checks the row count per hospital.
-6. Writes ``data/ist/ist_three_hospitals.csv`` as UTF-8 with LF line endings.
+6. Writes ``data/ist/ist_three_hospitals.csv`` (the three hospitals) and
+   ``data/ist/ist_joining_hospitals.csv`` (the joining hospital) as UTF-8 with
+   LF line endings. It writes neither file if any check fails.
 
 The script reads only the columns it maps. It never writes the trial's own
 outcome predictions, free-text comments, dates or times, or the trial treatment
@@ -25,6 +28,8 @@ Usage, from the repository root:
 
     .venv/bin/python apps/healthcare-demo/scripts/extract_ist.py               # download
     .venv/bin/python apps/healthcare-demo/scripts/extract_ist.py --source PATH # local copy
+
+Both extracts come from one copy of the source, so the script downloads it once.
 
 Tests never run the download.
 """
@@ -50,7 +55,9 @@ sys.path.insert(0, str(REPO_ROOT))
 
 from app.domain.dataset import (  # noqa: E402
     CSV_COLUMNS,
+    JOINING_SITES,
     SITES,
+    Site,
     age_band_for,
     encounter_id_for,
 )
@@ -75,6 +82,7 @@ SOURCE_COLUMNS = 112
 SOURCE_ENCODING = "cp1250"
 
 DEFAULT_OUTPUT = APP_ROOT / "data" / "ist" / "ist_three_hospitals.csv"
+JOINING_OUTPUT = APP_ROOT / "data" / "ist" / "ist_joining_hospitals.csv"
 
 #: IST columns that must never reach the extract, with the reason for each.
 NEVER_EXTRACT: dict[str, str] = {
@@ -168,12 +176,13 @@ def read_source_rows(data: bytes) -> list[dict[str, str]]:
     return rows
 
 
-def selected_hospitals(rows: Iterable[dict[str, str]]) -> list[int]:
+def selected_hospitals(rows: Iterable[dict[str, str]], countries: int = 3) -> list[int]:
     """Apply the selection rule and return the chosen hospital numbers.
 
-    The rule: take the three countries with the most patients; in each, take the
-    hospital with the most patients, breaking ties by the lowest number. The
-    result is in country order, largest country first.
+    The rule: take the ``countries`` countries with the most patients (three for
+    the consortium); in each, take the hospital with the most patients, breaking
+    ties by the lowest number. The result is in country order, largest country
+    first.
     """
     by_country: Counter[str] = Counter()
     by_hospital: dict[str, Counter[int]] = {}
@@ -181,9 +190,9 @@ def selected_hospitals(rows: Iterable[dict[str, str]]) -> list[int]:
         country = row["COUNTRY"]
         by_country[country] += 1
         by_hospital.setdefault(country, Counter())[int(row["HOSPNUM"])] += 1
-    countries = sorted(by_country, key=lambda name: (-by_country[name], name))[:3]
+    largest = sorted(by_country, key=lambda name: (-by_country[name], name))[:countries]
     chosen = []
-    for country in countries:
+    for country in largest:
         counts = by_hospital[country]
         chosen.append(min(counts, key=lambda hospital: (-counts[hospital], hospital)))
     return chosen
@@ -228,16 +237,13 @@ def map_row(row: dict[str, str], source_row: int, site_id: str) -> dict[str, Any
     }
 
 
-def extract(data: bytes) -> list[dict[str, Any]]:
-    """Verify the source and return the mapped rows for the three hospitals."""
-    rows = read_source_rows(data)
-    by_hospnum = {site.hospnum: site for site in SITES}
-    chosen = selected_hospitals(rows)
-    if sorted(chosen) != sorted(by_hospnum):
-        raise ExtractionError(
-            f"the selection rule picks hospitals {chosen}, but the demo defines {sorted(by_hospnum)}"
-        )
+def _map_sites(rows: list[dict[str, str]], sites: tuple[Site, ...]) -> list[dict[str, Any]]:
+    """Map the rows of ``sites`` and check the row count of each.
 
+    The result is grouped by hospital, in the order of ``sites``, then by
+    source row.
+    """
+    by_hospnum = {site.hospnum: site for site in sites}
     mapped: list[dict[str, Any]] = []
     for index, row in enumerate(rows, start=1):
         site = by_hospnum.get(int(row["HOSPNUM"]))
@@ -245,14 +251,42 @@ def extract(data: bytes) -> list[dict[str, Any]]:
             mapped.append(map_row(row, index, site.site_id))
 
     counts = Counter(record["site_id"] for record in mapped)
-    for site in SITES:
+    for site in sites:
         if counts[site.site_id] != site.expected_rows:
             raise ExtractionError(
                 f"{site.site_id} has {counts[site.site_id]} rows, expected {site.expected_rows}"
             )
-    # Grouped by hospital, in the order of SITES, then by source row.
-    order = {site.site_id: position for position, site in enumerate(SITES)}
+    order = {site.site_id: position for position, site in enumerate(sites)}
     return sorted(mapped, key=lambda record: (order[record["site_id"]], record["source_row"]))
+
+
+def extract(data: bytes) -> list[dict[str, Any]]:
+    """Verify the source and return the mapped rows for the three hospitals."""
+    rows = read_source_rows(data)
+    defined = sorted(site.hospnum for site in SITES)
+    chosen = selected_hospitals(rows)
+    if sorted(chosen) != defined:
+        raise ExtractionError(
+            f"the selection rule picks hospitals {chosen}, but the demo defines {defined}"
+        )
+    return _map_sites(rows, SITES)
+
+
+def extract_joining(data: bytes) -> list[dict[str, Any]]:
+    """Verify the source and return the mapped rows for the joining hospital.
+
+    The joining hospital follows the rule that picks the three hospitals, for
+    the next country: with three hospitals in ``SITES`` and one in
+    ``JOINING_SITES``, it is the largest hospital of the fourth country.
+    """
+    rows = read_source_rows(data)
+    defined = [site.hospnum for site in JOINING_SITES]
+    chosen = selected_hospitals(rows, countries=len(SITES) + len(JOINING_SITES))[len(SITES):]
+    if chosen != defined:
+        raise ExtractionError(
+            f"the selection rule picks joining hospitals {chosen}, but the demo defines {defined}"
+        )
+    return _map_sites(rows, JOINING_SITES)
 
 
 def _cell(value: Any) -> str:
@@ -280,24 +314,33 @@ def download(url: str = SOURCE_URL, timeout: float = 60.0) -> bytes:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Regenerate the IST-1 extract for the three demo hospitals.")
+    parser = argparse.ArgumentParser(
+        description="Regenerate the IST-1 extracts for the three demo hospitals and the joining hospital."
+    )
     parser.add_argument("--source", type=Path, help="a local copy of IST_corrected.csv (default: download)")
     parser.add_argument("--url", default=SOURCE_URL, help="the URL to download when --source is not given")
-    parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT, help="where to write the extract")
+    parser.add_argument(
+        "--output", type=Path, default=DEFAULT_OUTPUT, help="where to write the three hospitals' extract"
+    )
+    parser.add_argument(
+        "--joining-output", type=Path, default=JOINING_OUTPUT, help="where to write the joining hospital's extract"
+    )
     args = parser.parse_args(argv)
 
     try:
         data = args.source.read_bytes() if args.source else download(args.url)
         records = extract(data)
+        joining = extract_joining(data)
     except ExtractionError as error:
         print(f"extract_ist: {error}", file=sys.stderr)
         return 1
 
-    write_csv(records, args.output)
-    counts = Counter(record["site_id"] for record in records)
-    for site in SITES:
-        print(f"{site.site_id} (IST hospital {site.hospnum}, {site.country}): {counts[site.site_id]} rows")
-    print(f"wrote {len(records)} rows to {args.output}")
+    for rows, sites, output in ((records, SITES, args.output), (joining, JOINING_SITES, args.joining_output)):
+        write_csv(rows, output)
+        counts = Counter(record["site_id"] for record in rows)
+        for site in sites:
+            print(f"{site.site_id} (IST hospital {site.hospnum}, {site.country}): {counts[site.site_id]} rows")
+        print(f"wrote {len(rows)} rows to {output}")
     print(f"source SHA-256 {SOURCE_SHA256}")
     return 0
 
