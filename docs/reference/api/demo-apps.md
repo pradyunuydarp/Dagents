@@ -11,7 +11,7 @@ code and calls the framework for planning, governance and federation.
 
 How each app uses the framework:
 
-- **The healthcare demo runs the framework's classes in its own process.** Each
+- **By default, the healthcare demo runs the framework's classes in its own process.** Each
   hospital has a `GovernanceService`, whose Ethical Guard (the Guard) applies the
   planner's decisions to that hospital's records and writes an audit chain. The
   coordinator runs `FederatedRoundController` for the rounds. Every decision is
@@ -20,6 +20,13 @@ How each app uses the framework:
   the data classification, the condition pack, two pipeline steps and two model
   adapters. It calls no other Dagents service to do its work; it only checks
   whether they answer ([framework status](#healthcare-demo-backend-get-api-v1-framework-status)).
+  In a split run (`apps/healthcare-demo/scripts/run_split_demo.sh`), each
+  hospital is its own process on ports 8082 to 8084, the backend runs the
+  rounds through the GMA service's API, and the GMA sends the jobs to the
+  hospitals. The backend forwards each hospital's routes to that hospital, so
+  the endpoints below answer the same way. The demo's
+  [README](../../../apps/healthcare-demo/README.md#one-process-per-hospital)
+  describes the layout.
 - **The NL2SQL backend calls the planner and the services.** It runs six planner
   commands on the schema of each question, then calls the core service, the
   pipeline service, the model service, the LMA and the GMA over HTTP
