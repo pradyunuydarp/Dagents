@@ -21,7 +21,7 @@ lists every endpoint and its fields.
   sources may join, whether enough of them answered, and whether the result may
   be released.
 - **Planning services.** HTTP services that validate pipelines, choose a model
-  family for a dataset and render Kubernetes manifests.
+  family for a dataset and render Kubernetes manifests and Docker Compose files.
 
 Your application keeps what only it can know: its fields, its records, its
 models and its user interface.
