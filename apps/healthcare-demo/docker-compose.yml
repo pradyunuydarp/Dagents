@@ -1,32 +1,122 @@
-# Runs the healthcare demo against the framework services.
+# Runs the healthcare demo split into its parts, one container each:
 #
-# Build context is the Dagents repository root, because the backend image needs
-# both the app and the framework. From inside the Dagents checkout:
+#   gma                                  the Dagents GMA service (agents/gma), on 8020. It
+#                                        plans each round and sends the jobs to the hospitals.
+#   lma-uk-134, lma-it-002, lma-ch-245   one hospital each (HEALTHCARE_DEMO_ROLE=lma), on
+#                                        8082, 8083 and 8084. Each keeps its own records.
+#   healthcare-demo-backend              the API the frontend calls (HEALTHCARE_DEMO_ROLE=app),
+#                                        on 8080. It runs the study through the GMA's API,
+#                                        keeps the model registry and the update store, and
+#                                        forwards each hospital's pages to that hospital.
+#   healthcare-demo-frontend             the UI, on 5174
+#
+# The hospitals and the backend use the same image; each `command` picks the
+# port. The GMA, the hospitals and the backend call each other over the compose
+# network without authentication, so the GMA and the hospitals publish their
+# ports on 127.0.0.1 only, for reading their APIs from this machine.
+#
+# The backend applies the per-client rate limits. The hospitals see every
+# request coming from the backend or the GMA, so their per-client limits are
+# off. The hourly probe cap stays in each hospital.
+#
+# Build context is the Dagents repository root, because the images need both
+# the app and the framework. From inside the Dagents checkout:
 #
 #   docker compose -f apps/healthcare-demo/docker-compose.yml \
 #     --env-file env/.env.compose up --build
 #
-# The in-process pilot needs none of these services. They are here so the
-# /api/v1/framework/* endpoints have something to reach.
+# The framework services named below are not part of this file. Only
+# /api/v1/framework/status checks whether they answer.
+
+x-backend: &backend
+  build:
+    context: ../..
+    dockerfile: apps/healthcare-demo/backend/Dockerfile
+  image: dagents/healthcare-demo-backend:local
+  env_file:
+    - ../../env/.env.shared
+    - env/.env.healthcare-demo
+  restart: unless-stopped
+
+# Every request reaches a hospital from the backend or the GMA.
+x-hospital-environment: &hospital-environment
+  HEALTHCARE_DEMO_ROLE: lma
+  HEALTHCARE_DEMO_COORDINATOR_URL: http://healthcare-demo-backend:8080
+  HEALTHCARE_DEMO_RATE_LIMIT_ENTRIES: "0"
+  HEALTHCARE_DEMO_RATE_LIMIT_PROBES: "0"
+  HEALTHCARE_DEMO_RATE_LIMIT_PILOTS: "0"
+  HEALTHCARE_DEMO_RATE_LIMIT_APPROVALS: "0"
+
 services:
-  healthcare-demo-backend:
+  gma:
     build:
       context: ../..
-      dockerfile: apps/healthcare-demo/backend/Dockerfile
-    image: dagents/healthcare-demo-backend:local
+      dockerfile: agents/gma/Dockerfile
+    image: dagents/healthcare-demo-gma:local
     env_file:
       - ../../env/.env.shared
-      - env/.env.healthcare-demo
+      - ../../env/.env.gma
     environment:
+      GMA_API_PORT: "8020"
+      GMA_FEDERATION_SITES: uk-134=http://lma-uk-134:8082,it-002=http://lma-it-002:8083,ch-245=http://lma-ch-245:8084
+    ports:
+      - "127.0.0.1:8020:8020"
+    restart: unless-stopped
+
+  lma-uk-134:
+    <<: *backend
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8082"]
+    environment:
+      <<: *hospital-environment
+      HEALTHCARE_DEMO_SITE_ID: uk-134
+      # Read by the image's health check.
+      HEALTHCARE_DEMO_API_PORT: "8082"
+    ports:
+      - "127.0.0.1:8082:8082"
+
+  lma-it-002:
+    <<: *backend
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8083"]
+    environment:
+      <<: *hospital-environment
+      HEALTHCARE_DEMO_SITE_ID: it-002
+      HEALTHCARE_DEMO_API_PORT: "8083"
+    ports:
+      - "127.0.0.1:8083:8083"
+
+  lma-ch-245:
+    <<: *backend
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8084"]
+    environment:
+      <<: *hospital-environment
+      HEALTHCARE_DEMO_SITE_ID: ch-245
+      HEALTHCARE_DEMO_API_PORT: "8084"
+    ports:
+      - "127.0.0.1:8084:8084"
+
+  healthcare-demo-backend:
+    <<: *backend
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080"]
+    environment:
+      HEALTHCARE_DEMO_ROLE: app
       HEALTHCARE_DEMO_API_PORT: "8080"
+      HEALTHCARE_DEMO_LMA_URLS: uk-134=http://lma-uk-134:8082,it-002=http://lma-it-002:8083,ch-245=http://lma-ch-245:8084
+      GMA_PUBLIC_URL: http://gma:8020
       CORE_SERVICE_PUBLIC_URL: http://core-service:8040
       PIPELINE_SERVICE_PUBLIC_URL: http://pipeline-service:8030
       MODEL_SERVICE_PUBLIC_URL: http://model-service:8000
       LMA_PUBLIC_URL: http://lma:8010
-      GMA_PUBLIC_URL: http://gma:8020
     ports:
       - "8080:8080"
-    restart: unless-stopped
+    depends_on:
+      gma:
+        condition: service_healthy
+      lma-uk-134:
+        condition: service_healthy
+      lma-it-002:
+        condition: service_healthy
+      lma-ch-245:
+        condition: service_healthy
 
   healthcare-demo-frontend:
     build:
