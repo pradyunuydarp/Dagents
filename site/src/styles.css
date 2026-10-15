@@ -165,6 +165,95 @@
   color: var(--ds-ink);
 }
 
+/* The hero figure: the topology drawn in Topology.tsx. */
+.topology {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-2);
+  min-width: 0;
+}
+
+.topology svg {
+  display: block;
+  width: 100%;
+  max-width: 34rem;
+  height: auto;
+  margin-inline: auto;
+  overflow: visible;
+}
+
+.topology figcaption {
+  text-align: center;
+  color: var(--ds-ink-3);
+  font-family: var(--ds-font-mono);
+  font-size: var(--ds-step--1);
+}
+
+.topo-node rect {
+  fill: var(--ds-panel);
+  stroke: var(--ds-line-strong);
+  stroke-width: 1;
+}
+
+.topo-hub rect { stroke: var(--ds-ink-2); }
+
+.topo-title {
+  fill: var(--ds-ink);
+  font-family: var(--ds-font-body);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.topo-sub {
+  fill: var(--ds-ink-3);
+  font-family: var(--ds-font-mono);
+  font-size: 11px;
+}
+
+.topo-link {
+  fill: none;
+  stroke: var(--ds-line-strong);
+  stroke-width: 1;
+}
+
+.topo-link--plan { stroke-dasharray: 3 3; }
+
+/* One short dash per line, moved along it to show results travelling to the
+ * coordinator and plans coming back from the planner. */
+.topo-pulse {
+  fill: none;
+  stroke: var(--ds-ink-2);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-dasharray: 6 94;
+  stroke-dashoffset: 100;
+  opacity: 0;
+  animation: topo-travel 2.7s cubic-bezier(0.45, 0, 0.3, 1) infinite;
+}
+
+.topo-pulse--plan {
+  animation-name: topo-exchange;
+  animation-duration: 2.7s;
+  animation-delay: 1.4s;
+}
+
+@keyframes topo-travel {
+  0% { stroke-dashoffset: 100; opacity: 0; }
+  10% { opacity: 1; }
+  80% { opacity: 1; }
+  100% { stroke-dashoffset: 6; opacity: 0; }
+}
+
+@keyframes topo-exchange {
+  0% { stroke-dashoffset: 100; opacity: 0; }
+  10%, 40% { opacity: 1; }
+  50% { stroke-dashoffset: 6; opacity: 0; }
+  60% { stroke-dashoffset: 6; opacity: 0; }
+  70%, 90% { opacity: 1; }
+  100% { stroke-dashoffset: 100; opacity: 0; }
+}
+
 .steps {
   display: grid;
   gap: var(--ds-4);
@@ -212,6 +301,10 @@
   flex-direction: column;
   gap: var(--ds-2);
   padding-left: var(--ds-5);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .topo-pulse { display: none; }
 }
 
 /* ===== Diagrams =========================================================== */
