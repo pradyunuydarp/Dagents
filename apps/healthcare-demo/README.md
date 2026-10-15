@@ -139,10 +139,14 @@ scripts/run_frontend_demo.sh           # the whole demo: API, UI and a guided to
 scripts/run_frontend_demo.sh --check   # start it, run the UI smoke test, exit
 scripts/run_pilot.sh                   # no UI: run one pilot and print the results
 scripts/run_local_demo.sh              # the API alone, on port 8080
+scripts/run_split_demo.sh              # the API as five processes: the Dagents GMA, three LMAs, the app
+scripts/run_frontend_demo.sh --split   # the UI in front of those five processes
 ```
 
 `run_frontend_demo.sh` starts the backend and the frontend, waits until both
-answer, and prints what to try. Press Ctrl-C to stop both.
+answer, and prints what to try. Press Ctrl-C to stop both. Without `--split`,
+the backend is one process; with it, each hospital runs in its own process (see
+[One process per hospital](#one-process-per-hospital)).
 
 A local run needs no Docker, database or model download. Records you enter are
 kept in memory and are gone when the API stops. With
@@ -150,7 +154,7 @@ kept in memory and are gone when the API stops. With
 instead; `/api/v1/framework/status` reports which (`cohort_source: postgres` or
 `in-memory`). See [`docs/deployment.md`](docs/deployment.md).
 
-To run the full stack, including the framework services:
+To run the split layout in containers, one per process:
 
 ```bash
 docker compose -f docker-compose.yml --env-file ../../env/.env.compose up --build
@@ -369,6 +373,50 @@ A site returns these fields and nothing else:
 A test checks that no record field, such as an encounter id, an age band, a
 blood pressure or an outcome label, appears in a site result.
 
+### One process per hospital
+
+By default the API runs every hospital and the coordinator in one process
+(`HEALTHCARE_DEMO_ROLE=combined`). The hosted demo and most tests use it.
+`scripts/run_split_demo.sh` and `docker-compose.yml` run the same demo as five
+processes instead:
+
+| Process | What it runs | Port |
+|---|---|---|
+| `gma` | the Dagents GMA service (`agents.gma.main`). It plans each round, sends the jobs to the hospitals named in `GMA_FEDERATION_SITES`, checks quorum and runs the release Guard and gates | 8020 |
+| `lma-uk-134`, `lma-it-002`, `lma-ch-245` | this app with `HEALTHCARE_DEMO_ROLE=lma`: one hospital, its store, its Guard and its audit chain | 8082, 8083, 8084 |
+| `app` | this app with `HEALTHCARE_DEMO_ROLE=app`: the API the frontend calls. It runs the study through the GMA's API, keeps the model registry and the update store, and averages the updates | 8080 |
+
+```mermaid
+flowchart LR
+    UI["Frontend"] --> APP["<b>app</b> :8080<br/>study, model registry, update store"]
+    APP -- "rounds, release" --> GMA["<b>Dagents GMA</b> :8020"]
+    GMA -- "round jobs" --> L1["<b>lma-uk-134</b> :8082"] & L2["<b>lma-it-002</b> :8083"] & L3["<b>lma-ch-245</b> :8084"]
+    L1 & L2 & L3 -- "model download, bounded update" --> APP
+    APP -- "hospital pages" --> L1 & L2 & L3
+```
+
+What travels between them:
+
+- The GMA sends each hospital a round job and gets back the site result, with
+  the fields in the table above.
+- A hospital loads the model a job names from the app
+  (`HEALTHCARE_DEMO_COORDINATOR_URL`) and checks its digests, as it does in one
+  process. In a training round it sends its clipped update to the app, never to
+  the GMA and never in the result.
+- The app forwards each hospital's own routes to that hospital's LMA
+  (`HEALTHCARE_DEMO_LMA_URLS`): `/api/v1/hospitals/{id}` and every path below
+  it, the Guard probe (by the body's `site_id`) and the framework trace (by its
+  `site_id` query). It answers every consortium route itself and reads no
+  hospital's records. An unknown hospital is a 404; a hospital that cannot be
+  reached is a 503 that names it.
+- The app keeps the per-client rate limits, because it is the process that sees
+  the visitor. The LMAs run with them set to 0. The hourly probe cap stays in
+  each hospital.
+
+The calls between the processes have no authentication, so the run script
+binds every process to 127.0.0.1 and the compose file publishes the GMA's and
+the hospitals' ports on 127.0.0.1 only.
+
 ## What the framework owns and what the app owns
 
 `backend/app/extension.py` is the whole integration with the extension registry:
@@ -505,7 +553,15 @@ cd frontend && npm run smoke             # against a running stack
 
 It tries all three guard controls, runs a full pilot, opens a hospital view,
 submits a data entry, and fails on any console error or failed request. Without
-a browser it exits 2 and prints `SKIP`.
+a browser it exits 2 and prints `SKIP`. `scripts/run_frontend_demo.sh --split
+--check` runs the same test against the five processes.
+
+Two suites cover the split layout. `tests/test_forwarding.py` checks which
+routes the app forwards to which hospital, the headers it passes, its limits
+and its 404 and 503 answers, against small stand-in LMAs.
+`tests/test_split_processes.py` starts the Dagents GMA, the three LMAs and the
+app as real processes on free ports and runs a pilot through them. Its pilot
+test needs the planner; CI requires the class to run.
 
 Good tests to read first:
 
@@ -521,6 +577,7 @@ Good tests to read first:
 ```text
 backend/app/
   extension.py           the whole Dagents integration
+  api/forward.py         in the app role, sends each hospital's routes to its LMA
   domain/
     conditions.py        feature contract, classification, condition pack, release gates, field domains
     dataset.py           the three IST hospitals and the extract loader
@@ -568,10 +625,17 @@ planner built, or install Dagents as a dependency.
 - **No model here is validated.** The seed rule's points were chosen by hand. The
   candidate is trained and measured on the same three hospitals' records, which
   flatters it by about 0.02 AUC.
-- **The sites run in one process.** That tests the job logic, not production
-  privacy, security, reliability or networking. The app's parameter-averaging
-  runtime stands in for a federated learning runtime such as Flower or NVIDIA
-  FLARE.
+- **The split run is a demonstration of the process boundaries, not a
+  deployment.** With `scripts/run_split_demo.sh` or `docker-compose.yml`, each
+  hospital runs in its own process with its own store, the Dagents GMA sends
+  the round jobs over HTTP, and a hospital's clipped update travels to the app
+  over HTTP. The calls between the processes have no authentication or
+  encryption, so they belong on a private network only; a deployment across
+  organisations needs mutual TLS or signed requests. All the processes still
+  run on one machine, a hospital that stops answering is recorded as refused
+  or failed rather than retried, and the hosted demo runs the one-process
+  layout. The app's parameter-averaging runtime stands in for a federated
+  learning runtime such as Flower or NVIDIA FLARE.
 - **Digests are not signatures.** The round digest is a content hash that
   detects changes. It does not prove who sent the round; signing is separate work.
 - **The audit chain is not an audit store.** Chaining makes tampering detectable

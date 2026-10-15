@@ -9,6 +9,12 @@ A local run needs none of this: no database, no host and no account. Each
 hospital then keeps its records in memory, loaded from the committed extract.
 See the README.
 
+The published API runs every hospital and the coordinator in one process
+(`HEALTHCARE_DEMO_ROLE=combined` in `render.yaml`). The layout with the Dagents GMA
+and one LMA per hospital runs locally or with `docker-compose.yml`; it is not
+deployed, because the calls between its processes have no authentication. See
+[One process per hospital](../README.md#one-process-per-hospital) in the README.
+
 ## The four parts
 
 | Part | What it is | Defined in |
