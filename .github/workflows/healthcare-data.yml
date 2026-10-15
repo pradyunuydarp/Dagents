@@ -141,7 +141,10 @@ jobs:
         # it to the service container, try every cross-site path, and run the
         # stores, the pilot, data entry, the API and the status report against
         # it. tests.test_split_processes runs the pilot across separate GMA, LMA
-        # and app processes; the guard below requires it, as CI does.
+        # and app processes. The last four modules add a hospital to a running
+        # consortium: in process, with a real core-service, with real processes,
+        # and with the Compose override read by `docker compose config`. The
+        # guard below requires them, as CI does.
         working-directory: apps/healthcare-demo
         env:
           PYTHONPATH: ${{ github.workspace }}:${{ github.workspace }}/apps/healthcare-demo/backend
@@ -160,6 +163,10 @@ jobs:
             tests.test_api_postgres \
             tests.test_data_source_status \
             tests.test_split_processes \
+            tests.test_deployment_flow \
+            tests.test_deployment_spec \
+            tests.test_split_deploy \
+            tests.test_compose_override \
             2>&1 | tee database-suite.log
 
       - name: Fail if the database tests skipped
@@ -186,6 +193,10 @@ jobs:
             --require-ran tests.test_api_postgres.UnmigratedDatabaseApiTests \
             --require-ran tests.test_data_source_status.PostgresStatusTests \
             --require-ran tests.test_split_processes.SplitProcessTests \
+            --require-ran tests.test_deployment_flow.DeploymentFlowTests \
+            --require-ran tests.test_deployment_spec.ComposeRequestTests \
+            --require-ran tests.test_split_deploy.SplitDeployTests \
+            --require-ran tests.test_compose_override.ComposeOverrideTests \
             apps/healthcare-demo/database-suite.log
 
       - name: Apply migrations

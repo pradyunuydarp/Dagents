@@ -44,9 +44,18 @@ test database URL, and the chart tests skip without matplotlib.
 
 The Compose appliers' tests (`agents/tests/test_compose_apply.py`) need PyYAML,
 which is not in the agents' requirements. The `agents` job installs it with
-matplotlib and numpy, and requires `LocalProcessApplierTests`,
-`DockerComposeApplierTests` and the two site address classes of
-`agents/tests/test_site_addresses.py` to have run.
+matplotlib and numpy, in the ranges of `apps/healthcare-demo/requirements.txt`
+(`tests/test_ci_guards.py` compares them), and requires
+`LocalProcessApplierTests`, `DockerComposeApplierTests` and the two site
+address classes of `agents/tests/test_site_addresses.py` to have run.
+
+Adding a hospital while the demo runs has four test classes in the healthcare
+suite that skip when the job lacks the planner, core-service or the docker CLI:
+`DeploymentFlowTests`, `ComposeRequestTests`, `SplitDeployTests` and
+`ComposeOverrideTests`. They need no database, but the `demo-apps` job and
+`healthcare-data.yml` require them to have run, next to `SplitProcessTests`.
+`ComposeOverrideTests` runs `docker compose config` on the opt-in override.
+The runner has the docker CLI, and no job starts a container.
 
 Defence: `scripts/ci_no_skipped_tests.py` reads the verbose test log and fails
 on any skip in a forbidden category. The suites must run with `-v`; the guard
@@ -124,9 +133,12 @@ developer and wrong for CI.
 Defence: the `frontends` job installs a browser, sets `CHROMIUM_PATH`, and fails
 if the smoke log contains a skip or no passing assertions. It runs the
 healthcare smoke test twice: against the single-process backend, and with
-`--split` against the five-process layout (the Dagents GMA, one LMA per
-hospital and the app). `npm run check` returns exit 2 to the step directly,
-which fails it.
+`--deploy` against the five-process layout (the Dagents GMA, one LMA per
+hospital and the app) plus core-service. `--deploy` implies `--split`. After
+every other check, the second run presses "Add Hospital 290", opens the new
+hospital's page and runs a pilot with it. The step fails unless the log has
+the line `ok  deploy: hospital pl-290 joined`. `npm run check` returns exit 2
+to the step directly, which fails it.
 
 Never let a job accept exit 2, and never report a skipped browser test as a pass.
 
@@ -384,6 +396,12 @@ tests skipped is not a pass.
   the main item in `TODO.md`, blocked on local disk space (see `CHANGES.md`). CI
   tests the code and the contracts, not the deployment. The one check on the
   images is static: they contain the planner when their service calls it (§2l).
+  CI adds a hospital to a running demo only as a local process
+  (`HEALTHCARE_DEMO_DEPLOYER=process`). The container mode
+  (`apps/healthcare-demo/docker-compose.deploy.yml`) is checked with
+  `docker compose config` and with a fake runner for `DockerComposeApplier`.
+  Starting the container is a manual check, in "Adding a hospital as a
+  container" in `apps/healthcare-demo/docs/deployment.md`.
 - **The pagila suites skip in CI**, because CI has no Postgres with the pagila
   dataset. These skips are expected, and the guard allows them. A change to
   source adapters is not fully tested by CI. The healthcare stores, the site

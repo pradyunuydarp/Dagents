@@ -435,7 +435,20 @@ jobs:
         # tests.test_split_processes.SplitProcessTests, which needs no database:
         # it is the one test that starts the GMA, the LMAs and the app as
         # separate processes, and a class that fails to start them must not
-        # pass unnoticed. healthcare-data.yml must list the same classes.
+        # pass unnoticed.
+        #
+        # The last four classes need no database either. They test adding a
+        # hospital while the demo runs. Each one skips when the job lacks the
+        # planner, core-service or the docker CLI, so --require-ran makes such
+        # a skip fail the job:
+        # - DeploymentFlowTests: the seven steps of a deployment, in process,
+        #   against the real GMA app and the planner.
+        # - ComposeRequestTests: a real core-service renders the app's request
+        #   with the planner, and the process applier accepts the file.
+        # - SplitDeployTests: Hospital 290 joins a split run of real processes.
+        # - ComposeOverrideTests: `docker compose config` reads the opt-in
+        #   override. The runner has the docker CLI; CI starts no container.
+        # healthcare-data.yml must list the same classes.
         run: |
           status=0
           python scripts/ci_no_skipped_tests.py \
@@ -457,6 +470,10 @@ jobs:
             --require-ran tests.test_api_postgres.UnmigratedDatabaseApiTests \
             --require-ran tests.test_data_source_status.PostgresStatusTests \
             --require-ran tests.test_split_processes.SplitProcessTests \
+            --require-ran tests.test_deployment_flow.DeploymentFlowTests \
+            --require-ran tests.test_deployment_spec.ComposeRequestTests \
+            --require-ran tests.test_split_deploy.SplitDeployTests \
+            --require-ran tests.test_compose_override.ComposeOverrideTests \
             apps/healthcare-demo/healthcare-suite.log || status=1
           python scripts/ci_no_skipped_tests.py \
             --forbid database \
@@ -600,23 +617,32 @@ jobs:
             exit 1
           }
 
-      - name: Smoke-test the real UI against the split backend
+      - name: Smoke-test the real UI against the split backend, and add a hospital
         # The same smoke test, with the backend run as five processes: the
         # Dagents GMA, one LMA per hospital and the app
         # (scripts/run_split_demo.sh). It proves the UI works when every
-        # round crosses a process boundary.
+        # round crosses a process boundary. --deploy implies --split and also
+        # starts core-service with the deploy action on. After every other
+        # check, the test presses "Add Hospital 290": the app asks core-service
+        # for the Compose file, starts the new LMA as a local process, and the
+        # test opens the hospital's page and runs a pilot that includes it.
+        # The last grep fails the step if that join did not pass.
         env:
           DAGENTSC_BIN: ${{ env.PLANNER_DIR }}/dagentsc.exe
           PYTHON: python
         run: |
           set -o pipefail
-          apps/healthcare-demo/scripts/run_frontend_demo.sh --split --check 2>&1 | tee smoke-split.log
+          apps/healthcare-demo/scripts/run_frontend_demo.sh --deploy --check 2>&1 | tee smoke-split.log
           if grep -qi "smoke test skipped\|^SKIP" smoke-split.log; then
             echo "The split smoke test skipped instead of running." >&2
             exit 1
           fi
           grep -q "ok  " smoke-split.log || {
             echo "The split smoke test produced no passing assertions." >&2
+            exit 1
+          }
+          grep -q "ok  deploy: hospital pl-290 joined" smoke-split.log || {
+            echo "The split smoke test did not add Hospital 290." >&2
             exit 1
           }
 
