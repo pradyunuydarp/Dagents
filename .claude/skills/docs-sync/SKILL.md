@@ -206,9 +206,9 @@ tests in section 4 and a reader do the rest.
 
 **Why it exists, and its cost.** A rule that no check enforces stops being
 followed (the `ci` skill, failure c). Since the repository skills were added
-(`8825aea`), 14 commits on `main` touched a mapped area. Checked one at a time,
+(`98e19c3`), 14 commits on `main` touched a mapped area. Checked one at a time,
 7 of them fail. One published the site and both demos to Pages, and their docs
-followed two commits later (`2ab946b`). The other six would have needed a docs
+followed two commits later (`8ef23f5`). The other six would have needed a docs
 change or a `Docs-Impact` line. So expect about half of code changes to need
 one or the other. One line with a reason costs less than a page that is wrong
 on the live site.
