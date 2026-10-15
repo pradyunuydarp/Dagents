@@ -232,16 +232,22 @@ class ComposeHealthCheck(BaseModel):
             "not both."
         ),
     )
-    interval_seconds: int = Field(default=30, description="Seconds between two checks. At least 1.")
+    interval_seconds: int = Field(
+        default=30,
+        description="Seconds between two checks. From 1 to 9223372036, the longest duration Docker Compose reads.",
+    )
     timeout_seconds: int = Field(
-        default=5, description="Seconds one check may take before it counts as failed. At least 1."
+        default=5,
+        description="Seconds one check may take before it counts as failed. From 1 to 9223372036.",
     )
     retries: int = Field(
         default=3, description="Failed checks in a row after which the container is unhealthy. At least 1."
     )
     start_period_seconds: int = Field(
         default=10,
-        description="Seconds after the container starts during which a failed check does not count. 0 or more.",
+        description=(
+            "Seconds after the container starts during which a failed check does not count. From 0 to 9223372036."
+        ),
     )
 
     @model_validator(mode="after")

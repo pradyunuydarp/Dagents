@@ -169,6 +169,31 @@ def largest_number_issues() -> list[dict[str, typing.Any]]:
     ]
 
 
+# The most seconds a Compose duration can hold (a Go time.Duration).
+LONGEST_DURATION = 9_223_372_036
+
+
+def health_timing_payloads() -> dict[str, tuple[dict[str, typing.Any], list[dict[str, typing.Any]]]]:
+    """Payloads at and past the limits of each health check duration, with the issues both renderers report.
+
+    Each changes one timing field of the first golden file's health check.
+    """
+    base = FIXTURES["lma-merges-into-project"]["payload"]
+    refused = [{"service": "lma-hospital-d", "code": "invalid_health_check_timing", "value": None}]
+    cases: dict[str, tuple[dict[str, typing.Any], list[dict[str, typing.Any]]]] = {}
+    for field, lowest in (("interval_seconds", 1), ("timeout_seconds", 1), ("start_period_seconds", 0)):
+        for value, issues in (
+            (lowest - 1, refused),
+            (lowest, []),
+            (LONGEST_DURATION, []),
+            (LONGEST_DURATION + 1, refused),
+        ):
+            payload = copy.deepcopy(base)
+            payload["components"][0]["health_check"][field] = value
+            cases[f"{field}={value}"] = (payload, issues)
+    return cases
+
+
 class ComposeFallbackTests(unittest.TestCase):
     """The Python renderer gives the golden answer for every fixture."""
 
@@ -194,6 +219,11 @@ class ComposeFallbackTests(unittest.TestCase):
     def test_reads_the_largest_planner_number(self) -> None:
         for (name, payload), issues in zip(number_payloads(LARGEST_PLANNER_INT).items(), largest_number_issues()):
             with self.subTest(field=name):
+                self.assertEqual(render_compose_plan(payload)["issues"], issues)
+
+    def test_bounds_health_check_durations(self) -> None:
+        for name, (payload, issues) in health_timing_payloads().items():
+            with self.subTest(case=name):
                 self.assertEqual(render_compose_plan(payload)["issues"], issues)
 
     def test_refuses_a_kubernetes_target(self) -> None:
@@ -275,6 +305,11 @@ class ComposePlannerTests(unittest.TestCase):
                 with self.subTest(field=name, value=value), self.assertRaises(PlannerUnavailableError) as raised:
                     run_dagentsc(PLANNER_COMMAND, payload)
                 self.assertIn("int_of_string", str(raised.exception))
+
+    def test_bounds_health_check_durations(self) -> None:
+        for name, (payload, issues) in health_timing_payloads().items():
+            with self.subTest(case=name):
+                self.assertEqual(run_dagentsc(PLANNER_COMMAND, payload)["issues"], issues)
 
     def test_reads_the_largest_number(self) -> None:
         for (name, payload), issues in zip(number_payloads(LARGEST_PLANNER_INT).items(), largest_number_issues()):

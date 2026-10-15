@@ -236,7 +236,7 @@ of this table, except that ports and dependencies are checked one at a time.
 | `invalid_host_ip` | the component | the address | `hostIp` is not four numbers from 0 to 255 without leading zeros, separated by dots. IPv6 addresses and host names are refused |
 | `host_port_conflict` | the component | the port | An earlier published port in the spec uses the same host port, on any host address |
 | `empty_health_check` | the component | `null` | `command` is `[]` or `shell` is `""` |
-| `invalid_health_check_timing` | the component | `null` | `intervalSeconds`, `timeoutSeconds` or `retries` is below 1, or `startPeriodSeconds` is below 0 |
+| `invalid_health_check_timing` | the component | `null` | `intervalSeconds`, `timeoutSeconds` or `retries` is below 1, `startPeriodSeconds` is below 0, or a duration is above 9223372036 seconds, the longest that Compose reads |
 | `self_dependency` | the component | `null` | A component depends on itself |
 | `duplicate_dependency` | the component | the service | A component names the same dependency twice |
 | `dependency_outside_project` | the component | the service | `placement` is `own` and a dependency names a service in `existingServices` |

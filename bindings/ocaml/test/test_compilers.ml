@@ -1774,7 +1774,8 @@ let test_compose_maps_every_workload_kind () =
     [ CronJob; Service; ConfigMap; ServiceAccount ]
 
 (** Verifies health checks: none keeps the image's own, both command forms,
-    the codec's timing defaults, and the two health check issues. *)
+    the codec's timing defaults, and the two health check issues. A duration
+    may not exceed 9223372036 seconds, the most a Go [time.Duration] holds. *)
 let test_compose_health_checks () =
   let with_check check =
     Printf.sprintf {|{"target": "compose", "components": [{"name": "a", "image": "x"%s}]}|} check
@@ -1812,7 +1813,24 @@ let test_compose_health_checks () =
       assert_true ("timing should be refused: " ^ timing)
         (codes (Printf.sprintf {|, "healthCheck": {"command": ["true"], %s}|} timing)
         = [ "invalid_health_check_timing" ]))
-    [ {|"intervalSeconds": 0|}; {|"timeoutSeconds": 0|}; {|"retries": 0|}; {|"startPeriodSeconds": -1|} ];
+    [
+      {|"intervalSeconds": 0|};
+      {|"timeoutSeconds": 0|};
+      {|"retries": 0|};
+      {|"startPeriodSeconds": -1|};
+      {|"intervalSeconds": 9223372037|};
+      {|"timeoutSeconds": 9223372037|};
+      {|"startPeriodSeconds": 9223372037|};
+    ];
+  assert_true "the longest duration Compose reads should be accepted"
+    (contains
+       (compose_yaml_of_json
+          (with_check
+             {|, "healthCheck": {"command": ["true"], "intervalSeconds": 9223372036, "timeoutSeconds": 9223372036, "retries": 4611686018427387903, "startPeriodSeconds": 9223372036}|}))
+       {|      interval: 9223372036s
+      timeout: 9223372036s
+      retries: 4611686018427387903
+      start_period: 9223372036s|});
   assert_true "both health check issues should be reported, emptiness first"
     (codes {|, "healthCheck": {"shell": "", "retries": 0}|} = [ "empty_health_check"; "invalid_health_check_timing" ])
 

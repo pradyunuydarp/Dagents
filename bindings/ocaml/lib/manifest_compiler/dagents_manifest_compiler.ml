@@ -449,6 +449,14 @@ let port_issue_reasons used_host_ports (component : workload_component) =
           (reasons @ container @ address @ host, used))
     ([], used_host_ports) component.ports
 
+(** The most seconds a Compose duration can hold. Compose reads [interval],
+    [timeout] and [start_period] as a Go [time.Duration], which holds at most
+    9223372036.854775807 seconds, and refuses a file with a longer one. *)
+let max_compose_duration_seconds = 9_223_372_036
+
+(** Whether [seconds] is from [minimum] to {!max_compose_duration_seconds}. *)
+let valid_duration_seconds ~minimum seconds = seconds >= minimum && seconds <= max_compose_duration_seconds
+
 (** An empty health check command, then timing Compose would refuse. *)
 let health_check_issue_reasons (component : workload_component) =
   match component.health_check with
@@ -458,9 +466,13 @@ let health_check_issue_reasons (component : workload_component) =
       | ExecTest [] | ShellTest "" -> [ EmptyHealthCheck ]
       | ExecTest _ | ShellTest _ -> [])
       @
-      if check.interval_seconds < 1 || check.timeout_seconds < 1 || check.retries < 1 || check.start_period_seconds < 0
-      then [ InvalidHealthCheckTiming ]
-      else []
+      if
+        valid_duration_seconds ~minimum:1 check.interval_seconds
+        && valid_duration_seconds ~minimum:1 check.timeout_seconds
+        && check.retries >= 1
+        && valid_duration_seconds ~minimum:0 check.start_period_seconds
+      then []
+      else [ InvalidHealthCheckTiming ]
 
 (** The issues with a component's dependencies, in its order.
 

@@ -64,6 +64,11 @@ _DEFAULT_HOST_IP = "127.0.0.1"
 _PLANNER_INT_MIN = -(2**62)
 _PLANNER_INT_MAX = 2**62 - 1
 
+# The most seconds a Compose duration can hold: Docker Compose reads `interval`,
+# `timeout` and `start_period` as a Go time.Duration, at most 9223372036.85 s.
+# Copies `max_compose_duration_seconds`.
+MAX_COMPOSE_DURATION_SECONDS = 9_223_372_036
+
 
 @dataclass(frozen=True)
 class _Target:
@@ -488,11 +493,11 @@ def compose_issues(target: _Target, components: list[_Component]) -> list[dict[s
         if health is not None:
             if health.command == [] or health.shell == "":
                 issue("empty_health_check")
-            if (
-                health.interval_seconds < 1
-                or health.timeout_seconds < 1
-                or health.retries < 1
-                or health.start_period_seconds < 0
+            if not (
+                1 <= health.interval_seconds <= MAX_COMPOSE_DURATION_SECONDS
+                and 1 <= health.timeout_seconds <= MAX_COMPOSE_DURATION_SECONDS
+                and health.retries >= 1
+                and 0 <= health.start_period_seconds <= MAX_COMPOSE_DURATION_SECONDS
             ):
                 issue("invalid_health_check_timing")
 

@@ -503,13 +503,13 @@
       "interval_seconds": {
        "type": "integer",
        "title": "Interval Seconds",
-       "description": "Seconds between two checks. At least 1.",
+       "description": "Seconds between two checks. From 1 to 9223372036, the longest duration Docker Compose reads.",
        "default": 30
       },
       "timeout_seconds": {
        "type": "integer",
        "title": "Timeout Seconds",
-       "description": "Seconds one check may take before it counts as failed. At least 1.",
+       "description": "Seconds one check may take before it counts as failed. From 1 to 9223372036.",
        "default": 5
       },
       "retries": {
@@ -521,7 +521,7 @@
       "start_period_seconds": {
        "type": "integer",
        "title": "Start Period Seconds",
-       "description": "Seconds after the container starts during which a failed check does not count. 0 or more.",
+       "description": "Seconds after the container starts during which a failed check does not count. From 0 to 9223372036.",
        "default": 10
       }
      },
@@ -24275,13 +24275,13 @@
       },
       "interval_seconds": {
        "default": 30,
-       "description": "Seconds between two checks. At least 1.",
+       "description": "Seconds between two checks. From 1 to 9223372036, the longest duration Docker Compose reads.",
        "title": "Interval Seconds",
        "type": "integer"
       },
       "timeout_seconds": {
        "default": 5,
-       "description": "Seconds one check may take before it counts as failed. At least 1.",
+       "description": "Seconds one check may take before it counts as failed. From 1 to 9223372036.",
        "title": "Timeout Seconds",
        "type": "integer"
       },
@@ -24293,7 +24293,7 @@
       },
       "start_period_seconds": {
        "default": 10,
-       "description": "Seconds after the container starts during which a failed check does not count. 0 or more.",
+       "description": "Seconds after the container starts during which a failed check does not count. From 0 to 9223372036.",
        "title": "Start Period Seconds",
        "type": "integer"
       }
