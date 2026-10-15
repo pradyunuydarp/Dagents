@@ -371,10 +371,12 @@ each hospital's routes to that hospital's LMA (`app/api/forward.py`).
 `apps/healthcare-demo/docker-compose.yml` runs the same layout in containers.
 The hospitals call the API's model registry and update store on a second port
 (`HEALTHCARE_DEMO_INTERNAL_PORT`, 8081); the public port answers 404 for those
-routes. The calls between the processes have no authentication, so every
-process binds 127.0.0.1 and the compose file publishes only the API's public
-port and the UI to other machines. `tests/test_split_processes.py` starts the five processes and runs a
-pilot through them; CI requires it to run.
+routes. The calls between the processes have no authentication. So the split
+run binds the five processes to 127.0.0.1, and the compose file publishes only
+the API's public port and the UI to other machines. The UI's dev server
+(`run_frontend_demo.sh`, and the compose UI) listens on every interface and
+passes `/api` to the public port. `tests/test_split_processes.py` starts the
+five processes and runs a pilot through them; CI requires it to run.
 
 All of them need `dagentsc`. Without it the Ethical Guard denies every request,
 which is correct but makes every panel a denial, so the scripts check first.

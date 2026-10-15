@@ -431,6 +431,8 @@ The calls between the processes have no authentication. So the run script
 binds every process to 127.0.0.1, and the compose file publishes the GMA's and
 the hospitals' ports on 127.0.0.1 only and does not publish the app's internal
 port. The app's public port, 8080, serves no route that another process calls.
+The UI's dev server, which `run_frontend_demo.sh --split` and the compose file
+start, listens on every interface and passes `/api` requests to port 8080.
 
 ## What the framework owns and what the app owns
 
