@@ -139,6 +139,27 @@ curl -s -X POST http://127.0.0.1:8040/api/v1/manifests/compose \
 docker compose --env-file env/.env.compose -f docker-compose.yml -f store-south.yml up -d store-south-agent
 ```
 
+A program can apply a rendered file itself, for example to add a service when
+a person presses a button. `agents/common/infrastructure/compose_apply.py` has
+two appliers for a file that holds one service. Each takes the `compose_yaml`
+text exactly as core-service returned it, so your program never writes Compose:
+
+| Applier | What it runs | What it needs |
+|---|---|---|
+| `DockerComposeApplier` | `docker compose --file F config --quiet <service>` to check the file, then `docker compose --project-name P --file F up --detach --no-build --pull never --no-deps --wait <service>` | Docker, and the image already built |
+| `LocalProcessApplier` | The service's `command`, with its `environment`, as a local process in a new process group; output goes to `<service>.log` | The program in its allowlist. No Docker. |
+
+`--no-deps` starts the new service alone, so the services it needs must already
+run. Give it its own project and the running project's network
+(`"placement": "own"`, `"network"` set to that network and
+`"external_network": true`), so `docker compose down` on the project does not
+remove it. When a start fails, the Docker applier removes the container it
+created. The process applier refuses `depends_on`, any key it cannot apply,
+such as `volumes`, a program that is not in its allowlist, and a `$` that is
+not written `$$`, because it does not read variables from the environment.
+Neither applier checks the service's health: ask the service. The tests run
+the Docker applier with a fake runner, because CI has no Docker.
+
 Both kinds of file are generated and tested, but CI deploys neither. The plan
 for checking the Kubernetes manifests on a live cluster is in `TODO.md`.
 
