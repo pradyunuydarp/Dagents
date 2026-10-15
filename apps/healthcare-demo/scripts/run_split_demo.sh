@@ -19,8 +19,22 @@
 # HEALTHCARE_DEMO_LMA_PORTS ("8082 8083 8084") change the ports. Every process
 # binds 127.0.0.1: the calls between them have no authentication.
 #
+# With --deploy, the run can also add Hospital 290 (pl-290) while it runs:
+#
+#   scripts/run_split_demo.sh --deploy
+#
+# It also starts core-service (services/core-service, on 8040), whose planner
+# renders the new hospital's Compose file. The GMA accepts the new hospital's
+# address (GMA_FEDERATION_JOINABLE_SITES), and the app turns on the deployer
+# (HEALTHCARE_DEMO_DEPLOYER=process): POST /api/v1/deployments, or the "Add
+# Hospital 290" button on the consortium page, starts the hospital's LMA on
+# 8085 as a child process of the app. CORE_SERVICE_PORT and
+# HEALTHCARE_DEMO_JOINING_PORT change the two ports. The script stops before it
+# starts anything when the joining port already answers.
+#
 # scripts/run_frontend_demo.sh --split sources this file and calls
-# split_start, so the UI runs in front of the same five processes.
+# split_start, so the UI runs in front of the same five processes. It sets
+# SPLIT_DEPLOY=1 for --deploy.
 set -euo pipefail
 
 SPLIT_HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -29,6 +43,11 @@ DAGENTS_HOME="${DAGENTS_HOME:-$(cd "${SPLIT_APP_ROOT}/../.." && pwd)}"
 
 #: The hospitals, in display order. Each gets the next port in HEALTHCARE_DEMO_LMA_PORTS.
 SPLIT_SITES=(uk-134 it-002 ch-245)
+#: The hospital a run started with --deploy can add while it runs. It listens on
+#: HEALTHCARE_DEMO_JOINING_PORT.
+SPLIT_JOINING_SITE="pl-290"
+#: 1 when the run can add SPLIT_JOINING_SITE (--deploy).
+SPLIT_DEPLOY="${SPLIT_DEPLOY:-0}"
 SPLIT_PIDS=()
 SPLIT_NAMES=()
 
@@ -97,6 +116,11 @@ split_wait_for() {
   return 1
 }
 
+# Whether something accepts a TCP connection on 127.0.0.1 at this port.
+split_port_answers() {
+  (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null
+}
+
 # Start one process in the background. Arguments: name, log, working directory,
 # then `env` assignments and the command.
 split_spawn() {
@@ -129,9 +153,38 @@ split_start() {
     sites+="${sites:+,}${SPLIT_SITES[$i]}=http://127.0.0.1:${lma_ports[$i]}"
   done
 
+  # With --deploy: core-service, the address the GMA accepts for the joining
+  # hospital, and the app's deployer. Without it, the deployer stays off.
+  local core_port="${CORE_SERVICE_PORT:-8040}"
+  local joining_port="${HEALTHCARE_DEMO_JOINING_PORT:-8085}"
+  local joining="${SPLIT_JOINING_SITE}=http://127.0.0.1:${joining_port}"
+  local -a gma_deploy=() app_deploy=(HEALTHCARE_DEMO_DEPLOYER=off)
+  if [[ "${SPLIT_DEPLOY}" == 1 ]]; then
+    if [[ ! -d "${DAGENTS_HOME}/services/core-service" ]]; then
+      echo "Could not find core-service in ${DAGENTS_HOME}/services/core-service." >&2
+      echo "--deploy needs it: its planner renders the new hospital's Compose file." >&2
+      return 1
+    fi
+    if split_port_answers "${joining_port}"; then
+      echo "Port ${joining_port} already answers. Hospital ${SPLIT_JOINING_SITE} listens there when it joins." >&2
+      echo "Stop what is using it, or set HEALTHCARE_DEMO_JOINING_PORT to a free port." >&2
+      return 1
+    fi
+    gma_deploy=(GMA_FEDERATION_JOINABLE_SITES="${joining}")
+    app_deploy=(
+      HEALTHCARE_DEMO_DEPLOYER=process
+      HEALTHCARE_DEMO_JOINING_LMA_URLS="${joining}"
+      CORE_SERVICE_PUBLIC_URL="http://127.0.0.1:${core_port}"
+      HEALTHCARE_DEMO_DEPLOY_DIR="${log_dir}/deploy"
+    )
+    split_spawn core-service "${log_dir}/core-service.log" "${DAGENTS_HOME}/services/core-service" \
+      PYTHONPATH="${DAGENTS_HOME}:${DAGENTS_HOME}/services/core-service" \
+      "${PYTHON}" -m uvicorn app.main:app --host 127.0.0.1 --port "${core_port}"
+  fi
+
   split_spawn gma "${log_dir}/gma.log" "${DAGENTS_HOME}" \
     PYTHONPATH="${DAGENTS_HOME}" GMA_API_HOST=127.0.0.1 GMA_API_PORT="${gma_port}" \
-    GMA_FEDERATION_SITES="${sites}" \
+    GMA_FEDERATION_SITES="${sites}" ${gma_deploy[@]+"${gma_deploy[@]}"} \
     "${PYTHON}" -m uvicorn agents.gma.main:app --host 127.0.0.1 --port "${gma_port}"
 
   # Every request reaches a hospital from the app or the GMA, so the
@@ -142,6 +195,7 @@ split_start() {
       HEALTHCARE_DEMO_COORDINATOR_URL="${internal_url}" HEALTHCARE_DEMO_API_PORT="${lma_ports[$i]}" \
       HEALTHCARE_DEMO_RATE_LIMIT_ENTRIES=0 HEALTHCARE_DEMO_RATE_LIMIT_PROBES=0 \
       HEALTHCARE_DEMO_RATE_LIMIT_PILOTS=0 HEALTHCARE_DEMO_RATE_LIMIT_APPROVALS=0 \
+      HEALTHCARE_DEMO_DEPLOYER=off \
       "${PYTHON}" -m uvicorn app.main:app --host 127.0.0.1 --port "${lma_ports[$i]}"
   done
 
@@ -149,9 +203,14 @@ split_start() {
     PYTHONPATH="${pythonpath}" HEALTHCARE_DEMO_ROLE=app HEALTHCARE_DEMO_API_PORT="${app_port}" \
     HEALTHCARE_DEMO_INTERNAL_HOST=127.0.0.1 HEALTHCARE_DEMO_INTERNAL_PORT="${internal_port}" \
     GMA_PUBLIC_URL="http://127.0.0.1:${gma_port}" HEALTHCARE_DEMO_LMA_URLS="${sites}" \
+    "${app_deploy[@]}" \
     "${PYTHON}" -m uvicorn app.main:app --host 127.0.0.1 --port "${app_port}"
 
   echo "Processes:"
+  if [[ "${SPLIT_DEPLOY}" == 1 ]]; then
+    printf '  %-12s %s\n' "core-service" \
+      "http://127.0.0.1:${core_port}   (Dagents core-service, renders Compose files, log ${log_dir}/core-service.log)"
+  fi
   printf '  %-12s %s\n' "gma" "http://127.0.0.1:${gma_port}   (Dagents GMA, log ${log_dir}/gma.log)"
   for i in "${!SPLIT_SITES[@]}"; do
     printf '  %-12s %s\n' "lma-${SPLIT_SITES[$i]}" \
@@ -159,8 +218,15 @@ split_start() {
   done
   printf '  %-12s %s\n' "app" "${app_url}   (the API the frontend calls, log ${log_dir}/app.log)"
   printf '  %-12s %s\n' "" "${internal_url}   (the app's routes for the hospitals: models and updates)"
+  if [[ "${SPLIT_DEPLOY}" == 1 ]]; then
+    printf '  %-12s %s\n' "lma-${SPLIT_JOINING_SITE}" \
+      "http://127.0.0.1:${joining_port}   (hospital ${SPLIT_JOINING_SITE}, joins when you press Add Hospital 290; log ${log_dir}/deploy/lma-${SPLIT_JOINING_SITE}.log)"
+  fi
   echo
 
+  if [[ "${SPLIT_DEPLOY}" == 1 ]]; then
+    split_wait_for "http://127.0.0.1:${core_port}/api/v1/health" "core-service" "${log_dir}/core-service.log"
+  fi
   split_wait_for "http://127.0.0.1:${gma_port}/health" "The GMA" "${log_dir}/gma.log"
   for i in "${!SPLIT_SITES[@]}"; do
     split_wait_for "http://127.0.0.1:${lma_ports[$i]}/api/v1/health" "Hospital ${SPLIT_SITES[$i]}" \
@@ -171,6 +237,13 @@ split_start() {
 }
 
 split_main() {
+  while (( $# > 0 )); do
+    case "$1" in
+      --deploy) SPLIT_DEPLOY=1 ;;
+      *) echo "unknown option: $1" >&2; return 2 ;;
+    esac
+    shift
+  done
   split_preflight
   local log_dir
   log_dir="$(mktemp -d)"
@@ -185,13 +258,20 @@ split_main() {
   echo "  planner   : ${DAGENTSC_BIN:-dagentsc (on PATH)}"
   echo
   split_start "${log_dir}"
-  echo "All five processes answer. API docs: ${SPLIT_APP_URL}/docs"
+  echo "All ${#SPLIT_PIDS[@]} processes answer. API docs: ${SPLIT_APP_URL}/docs"
   echo
   echo "The records are de-identified records from the International Stroke Trial (1991-1996),"
   echo "kept in memory per hospital unless HEALTHCARE_DEMO_DATABASE_URL is set."
   echo "Nothing here is a validated clinical model or medical advice."
   echo
-  echo "Ctrl-C stops all five."
+  if [[ "${SPLIT_DEPLOY}" == 1 ]]; then
+    echo "To add Hospital 290 (${SPLIT_JOINING_SITE}) while the demo runs:"
+    echo "  curl -X POST ${SPLIT_APP_URL}/api/v1/deployments -H 'Content-Type: application/json' -d '{\"site_id\": \"${SPLIT_JOINING_SITE}\"}'"
+    echo
+    echo "Ctrl-C stops all six, and the hospital you add."
+  else
+    echo "Ctrl-C stops all five."
+  fi
 
   # Stop everything when one process exits.
   while true; do

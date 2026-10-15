@@ -154,12 +154,20 @@ scripts/run_pilot.sh                   # no UI: run one pilot and print the resu
 scripts/run_local_demo.sh              # the API alone, on port 8080
 scripts/run_split_demo.sh              # the API as five processes: the Dagents GMA, three LMAs, the app
 scripts/run_frontend_demo.sh --split   # the UI in front of those five processes
+scripts/run_split_demo.sh --deploy     # the five, plus core-service, and Hospital 290 can join while it runs
 ```
 
 `run_frontend_demo.sh` starts the backend and the frontend, waits until both
 answer, and prints what to try. Press Ctrl-C to stop both. Without `--split`,
 the backend is one process; with it, each hospital runs in its own process (see
 [One process per hospital](#one-process-per-hospital)).
+
+`--deploy` also starts core-service on port 8040 and turns on adding a
+hospital. `POST /api/v1/deployments` with `{"site_id": "pl-290"}` then starts
+Hospital 290's LMA on port 8085, and the next round includes it (see
+[Add a hospital while the demo runs](#add-a-hospital-while-the-demo-runs)). The
+script stops before it starts anything when port 8085 already answers.
+`CORE_SERVICE_PORT` and `HEALTHCARE_DEMO_JOINING_PORT` change the two ports.
 
 A local run needs no Docker, database or model download. Records you enter are
 kept in memory and are gone when the API stops. With
@@ -495,10 +503,11 @@ restarts, the app sends the address and the enrolment again before the next
 round. Hospital 290's charts are drawn in neutral ink, because the design
 system has three hospital colours and the first three hospitals use them.
 
-**Turning it on.** It is off by default (`HEALTHCARE_DEMO_DEPLOYER=off`), and
-`scripts/run_split_demo.sh` does not turn it on. A split run that adds a
-hospital also needs core-service (`services/core-service`, port 8040) running
-with the planner, and these settings:
+**Turning it on.** It is off by default (`HEALTHCARE_DEMO_DEPLOYER=off`).
+`scripts/run_split_demo.sh --deploy` turns it on; without `--deploy` the script
+keeps it off. A split run that adds a hospital also needs core-service
+(`services/core-service`, port 8040) running with the planner, and these
+settings, which `--deploy` sets:
 
 - the GMA: `GMA_FEDERATION_JOINABLE_SITES=pl-290=http://127.0.0.1:8085`;
 - the app, and only the app: `HEALTHCARE_DEMO_DEPLOYER=process`,
@@ -684,7 +693,7 @@ Three suites cover the split layout:
 The tests that need the planner skip without it. CI requires the
 `SplitProcessTests` class of `test_split_processes.py` to run.
 
-Four suites cover adding a hospital:
+Five suites cover adding a hospital:
 
 | Suite | What it checks |
 |---|---|
@@ -692,6 +701,7 @@ Four suites cover adding a hospital:
 | `tests/test_deployment_flow.py` | Every step against a split run in the test process, with the real GMA app, a real core-service process and an applier that starts the LMA in process: the join, a pilot that includes Hospital 290, each failure and what it undoes, a GMA restart, and the exact file the applier gets |
 | `tests/test_deployment_spec.py` | The exact Compose request in each mode, rendered by a real core-service, and accepted by both appliers and by `docker compose config` (skipped without Docker) |
 | `tests/test_compose_override.py` | What `docker-compose.deploy.yml` publishes and sets, from the merged file `docker compose config` prints, and that the base file is unchanged (skipped without Docker) |
+| `tests/test_split_deploy.py` | `run_split_demo.sh --deploy` as real processes, with the process applier: a held port fails the `start` step, Hospital 290 joins with its 263 records, a pilot includes it, a second request gets 409, and its LMA stops when the app stops. Also that the script and the test start the same processes with the same settings, and that the script starts nothing when port 8085 answers |
 
 Good tests to read first:
 

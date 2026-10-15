@@ -4,10 +4,12 @@ These tests start the five processes as ``scripts/run_split_demo.sh`` does,
 each with ``uvicorn`` on a free port, and call only the app, as the frontend
 does. They check that the app lists the hospitals the LMAs report, that a
 hospital's page comes from its LMA, that the routes the LMAs call are on the
-app's internal port and not on its public one, and, with the planner, that a pilot runs
+app's internal port and not on its public one, that the app does not add a
+hospital without ``--deploy``, and, with the planner, that a pilot runs
 every round at all three hospitals through the GMA, that training results
 carry a digest of each update and never the update, and that each hospital
-keeps a record of what it sent.
+keeps a record of what it sent. ``test_split_deploy.py`` starts the same
+processes with ``--deploy`` and adds a hospital.
 
 Each hospital keeps its records in memory, loaded from the committed extract.
 
@@ -22,9 +24,7 @@ from pathlib import Path
 import re
 import shutil
 import signal
-import socket
 import subprocess
-import sys
 import tempfile
 import time
 import unittest
@@ -33,17 +33,12 @@ import httpx
 
 from app.domain.dataset import SITES
 
+from tests.split_support import SITE_IDS, SplitProcesses
 from tests.support import dagentsc_available
 
 APP_ROOT = Path(__file__).resolve().parents[1]
-REPO_ROOT = APP_ROOT.parents[1]
-BACKEND = APP_ROOT / "backend"
 
-SITE_IDS = [site.site_id for site in SITES]
 SITE_SIZES = {site.site_id: site.expected_rows for site in SITES}
-
-#: Seconds to wait for every process to answer its health check.
-STARTUP_SECONDS = 90.0
 
 #: Seconds to wait for a pilot: every round runs at every hospital over HTTP.
 PILOT_SECONDS = 600.0
@@ -62,145 +57,6 @@ RESULT_KEYS = {
     "metrics",
     "local_evidence_pointer",
 }
-
-#: Settings of the test process's environment that would change what a child
-#: process does. Each child sets what it needs.
-_CLEARED = ("HEALTHCARE_DEMO_", "GMA_", "LMA_")
-
-
-def free_port() -> int:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.bind(("127.0.0.1", 0))
-        return sock.getsockname()[1]
-
-
-def child_environment(**settings: str) -> dict[str, str]:
-    """The test's environment without the demo's and the agents' settings, plus ``settings``.
-
-    ``DAGENTSC_BIN`` is kept, so every process finds the planner the test found.
-    """
-    env = {key: value for key, value in os.environ.items() if not key.startswith(_CLEARED)}
-    env.update(settings)
-    return env
-
-
-class SplitProcesses:
-    """Starts the five processes and stops them."""
-
-    def __init__(self, log_dir: Path) -> None:
-        self.log_dir = log_dir
-        self.gma_port = free_port()
-        self.app_port = free_port()
-        self.internal_port = free_port()
-        self.lma_ports = {site_id: free_port() for site_id in SITE_IDS}
-        self.app_url = f"http://127.0.0.1:{self.app_port}"
-        self.internal_url = f"http://127.0.0.1:{self.internal_port}"
-        self.processes: dict[str, subprocess.Popen] = {}
-        self._logs: list = []
-
-    def lma_url(self, site_id: str) -> str:
-        return f"http://127.0.0.1:{self.lma_ports[site_id]}"
-
-    def _spawn(self, name: str, cwd: Path, module: str, port: int, env: dict[str, str]) -> None:
-        log = open(self.log_dir / f"{name}.log", "wb")  # noqa: SIM115 - closed in stop()
-        self._logs.append(log)
-        self.processes[name] = subprocess.Popen(
-            [sys.executable, "-m", "uvicorn", module, "--host", "127.0.0.1", "--port", str(port)],
-            cwd=cwd,
-            env=env,
-            stdout=log,
-            stderr=subprocess.STDOUT,
-        )
-
-    def start(self) -> None:
-        sites = ",".join(f"{site_id}={self.lma_url(site_id)}" for site_id in SITE_IDS)
-        pythonpath = os.pathsep.join([str(REPO_ROOT), str(BACKEND)])
-        no_client_limits = {
-            "HEALTHCARE_DEMO_RATE_LIMIT_ENTRIES": "0",
-            "HEALTHCARE_DEMO_RATE_LIMIT_PROBES": "0",
-            "HEALTHCARE_DEMO_RATE_LIMIT_PILOTS": "0",
-            "HEALTHCARE_DEMO_RATE_LIMIT_APPROVALS": "0",
-        }
-        self._spawn(
-            "gma",
-            REPO_ROOT,
-            "agents.gma.main:app",
-            self.gma_port,
-            child_environment(
-                PYTHONPATH=str(REPO_ROOT),
-                GMA_API_HOST="127.0.0.1",
-                GMA_API_PORT=str(self.gma_port),
-                GMA_FEDERATION_SITES=sites,
-            ),
-        )
-        for site_id in SITE_IDS:
-            self._spawn(
-                f"lma-{site_id}",
-                BACKEND,
-                "app.main:app",
-                self.lma_ports[site_id],
-                child_environment(
-                    PYTHONPATH=pythonpath,
-                    HEALTHCARE_DEMO_ROLE="lma",
-                    HEALTHCARE_DEMO_SITE_ID=site_id,
-                    HEALTHCARE_DEMO_COORDINATOR_URL=self.internal_url,
-                    **no_client_limits,
-                ),
-            )
-        self._spawn(
-            "app",
-            BACKEND,
-            "app.main:app",
-            self.app_port,
-            child_environment(
-                PYTHONPATH=pythonpath,
-                HEALTHCARE_DEMO_ROLE="app",
-                HEALTHCARE_DEMO_INTERNAL_HOST="127.0.0.1",
-                HEALTHCARE_DEMO_INTERNAL_PORT=str(self.internal_port),
-                GMA_PUBLIC_URL=f"http://127.0.0.1:{self.gma_port}",
-                HEALTHCARE_DEMO_LMA_URLS=sites,
-                **no_client_limits,
-            ),
-        )
-        health = {
-            "gma": f"http://127.0.0.1:{self.gma_port}/health",
-            **{f"lma-{site_id}": f"{self.lma_url(site_id)}/api/v1/health" for site_id in SITE_IDS},
-            "app": f"{self.app_url}/api/v1/health",
-        }
-        deadline = time.monotonic() + STARTUP_SECONDS
-        for name, url in health.items():
-            self._wait(name, url, deadline)
-
-    def _wait(self, name: str, url: str, deadline: float) -> None:
-        while True:
-            if self.processes[name].poll() is not None:
-                raise RuntimeError(f"{name} exited with {self.processes[name].returncode}:\n{self.log(name)}")
-            try:
-                if httpx.get(url, timeout=2.0).status_code == 200:
-                    return
-            except httpx.HTTPError:
-                pass
-            if time.monotonic() > deadline:
-                raise RuntimeError(f"{name} did not answer {url} in {STARTUP_SECONDS:.0f} s:\n{self.log(name)}")
-            time.sleep(0.25)
-
-    def log(self, name: str, lines: int = 40) -> str:
-        path = self.log_dir / f"{name}.log"
-        text = path.read_text(encoding="utf-8", errors="replace") if path.exists() else ""
-        return "\n".join(text.splitlines()[-lines:])
-
-    def stop(self) -> None:
-        for process in self.processes.values():
-            if process.poll() is None:
-                process.terminate()
-        for process in self.processes.values():
-            try:
-                process.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                process.kill()
-                process.wait(timeout=10)
-        for log in self._logs:
-            log.close()
 
 
 def _rounds(report: dict) -> list[dict]:
@@ -261,6 +117,18 @@ class SplitProcessTests(unittest.TestCase):
         self.assertEqual(200, response.status_code, response.text[:500])
         self.assertIn("params", response.json())
         self.assertEqual(404, httpx.get(f"{self.split.internal_url}/api/v1/overview", timeout=10.0).status_code)
+
+    def test_without_deploy_the_app_does_not_add_a_hospital(self) -> None:
+        # run_split_demo.sh without --deploy: the deployer is off, and the app says how to turn it on.
+        view = self.get("/api/v1/deployments")
+        self.assertFalse(view["available"])
+        self.assertEqual("off", view["applier"])
+        self.assertIn("--deploy", view["reason"])
+        self.assertEqual(["pl-290"], [hospital["site_id"] for hospital in view["hospitals"]])
+        self.assertFalse(view["hospitals"][0]["in_consortium"])
+        response = self.client.post("/api/v1/deployments", json={"site_id": "pl-290"})
+        self.assertEqual(403, response.status_code, response.text)
+        self.assertEqual(view["reason"], response.json()["detail"])
 
     @unittest.skipUnless(dagentsc_available(), "planner (dagentsc) is not available, so no round can be planned")
     def test_a_pilot_runs_every_round_at_every_hospital_through_the_gma(self) -> None:
