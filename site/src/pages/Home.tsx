@@ -83,8 +83,11 @@ export function Home({ anchor }: { anchor: string | null }) {
       <section id="how-it-works" className="block">
         <h2>How it works</h2>
         <ol className="steps">
-          {STEPS.map((step) => (
+          {STEPS.map((step, index) => (
             <li key={step.title}>
+              <span className="step-index" aria-hidden="true">
+                {String(index + 1).padStart(2, "0")}
+              </span>
               <h3>{step.title}</h3>
               <p>{step.text}</p>
             </li>
