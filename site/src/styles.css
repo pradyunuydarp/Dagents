@@ -1213,5 +1213,46 @@ td.api-type { min-width: 10ch; }
   gap: var(--ds-4);
 }
 
+/* ===== Texture and pointer glow ========================================== */
+
+/* The faint measuring grid of the home hero, repeated at the top of every
+ * other page and above the footer. It is drawn with the rule token and fades
+ * out, so it reads as structure and never as a colour. */
+.page,
+.footer {
+  position: relative;
+  isolation: isolate;
+}
+
+.page::before,
+.footer::before {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  z-index: -1;
+  background-image:
+    linear-gradient(to right, var(--ds-line) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--ds-line) 1px, transparent 1px);
+  background-size: 32px 32px;
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+.page::before {
+  top: 0;
+  height: 18rem;
+  -webkit-mask-image: radial-gradient(ellipse 60% 100% at 70% 0%, var(--ds-ink) 10%, transparent 80%);
+  mask-image: radial-gradient(ellipse 60% 100% at 70% 0%, var(--ds-ink) 10%, transparent 80%);
+}
+
+/* The home hero draws its own grid. */
+.page:has(> .home)::before { display: none; }
+
+.footer::before {
+  inset-block: 0;
+  -webkit-mask-image: radial-gradient(ellipse 55% 140% at 50% 100%, var(--ds-ink) 5%, transparent 75%);
+  mask-image: radial-gradient(ellipse 55% 140% at 50% 100%, var(--ds-ink) 5%, transparent 75%);
+}
+
 /* JSON pointers in example notes are long single words. */
 .api-example .ds-note code { overflow-wrap: anywhere; }
