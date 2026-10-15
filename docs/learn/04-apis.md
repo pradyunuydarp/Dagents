@@ -8,7 +8,7 @@
 | GMA | 8020 | Governance, federated rounds, site enrolment |
 | model-service | 8000 | Model training, checks and jobs |
 | pipeline-service | 8030 | Pipeline registry, validation and runs |
-| core-service | 8040 | Catalog, topology, workload compilation, Kubernetes manifests |
+| core-service | 8040 | Catalog, topology, workload compilation, Kubernetes manifests and Docker Compose files |
 | Spring control and core | 8050, 8060 | The same control and core APIs for JVM consumers |
 | Stroke demo backend | 8080 | The demo's own API: hospitals, data entry, the Guard probe, the pilot, charts |
 

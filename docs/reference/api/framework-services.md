@@ -6,7 +6,7 @@ port, and they use only versioned `/api/v1/...` paths.
 
 | Service | Code | Port | What it is for |
 |---|---|---|---|
-| core-service | `services/core-service/` | 8040 | The catalog of framework services, and Kubernetes manifests compiled from a list of workloads |
+| core-service | `services/core-service/` | 8040 | The catalog of framework services, and Kubernetes manifests and Docker Compose files compiled from a list of workloads |
 | pipeline-service | `services/pipeline-service/` | 8030 | Pipeline definitions (a graph of named steps) and runs of them on JSON payloads |
 | model-service | `services/model-service/` | 8000 | Model training, one-shot evaluation checks, background model jobs, and the model families this deployment can run |
 
@@ -122,14 +122,20 @@ code: services/core-service/app/api/routes.py
 classes:
 - ManifestService (services/core-service/app/services/manifest_service.py)
 - InMemoryWorkloadPlanRepository (services/core-service/app/services/manifest_service.py)
+- render_compose_plan (services/core-service/app/services/compose_renderer.py)
 endpoints:
 - POST /api/v1/workloads:compile
 - GET /api/v1/workload-plans/{plan_id}
 - POST /api/v1/manifests/pods
+- POST /api/v1/manifests/compose
 ```
 
-The workload compiler turns a list of workloads into Kubernetes YAML. A
-**workload component** names a container image and how it runs: a
+The workload compiler turns a list of workloads into Kubernetes YAML or into a
+Docker Compose file. This section describes the Kubernetes endpoints; the
+Compose endpoint is described in
+[Render a Docker Compose file](#core-service-post-api-v1-manifests-compose).
+
+A **workload component** names a container image and how it runs: a
 `Deployment` (pods that keep running), a `Job` (runs once) or a `CronJob` (runs
 on a schedule). For each component the compiler renders that object, plus the
 companion objects the request asks for:
@@ -229,6 +235,76 @@ fetched. `generate_manifests.py` at the repository root calls this endpoint.
 
 **Related.** [Compile a workload plan](#core-service-post-api-v1-workloads-compile),
 [the WorkloadManifest object](#the-workloadmanifest-object).
+
+### Render a Docker Compose file
+
+```api-endpoint
+POST /api/v1/manifests/compose
+```
+
+Renders one Docker Compose file for a list of workloads, for example a new LMA
+that joins a project Docker Compose already runs. The service sends the request
+to `dagentsc manifest compile` with a Compose target and returns the planner's
+answer. Nothing is stored. The request holds no records from a data source, so
+it passes no Guard boundary.
+
+`placement` says how the file is used. `<project>` is the Compose project name,
+and `generated.yml` is the saved `compose_yaml`:
+
+| `placement` | The file is | Apply it with | A dependency on a service in `existing_services` |
+|---|---|---|---|
+| `own` (the default) | a whole project | `docker compose -p <project> -f generated.yml up -d` | an issue, `dependency_outside_project` |
+| `merge` | added to a project that runs `existing_services` | `docker compose -p <project> -f <the project's files> -f generated.yml up -d <service>` | allowed |
+
+With `merge`, Docker Compose reads relative paths, such as `env_files`, from the
+directory of the first file. To join a network that another project made, set
+`external_network` to true and give the network's full Docker name, such as
+`healthcare-demo_default`.
+
+What the file contains:
+
+- A port with `host_port` is published on `host_ip`, which is `127.0.0.1` by
+  default, because the LMA and the GMA have no authentication. A port without
+  `host_port` is listed under `expose` and is not published on the host.
+- Every value is quoted, and each `$` is written as `$$`. Docker Compose then
+  passes the value to the container unchanged instead of reading a variable.
+- `env_files` keeps secrets, such as a database address with a password, out of
+  the file. The file is returned to the caller, which may show it.
+- A `Deployment` gets `restart: unless-stopped` and a `Job` gets
+  `restart: "no"`. A component without `health_check` keeps the image's own
+  `HEALTHCHECK`.
+
+The planner checks names, ports, host addresses, health checks and
+dependencies. When a value breaks a rule, the answer is `200` with every issue
+in `issues` and `compose_yaml` null. The codes are listed with
+[`dagentsc manifest compile`](dagentsc.md#dagentsc-manifest-compile). The
+planner does not check facts it cannot see: whether the image or the env files
+exist, whether an external network exists, and whether a host port is already
+in use.
+
+When the planner cannot be started, the service renders the file with
+`render_compose_plan`, a Python port of the planner's code. The core-service
+tests check both against the same golden files in
+`services/core-service/tests/fixtures/compose/`. When the planner starts and
+then fails, the service does not use the port.
+
+**Errors.**
+
+- `422` when the request has the wrong shape: a wrong type, a `kind` other than
+  `Deployment` or `Job`, an unknown `placement` or `condition`, a health check
+  with both or neither of `command` and `shell`, or a field the request does
+  not have, such as `replicas`. Each problem is one entry in `detail`.
+- `500` when the planner starts and then fails. The request models refuse the
+  shapes the planner refuses, so this happens only when the two disagree or a
+  number does not fit in the planner's 63-bit integers.
+
+A value that breaks a planner rule is not an error: the answer is `200` with
+`issues`.
+
+**Related.** [The ComposeComponent object](#the-composecomponent-object),
+[the ComposeIssue object](#the-composeissue-object),
+[the ComposeManifestResponse object](#the-composemanifestresponse-object),
+[`dagentsc manifest compile`](dagentsc.md#dagentsc-manifest-compile).
 
 ## Pipeline service health
 
@@ -1214,6 +1290,41 @@ example: core-service get-plan /response/body
 
 A compiled workload plan: what `POST /api/v1/workloads:compile` returns and
 `GET /api/v1/workload-plans/{plan_id}` returns again.
+
+### The ComposeComponent object
+
+```api-object
+class: app.models.ComposeComponent
+service: core-service
+example: core-service compose-an-lma /request/json/components/0
+```
+
+One service in a request to `POST /api/v1/manifests/compose`: a container
+image, how it runs, its ports, its health check and the services it waits for.
+Only `name` and `image` are required.
+
+### The ComposeIssue object
+
+```api-object
+class: app.models.ComposeIssue
+service: core-service
+example: core-service compose-with-issues /response/body/issues/0
+```
+
+One reason the planner gives for not rendering a Compose file. `service` is null
+for an issue with the whole request, such as `no_services` or
+`invalid_network_name`.
+
+### The ComposeManifestResponse object
+
+```api-object
+class: app.models.ComposeManifestResponse
+service: core-service
+example: core-service compose-an-lma /response/body
+```
+
+What `POST /api/v1/manifests/compose` returns. `compose_yaml` is set exactly
+when `issues` is empty.
 
 ### The ServiceDescriptor object
 
