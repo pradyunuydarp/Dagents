@@ -155,3 +155,16 @@
     transform: translateY(-1px);
   }
 }
+
+@media (prefers-reduced-motion: reduce) {
+  .masthead nav a,
+  .pager a,
+  .resource,
+  .api-endpoint,
+  .api-object,
+  .api-index-module,
+  .pager a .ds-eyebrow::before,
+  .pager a .ds-eyebrow::after {
+    transition: none;
+  }
+}
