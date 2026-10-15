@@ -8,6 +8,7 @@ the shape of every row. Nothing here downloads anything.
 from __future__ import annotations
 
 import contextlib
+import dataclasses
 import hashlib
 import importlib.util
 import io
@@ -15,6 +16,7 @@ import pathlib
 import re
 import tempfile
 import unittest
+from unittest import mock
 
 from app.domain import dataset
 from app.domain.conditions import STROKE_FEATURE_CONTRACT, STROKE_FIELD_DOMAINS, STROKE_LABEL_FIELD
@@ -61,6 +63,85 @@ class SiteTests(unittest.TestCase):
     def test_an_unknown_site_is_refused(self) -> None:
         with self.assertRaises(dataset.UnknownSiteError):
             dataset.load_site_records("riverside-general")
+
+
+class JoiningExtractTests(unittest.TestCase):
+    """The joining hospital: the site that is added while the demo runs."""
+
+    def test_the_three_consortium_hospitals_are_unchanged(self) -> None:
+        self.assertEqual(dataset.SITE_IDS, ("uk-134", "it-002", "ch-245"))
+        self.assertEqual({site.extract for site in dataset.SITES}, {"ist_three_hospitals.csv"})
+        # A site built with the six original fields reads the three hospitals' extract.
+        self.assertEqual(dataset.Site("x-1", "X", "Nowhere", 0, "site_x_1", 3).extract, "ist_three_hospitals.csv")
+
+    def test_the_joining_hospital_is_hospital_290_in_poland(self) -> None:
+        self.assertEqual(
+            dataset.JOINING_SITES,
+            (
+                dataset.Site(
+                    "pl-290", "Hospital 290", "Poland", 290, "site_pl_290", 263, extract="ist_joining_hospitals.csv"
+                ),
+            ),
+        )
+        self.assertEqual(dataset.JOINING_SITE_IDS, ("pl-290",))
+        self.assertFalse(set(dataset.JOINING_SITE_IDS) & set(dataset.SITE_IDS))
+        self.assertNotIn(dataset.JOINING_SITES[0].schema, {site.schema for site in dataset.SITES})
+
+    def test_site_for_finds_only_the_consortium_hospitals(self) -> None:
+        self.assertEqual(dataset.site_for("uk-134").hospnum, 134)
+        with self.assertRaises(dataset.UnknownSiteError):
+            dataset.site_for("pl-290")
+
+    def test_joining_site_for_finds_only_the_joining_hospital(self) -> None:
+        self.assertEqual(dataset.joining_site_for("pl-290").hospnum, 290)
+        for site_id in ("uk-134", "riverside-general"):
+            with self.assertRaises(dataset.UnknownSiteError, msg=site_id):
+                dataset.joining_site_for(site_id)
+
+    def test_any_site_for_finds_both_kinds(self) -> None:
+        self.assertIs(dataset.any_site_for("it-002"), dataset.SITES[1])
+        self.assertIs(dataset.any_site_for("pl-290"), dataset.JOINING_SITES[0])
+        with self.assertRaises(dataset.UnknownSiteError):
+            dataset.any_site_for("riverside-general")
+
+    def test_is_joining(self) -> None:
+        self.assertTrue(dataset.is_joining("pl-290"))
+        for site_id in ("uk-134", "it-002", "ch-245", "riverside-general", ""):
+            self.assertFalse(dataset.is_joining(site_id), site_id)
+
+    def test_records_source_and_expected_count(self) -> None:
+        joining = dataset.joining_site_for("pl-290")
+        self.assertEqual(dataset.records_source(joining), "dataset")
+        self.assertEqual(dataset.expected_record_count(joining), 263)
+        for site in dataset.SITES:
+            self.assertEqual(dataset.records_source(site), "dataset")
+            self.assertEqual(dataset.expected_record_count(site), site.expected_rows)
+
+    def test_dataset_path_without_a_name_is_unchanged(self) -> None:
+        self.assertEqual(dataset.dataset_path(), EXTRACT)
+        self.assertEqual(dataset.dataset_path().relative_to(APP_ROOT), dataset.EXTRACT_PATH)
+        self.assertEqual(dataset.dataset_path("ist_three_hospitals.csv"), EXTRACT)
+        self.assertEqual(dataset.dataset_path("ist_joining_hospitals.csv"), DATA_DIR / "ist_joining_hospitals.csv")
+
+    def test_dataset_path_takes_only_a_file_name(self) -> None:
+        for name in ("", "../ist_three_hospitals.csv", "ist/ist_three_hospitals.csv", "/etc/passwd"):
+            with self.assertRaises(ValueError, msg=name):
+                dataset.dataset_path(name)
+
+    def test_a_joining_hospital_without_an_extract_starts_empty(self) -> None:
+        """The seam: switching the joining hospital to "start empty" is one entry."""
+        empty = dataclasses.replace(dataset.JOINING_SITES[0], extract=None, expected_rows=0)
+        with mock.patch.object(dataset, "JOINING_SITES", (empty,)):
+            site = dataset.any_site_for("pl-290")
+            self.assertIs(site, empty)
+            self.assertTrue(dataset.is_joining("pl-290"))
+            self.assertEqual(dataset.load_site_records("pl-290"), [])
+            self.assertEqual(dataset.records_source(site), "empty")
+            self.assertEqual(dataset.expected_record_count(site), 0)
+            # The consortium hospitals still read their extract.
+            self.assertEqual(len(dataset.load_site_records("ch-245")), 198)
+        # A site that keeps its row count but has no extract still has no records.
+        self.assertEqual(dataset.expected_record_count(dataclasses.replace(empty, expected_rows=5)), 0)
 
 
 class ExtractTests(unittest.TestCase):
