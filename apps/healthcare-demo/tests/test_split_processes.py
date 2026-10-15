@@ -10,6 +10,9 @@ carry a digest of each update and never the update, and that each hospital
 keeps a record of what it sent.
 
 Each hospital keeps its records in memory, loaded from the committed extract.
+
+``SplitScriptSignalTests`` runs the script's own ``split_main`` with stand-in
+processes and checks that a signal sent to the script stops them and ends it.
 """
 
 from __future__ import annotations
@@ -17,6 +20,8 @@ from __future__ import annotations
 import os
 from pathlib import Path
 import re
+import shutil
+import signal
 import socket
 import subprocess
 import sys
@@ -290,6 +295,71 @@ class SplitProcessTests(unittest.TestCase):
                 contributions = self.get(f"/api/v1/hospitals/{site_id}")["contributions"]
                 sent = {entry["round_id"] for entry in contributions} & round_ids
                 self.assertTrue(sent, f"{site_id} shows no contribution to the pilot's rounds")
+
+
+#: Runs ``split_main`` from ``scripts/run_split_demo.sh`` with two ``sleep``
+#: processes in place of the five services, so the script's own signal handling
+#: is tested without the planner. ``$1`` is the script.
+SCRIPT_HARNESS = r"""
+source "$1"
+split_preflight() { :; }
+split_start() {
+  split_spawn one "$1/one.log" . sleep 300
+  split_spawn two "$1/two.log" . sleep 300
+  SPLIT_APP_URL=http://127.0.0.1:1
+}
+split_main
+"""
+
+
+@unittest.skipUnless(shutil.which("bash") and shutil.which("pgrep"), "bash and pgrep are needed to run the script")
+class SplitScriptSignalTests(unittest.TestCase):
+    """``run_split_demo.sh`` stops its processes and exits on a signal sent to it alone."""
+
+    SCRIPT = APP_ROOT / "scripts" / "run_split_demo.sh"
+
+    def run_until_ready(self) -> tuple[subprocess.Popen, list[int]]:
+        output = tempfile.NamedTemporaryFile(prefix="split-script-", suffix=".log")  # noqa: SIM115
+        self.addCleanup(output.close)
+        process = subprocess.Popen(
+            ["bash", "-c", SCRIPT_HARNESS, "harness", str(self.SCRIPT)],
+            stdout=output,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
+        )
+        self.addCleanup(self._kill_group, process)
+        deadline = time.monotonic() + 30
+        while b"Ctrl-C stops all five." not in Path(output.name).read_bytes():
+            self.assertIsNone(process.poll(), Path(output.name).read_text(errors="replace"))
+            self.assertLess(time.monotonic(), deadline, "the script did not start its processes")
+            time.sleep(0.1)
+        children = subprocess.run(
+            ["pgrep", "-P", str(process.pid), "-f", "^sleep 300$"], capture_output=True, text=True, check=False
+        ).stdout.split()
+        self.assertEqual(2, len(children), children)
+        return process, [int(pid) for pid in children]
+
+    @staticmethod
+    def _kill_group(process: subprocess.Popen) -> None:
+        if process.poll() is None:
+            os.killpg(process.pid, signal.SIGKILL)
+            process.wait(timeout=10)
+
+    def assert_stopped(self, pid: int) -> None:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return
+        self.fail(f"process {pid} is still running")
+
+    def test_a_signal_to_the_script_stops_its_processes_and_exits(self) -> None:
+        for name, number, status in (("TERM", signal.SIGTERM, 143), ("INT", signal.SIGINT, 130)):
+            with self.subTest(signal=name):
+                process, children = self.run_until_ready()
+                os.kill(process.pid, number)
+                self.assertEqual(status, process.wait(timeout=20))
+                for child in children:
+                    self.assert_stopped(child)
 
 
 if __name__ == "__main__":
