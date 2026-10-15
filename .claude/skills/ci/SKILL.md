@@ -263,6 +263,21 @@ need Node, so the `contracts` job sets up Node and requires
 `site/check.mjs` loads the built site's card and icons. Neither can see a
 crawler's cache: LinkedIn and WhatsApp keep the preview they fetched first.
 
+### l. An image without the planner
+
+The LMA and GMA images had no `dagentsc`. Every suite passed, because the jobs
+set `DAGENTSC_BIN` to the planner artifact. In the compose stack the Guard
+denied every request and every round plan failed.
+
+Defence: `tests/test_planner_in_images.py`, run by the `contracts` job. CI
+builds no images, so it reads the Dockerfiles. For each Python image it follows
+the imports from the module uvicorn runs, through the code the image copies.
+If they reach `agents/common/infrastructure/dagents_runner.py`, the image must
+build `dagentsc.exe` in an earlier stage and copy it to
+`/usr/local/bin/dagentsc` in its final stage. The test also fails if the walk
+stops finding the images known to call the planner, or if a Python image starts
+in a way the walk cannot read.
+
 ## 3. The test loop
 
 CI runs the same commands a contributor runs. Write the failing test first,
@@ -358,7 +373,8 @@ tests skipped is not a pass.
 - **Docker and Kubernetes are not tested.** `docker compose --env-file
   env/.env.compose up --build` and Minikube validation are manual. Minikube is
   the main item in `TODO.md`, blocked on local disk space (see `CHANGES.md`). CI
-  tests the code and the contracts, not the deployment.
+  tests the code and the contracts, not the deployment. The one check on the
+  images is static: they contain the planner when their service calls it (§2l).
 - **The pagila suites skip in CI**, because CI has no Postgres with the pagila
   dataset. These skips are expected, and the guard allows them. A change to
   source adapters is not fully tested by CI. The healthcare stores, the site
