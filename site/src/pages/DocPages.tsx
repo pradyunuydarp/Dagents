@@ -1,7 +1,9 @@
 import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
 
 import { RenderedHtml } from "../Mermaid";
+import { SearchBox, type SearchResult } from "../SearchBox";
 import { REPO_URL } from "../config";
+import { searchDocs, snippet } from "../docSearch";
 import type { GuidePage } from "../learn";
 import { replayAnimations } from "../replay";
 import { href } from "../router";
@@ -21,6 +23,21 @@ export interface DocSet {
   pages: GuidePage[];
   /** Markdown to HTML for one page of this set. */
   render: (page: GuidePage) => string;
+}
+
+const SEARCH_LIMIT = 20;
+
+/** One search across Learn and Guide, so a reader on either finds both. */
+function searchBoth(query: string): SearchResult[] {
+  return searchDocs(query, SEARCH_LIMIT).map(({ item, words }, i) => ({
+    key: `${item.href} ${i}`,
+    href: item.href,
+    chip: item.set,
+    label: item.heading,
+    detail: item.page.label,
+    snippet: item.text ? snippet(item.text, words) : undefined,
+    matched: words
+  }));
 }
 
 function pageHref(set: DocSet, page: GuidePage): string {
@@ -95,6 +112,13 @@ export function DocPages({ set, slug, anchor }: { set: DocSet; slug: string; anc
             <PageList set={set} current={page.slug} />
           </nav>
         </details>
+
+        <SearchBox
+          label="Search Learn and Guide"
+          placeholder="federated rounds, guard, deploy"
+          limit={SEARCH_LIMIT}
+          run={searchBoth}
+        />
 
         <RenderedHtml className="doc" html={html} anchor={anchor} />
 
