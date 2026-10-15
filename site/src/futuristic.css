@@ -8,3 +8,17 @@
   --fx-fast: 150ms;
   --fx-slow: 320ms;
 }
+
+/* ===== Masthead =========================================================== */
+
+/* The home page change owns the masthead's background and blur. */
+
+/* The underline under the current section slides in rather than appearing. */
+.masthead nav a {
+  border-bottom: 0;
+  background: linear-gradient(var(--ds-ink), var(--ds-ink)) no-repeat left bottom / 0 2px;
+  transition: color var(--fx-fast) var(--fx-ease), background-size var(--fx-slow) var(--fx-ease);
+}
+
+.masthead nav a:hover { background-size: 100% 1px; }
+.masthead nav a[aria-current="page"] { background-size: 100% 2px; }
