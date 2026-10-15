@@ -36,6 +36,13 @@ let expect_invalid_argument message thunk =
   with
   | Invalid_argument _ -> ()
 
+(** Assert that two texts are equal, printing both when they differ. *)
+let assert_equal_text message expected actual =
+  if expected <> actual then begin
+    Printf.eprintf "%s\n--- expected ---\n%s\n--- actual ---\n%s\n--- end ---\n%!" message expected actual;
+    failwith message
+  end
+
 (** Verifies that profiling counts records, classifies numeric fields, and
     excludes the supervised label from inferred features. *)
 let test_dataset_profile () =
@@ -319,66 +326,68 @@ let test_model_router () =
   assert_true "forecasting should use long running deployment"
     (plan.packaging_mode = LongRunningDeployment)
 
+(** A Deployment, a CronJob and a Service, with both spec-wide companion flags
+    on. Several manifest tests render it. *)
+let three_component_spec =
+  {
+    plan_id = "plan-1";
+    namespace = "dagents";
+    include_services = true;
+    include_config_maps = true;
+    components =
+      [
+        {
+          name = "core";
+          image = "ghcr.io/example/core:latest";
+          kind = Deployment;
+          replicas = 2;
+          schedule = None;
+          env = [ { name = "APP_ENV"; value = "cloud" } ];
+          ports = [ { port_name = "http"; container_port = 8060 } ];
+          args = [ "--server.port=8060" ];
+          resources = default_resources;
+          generated_resources = [];
+          service_account_name = None;
+          service_type = "ClusterIP";
+          config_map_data = [];
+        };
+        {
+          name = "reconciler";
+          image = "ghcr.io/example/reconciler:latest";
+          kind = CronJob;
+          replicas = 1;
+          schedule = Some "*/15 * * * *";
+          env = [ { name = "MODE"; value = "reconcile" } ];
+          ports = [];
+          args = [ "--sync" ];
+          resources = default_resources;
+          generated_resources = [];
+          service_account_name = None;
+          service_type = "ClusterIP";
+          config_map_data = [];
+        };
+        {
+          name = "edge-service";
+          image = "ghcr.io/example/edge:latest";
+          kind = Service;
+          replicas = 1;
+          schedule = None;
+          env = [];
+          ports = [ { port_name = "grpc"; container_port = 9090 } ];
+          args = [];
+          resources = default_resources;
+          generated_resources = [];
+          service_account_name = None;
+          service_type = "ClusterIP";
+          config_map_data = [];
+        };
+      ];
+  }
+
 (** Verifies manifest rendering for Deployment, CronJob, Service, ConfigMap,
     environment variables, command args, and plan metadata. *)
 let test_manifest_compiler_plan () =
-  let plan =
-    Dagents_manifest_compiler.compile_plan
-      {
-        plan_id = "plan-1";
-        namespace = "dagents";
-        include_services = true;
-        include_config_maps = true;
-        components =
-          [
-            {
-              name = "core";
-              image = "ghcr.io/example/core:latest";
-              kind = Deployment;
-              replicas = 2;
-              schedule = None;
-              env = [ { name = "APP_ENV"; value = "cloud" } ];
-              ports = [ { port_name = "http"; container_port = 8060 } ];
-              args = [ "--server.port=8060" ];
-              resources = default_resources;
-              generated_resources = [];
-              service_account_name = None;
-              service_type = "ClusterIP";
-              config_map_data = [];
-            };
-            {
-              name = "reconciler";
-              image = "ghcr.io/example/reconciler:latest";
-              kind = CronJob;
-              replicas = 1;
-              schedule = Some "*/15 * * * *";
-              env = [ { name = "MODE"; value = "reconcile" } ];
-              ports = [];
-              args = [ "--sync" ];
-              resources = default_resources;
-              generated_resources = [];
-              service_account_name = None;
-              service_type = "ClusterIP";
-              config_map_data = [];
-            };
-            {
-              name = "edge-service";
-              image = "ghcr.io/example/edge:latest";
-              kind = Service;
-              replicas = 1;
-              schedule = None;
-              env = [];
-              ports = [ { port_name = "grpc"; container_port = 9090 } ];
-              args = [];
-              resources = default_resources;
-              generated_resources = [];
-              service_account_name = None;
-              service_type = "ClusterIP";
-              config_map_data = [];
-            };
-          ];
-      }
-  in
+  let plan = Dagents_manifest_compiler.compile_plan three_component_spec in
   assert_true "manifest compiler should preserve plan id" (plan.plan_id = "plan-1");
   assert_true "manifest compiler should render deployment" (contains plan.combined_yaml "kind: Deployment");
   assert_true "manifest compiler should render cronjob" (contains plan.combined_yaml "kind: CronJob");
@@ -1165,6 +1174,248 @@ let test_manifest_does_not_duplicate_a_primary_object () =
     (manifest.service_yaml = None);
   assert_true "the primary Service is still rendered" (contains manifest.deployment_yaml "kind: Service")
 
+(** One Job with arguments, environment, a port and a generated service
+    account, and no spec-wide companions. *)
+let job_spec =
+  {
+    plan_id = "job-1";
+    namespace = "batch";
+    include_services = false;
+    include_config_maps = false;
+    components =
+      [
+        {
+          name = "seed";
+          image = "ghcr.io/example/seed:1.0";
+          kind = Job;
+          replicas = 1;
+          schedule = None;
+          env = [ { name = "SEED_ROWS"; value = "400" } ];
+          ports = [ { port_name = "metrics"; container_port = 9100 } ];
+          args = [ "--once" ];
+          resources = default_resources;
+          generated_resources = [ ServiceAccount ];
+          service_account_name = None;
+          service_type = "ClusterIP";
+          config_map_data = [];
+        };
+      ];
+  }
+
+(** Verifies the exact Kubernetes YAML and JSON for two specs.
+
+    The text was captured before the Docker Compose target was added. Adding a
+    target must not change one byte of the Kubernetes output, and these
+    literals fail on any change. *)
+let test_manifest_kubernetes_output_is_pinned () =
+  let check name spec expected_yaml expected_json =
+    let plan = Dagents_manifest_compiler.compile_plan spec in
+    assert_equal_text (name ^ ": Kubernetes YAML changed") expected_yaml plan.combined_yaml;
+    (* Compared as JSON values, so the literal can be laid out for reading and
+       the printer's spacing does not matter; key order still does. *)
+    assert_equal_text (name ^ ": Kubernetes JSON changed")
+      (Yojson.Safe.to_string (Yojson.Safe.from_string expected_json))
+      (Yojson.Safe.to_string (Json_codec.yojson_of_workload_plan plan))
+  in
+  check "three components" three_component_spec
+    {|apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: core
+  namespace: dagents
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: core
+  template:
+    metadata:
+      labels:
+        app: core
+    spec:
+      containers:
+      - name: main
+        image: ghcr.io/example/core:latest
+        args:
+        - "--server.port=8060"
+        ports:
+        - name: http
+          containerPort: 8060
+        env:
+        - name: APP_ENV
+          value: "cloud"
+        resources:
+          requests:
+            cpu: 250m
+            memory: 256Mi
+          limits:
+            cpu: 1
+            memory: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: core
+  namespace: dagents
+spec:
+  type: ClusterIP
+  selector:
+    app: core
+  ports:
+  - name: http
+    port: 8060
+    targetPort: 8060
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: core-config
+  namespace: dagents
+data:
+  component-kind: "Deployment"
+  image: "ghcr.io/example/core:latest"
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: reconciler
+  namespace: dagents
+spec:
+  schedule: "*/15 * * * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+          - name: main
+            image: ghcr.io/example/reconciler:latest
+            args:
+            - "--sync"
+            env:
+            - name: MODE
+              value: "reconcile"
+            resources:
+              requests:
+                cpu: 250m
+                memory: 256Mi
+              limits:
+                cpu: 1
+                memory: 1Gi
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: reconciler-config
+  namespace: dagents
+data:
+  component-kind: "CronJob"
+  image: "ghcr.io/example/reconciler:latest"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: edge-service
+  namespace: dagents
+spec:
+  type: ClusterIP
+  selector:
+    app: edge-service
+  ports:
+  - name: grpc
+    port: 9090
+    targetPort: 9090
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: edge-service-config
+  namespace: dagents
+data:
+  component-kind: "Service"
+  image: "ghcr.io/example/edge:latest"|}
+    {|{
+  "planId": "plan-1",
+  "namespace": "dagents",
+  "manifests": [
+    {
+      "componentName": "core",
+      "kind": "Deployment",
+      "deploymentYaml": "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: core\n  namespace: dagents\nspec:\n  replicas: 2\n  selector:\n    matchLabels:\n      app: core\n  template:\n    metadata:\n      labels:\n        app: core\n    spec:\n      containers:\n      - name: main\n        image: ghcr.io/example/core:latest\n        args:\n        - \"--server.port=8060\"\n        ports:\n        - name: http\n          containerPort: 8060\n        env:\n        - name: APP_ENV\n          value: \"cloud\"\n        resources:\n          requests:\n            cpu: 250m\n            memory: 256Mi\n          limits:\n            cpu: 1\n            memory: 1Gi",
+      "serviceYaml": "apiVersion: v1\nkind: Service\nmetadata:\n  name: core\n  namespace: dagents\nspec:\n  type: ClusterIP\n  selector:\n    app: core\n  ports:\n  - name: http\n    port: 8060\n    targetPort: 8060",
+      "configMapYaml": "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: core-config\n  namespace: dagents\ndata:\n  component-kind: \"Deployment\"\n  image: \"ghcr.io/example/core:latest\"",
+      "serviceAccountYaml": null
+    },
+    {
+      "componentName": "reconciler",
+      "kind": "CronJob",
+      "deploymentYaml": "apiVersion: batch/v1\nkind: CronJob\nmetadata:\n  name: reconciler\n  namespace: dagents\nspec:\n  schedule: \"*/15 * * * *\"\n  jobTemplate:\n    spec:\n      template:\n        spec:\n          restartPolicy: Never\n          containers:\n          - name: main\n            image: ghcr.io/example/reconciler:latest\n            args:\n            - \"--sync\"\n            env:\n            - name: MODE\n              value: \"reconcile\"\n            resources:\n              requests:\n                cpu: 250m\n                memory: 256Mi\n              limits:\n                cpu: 1\n                memory: 1Gi",
+      "serviceYaml": null,
+      "configMapYaml": "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: reconciler-config\n  namespace: dagents\ndata:\n  component-kind: \"CronJob\"\n  image: \"ghcr.io/example/reconciler:latest\"",
+      "serviceAccountYaml": null
+    },
+    {
+      "componentName": "edge-service",
+      "kind": "Service",
+      "deploymentYaml": "apiVersion: v1\nkind: Service\nmetadata:\n  name: edge-service\n  namespace: dagents\nspec:\n  type: ClusterIP\n  selector:\n    app: edge-service\n  ports:\n  - name: grpc\n    port: 9090\n    targetPort: 9090",
+      "serviceYaml": null,
+      "configMapYaml": "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: edge-service-config\n  namespace: dagents\ndata:\n  component-kind: \"Service\"\n  image: \"ghcr.io/example/edge:latest\"",
+      "serviceAccountYaml": null
+    }
+  ],
+  "combinedYaml": "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: core\n  namespace: dagents\nspec:\n  replicas: 2\n  selector:\n    matchLabels:\n      app: core\n  template:\n    metadata:\n      labels:\n        app: core\n    spec:\n      containers:\n      - name: main\n        image: ghcr.io/example/core:latest\n        args:\n        - \"--server.port=8060\"\n        ports:\n        - name: http\n          containerPort: 8060\n        env:\n        - name: APP_ENV\n          value: \"cloud\"\n        resources:\n          requests:\n            cpu: 250m\n            memory: 256Mi\n          limits:\n            cpu: 1\n            memory: 1Gi\n---\napiVersion: v1\nkind: Service\nmetadata:\n  name: core\n  namespace: dagents\nspec:\n  type: ClusterIP\n  selector:\n    app: core\n  ports:\n  - name: http\n    port: 8060\n    targetPort: 8060\n---\napiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: core-config\n  namespace: dagents\ndata:\n  component-kind: \"Deployment\"\n  image: \"ghcr.io/example/core:latest\"\n---\napiVersion: batch/v1\nkind: CronJob\nmetadata:\n  name: reconciler\n  namespace: dagents\nspec:\n  schedule: \"*/15 * * * *\"\n  jobTemplate:\n    spec:\n      template:\n        spec:\n          restartPolicy: Never\n          containers:\n          - name: main\n            image: ghcr.io/example/reconciler:latest\n            args:\n            - \"--sync\"\n            env:\n            - name: MODE\n              value: \"reconcile\"\n            resources:\n              requests:\n                cpu: 250m\n                memory: 256Mi\n              limits:\n                cpu: 1\n                memory: 1Gi\n---\napiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: reconciler-config\n  namespace: dagents\ndata:\n  component-kind: \"CronJob\"\n  image: \"ghcr.io/example/reconciler:latest\"\n---\napiVersion: v1\nkind: Service\nmetadata:\n  name: edge-service\n  namespace: dagents\nspec:\n  type: ClusterIP\n  selector:\n    app: edge-service\n  ports:\n  - name: grpc\n    port: 9090\n    targetPort: 9090\n---\napiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: edge-service-config\n  namespace: dagents\ndata:\n  component-kind: \"Service\"\n  image: \"ghcr.io/example/edge:latest\""
+}|};
+  check "one job" job_spec
+    {|apiVersion: batch/v1
+kind: Job
+metadata:
+  name: seed
+  namespace: batch
+spec:
+  template:
+    spec:
+      restartPolicy: Never
+      serviceAccountName: seed
+      containers:
+      - name: main
+        image: ghcr.io/example/seed:1.0
+        args:
+        - "--once"
+        ports:
+        - name: metrics
+          containerPort: 9100
+        env:
+        - name: SEED_ROWS
+          value: "400"
+        resources:
+          requests:
+            cpu: 250m
+            memory: 256Mi
+          limits:
+            cpu: 1
+            memory: 1Gi
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: seed
+  namespace: batch|}
+    {|{
+  "planId": "job-1",
+  "namespace": "batch",
+  "manifests": [
+    {
+      "componentName": "seed",
+      "kind": "Job",
+      "deploymentYaml": "apiVersion: batch/v1\nkind: Job\nmetadata:\n  name: seed\n  namespace: batch\nspec:\n  template:\n    spec:\n      restartPolicy: Never\n      serviceAccountName: seed\n      containers:\n      - name: main\n        image: ghcr.io/example/seed:1.0\n        args:\n        - \"--once\"\n        ports:\n        - name: metrics\n          containerPort: 9100\n        env:\n        - name: SEED_ROWS\n          value: \"400\"\n        resources:\n          requests:\n            cpu: 250m\n            memory: 256Mi\n          limits:\n            cpu: 1\n            memory: 1Gi",
+      "serviceYaml": null,
+      "configMapYaml": null,
+      "serviceAccountYaml": "apiVersion: v1\nkind: ServiceAccount\nmetadata:\n  name: seed\n  namespace: batch"
+    }
+  ],
+  "combinedYaml": "apiVersion: batch/v1\nkind: Job\nmetadata:\n  name: seed\n  namespace: batch\nspec:\n  template:\n    spec:\n      restartPolicy: Never\n      serviceAccountName: seed\n      containers:\n      - name: main\n        image: ghcr.io/example/seed:1.0\n        args:\n        - \"--once\"\n        ports:\n        - name: metrics\n          containerPort: 9100\n        env:\n        - name: SEED_ROWS\n          value: \"400\"\n        resources:\n          requests:\n            cpu: 250m\n            memory: 256Mi\n          limits:\n            cpu: 1\n            memory: 1Gi\n---\napiVersion: v1\nkind: ServiceAccount\nmetadata:\n  name: seed\n  namespace: batch"
+}|}
+
 (** Run one named test and print a progress line before and after it. *)
 let run_test ~index ~total (name, test) =
   Printf.printf "%s %02d/%02d RUN  %s\n%!" (progress_bar ~completed:(index - 1) ~total) index total name;
@@ -1190,6 +1441,7 @@ let () =
       ("manifest compiler plan", test_manifest_compiler_plan);
       ("manifest per-component resources", test_manifest_per_component_resources);
       ("manifest does not duplicate a primary object", test_manifest_does_not_duplicate_a_primary_object);
+      ("manifest Kubernetes output is pinned", test_manifest_kubernetes_output_is_pinned);
       ("JSON codec round trip", test_json_codec_roundtrip);
       ("KYU trust assessment", test_kyu_assessment);
       ("model updates are never released raw", test_model_update_is_never_allowed_raw);
