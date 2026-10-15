@@ -37,7 +37,7 @@ let read_all channel =
     Output: does not return; exits the process with code 1. *)
 let usage () =
   prerr_endline "Usage:";
-  prerr_endline "  dagentsc manifest compile [--input <file|->] [--output yaml|json]";
+  prerr_endline "  dagentsc manifest compile [--input <file|->] [--target kubernetes|compose] [--output yaml|json]";
   prerr_endline "  dagentsc pipeline compile [--input <file|->] [--output text|json]";
   prerr_endline "  dagentsc model route [--task <task>] [--output text|json]";
   prerr_endline "  dagentsc dataset profile [--scope-id <id>] [--output text|json]";
@@ -113,29 +113,60 @@ let output_json json =
   Yojson.Safe.pretty_to_channel stdout json;
   print_newline ()
 
+(** Print a Compose plan's issues as YAML comments, for [--output yaml].
+
+    The service name and the value are escaped, so a newline in either cannot
+    end the comment and start a line of YAML. [docker compose -f] refuses a
+    file that holds only comments. *)
+let print_compose_issues (plan : compose_plan) =
+  print_endline "# No Compose file: the spec has issues.";
+  List.iter
+    (fun (issue : compose_issue) ->
+      let code, value = compose_issue_code_and_value issue.issue_reason in
+      let where = match issue.issue_service with Some name -> String.escaped name | None -> "spec" in
+      let value = match value with Some text -> " " ^ String.escaped text | None -> "" in
+      print_endline ("# " ^ where ^ ": " ^ code ^ value))
+    plan.compose_issues
+
 (** Handle [dagentsc manifest compile].
 
-    Inputs: CLI args, optionally including [--input] JSON. Without [--input],
-    the handler builds a small demo workload from flags.
-    Output: YAML by default, JSON when [--output json]. *)
+    Renders a workload spec as Kubernetes YAML or as one Docker Compose file.
+    With [--input], the spec is JSON from a file or standard input, and its
+    [target] key chooses the target; [--target] is then an error. Without
+    [--input], the handler builds one demo component from flags, and
+    [--target] chooses the target.
+
+    Output: the YAML by default, or the plan as JSON with [--output json].
+    For a Compose spec with issues, the YAML output is one comment line per
+    issue and the JSON output lists the issues with a null [composeYaml];
+    both exit with code 0. *)
 let manifest_compile args =
   let output = arg_value "--output" args "yaml" in
+  let target_name = arg_value "--target" args "kubernetes" in
   (* Accept a full JSON workload spec for service-like callers, while keeping a
      flag-only path for live demos. *)
   let spec =
-    if List.mem "--input" args then Json_codec.workload_spec_of_yojson (read_json_input args)
+    if List.mem "--input" args then
+      if List.mem "--target" args then invalid_arg "--target is read only without --input; set the input's target key"
+      else Json_codec.workload_spec_of_yojson (read_json_input args)
     else
       let namespace = arg_value "--namespace" args "dagents" in
       let plan_id = arg_value "--plan-id" args "dagents-plan" in
       let name = arg_value "--name" args "component" in
       let image = arg_value "--image" args "ghcr.io/example/component:latest" in
       let kind = workload_kind_of_string (arg_value "--kind" args "Deployment") in
+      let target =
+        match target_name with
+        | "kubernetes" -> Kubernetes
+        | "compose" -> Compose default_compose_target
+        | value -> invalid_arg ("Unknown deployment target: " ^ value)
+      in
       {
         plan_id;
         namespace;
         include_services = true;
         include_config_maps = true;
-        target = Kubernetes;
+        target;
         components =
           [
             {
@@ -159,9 +190,16 @@ let manifest_compile args =
           ];
       }
   in
-  let plan = Dagents_manifest_compiler.compile_plan spec in
-  if output = "json" then output_json (Json_codec.yojson_of_workload_plan plan)
-  else print_endline plan.combined_yaml
+  match Dagents_manifest_compiler.compile_for_target spec with
+  | KubernetesPlan plan ->
+      if output = "json" then output_json (Json_codec.yojson_of_workload_plan plan)
+      else print_endline plan.combined_yaml
+  | ComposePlan plan -> (
+      if output = "json" then output_json (Json_codec.yojson_of_compose_plan plan)
+      else
+        match plan.compose_yaml with
+        | Some yaml -> print_endline yaml
+        | None -> print_compose_issues plan)
 
 (** Handle [dagentsc pipeline compile].
 
