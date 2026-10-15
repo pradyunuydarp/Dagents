@@ -165,6 +165,23 @@
   .hero { grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); }
 }
 
+/* A faint measuring grid behind the hero, faded out at the edges. Drawn with
+ * the rule token, so it reads as structure and never as a colour. */
+.hero::before {
+  content: "";
+  position: absolute;
+  inset: calc(var(--ds-5) * -1) calc(var(--ds-4) * -1) 0;
+  z-index: -1;
+  background-image:
+    linear-gradient(to right, var(--ds-line) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--ds-line) 1px, transparent 1px);
+  background-size: 32px 32px;
+  -webkit-mask-image: radial-gradient(ellipse 70% 75% at 65% 45%, var(--ds-ink) 20%, transparent 75%);
+  mask-image: radial-gradient(ellipse 70% 75% at 65% 45%, var(--ds-ink) 20%, transparent 75%);
+  opacity: 0.7;
+  pointer-events: none;
+}
+
 .hero-text {
   display: flex;
   flex-direction: column;
