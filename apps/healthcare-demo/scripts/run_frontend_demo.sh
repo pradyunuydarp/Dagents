@@ -19,6 +19,15 @@
 #
 #   scripts/run_frontend_demo.sh --split --check
 #
+# Add --deploy instead to run the split backend with core-service as well, so
+# that the consortium page can add Hospital 290 while the demo runs
+# (scripts/run_split_demo.sh --deploy). It implies --split. The UI's dev
+# server then listens on 127.0.0.1 only, because adding a hospital starts a
+# process on this machine. With --check, the smoke test also adds the
+# hospital and runs a pilot with it (--expect-join pl-290):
+#
+#   scripts/run_frontend_demo.sh --deploy --check
+#
 # HEALTHCARE_DEMO_API_PORT and HEALTHCARE_DEMO_UI_PORT change the ports (8080
 # and 5174 by default). Ctrl-C stops every server.
 set -euo pipefail
@@ -30,11 +39,16 @@ DAGENTS_HOME="${DAGENTS_HOME:-$(cd "${APP_ROOT}/../.." && pwd)}"
 MODE="run"
 SHOT_DIR=""
 SPLIT=0
+DEPLOY=0
 while (( $# > 0 )); do
   case "$1" in
     --verify) MODE="verify" ;;
     --check) MODE="check" ;;
     --split) SPLIT=1 ;;
+    --deploy)
+      SPLIT=1
+      DEPLOY=1
+      ;;
     --screenshots)
       MODE="check"
       SHOT_DIR="${2:-}"
@@ -144,11 +158,17 @@ wait_for() {
 }
 
 if (( SPLIT )); then
-  # The Dagents GMA, one LMA per hospital, and the app on API_PORT.
+  # The Dagents GMA, one LMA per hospital, and the app on API_PORT. With
+  # --deploy also core-service, and the app can add Hospital 290.
   # shellcheck source=run_split_demo.sh
   source "${HERE}/run_split_demo.sh"
   split_preflight
-  bold "Starting the GMA, the three hospitals and the API on :${API_PORT}"
+  if (( DEPLOY )); then
+    export SPLIT_DEPLOY=1
+    bold "Starting core-service, the GMA, the three hospitals and the API on :${API_PORT}"
+  else
+    bold "Starting the GMA, the three hospitals and the API on :${API_PORT}"
+  fi
   split_start "${LOG_DIR}"
 else
   bold "Starting the API on :${API_PORT}"
@@ -162,10 +182,21 @@ else
 fi
 
 bold "Starting the UI on :${UI_PORT}"
-(
-  cd "${APP_ROOT}/frontend"
-  HEALTHCARE_DEMO_API_URL="http://127.0.0.1:${API_PORT}" npm run dev -- --port "${UI_PORT}" --strictPort
-) >"${LOG_DIR}/frontend.log" 2>&1 &
+if (( DEPLOY )); then
+  # The page can start a process on this machine, so its dev server listens on
+  # 127.0.0.1 only. The app accepts the request only from a page on this
+  # machine, and the dev server passes on the page's Origin.
+  (
+    cd "${APP_ROOT}/frontend"
+    HEALTHCARE_DEMO_API_URL="http://127.0.0.1:${API_PORT}" \
+      "${APP_ROOT}/frontend/node_modules/.bin/vite" --host 127.0.0.1 --port "${UI_PORT}" --strictPort
+  ) >"${LOG_DIR}/frontend.log" 2>&1 &
+else
+  (
+    cd "${APP_ROOT}/frontend"
+    HEALTHCARE_DEMO_API_URL="http://127.0.0.1:${API_PORT}" npm run dev -- --port "${UI_PORT}" --strictPort
+  ) >"${LOG_DIR}/frontend.log" 2>&1 &
+fi
 FRONTEND_PID=$!
 wait_for "http://127.0.0.1:${UI_PORT}/" "The UI" "${LOG_DIR}/frontend.log"
 
@@ -183,6 +214,8 @@ if [[ "${MODE}" != "run" ]]; then
   bold "Running the frontend smoke test"
   SMOKE_ARGS=("http://127.0.0.1:${UI_PORT}/")
   [[ -n "${SHOT_DIR}" ]] && SMOKE_ARGS+=(--screenshots "${SHOT_DIR}")
+  # With --deploy the test also adds the hospital, after every other check.
+  (( DEPLOY )) && SMOKE_ARGS+=(--expect-join "${SPLIT_JOINING_SITE}")
   set +e
   (cd "${APP_ROOT}/frontend" && node smoke.mjs "${SMOKE_ARGS[@]}")
   SMOKE_STATUS=$?
@@ -199,17 +232,24 @@ fi
 
 # --- the tour --------------------------------------------------------------
 
-if (( SPLIT )); then
+if (( DEPLOY )); then
+  LAYOUT="six processes: core-service, the Dagents GMA, one LMA per hospital, and the API"
+elif (( SPLIT )); then
   LAYOUT="five processes: the Dagents GMA, one LMA per hospital, and the API"
 else
   LAYOUT="one process"
+fi
+if (( DEPLOY )); then
+  UI_HOST="127.0.0.1 only"
+else
+  UI_HOST="every interface"
 fi
 
 cat <<TOUR
 
 $(bold "The Dagents stroke triage demo is running")
 
-  UI        http://127.0.0.1:${UI_PORT}
+  UI        http://127.0.0.1:${UI_PORT}   (listens on ${UI_HOST})
   API docs  http://127.0.0.1:${API_PORT}/docs
   planner   ${DAGENTSC_BIN:-dagentsc (on PATH)}
   records   ${STORAGE}
@@ -256,6 +296,17 @@ $(bold "What to try, page by page")
      Do not enter real patient information. Save a record, go back to the
      hospital page, and see it listed and counted. Record its outcome with
      "Yes" or "No"; the next pilot then trains and evaluates on it.
+
+  4. Add a hospital (the last panel of the consortium page)
+     $(if (( DEPLOY )); then
+       echo 'Press "Add Hospital 290". The panel lists each step: the Compose file'
+       echo '     core-service rendered, the new LMA starting and answering, the GMA'
+       echo '     accepting its address and enrolling it, and whether the next round'
+       echo '     selects it. Then run the pilot again: it includes Hospital 290.'
+     else
+       echo 'The panel lists Hospital 290 and says why it offers no button. Start the'
+       echo '     demo with --deploy to add it while the demo runs.'
+     fi)
 
 $(dim "Ctrl-C stops every server.")
 

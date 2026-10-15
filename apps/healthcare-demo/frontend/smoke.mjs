@@ -33,13 +33,23 @@
  *      out of a round) is shown in words;
  *   9. at 375 px the charts keep their drawn size inside their own scroll box
  *      and the page does not scroll sideways;
- *  10. nothing logs a console error or fails a request on the way.
+ *  10. with --expect-join, after every other check, the hospital joins from
+ *      the panel: every step is done, the panel shows the Compose file,
+ *      the table and the header list it, its page draws its charts, and a
+ *      pilot includes it;
+ *  11. nothing logs a console error or fails a request on the way.
  *
  * Usage:
- *   node smoke.mjs [baseUrl] [--screenshots <dir>]
+ *   node smoke.mjs [baseUrl] [--screenshots <dir>] [--expect-join <site_id>]
  *
  * `--screenshots` also writes the README screenshots (consortium, guard-denied,
  * federated-pilot, hospital, data-entry) to <dir>.
+ *
+ * `--expect-join` is for a split run started with --deploy, which can add a
+ * hospital. Without it, the panel must offer no button. With it, the panel
+ * must offer one for that hospital, and the test adds the hospital after every
+ * other check, because the earlier checks count the hospitals the run started
+ * with.
  *
  * Exits 0 on success, 1 on failure, and 2 when no browser is available, so a
  * machine without Chromium reports "skipped" rather than "broken".
@@ -50,7 +60,14 @@ import { mkdir } from "node:fs/promises";
 const args = process.argv.slice(2);
 const shotIndex = args.indexOf("--screenshots");
 const shotDir = shotIndex === -1 ? null : args[shotIndex + 1];
-const positional = args.filter((a, i) => !a.startsWith("--") && (shotIndex === -1 || i !== shotIndex + 1));
+const joinIndex = args.indexOf("--expect-join");
+const expectJoin = joinIndex === -1 ? null : args[joinIndex + 1] ?? "";
+if (expectJoin === "" || expectJoin?.startsWith("--")) {
+  console.log("--expect-join needs a site id, such as pl-290");
+  process.exit(1);
+}
+const valueIndexes = new Set([shotIndex, joinIndex].filter((i) => i !== -1).map((i) => i + 1));
+const positional = args.filter((a, i) => !a.startsWith("--") && !valueIndexes.has(i));
 const baseUrl = (positional[0] ?? "http://127.0.0.1:5174/").replace(/\/?$/, "/");
 
 /** Locate a Chromium the driver can launch, preferring the preinstalled one. */
@@ -210,17 +227,26 @@ try {
 
   //    The panel to add a hospital lists the hospitals that can join. A run
   //    that cannot add one (any run but --deploy) shows the backend's reason
-  //    and no button.
+  //    and no button. A run that can offers a button for the hospital.
   const deployPanel = page.locator('[data-panel="deploy"]');
   await deployPanel.locator('[data-role="reason"], [data-action="deploy"]').first().waitFor({ timeout: 30000 });
   const deployReason = ((await deployPanel.locator('[data-role="reason"]').textContent().catch(() => "")) ?? "").trim();
   const deployButtons = await deployPanel.locator('[data-action="deploy"]').count();
   const joinable = await deployPanel.locator("tr[data-joinable]").count();
-  check(
-    "deploy panel shows why adding a hospital is not offered",
-    deployReason.length > 0 && deployButtons === 0 && joinable > 0,
-    `${deployButtons} buttons, ${joinable} hospitals listed; ${deployReason || "no reason shown"}`
-  );
+  if (expectJoin === null) {
+    check(
+      "deploy panel shows why adding a hospital is not offered",
+      deployReason.length > 0 && deployButtons === 0 && joinable > 0,
+      `${deployButtons} buttons, ${joinable} hospitals listed; ${deployReason || "no reason shown"}`
+    );
+  } else {
+    const offered = deployPanel.locator(`[data-action="deploy"][data-site="${expectJoin}"]`);
+    check(
+      `deploy panel offers to add ${expectJoin}`,
+      (await offered.count()) === 1 && (await offered.isEnabled()) && deployReason === "",
+      `${deployButtons} buttons; ${deployReason || "no reason shown"}`
+    );
+  }
   if (shotDir) {
     await staticHeader();
     await page.screenshot({
@@ -334,11 +360,16 @@ try {
 
   // 3. A full pilot runs and reports every gate, a decision and intact chains.
   //    The decision is whatever the gates decide; the test does not assume one.
-  const pilotAnswer = page.waitForResponse((r) => r.url().includes("/api/v1/pilot:run"), { timeout: 180000 });
-  await page.getByRole("button", { name: "Run the pilot" }).click();
-  const pilot = await (await pilotAnswer).json();
-  await pilotPanel.locator(".gates li").first().waitFor({ timeout: 180000 });
-  await page.waitForTimeout(500);
+  /** Run the pilot from the consortium page, wait until its gates are shown, and return the report. */
+  const runPilot = async () => {
+    const pilotAnswer = page.waitForResponse((r) => r.url().includes("/api/v1/pilot:run"), { timeout: 180000 });
+    await page.getByRole("button", { name: "Run the pilot" }).click();
+    const report = await (await pilotAnswer).json();
+    await pilotPanel.locator(".gates li").first().waitFor({ timeout: 180000 });
+    await page.waitForTimeout(500);
+    return report;
+  };
+  const pilot = await runPilot();
   const gates = await pilotPanel.locator(".gates li").count();
   check(
     "every release gate is reported",
@@ -1008,7 +1039,99 @@ try {
     await phone.close();
   }
 
-  // 12. Nothing failed quietly along the way.
+  // 12. With --expect-join, the hospital joins from the panel, after every
+  //     other check, because they count the hospitals the run started with.
+  if (expectJoin !== null) {
+    await page.goto(baseUrl, { waitUntil: "networkidle", timeout: 60000 });
+    const rows = consortiumPanel.locator("table tbody tr");
+    await rows.first().waitFor({ timeout: 30000 });
+    const rowsBefore = await rows.count();
+    const linksBefore = await page.locator('nav[aria-label="Pages"] a').count();
+    const button = deployPanel.locator(`[data-action="deploy"][data-site="${expectJoin}"]`);
+    await button.waitFor({ timeout: 30000 });
+    const answered = page.waitForResponse(
+      (r) => r.url().endsWith("/api/v1/deployments") && r.request().method() === "POST",
+      { timeout: 120000 }
+    );
+    await button.click();
+    // Starting the hospital's LMA takes at least a second, so the button is
+    // still on the page, disabled, right after the click.
+    const disabled = await button.isDisabled({ timeout: 2000 }).catch(() => null);
+    const deployment = await (await answered).json();
+    await deployPanel.locator('[data-step="check"]').waitFor({ timeout: 120000 });
+    const steps = await deployPanel
+      .locator("[data-step]")
+      .evaluateAll((items) => items.map((item) => [item.getAttribute("data-step"), item.getAttribute("data-status")]));
+    const unfinished = steps.filter(([, status]) => status !== "done" && status !== "skipped");
+    const composeText = (await deployPanel.locator('[data-role="compose-file"] pre').textContent().catch(() => "")) ?? "";
+    // The page fetches the overview and the panel's list again after a join.
+    const grown = await page
+      .waitForFunction(
+        ([rowsWanted, linksWanted]) =>
+          document.querySelectorAll('[data-panel="consortium"] table tbody tr').length === rowsWanted &&
+          document.querySelectorAll('nav[aria-label="Pages"] a').length === linksWanted &&
+          document.querySelectorAll('[data-panel="deploy"] [data-action="deploy"]').length === 0,
+        [rowsBefore + 1, linksBefore + 1],
+        { timeout: 30000 }
+      )
+      .then(
+        () => true,
+        () => false
+      );
+    const rowsAfter = await rows.count();
+    const linksAfter = await page.locator('nav[aria-label="Pages"] a').count();
+    const listed = await consortiumPanel.locator(`tr[data-site="${expectJoin}"]`).count();
+    const buttonsLeft = await deployPanel.locator('[data-action="deploy"]').count();
+    check(
+      `deploy: hospital ${expectJoin} joined`,
+      disabled === true &&
+        deployment.status === "joined" &&
+        steps.length === 7 &&
+        unfinished.length === 0 &&
+        /(^|\n)services:/.test(composeText) &&
+        composeText.includes(`lma-${expectJoin}`) &&
+        grown &&
+        listed === 1 &&
+        buttonsLeft === 0,
+      `button ${disabled === true ? "disabled" : "not disabled"} while it ran; status ${deployment.status}; ` +
+        `${steps.length} steps${unfinished.length ? `, not finished: ${unfinished.map((item) => item.join(" ")).join(", ")}` : ""}; ` +
+        `compose file ${composeText.includes(`lma-${expectJoin}`) ? "shown" : "missing"}; ` +
+        `rows ${rowsBefore} -> ${rowsAfter}, links ${linksBefore} -> ${linksAfter}; ${buttonsLeft} buttons left`
+    );
+
+    //     Its page comes from its own LMA, and its charts draw.
+    const name =
+      (await api("/api/v1/overview")).hospitals.find((item) => item.site_id === expectJoin)?.display_name ?? expectJoin;
+    await page.locator(`nav[aria-label="Pages"] a[href$="hospitals/${expectJoin}"]`).click();
+    const joinedChart = page.locator('[data-panel="hospital-charts"] img.chart-image').first();
+    const joinedWidth = await imageWidth(joinedChart).catch(() => 0);
+    const heading = ((await page.locator("main h1").first().textContent()) ?? "").trim();
+    check(
+      `deploy: hospital ${expectJoin} page draws its charts`,
+      joinedWidth > 0 && heading.includes(name),
+      `${joinedWidth}px; heading "${heading}"`
+    );
+
+    //     The next pilot includes it.
+    await page.locator('nav[aria-label="Pages"] a', { hasText: "Consortium" }).click();
+    await pilotPanel.waitFor({ timeout: 30000 });
+    const joinedPilot = await runPilot();
+    const rounds = [
+      joinedPilot.rounds?.analytics,
+      joinedPilot.rounds?.evaluation,
+      ...(joinedPilot.rounds?.training ?? []),
+      joinedPilot.rounds?.candidate_validation,
+    ].filter(Boolean);
+    const without = rounds.filter((round) => !round.results.some((result) => result.site_id === expectJoin));
+    const chainShown = await pilotPanel.locator(`tr[data-chain="${expectJoin}"]`).count();
+    check(
+      `deploy: the pilot includes ${expectJoin}`,
+      rounds.length > 0 && without.length === 0 && chainShown === 1,
+      `${rounds.length - without.length} of ${rounds.length} rounds include it; audit chain row ${chainShown ? "shown" : "missing"}`
+    );
+  }
+
+  // 13. Nothing failed quietly along the way.
   const unique = [...new Set(consoleErrors)];
   check("no console errors or failed requests", unique.length === 0, unique.join(" | "));
 } catch (error) {

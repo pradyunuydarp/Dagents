@@ -155,6 +155,7 @@ scripts/run_local_demo.sh              # the API alone, on port 8080
 scripts/run_split_demo.sh              # the API as five processes: the Dagents GMA, three LMAs, the app
 scripts/run_frontend_demo.sh --split   # the UI in front of those five processes
 scripts/run_split_demo.sh --deploy     # the five, plus core-service, and Hospital 290 can join while it runs
+scripts/run_frontend_demo.sh --deploy  # the UI in front of those six, with a button that adds Hospital 290
 ```
 
 `run_frontend_demo.sh` starts the backend and the frontend, waits until both
@@ -168,6 +169,10 @@ Hospital 290's LMA on port 8085, and the next round includes it (see
 [Add a hospital while the demo runs](#add-a-hospital-while-the-demo-runs)). The
 script stops before it starts anything when port 8085 already answers.
 `CORE_SERVICE_PORT` and `HEALTHCARE_DEMO_JOINING_PORT` change the two ports.
+`run_frontend_demo.sh --deploy` runs the same six processes, and the
+consortium page's **Add a hospital** panel sends that request. With
+`--deploy`, the UI listens on 127.0.0.1 only, because the button starts a
+process on your machine.
 
 A local run needs no Docker, database or model download. Records you enter are
 kept in memory and are gone when the API stops. With
@@ -316,8 +321,8 @@ hospital's store holds records yet.", when every store is empty.
 The last panel of the consortium page, **Add a hospital**, lists the hospital
 that can join while the demo runs: Hospital 290 in Poland, with its 263
 records from the International Stroke Trial. Only a split run started with
-`--deploy` on your own machine can add it. There, the panel has an **Add
-Hospital 290** button. Everywhere else it shows the server's reason and no
+`--deploy` on your own machine can add it (`scripts/run_frontend_demo.sh
+--deploy`). There, the panel has an **Add Hospital 290** button. Everywhere else it shows the server's reason and no
 button: the one-process demo, a split run without `--deploy`, and the
 published replay, which says that adding a hospital starts a process the
 replay cannot start.
@@ -710,6 +715,11 @@ server's reason and no button, and fails on any console error or failed
 request. Without
 a browser it exits 2 and prints `SKIP`. `scripts/run_frontend_demo.sh --split
 --check` runs the same test against the five processes.
+`scripts/run_frontend_demo.sh --deploy --check` runs it against the six
+processes with `--expect-join pl-290`: the test presses **Add Hospital 290**,
+checks that every step is done and that the Compose file names the
+hospital's LMA, opens the new hospital's page and checks that its charts
+draw, and runs a pilot that includes it.
 
 Three suites cover the split layout:
 

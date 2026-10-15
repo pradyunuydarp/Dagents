@@ -304,6 +304,10 @@ changing, watch it fail, then make it pass.
 # Needs no Docker and no database.
 apps/healthcare-demo/scripts/run_frontend_demo.sh --check
 
+# The same against the split run with --deploy: the test presses
+# "Add Hospital 290" (smoke.mjs --expect-join pl-290).
+apps/healthcare-demo/scripts/run_frontend_demo.sh --deploy --check
+
 # Or against a running stack:
 cd apps/healthcare-demo/frontend && npm install && npm run build && npm run smoke
 
@@ -323,6 +327,14 @@ banner while the app's own 503 shows at once, and fails on any console error. It
 "Cohort size") and buttons by name ("Ask the guard", "Run the pilot"); rename
 them only together with the test. When you add a control, add an assertion for
 it. The test must not assume which release decision the pilot reaches.
+
+With `--expect-join <site_id>` the smoke test expects the button instead of
+the reason. It presses it, checks that the button is disabled while the app
+works, that every step is done or skipped and that the Compose file names
+the hospital's LMA, that the overview lists one more hospital, that the new
+hospital's page draws its charts, and that the next pilot's rounds include
+it. CI greps its `ok  deploy: hospital pl-290 joined` line, so keep the
+line's text, including the two spaces after `ok`.
 
 The site's `check.mjs` serves `dist/`, visits every guide page, and fails if a
 Mermaid diagram does not draw, an image does not load, an internal link or

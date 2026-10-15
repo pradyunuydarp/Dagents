@@ -84,6 +84,27 @@ listens on every interface, so other machines on your network can open it. It
 passes `/api` requests to port 8080 only, which serves none of the routes the
 processes call on each other.
 
+To add a hospital while the demo runs, add `--deploy` instead:
+
+```bash
+apps/healthcare-demo/scripts/run_frontend_demo.sh --deploy
+```
+
+This starts the same processes, plus the Dagents core service on port 8040.
+Open <http://127.0.0.1:5174>. The last panel of the consortium page is
+**Add a hospital**. Select **Add Hospital 290**. The app asks the core service
+for the hospital's Compose file, starts Hospital 290's LMA on port 8085, and
+asks the GMA to accept and enrol it. The panel lists each step with its status
+and the Compose file the planner rendered. When it has joined, the hospitals
+table lists four hospitals. Run the pilot again, and its rounds include
+Hospital 290.
+
+The button starts a process on your machine, so with `--deploy` the web
+interface listens on 127.0.0.1 only, and the app accepts the request only from
+a page on this machine. The script stops before it starts anything when port
+8085 already answers. Ctrl-C stops every process, including the hospital you
+added.
+
 ## 6. Run the tests
 
 ```bash
