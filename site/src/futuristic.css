@@ -111,3 +111,9 @@
 
 .pager a:not(.pager-next):hover .ds-eyebrow::before { transform: translateX(-3px); }
 .pager a.pager-next:hover .ds-eyebrow::after { transform: translateX(3px); }
+
+.resource-preview {
+  transition: border-color var(--fx-fast) var(--fx-ease);
+}
+
+.resource:hover .resource-preview { border-color: var(--ds-line-strong); }
