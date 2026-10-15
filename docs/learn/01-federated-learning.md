@@ -89,9 +89,13 @@ Dagents is built for the cross-silo setting.
 | Combining updates | FedAvg, FedProx, FedOpt or secure aggregation, chosen in the manifest |
 | Checking the result | Release gates decide whether a candidate model can be released |
 
-The federation engine included in Dagents runs everything in one process. It is a
-simulator for tests and demos. A real deployment would put a federated learning
-runtime, such as [Flower](https://flower.ai/docs/framework/tutorial-get-started-with-flower-pytorch.html)
+Dagents includes two federation engines, and both are simulators for tests and
+demos. One runs every site in the coordinator's process. The other sends each
+round's job to each site's own service over HTTP. The GMA uses it when
+`GMA_FEDERATION_SITES` lists the sites, and the stroke demo uses it to run each
+hospital and the coordinator as separate processes. A real deployment would put
+a federated learning runtime, such as
+[Flower](https://flower.ai/docs/framework/tutorial-get-started-with-flower-pytorch.html)
 or [NVIDIA FLARE](https://nvflare.readthedocs.io/), behind the `FederationEngine`
 interface.
 
