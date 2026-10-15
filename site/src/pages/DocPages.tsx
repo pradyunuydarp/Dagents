@@ -77,7 +77,7 @@ export function DocPages({ set, slug, anchor }: { set: DocSet; slug: string; anc
         <PageList set={set} current={page.slug} />
       </nav>
 
-      <article className="learn-main">
+      <article className="learn-main" key={page.slug}>
         {/* On narrow screens the page list folds into this menu. */}
         <details className="learn-menu" key={page.slug}>
           <summary>
