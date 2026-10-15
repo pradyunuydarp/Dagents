@@ -179,6 +179,30 @@
   box-shadow: var(--fx-edge);
 }
 
+/* Figures (PlantUML images): the picture sits on a gridded mount. */
+.doc .figure-link {
+  padding: var(--ds-5);
+  border: 1px solid var(--ds-line);
+  border-radius: var(--ds-r-2);
+  background-color: var(--ds-panel);
+  background-image:
+    radial-gradient(ellipse 80% 85% at 50% 50%, transparent 35%, var(--ds-panel) 95%),
+    var(--fx-grid);
+  background-size: auto, 24px 24px, 24px 24px;
+  background-position: center, center, center;
+  box-shadow: var(--fx-edge);
+  transition: border-color var(--fx-fast) var(--fx-ease);
+}
+
+.doc .figure-link:hover { border-color: var(--ds-line-strong); }
+
+.doc .figure-link img {
+  margin-inline: auto;
+  border-color: var(--ds-line);
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--ds-ink) 8%, transparent),
+    0 12px 32px -16px color-mix(in srgb, var(--ds-ink) 30%, transparent);
+}
+
 /* ===== Motion ============================================================= */
 /* A page fades up a few pixels when it opens. Nothing moves for readers who
    ask for less motion, and nothing loops. */
