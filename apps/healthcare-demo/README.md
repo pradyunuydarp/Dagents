@@ -225,9 +225,11 @@ training curve, the candidate's metrics next to the current model's, and the
 release gates. When every gate passes, a person must still approve the
 release.
 
-For each hospital's audit chain, and for its own release chain, the pilot
+For each hospital's audit chain, and for the release Guard's chain, the pilot
 report tells the coordinator only whether the chain verifies and how many
-decisions it holds. Each decision stays in the chain it was written to.
+decisions it holds. Each decision stays in the chain it was written to. The
+release chain is the coordinator's own in one process and the Dagents GMA's in
+a split run ([One process per hospital](#one-process-per-hospital)).
 
 ### Hospital view
 
@@ -344,6 +346,10 @@ same alert threshold (an estimated risk of 0.5).
 | Coordinator | role `dagents_coordinator`, schema `coordinator` (models, contributions, pilot reports, the release Guard's audit chain); no access to any site schema | an in-memory registry |
 | Audit chain | `<schema>.guard_audit`, one chain per hospital, and `coordinator.guard_audit` for releases; each with a `guard_audit_anchor` table where its last check ended | in memory, one chain per hospital and one for releases |
 
+The table describes one process. In a split run the release chain is in the
+Dagents GMA's memory instead, with or without a database
+([One process per hospital](#one-process-per-hospital)).
+
 Every database operation runs in one transaction that starts with `SET LOCAL
 ROLE` and checks `current_user`. Row-level security is on for every table, and
 the migrations revoke all access from Supabase's data API roles
@@ -416,6 +422,9 @@ What travels between them:
   `site_id` query). It answers every consortium route itself and reads no
   hospital's records. An unknown hospital is a 404; a hospital that cannot be
   reached is a 503 that names it.
+- The GMA runs the release Guard, and its audit chain is in the GMA's memory:
+  the GMA keeps no database. The pilot report's `coordinator_audit` counts that
+  chain. The release decisions stay in the app's coordinator store.
 - The app keeps the per-client rate limits, because it is the process that sees
   the visitor. The LMAs run with them set to 0. The hourly probe cap stays in
   each hospital.
@@ -664,7 +673,9 @@ planner built, or install Dagents as a dependency.
   restart reloads the committed extract and the seed model, so entered records,
   outcomes, model versions, pilot reports and release decisions are lost. With
   Postgres they are kept, and a candidate can be approved after the API
-  restarts.
+  restarts. In a split run the release Guard's audit chain is in the Dagents
+  GMA's memory even with Postgres, so a restart of the GMA loses it; the
+  release decisions stay in the coordinator store.
 - **Architecture is not compliance.** HIPAA and SOC 2 also require
   administrative and physical safeguards, proof that controls work in practice,
   and independent audits. No codebase provides those.

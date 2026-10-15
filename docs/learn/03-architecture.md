@@ -144,7 +144,9 @@ a database, that is one Postgres schema and one role per hospital; the role owns
 the schema and cannot log in. Without a database, each hospital has its own
 in-memory store. The coordinator has a separate schema for the model registry,
 what each hospital sent in each round, the pilot reports and its own release
-audit chain. It has no access to any hospital's schema.
+audit chain. It has no access to any hospital's schema. When the demo runs as
+separate processes, the Dagents GMA runs the release Guard and keeps that chain
+in memory instead.
 
 ```mermaid
 flowchart TB
