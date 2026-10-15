@@ -130,6 +130,8 @@ class HttpSiteWorker:
             acceptance = JobAcceptance.model_validate(self._post(OFFER_PATH, job.model_dump(mode="json")))
         except (httpx.HTTPError, ValueError) as error:
             return self._refusal(job, _why_unreachable(error, self._timeout))
+        if (acceptance.round_id, acceptance.site_id) != (job.round_id, self.site_id):
+            return self._refusal(job, "the site answered for a different round or site")
         return acceptance
 
     def execute(self, job: FederatedJob) -> SiteResult:
@@ -138,6 +140,10 @@ class HttpSiteWorker:
             result = SiteResult.model_validate(self._post(EXECUTE_PATH, job.model_dump(mode="json")))
         except (httpx.HTTPError, ValueError) as error:
             return self._failure(job, _why_unreachable(error, self._timeout))
+        if (result.round_id, result.site_id) != (job.round_id, self.site_id):
+            # A result filed under another site would replace that site's
+            # result and leave this one out of the round's evidence.
+            return self._failure(job, "the site answered for a different round or site")
         return result
 
     def _refusal(self, job: FederatedJob, reason: str) -> JobAcceptance:
