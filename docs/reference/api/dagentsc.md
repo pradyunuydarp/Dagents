@@ -59,7 +59,7 @@ flowchart LR
 
   | Code | When | Standard error |
   |---|---|---|
-  | `0` | The command ran. A decision that refuses something, such as a `deny` plan or a source that is not valid, is a normal result | empty |
+  | `0` | The command ran. A decision that refuses something, such as a `deny` plan, a source that is not valid or a Compose spec with issues, is a normal result | empty |
   | `1` | The command words are not a known command | the usage text, which lists every command |
   | `2` | The input cannot be read or does not make a plan: JSON that does not parse, a missing required key, an unknown value such as a workload kind, or a pipeline with a cycle | `Fatal error: exception Invalid_argument("Missing JSON field: boundary")`, or a `Yojson` parse error |
 
@@ -76,7 +76,7 @@ Which services run which commands:
 
 | Command | Run by |
 |---|---|
-| `manifest compile` | core-service, to render workload YAML ([workload compiler](framework-services.md#workload-compiler)) |
+| `manifest compile` | core-service, to render Kubernetes manifests and Docker Compose files ([workload compiler](framework-services.md#workload-compiler)) |
 | `pipeline compile` | pipeline-service, when it registers or checks a pipeline; the NL2SQL and healthcare demos, in their traces |
 | `model route` | the NL2SQL and healthcare demos, in their traces |
 | `dataset source validate`, `source extract`, `schema validate`, `quality evaluate` | the NL2SQL demo for every question; the healthcare demo's trace (validate, schema, quality) |
@@ -103,47 +103,161 @@ endpoints:
 - dagentsc manifest compile
 ```
 
-Render Kubernetes YAML from a typed workload specification. The core service's
-[workload compiler](framework-services.md#workload-compiler) sends its request
+Render Kubernetes YAML or one Docker Compose file from a typed workload
+specification. The core service's
+[workload compiler](framework-services.md#workload-compiler) sends its requests
 here; the fields are the same as
 [the WorkloadComponent object](framework-services.md#the-workloadcomponent-object),
 in camelCase.
 
-### Render Kubernetes YAML
+### Render Kubernetes YAML or a Docker Compose file
 
 ```api-endpoint
 dagentsc manifest compile
 ```
 
-Renders a `Deployment`, `Job` or `CronJob` for each component, with a `Service`
-when the component has ports and services are included, a `ConfigMap` when
-config maps are included or `generatedResources` lists one, and a
-`ServiceAccount` when `generatedResources` lists one. The same input always
-gives the same YAML.
+The input's `target` chooses what to render. For Kubernetes, the default, the
+command renders a `Deployment`, `Job` or `CronJob` for each component, with a
+`Service` when the component has ports and services are included, a
+`ConfigMap` when config maps are included or `generatedResources` lists one,
+and a `ServiceAccount` when `generatedResources` lists one. For Docker Compose,
+it renders one Compose file with a service for each component, or lists the
+issues that stop the spec from becoming one. It applies nothing and starts
+nothing. The same input always gives the same output.
 
 | Flag | Default | Meaning |
 |---|---|---|
 | `--input <file\|->` | none | The workload specification. Without this flag the command builds one component from the flags below |
-| `--output yaml\|json` | `yaml` | `yaml` prints every object, separated by `---`. `json` prints the plan |
+| `--target kubernetes\|compose` | `kubernetes` | Used without `--input`. With `--input`, the input's `target` key chooses, and this flag is an error |
+| `--output yaml\|json` | `yaml` | `yaml` prints the YAML: every Kubernetes object, separated by `---`, or the Compose file. `json` prints the plan |
 | `--plan-id`, `--namespace` | `dagents-plan`, `dagents` | Used without `--input` |
-| `--name`, `--image`, `--kind` | `component`, `ghcr.io/example/component:latest`, `Deployment` | Used without `--input`. The component gets one replica, an `http` port 8080, a Service and a ConfigMap |
+| `--name`, `--image`, `--kind` | `component`, `ghcr.io/example/component:latest`, `Deployment` | Used without `--input`. The component gets one replica, an `http` port 8080, and for Kubernetes a Service and a ConfigMap. For Compose, the port is exposed on the network and not published |
+
+#### The input
 
 The input's keys are `planId` (default `dagents-plan`), `namespace` (default
 `dagents`), `includeServices` (default true), `includeConfigMaps` (default
-false) and `components`. Each component takes `name` and `image` (required),
-`kind`, `replicas` (1), `schedule`, `env` (`name`, `value`), `ports` (`name`,
-`containerPort`), `args`, `resources` (`cpuRequest` 250m, `cpuLimit` 1,
-`memoryRequest` 256Mi, `memoryLimit` 1Gi), `generatedResources`,
-`serviceAccountName`, `serviceType` (`ClusterIP`) and `configMapData`.
+false), `target` and `components`. Each component takes `name` and `image`
+(required), `kind`, `replicas` (1), `schedule`, `env` (`name`, `value`),
+`ports`, `args`, `resources` (`cpuRequest` 250m, `cpuLimit` 1, `memoryRequest`
+256Mi, `memoryLimit` 1Gi), `generatedResources`, `serviceAccountName`,
+`serviceType` (`ClusterIP`), `configMapData`, `envFiles`, `healthCheck` and
+`dependsOn`.
 
-The JSON output has `planId`, `namespace`, `manifests` (per component:
-`componentName`, `kind`, `deploymentYaml`, `serviceYaml`, `configMapYaml`,
-`serviceAccountYaml`, each `null` when not rendered) and `combinedYaml`.
+`target` takes one of these forms:
+
+| Form | Meaning |
+|---|---|
+| absent, `null`, `"kubernetes"` or `{"kind": "kubernetes"}` | Kubernetes |
+| `"compose"` | Compose, with every default below |
+| `{"kind": "compose", ...}` | Compose, with these keys: `placement` (`"own"` or `"merge"`, default `"own"`), `network` (default `"default"`), `externalNetwork` (default false) and `existingServices` (default `[]`) |
+
+- **`placement`.** `own` makes the file a whole project. `merge` makes a file
+  that you pass with `-f` after the files of a project that already runs:
+  `docker compose -p <project> -f <the project's file> -f <this file> up -d <service>`.
+  Relative paths in the file resolve against the directory of the first file.
+- **`network`.** Every service joins this one network. The file declares it,
+  unless `externalNetwork` is true: then the network exists already, and
+  `network` is its real Docker name, such as `healthcare-demo_default`.
+- **`existingServices`.** The services the running project has. A new service
+  may not reuse one of their names. It may depend on one of them only when
+  `placement` is `merge`.
+
+The Compose keys of a component and its ports:
+
+| Key | Default | Meaning |
+|---|---|---|
+| `ports[].hostPort` | `null` | Publish the container port on this host port. Without it, the port is only reachable from services on the network (`expose`) |
+| `ports[].hostIp` | `"127.0.0.1"` | The host address a published port binds to. Read only with `hostPort`. The default is loopback because the LMA and GMA endpoints have no authentication |
+| `envFiles` | `[]` | Files of `NAME=value` lines that Compose reads into the container's environment. They keep secrets, such as a database URL, out of the rendered file |
+| `healthCheck` | `null` | `null` keeps the image's own `HEALTHCHECK`. The object takes exactly one of `command` (a list, run without a shell) and `shell` (a string, run by the container's shell), and `intervalSeconds` (30), `timeoutSeconds` (5), `retries` (3) and `startPeriodSeconds` (10) |
+| `dependsOn` | `[]` | Entries of `service` (required) and `condition`: `service_started` (the default), `service_healthy` or `service_completed_successfully` |
+
+Which fields each target reads:
+
+| Field | Kubernetes | Compose |
+|---|---|---|
+| `planId`, `name`, `image`, `kind`, `env`, `args`, `ports[].containerPort` | yes | yes. `args` becomes `command`, which replaces the image's `CMD` as Kubernetes `args` does |
+| `replicas` | yes | only to report more than 1 as an issue |
+| `namespace`, `includeServices`, `includeConfigMaps`, `schedule`, `resources`, `generatedResources`, `serviceAccountName`, `serviceType`, `configMapData`, `ports[].name` | yes | no |
+| `ports[].hostPort`, `ports[].hostIp`, `envFiles`, `healthCheck`, `dependsOn` | no | yes |
+
+#### The Compose file
+
+A `Deployment` becomes a service with `restart: unless-stopped`, and a `Job` a
+service with `restart: "no"`. Services are in request order, and so are their
+environment variables, ports and dependencies. The file has no top-level
+`name:`; the project name comes from `-p`. Every value a caller chose, such as
+an image, an argument or an environment value, is written as a double-quoted
+YAML string, and a `$` in it is written as `$$`, so Compose passes one `$` to
+the container instead of reading a variable of the shell that runs it. Names
+are checked before they are written as YAML keys.
+
+The Kubernetes JSON output has `planId`, `namespace`, `manifests` (per
+component: `componentName`, `kind`, `deploymentYaml`, `serviceYaml`,
+`configMapYaml`, `serviceAccountYaml`, each `null` when not rendered) and
+`combinedYaml`. The Compose JSON output has `planId`, `services` (every
+component name, in request order), `issues` (each with `service`, `code` and
+`value`) and `composeYaml`, which is `null` exactly when `issues` is not empty.
+
+#### Compose issues
+
+A spec that cannot become a Compose file still gives a plan, with exit code
+`0`. With `--output yaml`, the command prints one comment line per issue
+instead of a file, with `spec` in place of the service for an issue with the
+whole spec:
+
+```text
+# No Compose file: the spec has issues.
+# lma-hospital-d: dependency_outside_project gma
+```
+
+`docker compose` refuses a file of comments, so the output cannot be applied by
+mistake. The issues come in a fixed order: the spec's own issues first, then
+each component's, in request order. Within a component they follow the order
+of this table, except that ports and dependencies are checked one at a time.
+
+| Code | Service | Value | When |
+|---|---|---|---|
+| `no_services` | `null` | `null` | `components` is empty |
+| `invalid_network_name` | `null` | the name | The network name does not match `[a-z0-9][a-z0-9_.-]*` |
+| `invalid_service_name` | `null`, or the component | the name | An `existingServices` entry, or a component's name, does not match the same pattern |
+| `duplicate_service_name` | the component | `null` | An earlier component has the same name |
+| `service_name_in_use` | the component | `null` | `existingServices` lists the component's name |
+| `empty_image` | the component | `null` | `image` is empty |
+| `no_compose_equivalent` | the component | the kind | The kind is `CronJob`, `Service`, `ConfigMap` or `ServiceAccount` |
+| `unsupported_replicas` | the component | the number | `replicas` is more than 1. The containers would publish the same host ports |
+| `invalid_environment_name` | the component | the name | An `env` name does not match `[A-Za-z_][A-Za-z0-9_]*` |
+| `duplicate_environment_name` | the component | the name | An `env` name appears earlier in the same component |
+| `invalid_port` | the component | the port | A container port or a host port is not between 1 and 65535 |
+| `invalid_host_ip` | the component | the address | `hostIp` is not four numbers from 0 to 255 without leading zeros, separated by dots. IPv6 addresses and host names are refused |
+| `host_port_conflict` | the component | the port | An earlier published port in the spec uses the same host port, on any host address |
+| `empty_health_check` | the component | `null` | `command` is `[]` or `shell` is `""` |
+| `invalid_health_check_timing` | the component | `null` | `intervalSeconds`, `timeoutSeconds` or `retries` is below 1, or `startPeriodSeconds` is below 0 |
+| `self_dependency` | the component | `null` | A component depends on itself |
+| `duplicate_dependency` | the component | the service | A component names the same dependency twice |
+| `dependency_outside_project` | the component | the service | `placement` is `own` and a dependency names a service in `existingServices` |
+| `unknown_dependency` | the component | the service | A dependency names neither a component nor a service in `existingServices` |
+| `dependency_cycle` | the component | `null` | The component depends on itself through other components. A component that only leads into a cycle is not reported |
+
+The planner does not check facts it cannot see: that the image exists, that the
+env files exist, that the health check's program is in the image, that an
+external network exists, or that the running project or the host already uses a
+host port.
 
 **Errors.** Exit `2` for an unknown `kind` (`Unknown workload kind: StatefulSet`),
-a component without `name` or `image`, or JSON that does not parse.
+a component without `name` or `image`, a dependency without `service`
+(`Missing JSON field: service`), an unknown target (`Unknown deployment target: helm`),
+placement (`Unknown compose placement: stack`) or condition
+(`Unknown dependency condition: started`), a health check with both or neither
+of `command` and `shell`
+(`Expected exactly one of healthCheck.command and healthCheck.shell`),
+`--target` together with `--input`
+(`--target is read only without --input; set the input's target key`), or JSON
+that does not parse.
 
 **Related.** [Compile a workload plan on the core service](framework-services.md#core-service-post-api-v1-workloads-compile),
+[render a Docker Compose file on the core service](framework-services.md#core-service-post-api-v1-manifests-compose),
 [the WorkloadPlanResponse object](framework-services.md#the-workloadplanresponse-object).
 
 ## Pipelines

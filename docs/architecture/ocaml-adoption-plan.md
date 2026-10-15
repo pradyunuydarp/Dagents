@@ -9,7 +9,7 @@ The best use of OCaml here is in the layers that:
 - compile declarative workflow definitions into executable plans
 - normalize and validate heterogeneous dataset schemas
 - route dataset profiles to appropriate model families
-- generate deterministic Kubernetes manifests from parameterized workload specs
+- generate deterministic Kubernetes manifests and Docker Compose files from parameterized workload specs
 
 It is **not** the best tool for:
 
@@ -138,6 +138,7 @@ Best placement: under `services/core-service` as a compiler backend invoked by t
 Responsibility:
 
 - compile workload specs into Kubernetes `Deployment`, `Job`, `CronJob`, `Service`, and `ConfigMap` manifests
+- compile the same specs into one Docker Compose file, either a whole project or a file merged into a project that already runs, and report every issue that stops a spec from becoming one
 - enforce framework-wide defaults for resources, labels, ports, and environment variables
 - generate distinct manifests for:
   - LMA source runners

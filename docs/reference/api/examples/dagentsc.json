@@ -110,6 +110,229 @@
    ]
   },
   {
+   "id": "manifest-compose-from-input",
+   "endpoint": "dagentsc manifest compile",
+   "title": "Render a Docker Compose file that adds an LMA to a running project",
+   "description": "The file is passed with -f after the running project's own file. The LMA depends on the project's gma service, which only a merged file may do.",
+   "request": {
+    "args": [
+     "manifest",
+     "compile",
+     "--input",
+     "-",
+     "--output",
+     "json"
+    ],
+    "stdin": {
+     "planId": "add-hospital-d",
+     "target": {
+      "kind": "compose",
+      "placement": "merge",
+      "network": "default",
+      "existingServices": [
+       "gma",
+       "lma-uk-134",
+       "lma-it-002",
+       "lma-ch-245",
+       "healthcare-demo-backend",
+       "healthcare-demo-frontend"
+      ]
+     },
+     "components": [
+      {
+       "name": "lma-hospital-d",
+       "image": "dagents/healthcare-demo-backend:local",
+       "args": [
+        "uvicorn",
+        "app.main:app",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8085"
+       ],
+       "envFiles": [
+        "../../env/.env.shared",
+        "env/.env.healthcare-demo"
+       ],
+       "env": [
+        {
+         "name": "HEALTHCARE_DEMO_ROLE",
+         "value": "lma"
+        },
+        {
+         "name": "HEALTHCARE_DEMO_SITE_ID",
+         "value": "hospital-d"
+        },
+        {
+         "name": "HEALTHCARE_DEMO_API_PORT",
+         "value": "8085"
+        }
+       ],
+       "ports": [
+        {
+         "name": "http",
+         "containerPort": 8085,
+         "hostPort": 8085
+        }
+       ],
+       "healthCheck": {
+        "command": [
+         "python",
+         "-c",
+         "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8085/api/v1/health')"
+        ]
+       },
+       "dependsOn": [
+        {
+         "service": "gma",
+         "condition": "service_healthy"
+        }
+       ]
+      }
+     ]
+    }
+   },
+   "response": {
+    "exit_code": 0,
+    "status": 0,
+    "headers": {},
+    "body": {
+     "planId": "add-hospital-d",
+     "services": [
+      "lma-hospital-d"
+     ],
+     "issues": [],
+     "composeYaml": "services:\n  lma-hospital-d:\n    image: \"dagents/healthcare-demo-backend:local\"\n    command: [\"uvicorn\", \"app.main:app\", \"--host\", \"0.0.0.0\", \"--port\", \"8085\"]\n    env_file:\n      - \"../../env/.env.shared\"\n      - \"env/.env.healthcare-demo\"\n    environment:\n      HEALTHCARE_DEMO_ROLE: \"lma\"\n      HEALTHCARE_DEMO_SITE_ID: \"hospital-d\"\n      HEALTHCARE_DEMO_API_PORT: \"8085\"\n    ports:\n      - \"127.0.0.1:8085:8085\"\n    healthcheck:\n      test: [\"CMD\", \"python\", \"-c\", \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8085/api/v1/health')\"]\n      interval: 30s\n      timeout: 5s\n      retries: 3\n      start_period: 10s\n    depends_on:\n      gma:\n        condition: service_healthy\n    networks:\n      - default\n    restart: unless-stopped\nnetworks:\n  default: {}"
+    },
+    "stderr": "",
+    "trimmed": []
+   },
+   "planner_calls": [
+    "manifest compile"
+   ]
+  },
+  {
+   "id": "manifest-compose-from-flags",
+   "endpoint": "dagentsc manifest compile",
+   "title": "Render a Docker Compose file for one service from flags",
+   "request": {
+    "args": [
+     "manifest",
+     "compile",
+     "--target",
+     "compose",
+     "--name",
+     "lma-hospital-d",
+     "--image",
+     "ghcr.io/example/dagents-lma:0.1.0"
+    ]
+   },
+   "response": {
+    "exit_code": 0,
+    "status": 0,
+    "headers": {},
+    "body": "services:\n  lma-hospital-d:\n    image: \"ghcr.io/example/dagents-lma:0.1.0\"\n    expose:\n      - \"8080\"\n    networks:\n      - default\n    restart: unless-stopped\nnetworks:\n  default: {}\n",
+    "stderr": "",
+    "trimmed": []
+   },
+   "planner_calls": [
+    "manifest compile"
+   ]
+  },
+  {
+   "id": "manifest-compose-with-issues",
+   "endpoint": "dagentsc manifest compile",
+   "title": "Report why a spec cannot become a Docker Compose file",
+   "description": "The same LMA as its own project cannot depend on a service of another project, so the command prints the issue as a comment and no file.",
+   "request": {
+    "args": [
+     "manifest",
+     "compile",
+     "--input",
+     "-"
+    ],
+    "stdin": {
+     "planId": "add-hospital-d",
+     "target": {
+      "kind": "compose",
+      "placement": "own",
+      "network": "default",
+      "existingServices": [
+       "gma",
+       "lma-uk-134",
+       "lma-it-002",
+       "lma-ch-245",
+       "healthcare-demo-backend",
+       "healthcare-demo-frontend"
+      ]
+     },
+     "components": [
+      {
+       "name": "lma-hospital-d",
+       "image": "dagents/healthcare-demo-backend:local",
+       "args": [
+        "uvicorn",
+        "app.main:app",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8085"
+       ],
+       "envFiles": [
+        "../../env/.env.shared",
+        "env/.env.healthcare-demo"
+       ],
+       "env": [
+        {
+         "name": "HEALTHCARE_DEMO_ROLE",
+         "value": "lma"
+        },
+        {
+         "name": "HEALTHCARE_DEMO_SITE_ID",
+         "value": "hospital-d"
+        },
+        {
+         "name": "HEALTHCARE_DEMO_API_PORT",
+         "value": "8085"
+        }
+       ],
+       "ports": [
+        {
+         "name": "http",
+         "containerPort": 8085,
+         "hostPort": 8085
+        }
+       ],
+       "healthCheck": {
+        "command": [
+         "python",
+         "-c",
+         "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8085/api/v1/health')"
+        ]
+       },
+       "dependsOn": [
+        {
+         "service": "gma",
+         "condition": "service_healthy"
+        }
+       ]
+      }
+     ]
+    }
+   },
+   "response": {
+    "exit_code": 0,
+    "status": 0,
+    "headers": {},
+    "body": "# No Compose file: the spec has issues.\n# lma-hospital-d: dependency_outside_project gma\n",
+    "stderr": "",
+    "trimmed": []
+   },
+   "planner_calls": [
+    "manifest compile"
+   ]
+  },
+  {
    "id": "pipeline-from-input",
    "endpoint": "dagentsc pipeline compile",
    "title": "Order a pipeline's steps",
