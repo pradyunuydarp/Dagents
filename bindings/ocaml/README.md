@@ -110,7 +110,8 @@ For Docker Compose, it renders one Compose file:
   exits with code 0. The issue codes are in `compose_issue_code_and_value`.
 - **Quoting.** Every value a caller chose is written as a double-quoted YAML
   scalar, and `$` is written as `$$` so Compose passes it to the container
-  instead of reading a variable. Names are checked, then written double-quoted
+  instead of reading a variable. Control characters are escaped, including
+  U+0085, U+2028 and U+2029, which YAML would read as line breaks. Names are checked, then written double-quoted
   too, because YAML reads a bare name such as `134`, `null` or `True` as a
   number, null or a boolean, and Compose refuses such a key.
 

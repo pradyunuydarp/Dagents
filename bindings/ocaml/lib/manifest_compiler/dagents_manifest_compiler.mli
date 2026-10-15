@@ -52,9 +52,11 @@ val compile_plan : workload_spec -> workload_plan
 
 (** Write a caller's value as a double-quoted YAML scalar for a Compose file.
 
-    Escapes backslash, double quote, newline, tab and carriage return, writes
-    other control bytes as [\xHH], and doubles [$] so Compose passes it to the
-    container instead of reading a variable.
+    Escapes backslash, double quote, newline, tab and carriage return; writes
+    the line breaks U+0085, U+2028 and U+2029 as [\N], [\L] and [\P], the
+    other control characters as [\xHH] and U+FFFE and U+FFFF as [\uFFFE] and
+    [\uFFFF]; and doubles [$] so Compose passes it to the container instead of
+    reading a variable. A byte that is not UTF-8 becomes [\uFFFD].
 
     Example test case:
     {[

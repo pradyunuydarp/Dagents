@@ -304,12 +304,18 @@ let compile_plan spec =
 
 (** Write a caller's value as a double-quoted YAML scalar for a Compose file.
 
-    Backslash, double quote, newline, tab and carriage return get their YAML
-    escapes, and every other control byte gets [\xHH]. A [$] becomes [$$]:
-    Compose reads [$NAME] and [${NAME}] as variables of the shell that runs
-    [docker compose], and [$$] passes one literal [$] to the container. Other
-    bytes, UTF-8 included, are copied. The core-service fallback renderer
-    copies this table, and its tests compare the two.
+    The value is read as UTF-8, one character at a time. Backslash, double
+    quote, newline, tab and carriage return get their YAML escapes. YAML reads
+    U+0085, U+2028 and U+2029 as line breaks and folds them, so they are
+    written as [\N], [\L] and [\P]. The other control characters (below
+    U+0020, and U+007F to U+009F) are written as [\xHH], and the
+    noncharacters U+FFFE and U+FFFF, which Compose refuses unescaped, as
+    [\uFFFE] and [\uFFFF]. A [$] becomes [$$]: Compose reads [$NAME] and
+    [${NAME}] as variables of the shell that runs [docker compose], and [$$]
+    passes one literal [$] to the container. Every other character is copied.
+    A byte that is not UTF-8 is written as [\uFFFD]; the codec refuses such
+    text in a Compose spec, so dagentsc never writes it. The core-service
+    fallback renderer copies this table, and its tests compare the two.
 
     Example test case:
     {[
@@ -317,20 +323,31 @@ let compile_plan spec =
     ]} *)
 let quote_compose_scalar value =
   let buffer = Buffer.create (String.length value + 2) in
+  let rec copy index =
+    if index < String.length value then begin
+      let decoded = String.get_utf_8_uchar value index in
+      let length = Uchar.utf_decode_length decoded in
+      (if not (Uchar.utf_decode_is_valid decoded) then Buffer.add_string buffer "\\uFFFD"
+       else
+         match Uchar.to_int (Uchar.utf_decode_uchar decoded) with
+         | 0x5C -> Buffer.add_string buffer "\\\\"
+         | 0x22 -> Buffer.add_string buffer "\\\""
+         | 0x24 -> Buffer.add_string buffer "$$"
+         | 0x0A -> Buffer.add_string buffer "\\n"
+         | 0x09 -> Buffer.add_string buffer "\\t"
+         | 0x0D -> Buffer.add_string buffer "\\r"
+         | 0x85 -> Buffer.add_string buffer "\\N"
+         | 0x2028 -> Buffer.add_string buffer "\\L"
+         | 0x2029 -> Buffer.add_string buffer "\\P"
+         | code when code < 0x20 || (code >= 0x7F && code <= 0x9F) ->
+             Buffer.add_string buffer (Printf.sprintf "\\x%02X" code)
+         | (0xFFFE | 0xFFFF) as code -> Buffer.add_string buffer (Printf.sprintf "\\u%04X" code)
+         | _ -> Buffer.add_string buffer (String.sub value index length));
+      copy (index + length)
+    end
+  in
   Buffer.add_char buffer '"';
-  String.iter
-    (fun c ->
-      match c with
-      | '\\' -> Buffer.add_string buffer "\\\\"
-      | '"' -> Buffer.add_string buffer "\\\""
-      | '$' -> Buffer.add_string buffer "$$"
-      | '\n' -> Buffer.add_string buffer "\\n"
-      | '\t' -> Buffer.add_string buffer "\\t"
-      | '\r' -> Buffer.add_string buffer "\\r"
-      | c when Char.code c < 0x20 || Char.code c = 0x7f ->
-          Buffer.add_string buffer (Printf.sprintf "\\x%02X" (Char.code c))
-      | c -> Buffer.add_char buffer c)
-    value;
+  copy 0;
   Buffer.add_char buffer '"';
   Buffer.contents buffer
 

@@ -189,8 +189,8 @@ class ComposeEnvironmentVariable(BaseModel):
     )
     value: str = Field(
         description=(
-            "Its value. The file quotes it and writes each `$` as `$$`, so Docker Compose passes the value to the "
-            "container unchanged."
+            "Its value. The file quotes it, escapes its control characters and line breaks, and writes each `$` "
+            "as `$$`, so Docker Compose passes the value to the container unchanged."
         )
     )
 

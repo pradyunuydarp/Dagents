@@ -190,7 +190,10 @@ environment variables, ports and dependencies. The file has no top-level
 `name:`; the project name comes from `-p`. Every value a caller chose, such as
 an image, an argument or an environment value, is written as a double-quoted
 YAML string, and a `$` in it is written as `$$`, so Compose passes one `$` to
-the container instead of reading a variable of the shell that runs it. Names
+the container instead of reading a variable of the shell that runs it. Control
+characters are escaped, including U+0085, U+2028 and U+2029, which YAML would
+otherwise read as line breaks, and U+FFFE and U+FFFF, which Compose refuses
+unescaped. Names
 of services, networks and environment variables are checked, then written
 double-quoted too: unquoted, YAML reads a name such as `134`, `null`, `true` or
 `2024-01-01` as a number, null, a boolean or a date, and Compose refuses a key

@@ -1605,7 +1605,9 @@ let test_compose_codec_refuses_text_that_is_not_utf_8 () =
     ((component_of_json {|{"components": [{"name": "a", "image": "\udc80"}]}|}).image = "\237\178\128")
 
 (** Verifies how caller values are quoted in a Compose file: YAML escapes,
-    [$] doubled so Compose does not read a variable, and UTF-8 copied. *)
+    [$] doubled so Compose does not read a variable, the line breaks YAML
+    would fold and the characters Compose refuses escaped, other UTF-8
+    copied, and a byte that is not UTF-8 replaced. *)
 let test_compose_quoting () =
   List.iter
     (fun (input, expected) ->
@@ -1627,6 +1629,15 @@ let test_compose_quoting () =
       ("del\127", {|"del\x7F"|});
       ("z\195\188rich", "\"z\195\188rich\"");
       ("space and: colon # hash", {|"space and: colon # hash"|});
+      ("nel\194\133x", {|"nel\Nx"|});
+      ("ls\226\128\168x", {|"ls\Lx"|});
+      ("ps\226\128\169x", {|"ps\Px"|});
+      ("c1\194\128\194\159", {|"c1\x80\x9F"|});
+      ("nbsp\194\160", "\"nbsp\194\160\"");
+      ("nonchar\239\191\190\239\191\191", {|"nonchar\uFFFE\uFFFF"|});
+      ("replacement\239\191\189", "\"replacement\239\191\189\"");
+      ("emoji\240\159\152\128", "\"emoji\240\159\152\128\"");
+      ("bad\255x", {|"bad\uFFFDx"|});
     ]
 
 (** Compile a spec through {!Dagents_manifest_compiler.compile_for_target}
@@ -2049,7 +2060,8 @@ networks:
 let quoting_json =
   {|{"planId": "quoting", "target": {"kind": "compose"}, "components": [{"name": "quoting",
      "image": "registry.example/z\u00fcrich:1",
-     "args": ["say \"hi\"", "C:\\path", "$HOME", "line1\nline2", "tab\there", "bell\u0001", "del\u007f", "cr\rx"],
+     "args": ["say \"hi\"", "C:\\path", "$HOME", "line1\nline2", "tab\there", "bell\u0001", "del\u007f", "cr\rx",
+              "nel\u0085x", "ls\u2028x", "ps\u2029x", "c1\u0080", "nonchar\ufffe\uffff"],
      "envFiles": ["env/$SITE.env"],
      "env": [{"name": "PRICE", "value": "$5 and ${VAR}"}, {"name": "_under_score9", "value": ""}],
      "healthCheck": {"shell": "test \"$(cat /tmp/ready)\" = ok", "intervalSeconds": 5, "timeoutSeconds": 2, "retries": 10, "startPeriodSeconds": 0}}]}|}
@@ -2061,7 +2073,7 @@ let test_compose_quoted_file () =
     {|services:
   "quoting":
     image: "registry.example/zürich:1"
-    command: ["say \"hi\"", "C:\\path", "$$HOME", "line1\nline2", "tab\there", "bell\x01", "del\x7F", "cr\rx"]
+    command: ["say \"hi\"", "C:\\path", "$$HOME", "line1\nline2", "tab\there", "bell\x01", "del\x7F", "cr\rx", "nel\Nx", "ls\Lx", "ps\Px", "c1\x80", "nonchar\uFFFE\uFFFF"]
     env_file:
       - "env/$$SITE.env"
     environment:

@@ -266,8 +266,10 @@ What the file contains:
 - A port with `host_port` is published on `host_ip`, which is `127.0.0.1` by
   default, because the LMA and the GMA have no authentication. A port without
   `host_port` is listed under `expose` and is not published on the host.
-- Every value is quoted, and each `$` is written as `$$`. Docker Compose then
-  passes the value to the container unchanged instead of reading a variable.
+- Every value is quoted, each `$` is written as `$$`, and control characters
+  are escaped, including the line breaks U+0085, U+2028 and U+2029. Docker
+  Compose then passes the value to the container unchanged instead of reading
+  a variable or folding a line.
   Names are quoted too, so that a service named `134` or an environment
   variable named `NULL` stays a string.
 - `env_files` keeps secrets, such as a database address with a password, out of

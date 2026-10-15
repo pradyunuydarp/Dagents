@@ -460,7 +460,7 @@
       "value": {
        "type": "string",
        "title": "Value",
-       "description": "Its value. The file quotes it and writes each `$` as `$$`, so Docker Compose passes the value to the container unchanged."
+       "description": "Its value. The file quotes it, escapes its control characters and line breaks, and writes each `$` as `$$`, so Docker Compose passes the value to the container unchanged."
       }
      },
      "additionalProperties": false,
@@ -24229,7 +24229,7 @@
        "type": "string"
       },
       "value": {
-       "description": "Its value. The file quotes it and writes each `$` as `$$`, so Docker Compose passes the value to the container unchanged.",
+       "description": "Its value. The file quotes it, escapes its control characters and line breaks, and writes each `$` as `$$`, so Docker Compose passes the value to the container unchanged.",
        "title": "Value",
        "type": "string"
       }

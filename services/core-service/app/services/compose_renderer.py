@@ -141,10 +141,14 @@ def quote(value: str) -> str:
     """Write a caller value as a double-quoted YAML scalar. Copies `quote_compose_scalar`.
 
     `$` becomes `$$`, so Docker Compose passes one `$` to the container instead
-    of reading a variable. Control characters become escapes, so a value cannot
-    end its line. OCaml escapes byte by byte and this function character by
-    character; both leave every character from U+0080 up unchanged, so the
-    results are equal.
+    of reading a variable. YAML folds the line breaks U+0085, U+2028 and
+    U+2029, so they become `\\N`, `\\L` and `\\P`. The other control
+    characters become `\\xHH`, and U+FFFE and U+FFFF, which Compose refuses
+    unescaped, become `\\uFFFE` and `\\uFFFF`, so a value cannot end its line
+    or change on its way to the container. A lone surrogate becomes `\\uFFFD`,
+    as a byte that is not UTF-8 does in OCaml; neither reaches a file, because
+    `render_compose_plan` and the planner's codec refuse such text first. Every
+    other character is copied, so the two give equal results for UTF-8 text.
     """
     out = ['"']
     for char in value:
@@ -161,8 +165,18 @@ def quote(value: str) -> str:
             out.append("\\t")
         elif char == "\r":
             out.append("\\r")
-        elif code < 0x20 or code == 0x7F:
+        elif code == 0x85:
+            out.append("\\N")
+        elif code == 0x2028:
+            out.append("\\L")
+        elif code == 0x2029:
+            out.append("\\P")
+        elif code < 0x20 or 0x7F <= code <= 0x9F:
             out.append(f"\\x{code:02X}")
+        elif code in (0xFFFE, 0xFFFF):
+            out.append(f"\\u{code:04X}")
+        elif 0xD800 <= code <= 0xDFFF:
+            out.append("\\uFFFD")
         else:
             out.append(char)
     out.append('"')

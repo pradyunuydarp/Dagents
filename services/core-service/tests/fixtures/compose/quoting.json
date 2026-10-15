@@ -16,7 +16,12 @@
           "tab\there",
           "bell\u0001",
           "del\u007f",
-          "cr\rx"
+          "cr\rx",
+          "nel\u0085x",
+          "ls\u2028x",
+          "ps\u2029x",
+          "c1\u0080",
+          "nonchar\ufffe\uffff"
         ],
         "env_files": [
           "env/$SITE.env"
@@ -47,6 +52,6 @@
       "quoting"
     ],
     "issues": [],
-    "compose_yaml": "services:\n  \"quoting\":\n    image: \"registry.example/zürich:1\"\n    command: [\"say \\\"hi\\\"\", \"C:\\\\path\", \"$$HOME\", \"line1\\nline2\", \"tab\\there\", \"bell\\x01\", \"del\\x7F\", \"cr\\rx\"]\n    env_file:\n      - \"env/$$SITE.env\"\n    environment:\n      \"PRICE\": \"$$5 and $${VAR}\"\n      \"_under_score9\": \"\"\n    healthcheck:\n      test: [\"CMD-SHELL\", \"test \\\"$$(cat /tmp/ready)\\\" = ok\"]\n      interval: 5s\n      timeout: 2s\n      retries: 10\n      start_period: 0s\n    networks:\n      - \"default\"\n    restart: unless-stopped\nnetworks:\n  \"default\": {}"
+    "compose_yaml": "services:\n  \"quoting\":\n    image: \"registry.example/zürich:1\"\n    command: [\"say \\\"hi\\\"\", \"C:\\\\path\", \"$$HOME\", \"line1\\nline2\", \"tab\\there\", \"bell\\x01\", \"del\\x7F\", \"cr\\rx\", \"nel\\Nx\", \"ls\\Lx\", \"ps\\Px\", \"c1\\x80\", \"nonchar\\uFFFE\\uFFFF\"]\n    env_file:\n      - \"env/$$SITE.env\"\n    environment:\n      \"PRICE\": \"$$5 and $${VAR}\"\n      \"_under_score9\": \"\"\n    healthcheck:\n      test: [\"CMD-SHELL\", \"test \\\"$$(cat /tmp/ready)\\\" = ok\"]\n      interval: 5s\n      timeout: 2s\n      retries: 10\n      start_period: 0s\n    networks:\n      - \"default\"\n    restart: unless-stopped\nnetworks:\n  \"default\": {}"
   }
 }

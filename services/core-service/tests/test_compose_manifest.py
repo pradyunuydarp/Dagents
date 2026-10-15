@@ -276,6 +276,15 @@ class ComposeFallbackTests(unittest.TestCase):
             "\x00\x01\x1f\x7f": '"\\x00\\x01\\x1F\\x7F"',
             "zürich 日本": '"zürich 日本"',
             "": '""',
+            "nel\x85x": '"nel\\Nx"',
+            "ls\u2028x": '"ls\\Lx"',
+            "ps\u2029x": '"ps\\Px"',
+            "c1\x80\x9f": '"c1\\x80\\x9F"',
+            "nbsp\xa0": '"nbsp\xa0"',
+            "nonchar\ufffe\uffff": '"nonchar\\uFFFE\\uFFFF"',
+            "replacement\ufffd": '"replacement\ufffd"',
+            "emoji\U0001F600": '"emoji\U0001F600"',
+            "lone\udc80": '"lone\\uFFFD"',
         }
         for value, quoted in cases.items():
             with self.subTest(value=value):
