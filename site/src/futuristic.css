@@ -248,6 +248,10 @@
     animation: fx-enter var(--fx-slow) var(--fx-ease) both;
   }
 
+  .site-results {
+    animation: fx-enter var(--fx-fast) var(--fx-ease) both;
+  }
+
   .pager a:hover,
   .resource:hover,
   .api-index-module:hover {

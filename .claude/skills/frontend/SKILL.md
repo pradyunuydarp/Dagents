@@ -83,6 +83,12 @@ with the link preview plugin `design/social/social-meta.mjs` (section 3b), and
   and the captured examples in `docs/reference/api/examples/`. The JSON loads
   only on API pages. Never copy these files into `site/`; the format is in
   `docs/reference/api/README.md`.
+- **One search box, one matcher.** The API reference and both guides use
+  `site/src/SearchBox.tsx` with the fuzzy matcher in `site/src/fuzzy.ts`, so
+  word starts and typos find a result everywhere. The API index is
+  `site/src/api/search.ts`; the guides' index (`site/src/docSearch.ts`) is
+  built in the browser from the bundled Markdown, one entry per heading. A
+  matched word is shown with weight and an underline, never a colour.
 - The Resources page (`#/resources`) reads `docs/presentation/resources.json`.
   `site/resources-plugin.ts` copies each listed deck, PDF and preview into
   `dist/resources/` at build time. **Never copy a deck or a PDF into `site/`.**
@@ -312,7 +318,8 @@ server answers a missing file with the index page and status 200.
 On the API reference it opens every module page and fails unless each endpoint
 in the inventory, and each dagentsc command, appears once in the interface
 `docs/reference/api/` places it in; it also follows every link on those pages,
-switches the code tabs, runs the search and checks the width at 375 px. It
+switches the code tabs, runs the search (with a typo) and checks the width
+at 375 px. On Learn it searches both guides with a typo and opens a result. It
 fails when a success response shows only "A JSON object." with no field table,
 and when a code sample reads an SVG, a `304` or a refused command as JSON.
 Every page of both guides must fit a 375 px screen. It reads the home page's

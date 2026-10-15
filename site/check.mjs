@@ -461,18 +461,40 @@ async function checkApi() {
 
   // The search finds endpoints, classes and objects, and its results open them.
   await open("#/api");
-  await page.fill(".api-search input", "ManifestService");
-  const kinds = await page.$$eval(".api-results .ds-chip", (chips) => chips.map((chip) => chip.textContent));
-  await page.fill(".api-search input", "WorkloadComponent");
-  const objects = await page.$$eval(".api-results .ds-chip", (chips) => chips.map((chip) => chip.textContent));
-  await page.fill(".api-search input", "workloads:compile");
-  await page.locator(".api-results a").first().click();
+  await page.fill(".site-search input", "ManifestService");
+  const kinds = await page.$$eval(".site-results .ds-chip", (chips) => chips.map((chip) => chip.textContent));
+  await page.fill(".site-search input", "WorkloadComponent");
+  const objects = await page.$$eval(".site-results .ds-chip", (chips) => chips.map((chip) => chip.textContent));
+  await page.fill(".site-search input", "workloads:compile");
+  await page.locator(".site-results a").first().click();
   await page.waitForSelector("#core-service-post-api-v1-workloads-compile");
   const landed = await page.evaluate(() => window.location.hash);
   check(
     "the search finds classes, objects and endpoints",
     kinds.includes("Class") && objects.includes("Object") && landed.endsWith("#core-service-post-api-v1-workloads-compile"),
     `${kinds.join(",")} | ${objects.join(",")} | ${landed}`
+  );
+
+  // The search is fuzzy: a typo or a partial name still finds the entry.
+  await page.fill(".site-search input", "manifestservce");
+  const typo = await page.$$eval(".site-results .site-result-label", (labels) => labels.map((label) => label.textContent));
+  await page.fill(".site-search input", "");
+  check("the API search forgives a typo", typo.includes("ManifestService"), typo.slice(0, 5).join(","));
+
+  // Learn and Guide share one search over both: a typo and a partial word find
+  // sections of each, and Enter opens the first one at its heading.
+  await open("#/learn");
+  await page.fill(".site-search input", "federatd lern");
+  const learnHits = await page.$$eval(".site-results .ds-chip", (chips) => chips.map((chip) => chip.textContent));
+  await page.fill(".site-search input", "deploy manifst");
+  const guideHits = await page.$$eval(".site-results .ds-chip", (chips) => chips.map((chip) => chip.textContent));
+  const firstHref = await page.locator(".site-results a").first().getAttribute("href");
+  await page.press(".site-search input", "Enter");
+  await page.waitForFunction((target) => window.location.hash === target, firstHref);
+  check(
+    "the Learn and Guide search finds both sections and opens a result",
+    learnHits.includes("Learn") && guideHits.includes("Guide") && firstHref.startsWith("#/"),
+    `${learnHits.slice(0, 5).join(",")} | ${guideHits.slice(0, 5).join(",")} | ${firstHref}`
   );
 
   // At phone width the pages do not scroll sideways, and the menu holds the tree.
