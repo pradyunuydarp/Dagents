@@ -939,20 +939,36 @@
   padding: var(--ds-1) 0;
 }
 
-.api-index-module li a {
+.api-index-module li a,
+.api-object-index a {
   color: var(--ds-ink-2);
   text-decoration: none;
   line-height: 1.35;
 }
 
 .api-index-module h3 a:hover,
-.api-index-module li a:hover {
+.api-index-module li a:hover,
+.api-object-index a:hover {
   color: var(--ds-ink);
   text-decoration: underline;
   text-underline-offset: 0.2em;
 }
 
-.api-object-index { padding-left: var(--ds-5); }
+.api-object-index {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  columns: 3 16rem;
+  column-gap: var(--ds-5);
+}
+
+.api-object-index li {
+  padding: var(--ds-1) 0;
+  line-height: 1.35;
+  break-inside: avoid;
+}
+
+.api-object-index .ds-note { font-size: var(--ds-step--1); }
 
 .api-index h2,
 .api-interface > h2 {
