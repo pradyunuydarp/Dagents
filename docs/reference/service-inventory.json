@@ -1,7 +1,7 @@
 {
   "framework": "dagents",
   "generated_by": "scripts/service_inventory.py",
-  "endpoint_count": 179,
+  "endpoint_count": 183,
   "services": [
     {
       "name": "core-service",
@@ -271,6 +271,17 @@
         },
         {
           "method": "GET",
+          "path": "/api/v1/federation/site-addresses",
+          "handler": "list_site_addresses_v1",
+          "status_code": null,
+          "summary": "Versioned alias for listing site addresses.",
+          "alias_of": {
+            "method": "GET",
+            "path": "/federation/site-addresses"
+          }
+        },
+        {
+          "method": "GET",
           "path": "/api/v1/federation/sites",
           "handler": "list_sites_v1",
           "status_code": null,
@@ -289,6 +300,17 @@
           "alias_of": {
             "method": "PUT",
             "path": "/federation/sites/{site_id}"
+          }
+        },
+        {
+          "method": "PUT",
+          "path": "/api/v1/federation/sites/{site_id}/address",
+          "handler": "register_site_address_v1",
+          "status_code": null,
+          "summary": "Versioned alias for accepting a site's address.",
+          "alias_of": {
+            "method": "PUT",
+            "path": "/federation/sites/{site_id}/address"
           }
         },
         {
@@ -517,6 +539,14 @@
         },
         {
           "method": "GET",
+          "path": "/federation/site-addresses",
+          "handler": "list_site_addresses",
+          "status_code": null,
+          "summary": "List the site addresses the GMA uses and the sites that may join.",
+          "alias_of": null
+        },
+        {
+          "method": "GET",
           "path": "/federation/sites",
           "handler": "list_sites",
           "status_code": null,
@@ -529,6 +559,14 @@
           "handler": "register_site",
           "status_code": null,
           "summary": "Enrol or update one site in the consortium.",
+          "alias_of": null
+        },
+        {
+          "method": "PUT",
+          "path": "/federation/sites/{site_id}/address",
+          "handler": "register_site_address",
+          "status_code": null,
+          "summary": "Accept the address of a site that joins while the GMA runs.",
           "alias_of": null
         },
         {

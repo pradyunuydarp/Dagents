@@ -1419,6 +1419,29 @@
       "status": 200
     },
     {
+      "id": "list-site-addresses",
+      "endpoint": "GET /api/v1/federation/site-addresses",
+      "title": "List the site addresses",
+      "description": "This GMA runs rounds in its own process, so it uses no site address and no site may join.",
+      "request": {
+        "path": "/api/v1/federation/site-addresses"
+      },
+      "status": 200
+    },
+    {
+      "id": "site-address-403",
+      "endpoint": "PUT /api/v1/federation/sites/{site_id}/address",
+      "title": "Offer an address to a GMA that accepts none",
+      "description": "GMA_FEDERATION_JOINABLE_SITES is empty, so the GMA refuses every address offered at run time.",
+      "request": {
+        "path": "/api/v1/federation/sites/store-central/address",
+        "json": {
+          "url": "http://127.0.0.1:8013"
+        }
+      },
+      "status": 403
+    },
+    {
       "id": "plan-round",
       "endpoint": "POST /api/v1/federation/rounds:plan",
       "title": "Plan round 1 of the returns pilot",

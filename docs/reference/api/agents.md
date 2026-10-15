@@ -840,7 +840,9 @@ How the GMA relates to the other modules:
 
 - **It calls sites only to dispatch a round, and only when configured.** With
   `GMA_FEDERATION_SITES` set, [dispatching a round](#gma-post-api-v1-federation-rounds) sends
-  the job to each selected site over HTTP. No other endpoint calls another
+  the job to each selected site over HTTP. A site in
+  `GMA_FEDERATION_JOINABLE_SITES` is reached the same way once its address has
+  been [accepted](#gma-put-api-v1-federation-sites-site-id-address). No other endpoint calls another
   service. An LMA, an operator or an application sends every other request:
   registrations, heartbeats, telemetry and site results.
 - **It calls the planner for every decision.** The governance plan and enforce
@@ -857,7 +859,9 @@ How the GMA relates to the other modules:
   dispatched round records a `failed` result for each selected site until the
   site sends its own. With `GMA_FEDERATION_SITES`, the GMA builds
   `HttpFederationEngine`, the same simulator with one `HttpSiteWorker` per
-  listed site (`agents/common/infrastructure/federation_http.py`). A deployment
+  listed site (`agents/common/infrastructure/federation_http.py`). It builds
+  the same engine with `GMA_FEDERATION_JOINABLE_SITES` alone, and adds a worker
+  for each joinable site when its address arrives. A deployment
   replaces the engine with an adapter for a federated runtime, such as NVIDIA
   FLARE.
 - **The Spring control service serves the registry again.**
@@ -886,8 +890,8 @@ flowchart TB
     Rounds --> Sites["InMemorySiteRegistry"]
     Rounds --> RoundStore["InMemoryRoundRepository"]
     Rounds --> Federation["dagentsc federation: round plan, aggregate readiness, release evaluate"]
-    Rounds --> Engine["InProcessFederationEngine, or HttpFederationEngine with GMA_FEDERATION_SITES"]
-    Engine -.-> Workers["Site workers: attached by an application, or one HttpSiteWorker per listed site"]
+    Rounds --> Engine["InProcessFederationEngine, or HttpFederationEngine with GMA_FEDERATION_SITES or GMA_FEDERATION_JOINABLE_SITES"]
+    Engine -.-> Workers["Site workers: attached by an application, or one HttpSiteWorker per listed or joined site"]
 ```
 
 ### What the GMA stores
@@ -906,6 +910,7 @@ while it runs.
 | Data classifications added at runtime | `GovernanceService` | `PUT /api/v1/governance/classifications/{classification_id}` | `GET /api/v1/governance/classifications` |
 | Guard decisions | `InMemoryAuditLog` | `POST /api/v1/governance/restrictions:enforce` | `GET /api/v1/governance/audit` |
 | Site enrolments, one per site id | `InMemorySiteRegistry` | `PUT /api/v1/federation/sites/{site_id}` | The site list, round planning and dispatch |
+| Site addresses accepted at run time, one per joinable site | `HttpFederationEngine` | `PUT /api/v1/federation/sites/{site_id}/address` | The address list and round dispatch |
 | Rounds, one per round id | `InMemoryRoundRepository` | Dispatch, results, readiness, aggregation and release evaluation | The round list and lookup, and every round endpoint |
 
 ### Limits of the GMA in this version
@@ -1640,11 +1645,16 @@ code: agents/gma/main.py
 classes:
 - FederatedRoundController (agents/common/application/federation.py)
 - InMemorySiteRegistry (agents/common/application/federation.py)
+- HttpFederationEngine (agents/common/infrastructure/federation_http.py)
 endpoints:
 - PUT /federation/sites/{site_id}
 - PUT /api/v1/federation/sites/{site_id}
 - GET /federation/sites
 - GET /api/v1/federation/sites
+- PUT /federation/sites/{site_id}/address
+- PUT /api/v1/federation/sites/{site_id}/address
+- GET /federation/site-addresses
+- GET /api/v1/federation/site-addresses
 ```
 
 A **site enrolment** says that a site takes part in studies and what it offers:
@@ -1657,6 +1667,14 @@ caller sends: it does not ask the site or check the claims.
 `enrolled` defaults to false, so a site has to say that it takes part. A site
 stored with `enrolled: false` is listed and planned, but never selected, as
 store west shows in the examples.
+
+A **site address** is where the GMA sends a site's round jobs. The GMA reads
+the addresses in `GMA_FEDERATION_SITES` at start-up. A site that starts later
+can send its address while the GMA runs, if `GMA_FEDERATION_JOINABLE_SITES`
+lists it with that exact address. An address and an enrolment are separate:
+the planner selects a site only by its enrolment, and the engine reaches a
+selected site only by its address. A site needs both to take part in a
+dispatched round.
 
 ### Enrol a site
 
@@ -1689,6 +1707,49 @@ or not. It reads memory only and takes no `limit`.
 
 **Related.** [Enrol a site](#gma-put-api-v1-federation-sites-site-id),
 [the SiteRegistration object](#the-siteregistration-object).
+
+### Accept a site's address
+
+```api-endpoint
+PUT /api/v1/federation/sites/{site_id}/address
+```
+
+Accepts the address of a site that starts after the GMA, and from then on the
+GMA sends the site's round jobs there. The GMA accepts only the exact address
+listed for the site in `GMA_FEDERATION_JOINABLE_SITES`; a trailing `/` is
+ignored. It answers with the address and its `source`, `joined`. A site in
+`GMA_FEDERATION_SITES` sent with its own address answers `configured` and
+changes nothing. Sending a joined site again changes nothing either. The
+address is kept in memory, so after a restart the GMA needs it again. It does
+not enrol the site: [enrol it](#gma-put-api-v1-federation-sites-site-id) as
+well. No planner command runs and no Guard boundary is passed. There is no
+route that removes an address.
+
+**Errors.** `403` when this GMA runs rounds in its own process, so it accepts
+no address at run time (the example); when the site is not in
+`GMA_FEDERATION_JOINABLE_SITES`; and when the address differs from the site's
+entry there. The answer never repeats the listed address. `409` when the site
+is in `GMA_FEDERATION_SITES` with another address. `422` when `url` is missing,
+empty or longer than 2048 characters.
+
+**Related.** [List the site addresses](#gma-get-api-v1-federation-site-addresses),
+[the SiteAddress object](#the-siteaddress-object).
+
+### List the site addresses
+
+```api-endpoint
+GET /api/v1/federation/site-addresses
+```
+
+Returns the addresses the GMA uses, the configured ones first and then the
+joined ones, each sorted by site id, and the ids of the sites that may join.
+A GMA that runs rounds in its own process lists none (the example). It reads
+memory only.
+
+**Errors.** None of its own.
+
+**Related.** [Accept a site's address](#gma-put-api-v1-federation-sites-site-id-address),
+[the SiteAddressList object](#the-siteaddresslist-object).
 
 ## Federated rounds
 
@@ -2422,6 +2483,30 @@ The site or an operator declares it at
 it with each round's manifest: `enrolled`, `capabilities`,
 `feature_contract_version`, `approved_conditions` and `cohort_size` are
 eligibility checks, and `policy_version` is stored only.
+
+### The SiteAddress object
+
+```api-object
+class: agents.common.domain.federation.SiteAddress
+service: gma
+```
+
+Where the GMA sends one site's round jobs. It is returned by
+[accept a site's address](#gma-put-api-v1-federation-sites-site-id-address)
+and listed by [list the site addresses](#gma-get-api-v1-federation-site-addresses).
+An address does not enrol a site.
+
+### The SiteAddressList object
+
+```api-object
+class: agents.common.domain.federation.SiteAddressList
+service: gma
+example: gma list-site-addresses /response/body
+```
+
+The answer of [list the site addresses](#gma-get-api-v1-federation-site-addresses):
+every address in use and the sites that may join. Both lists are empty on a
+GMA that runs rounds in its own process.
 
 ### The RoundManifest object
 

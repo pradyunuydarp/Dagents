@@ -29,6 +29,7 @@ from agents.common.application.federation import (
 )
 from agents.common.domain.federation import SiteAddress, SiteAddressRefused
 from agents.common.infrastructure.federation_http import HttpFederationEngine
+from agents.gma import main as gma_main
 from agents.gma.config import Settings
 from agents.gma.di import build_federation_engine, build_round_controller
 from agents.tests.test_federation_http import FakeSiteWorker, failing_client, site_app
@@ -180,6 +181,116 @@ class SiteAttachTests(unittest.TestCase):
         self.assertEqual([job.round_id for job in site.offered], [manifest.round_id])
         self.assertEqual([job.round_id for job in site.executed], [manifest.round_id])
         self.assertIs(controller.engine, engine)
+
+
+class SiteAddressRouteTests(unittest.TestCase):
+    """The GMA's routes for site addresses, with its controller swapped for one built here."""
+
+    PATHS = {
+        "legacy": ("/federation/sites/{site_id}/address", "/federation/site-addresses"),
+        "v1": ("/api/v1/federation/sites/{site_id}/address", "/api/v1/federation/site-addresses"),
+    }
+
+    def setUp(self) -> None:
+        self.client = TestClient(gma_main.app)
+        self.use(build_engine())
+
+    def use(self, engine) -> None:
+        patcher = mock.patch.object(gma_main, "rounds", FederatedRoundController(engine))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def put(self, site_id: str, url, *, form: str = "v1") -> httpx.Response:
+        body = {} if url is None else {"url": url}
+        return self.client.put(self.PATHS[form][0].format(site_id=site_id), json=body)
+
+    def listed(self, form: str = "v1") -> dict:
+        response = self.client.get(self.PATHS[form][1])
+        self.assertEqual(response.status_code, 200)
+        return response.json()
+
+    def test_a_joinable_site_joins(self) -> None:
+        with self.assertLogs("agents.gma.main", level="INFO") as logs:
+            response = self.put("site-c", "http://lma-c.internal:8084/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"site_id": "site-c", "url": "http://lma-c.internal:8084", "source": "joined"})
+        self.assertIn("site-c", logs.output[0])
+        self.assertEqual(self.put("site-c", "http://lma-c.internal:8084").json()["source"], "joined")
+
+    def test_a_configured_site_with_its_own_address_answers_configured(self) -> None:
+        response = self.put("site-a", "http://lma-a.internal:8082")
+        self.assertEqual((response.status_code, response.json()["source"]), (200, "configured"))
+
+    def test_a_site_that_is_not_joinable_gets_403(self) -> None:
+        with self.assertLogs("agents.gma.main", level="WARNING") as logs:
+            response = self.put("site-z", "http://lma-z.internal:8090")
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(
+            response.json(),
+            {"detail": "Site site-z is not in GMA_FEDERATION_JOINABLE_SITES, so this GMA does not accept an address for it."},
+        )
+        self.assertIn("site-z", logs.output[0])
+        self.assertIn("not_joinable", logs.output[0])
+
+    def test_another_address_gets_403_without_the_configured_one(self) -> None:
+        response = self.put("site-c", "http://attacker.internal:8084")
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(
+            response.json(),
+            {"detail": "This GMA accepts site site-c only at the address in GMA_FEDERATION_JOINABLE_SITES."},
+        )
+        self.assertNotIn("lma-c.internal", response.text)
+
+    def test_a_configured_site_at_another_address_gets_409(self) -> None:
+        response = self.put("site-a", "http://elsewhere.internal:8082")
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(
+            response.json(), {"detail": "Site site-a is configured in GMA_FEDERATION_SITES with another address."}
+        )
+        self.assertNotIn("lma-a.internal", response.text)
+
+    def test_a_missing_empty_or_too_long_url_gets_422(self) -> None:
+        for url in (None, "", "http://x/" + "a" * 2048):
+            with self.subTest(url=None if url is None else url[:20]):
+                self.assertEqual(self.put("site-c", url).status_code, 422)
+        self.assertEqual(self.listed()["addresses"][-1]["site_id"], "site-b")
+
+    def test_the_list_shows_configured_then_joined_and_the_joinable_ids(self) -> None:
+        self.put("site-d", "http://lma-d.internal:8085")
+        self.assertEqual(
+            self.listed(),
+            {
+                "joinable": ["site-c", "site-d"],
+                "addresses": [
+                    {"site_id": "site-a", "url": "http://lma-a.internal:8082", "source": "configured"},
+                    {"site_id": "site-b", "url": "http://lma-b.internal:8083", "source": "configured"},
+                    {"site_id": "site-d", "url": "http://lma-d.internal:8085", "source": "joined"},
+                ],
+            },
+        )
+
+    def test_a_gma_that_runs_rounds_in_process_accepts_no_address(self) -> None:
+        self.use(InProcessFederationEngine())
+        self.assertEqual(self.listed(), {"joinable": [], "addresses": []})
+        response = self.put("site-c", "http://lma-c.internal:8084")
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(
+            response.json(),
+            {"detail": "This GMA does not accept site addresses at run time. GMA_FEDERATION_JOINABLE_SITES is empty."},
+        )
+
+    def test_the_legacy_and_versioned_paths_answer_the_same(self) -> None:
+        for site_id, url in (
+            ("site-c", "http://lma-c.internal:8084"),
+            ("site-a", "http://lma-a.internal:8082"),
+            ("site-z", "http://lma-z.internal:8090"),
+            ("site-a", "http://elsewhere.internal:1"),
+        ):
+            with self.subTest(site_id=site_id, url=url):
+                legacy = self.put(site_id, url, form="legacy")
+                versioned = self.put(site_id, url, form="v1")
+                self.assertEqual((legacy.status_code, legacy.json()), (versioned.status_code, versioned.json()))
+        self.assertEqual(self.listed("legacy"), self.listed("v1"))
 
 
 class GmaConfigTests(unittest.TestCase):

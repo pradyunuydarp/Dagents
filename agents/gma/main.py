@@ -1,10 +1,12 @@
 """FastAPI entrypoint for the Global Monitoring Agent."""
 
+import logging
 from typing import Annotated, Any
 
 from fastapi import FastAPI, HTTPException, Path, Query
 from pydantic import BaseModel, Field, TypeAdapter
 
+from agents.common.application.federation import SiteAddressBook
 from agents.common.domain.federation import (
     AggregationReadiness,
     CandidateModel,
@@ -13,6 +15,11 @@ from agents.common.domain.federation import (
     RoundManifest,
     RoundPlan,
     RoundRecord,
+    SiteAddress,
+    SiteAddressList,
+    SiteAddressRefusalReason,
+    SiteAddressRefused,
+    SiteAddressRequest,
     SiteRegistration,
     SiteResult,
 )
@@ -57,6 +64,8 @@ from agents.gma.domain.models import (
     TelemetrySummary,
 )
 
+
+logger = logging.getLogger(__name__)
 
 service = build_aggregation_service()
 governance = build_governance_service()
@@ -615,6 +624,90 @@ def list_sites():
 def list_sites_v1():
     """Versioned alias for listing enrolled sites."""
     return list_sites()
+
+
+_ADDRESS_SITE_ID = Path(
+    description=(
+        "The id of the site whose address is offered: a site in `GMA_FEDERATION_JOINABLE_SITES`, or a site in "
+        "`GMA_FEDERATION_SITES` with the same address."
+    )
+)
+_ADDRESS_RESPONSES: dict[int | str, dict[str, Any]] = {
+    200: {"model": SiteAddress, "description": "The address the GMA uses for the site from now on."},
+    403: {
+        "model": ErrorDetail,
+        "description": (
+            "This GMA accepts no address at run time, the site is not in `GMA_FEDERATION_JOINABLE_SITES`, or the "
+            "address differs from the site's entry there."
+        ),
+    },
+    409: {"model": ErrorDetail, "description": "The site is in `GMA_FEDERATION_SITES` with another address."},
+}
+_NO_ADDRESS_BOOK = "This GMA does not accept site addresses at run time. GMA_FEDERATION_JOINABLE_SITES is empty."
+#: The answer to each refusal. The texts never repeat a configured address.
+_ADDRESS_REFUSALS: dict[SiteAddressRefusalReason, tuple[int, str]] = {
+    "not_joinable": (
+        403,
+        "Site {site_id} is not in GMA_FEDERATION_JOINABLE_SITES, so this GMA does not accept an address for it.",
+    ),
+    "address_differs": (403, "This GMA accepts site {site_id} only at the address in GMA_FEDERATION_JOINABLE_SITES."),
+    "configured_elsewhere": (409, "Site {site_id} is configured in GMA_FEDERATION_SITES with another address."),
+}
+
+
+@app.put("/federation/sites/{site_id}/address", responses=_ADDRESS_RESPONSES)
+def register_site_address(site_id: Annotated[str, _ADDRESS_SITE_ID], body: SiteAddressRequest):
+    """Accept the address of a site that joins while the GMA runs.
+
+    The GMA accepts only the exact address listed for the site in
+    `GMA_FEDERATION_JOINABLE_SITES` (a trailing `/` is ignored), and from then
+    on sends the site's round jobs there. Sending it again changes nothing.
+    The address is kept in memory, so a restarted GMA needs it again. It does
+    not enrol the site. No planner command runs.
+    """
+    engine = rounds.engine
+    if not isinstance(engine, SiteAddressBook):
+        logger.warning("refused an address for site %s: this GMA accepts no address at run time", site_id)
+        raise HTTPException(status_code=403, detail=_NO_ADDRESS_BOOK)
+    try:
+        address = engine.attach_site(site_id, body.url)
+    except SiteAddressRefused as refused:
+        logger.warning("refused an address for site %s: %s", site_id, refused.reason)
+        status_code, detail = _ADDRESS_REFUSALS[refused.reason]
+        raise HTTPException(status_code=status_code, detail=detail.format(site_id=site_id)) from None
+    logger.info("accepted the address of site %s (%s)", site_id, address.source)
+    return address
+
+
+@app.put("/api/v1/federation/sites/{site_id}/address", responses=_ADDRESS_RESPONSES)
+def register_site_address_v1(site_id: Annotated[str, _ADDRESS_SITE_ID], body: SiteAddressRequest):
+    """Versioned alias for accepting a site's address."""
+    return register_site_address(site_id, body)
+
+
+@app.get(
+    "/federation/site-addresses",
+    responses={200: {"model": SiteAddressList, "description": "The addresses in use and the joinable sites."}},
+)
+def list_site_addresses():
+    """List the site addresses the GMA uses and the sites that may join.
+
+    Configured addresses come first, then joined ones, each sorted by site id.
+    A GMA that runs rounds in its own process lists none. It reads memory only.
+    """
+    engine = rounds.engine
+    if not isinstance(engine, SiteAddressBook):
+        return SiteAddressList(joinable=[], addresses=[])
+    return engine.addresses()
+
+
+@app.get(
+    "/api/v1/federation/site-addresses",
+    responses={200: {"model": SiteAddressList, "description": "The addresses in use and the joinable sites."}},
+)
+def list_site_addresses_v1():
+    """Versioned alias for listing site addresses."""
+    return list_site_addresses()
 
 
 @app.post("/federation/rounds:plan", responses={200: {"model": RoundPlan}, 500: _PLANNER_FAILED})

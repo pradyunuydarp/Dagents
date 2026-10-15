@@ -10,7 +10,7 @@ their Spring controllers. Regenerate with:
 .venv/bin/python scripts/service_inventory.py --write
 ```
 
-**179 endpoints across 9 services.**
+**183 endpoints across 9 services.**
 
 Ports come from `env/`; never hardcode them — each service has distinct
 `*_PUBLIC_URL` (host) and `*_INTERNAL_URL` (compose network) values.
@@ -20,7 +20,7 @@ Ports come from `env/`; never hardcode them — each service has distinct
 | Service | Language | Role | Port | Endpoints |
 |---|---|---|---|---|
 | [`core-service`](#core-service) | python | framework-service | 8040 | 7 |
-| [`gma`](#gma) | python | agent | 8020 | 63 |
+| [`gma`](#gma) | python | agent | 8020 | 67 |
 | [`healthcare-demo-backend`](#healthcare-demo-backend) | python | demo-app | 8080 | 27 |
 | [`lma`](#lma) | python | agent | 8010 | 29 |
 | [`model-service`](#model-service) | python | framework-service | 8000 | 14 |
@@ -45,7 +45,7 @@ Ports come from `env/`; never hardcode them — each service has distinct
 
 ## gma
 
-`python` · `fastapi` · port `8020` · 63 endpoints
+`python` · `fastapi` · port `8020` · 67 endpoints
 
 | Method | Path | Handler | Notes |
 |---|---|---|---|
@@ -67,8 +67,10 @@ Ports come from `env/`; never hardcode them — each service has distinct
 | POST | `/api/v1/federation/rounds/{round_id}:aggregate` | `aggregate_round_v1` | versioned alias of `POST /federation/rounds/{round_id}:aggregate`; Versioned alias for candidate aggregation |
 | POST | `/api/v1/federation/rounds/{round_id}:evaluate-release` | `evaluate_release_v1` | versioned alias of `POST /federation/rounds/{round_id}:evaluate-release`; Versioned alias for release evaluation |
 | POST | `/api/v1/federation/rounds:plan` | `plan_round_v1` | versioned alias of `POST /federation/rounds:plan`; Versioned alias for round planning |
+| GET | `/api/v1/federation/site-addresses` | `list_site_addresses_v1` | versioned alias of `GET /federation/site-addresses`; Versioned alias for listing site addresses |
 | GET | `/api/v1/federation/sites` | `list_sites_v1` | versioned alias of `GET /federation/sites`; Versioned alias for listing enrolled sites |
 | PUT | `/api/v1/federation/sites/{site_id}` | `register_site_v1` | versioned alias of `PUT /federation/sites/{site_id}`; Versioned alias for site enrolment |
+| PUT | `/api/v1/federation/sites/{site_id}/address` | `register_site_address_v1` | versioned alias of `PUT /federation/sites/{site_id}/address`; Versioned alias for accepting a site's address |
 | GET | `/api/v1/governance/audit` | `governance_audit_v1` | versioned alias of `GET /governance/audit`; Versioned alias for the guard audit log |
 | GET | `/api/v1/governance/classifications` | `list_classifications_v1` | versioned alias of `GET /governance/classifications`; Versioned alias for listing data classifications |
 | PUT | `/api/v1/governance/classifications/{classification_id}` | `register_classification_v1` | versioned alias of `PUT /governance/classifications/{classification_id}`; Versioned alias for registering a data classification |
@@ -94,8 +96,10 @@ Ports come from `env/`; never hardcode them — each service has distinct
 | POST | `/federation/rounds/{round_id}:aggregate` | `aggregate_round` | Produce a candidate model, if and only if aggregation is permitted |
 | POST | `/federation/rounds/{round_id}:evaluate-release` | `evaluate_release` | Evaluate release gates against a candidate and record the verdict |
 | POST | `/federation/rounds:plan` | `plan_round` | Select the sites eligible for a round, without dispatching it |
+| GET | `/federation/site-addresses` | `list_site_addresses` | List the site addresses the GMA uses and the sites that may join |
 | GET | `/federation/sites` | `list_sites` | List enrolled sites |
 | PUT | `/federation/sites/{site_id}` | `register_site` | Enrol or update one site in the consortium |
+| PUT | `/federation/sites/{site_id}/address` | `register_site_address` | Accept the address of a site that joins while the GMA runs |
 | GET | `/governance/audit` | `governance_audit` | List recent guard decisions and whether the digest chain still verifies |
 | GET | `/governance/classifications` | `list_classifications` | List the data classifications this agent can enforce against |
 | PUT | `/governance/classifications/{classification_id}` | `register_classification` | Register or replace one runtime data classification |

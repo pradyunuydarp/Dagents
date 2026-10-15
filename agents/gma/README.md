@@ -60,12 +60,22 @@ service per hospital.
 ### Sites that join while the GMA runs
 
 A site listed in `GMA_FEDERATION_JOINABLE_SITES` has no worker at start-up.
-`HttpFederationEngine.attach_site(site_id, url)` gives it one. The engine
+It gets one when its address arrives:
+
+| Method and path | What it does |
+|---|---|
+| `PUT /api/v1/federation/sites/{site_id}/address` (and `/federation/sites/{site_id}/address`) | Accepts the address in the body, `{"url": "..."}`, and answers with a `SiteAddress` |
+| `GET /api/v1/federation/site-addresses` (and `/federation/site-addresses`) | Lists the configured addresses, then the joined ones, and the joinable ids |
+
+The route calls `HttpFederationEngine.attach_site(site_id, url)`. The engine
 accepts the address only when it equals the site's entry; a trailing `/` is
-ignored. It refuses a site that is not listed (`not_joinable`), an address
-that differs from the entry (`address_differs`), and a configured site with
-another address (`configured_elsewhere`). Attaching the same site again
-builds no second worker.
+ignored. It refuses a site that is not listed (`not_joinable`, 403), an
+address that differs from the entry (`address_differs`, 403), and a configured
+site with another address (`configured_elsewhere`, 409). The answer never
+repeats the listed address. Sending the same site again builds no second
+worker. A GMA with neither variable set runs rounds in its own process: it
+lists no address and answers 403 to every address. There is no route that
+removes an address.
 
 A joined address lives in memory, so a restarted GMA forgets it and the caller
 sends it again. An address alone does not enrol a site: the planner selects a

@@ -87,10 +87,12 @@ details.
 
 A source that starts after the GMA can join it while it runs. List the source
 in `GMA_FEDERATION_JOINABLE_SITES`, in the same `site_id=url` format, with the
-one address it will use. The GMA accepts that exact address at run time and
-builds the source's worker then. It keeps the address in memory, so send it
-again after the GMA restarts. The address does not enrol the source: the
-source takes part in a round only after its enrolment arrives. The
+one address it will use. The source, or the program that starts it, sends that
+address to `PUT /api/v1/federation/sites/{site_id}/address` as
+`{"url": "..."}`. The GMA accepts only that exact address and builds the
+source's worker then. It keeps the address in memory, so send it again after
+the GMA restarts. The address does not enrol the source: the source takes part
+in a round only after its enrolment arrives. The
 [GMA README](../../agents/gma/README.md#sites-that-join-while-the-gma-runs)
 lists the rules.
 
