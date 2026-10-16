@@ -35,7 +35,7 @@ bindings/ocaml
 - extraction plans and partition strategies
 - pipeline definitions and compiled pipeline plans
 - dataset profiles and model route plans
-- Kubernetes workload specs and rendered workload plans
+- workload specs, their deployment targets (Kubernetes or Docker Compose), and rendered workload and Compose plans
 
 JSON codecs live beside the IR in `json_codec.ml` so the CLI and service wrappers use the same contract shape as library callers.
 
@@ -79,15 +79,50 @@ This keeps LMA and GMA model selection consistent after profiling.
 
 ### `manifest_compiler`
 
-`manifest_compiler` renders deterministic Kubernetes YAML from typed workload specs:
+`manifest_compiler` renders a typed workload spec for the target the spec names.
+`compile_for_target` matches `spec.target` once: `Kubernetes` goes to
+`compile_plan` and `Compose` goes to `compile_compose_plan`.
+
+For Kubernetes, it renders deterministic YAML for these objects:
 
 - `Deployment`
 - `Job`
 - `CronJob`
 - `Service`
 - `ConfigMap`
+- `ServiceAccount`
 
-Core service remains the public orchestration facade. The OCaml compiler is the deterministic manifest backend.
+For Docker Compose, it renders one Compose file:
+
+- **Placement.** `own` makes the file a whole project. `merge` makes a file
+  that is passed with `-f` after the files of a project that already runs, so a
+  new service can depend on a service listed in `existingServices`.
+- **Network.** Every service joins one network: one the file declares, or one
+  that exists already (`externalNetwork`).
+- **Kinds.** A `Deployment` becomes a service with `restart: unless-stopped`,
+  and a `Job` becomes one with `restart: "no"`. The other kinds have no Compose
+  equivalent.
+- **Ports.** A port without `hostPort` is reachable only on the network
+  (`expose`). A published port binds to `127.0.0.1` unless `hostIp` says
+  otherwise, because an LMA or a GMA started without tokens answers every
+  caller.
+- **Issues.** A spec that cannot become a Compose file still gives a plan. The
+  plan lists every issue, in a fixed order, and has no file. With
+  `--output json`, `dagentsc` exits with code 0. With YAML output it prints the
+  issues as comments and exits with code 3, because Docker Compose merges a
+  file of comments as nothing when it follows a project's own file. The issue
+  codes are in `compose_issue_code_and_value`.
+- **Quoting.** Every value a caller chose is written as a double-quoted YAML
+  scalar, and `$` is written as `$$` so Compose passes it to the container
+  instead of reading a variable. Control characters are escaped, including
+  U+0085, U+2028 and U+2029, which YAML would read as line breaks. Names are checked, then written double-quoted
+  too, because YAML reads a bare name such as `134`, `null` or `True` as a
+  number, null or a boolean, and Compose refuses such a key.
+
+The Kubernetes renderers ignore the Compose fields, and the Compose renderer
+ignores the Kubernetes-only fields such as `resources` and `namespace`. Neither
+renderer applies a file: Core service is the public orchestration facade, and
+the OCaml compiler is its deterministic manifest backend.
 
 ### `governance_compiler`
 
@@ -154,6 +189,7 @@ longer the released one.
 
 ```sh
 dagentsc manifest compile --input workload.json --output json
+dagentsc manifest compile --target compose --name lma-hospital-d --image ghcr.io/example/dagents-lma:0.1.0
 dagentsc pipeline compile --input pipeline.json --output json
 dagentsc model route --task anomaly_detection --output json
 dagentsc dataset profile --scope-id source-a --output json
@@ -263,6 +299,94 @@ and its answer:
     { "version": "returns-rule-1.0", "fromStatus": "released", "toStatus": "superseded" }
   ]
 }
+```
+
+A Compose workload spec that adds one hospital's LMA to a running Compose
+project (`dagentsc manifest compile --input -`). The example assumes a project
+that runs the services listed in `existingServices`, among them a GMA named
+`gma`, as the stroke demo's Compose file does. It also assumes an image that
+contains the Dagents LMA (`agents.lma.main:app`), and a settings file,
+`lma-hospital-d.env`, with the new LMA's other `LMA_*` settings and its tokens.
+The planner checks none of these assumptions: it sees only the names in
+`existingServices`, not the running project, the image or the file:
+
+```json
+{
+  "planId": "add-hospital-d",
+  "target": {
+    "kind": "compose",
+    "placement": "merge",
+    "network": "default",
+    "existingServices": ["postgres", "setup", "gma", "lma-uk-134", "lma-it-002", "lma-ch-245", "healthcare-demo-backend", "healthcare-demo-frontend"]
+  },
+  "components": [
+    {
+      "name": "lma-hospital-d",
+      "image": "dagents/healthcare-demo-backend:local",
+      "args": ["uvicorn", "agents.lma.main:app", "--host", "0.0.0.0", "--port", "8085"],
+      "envFiles": ["../../env/.env.shared", "lma-hospital-d.env"],
+      "env": [
+        {"name": "LMA_SITE_ID", "value": "hospital-d"},
+        {"name": "LMA_SITE_SOURCE", "value": "healthcare_site_store"},
+        {"name": "LMA_API_PORT", "value": "8085"}
+      ],
+      "ports": [{"name": "http", "containerPort": 8085, "hostPort": 8085}],
+      "healthCheck": {"command": ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8085/api/v1/health')"]},
+      "dependsOn": [{"service": "gma", "condition": "service_healthy"}]
+    }
+  ]
+}
+```
+
+The Compose file it prints:
+
+```yaml
+services:
+  "lma-hospital-d":
+    image: "dagents/healthcare-demo-backend:local"
+    command: ["uvicorn", "agents.lma.main:app", "--host", "0.0.0.0", "--port", "8085"]
+    env_file:
+      - "../../env/.env.shared"
+      - "lma-hospital-d.env"
+    environment:
+      "LMA_SITE_ID": "hospital-d"
+      "LMA_SITE_SOURCE": "healthcare_site_store"
+      "LMA_API_PORT": "8085"
+    ports:
+      - "127.0.0.1:8085:8085"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8085/api/v1/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    depends_on:
+      "gma":
+        condition: service_healthy
+    networks:
+      - "default"
+    restart: unless-stopped
+networks:
+  "default": {}
+```
+
+Saved as `generated.yml`, it starts inside the running project with the
+project's name and the project's own Compose file first:
+
+```sh
+docker compose -p <project> -f <the project's file> -f generated.yml up -d lma-hospital-d
+```
+
+With a project that lacks a `gma` service, Docker Compose refuses the merged
+files (`service "lma-hospital-d" depends on undefined service "gma"`).
+
+Relative paths, such as the env files, resolve against the directory of the
+first file. With `"placement": "own"`, the same spec has one issue and no file,
+and `dagentsc` exits with code 3:
+
+```text
+# No Compose file: the spec has issues.
+# lma-hospital-d: dependency_outside_project gma
 ```
 
 Transform operations:

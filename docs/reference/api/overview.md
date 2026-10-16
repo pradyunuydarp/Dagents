@@ -16,7 +16,7 @@ interfaces, and each interface lists its endpoints.
 | Module | Services | Ports | What it is for |
 |---|---|---|---|
 | [Agents](agents.md) | LMA, GMA | 8010, 8020 | The LMA runs at each data source. The GMA coordinates the LMAs, runs federated rounds and decides releases. |
-| [Framework services](framework-services.md) | core-service, pipeline-service, model-service | 8040, 8030, 8000 | Service catalog and Kubernetes manifests; pipeline definitions and runs; model training, checks and jobs. |
+| [Framework services](framework-services.md) | core-service, pipeline-service, model-service | 8040, 8030, 8000 | Service catalog, Kubernetes manifests and Docker Compose files; pipeline definitions and runs; model training, checks and jobs. |
 | [Spring Boot services](spring-services.md) | spring-control-service, spring-core-service | 8050, 8060 | The agent control plane and the core APIs again, for applications on the JVM. |
 | [Demo apps](demo-apps.md) | healthcare-demo-backend, nl2sql-demo-backend | 8080, 8070 | Two applications that use the framework. They show how an application calls it and are not part of it. |
 | [dagentsc](dagentsc.md) | the planner program | none | The OCaml planners, run as a command that reads JSON and prints JSON. |

@@ -1,0 +1,80 @@
+{
+  "payload": {
+    "plan_id": "add-hospital-d",
+    "target": {
+      "kind": "compose",
+      "placement": "merge",
+      "network": "default",
+      "existing_services": [
+        "postgres",
+        "setup",
+        "gma",
+        "lma-uk-134",
+        "lma-it-002",
+        "lma-ch-245",
+        "healthcare-demo-backend",
+        "healthcare-demo-frontend"
+      ]
+    },
+    "components": [
+      {
+        "name": "lma-hospital-d",
+        "image": "dagents/healthcare-demo-backend:local",
+        "args": [
+          "uvicorn",
+          "agents.lma.main:app",
+          "--host",
+          "0.0.0.0",
+          "--port",
+          "8085"
+        ],
+        "env_files": [
+          "../../env/.env.shared",
+          "lma-hospital-d.env"
+        ],
+        "env": [
+          {
+            "name": "LMA_SITE_ID",
+            "value": "hospital-d"
+          },
+          {
+            "name": "LMA_SITE_SOURCE",
+            "value": "healthcare_site_store"
+          },
+          {
+            "name": "LMA_API_PORT",
+            "value": "8085"
+          }
+        ],
+        "ports": [
+          {
+            "name": "http",
+            "container_port": 8085,
+            "host_port": 8085
+          }
+        ],
+        "health_check": {
+          "command": [
+            "python",
+            "-c",
+            "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8085/api/v1/health')"
+          ]
+        },
+        "depends_on": [
+          {
+            "service": "gma",
+            "condition": "service_healthy"
+          }
+        ]
+      }
+    ]
+  },
+  "expected": {
+    "plan_id": "add-hospital-d",
+    "services": [
+      "lma-hospital-d"
+    ],
+    "issues": [],
+    "compose_yaml": "services:\n  \"lma-hospital-d\":\n    image: \"dagents/healthcare-demo-backend:local\"\n    command: [\"uvicorn\", \"agents.lma.main:app\", \"--host\", \"0.0.0.0\", \"--port\", \"8085\"]\n    env_file:\n      - \"../../env/.env.shared\"\n      - \"lma-hospital-d.env\"\n    environment:\n      \"LMA_SITE_ID\": \"hospital-d\"\n      \"LMA_SITE_SOURCE\": \"healthcare_site_store\"\n      \"LMA_API_PORT\": \"8085\"\n    ports:\n      - \"127.0.0.1:8085:8085\"\n    healthcheck:\n      test: [\"CMD\", \"python\", \"-c\", \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8085/api/v1/health')\"]\n      interval: 30s\n      timeout: 5s\n      retries: 3\n      start_period: 10s\n    depends_on:\n      \"gma\":\n        condition: service_healthy\n    networks:\n      - \"default\"\n    restart: unless-stopped\nnetworks:\n  \"default\": {}"
+  }
+}

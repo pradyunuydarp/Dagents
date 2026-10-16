@@ -59,7 +59,7 @@ The planner modules:
 | `dataset_compiler` | Source validation, profiling, schema contracts, quality rules, transforms |
 | `pipeline_compiler` | Whether a pipeline is a valid DAG, and the order to run its steps |
 | `model_router` | Which model family suits a dataset and task |
-| `manifest_compiler` | Kubernetes YAML for a workload |
+| `manifest_compiler` | Kubernetes or Docker Compose YAML for a workload |
 | `governance_compiler` | What protection a request needs (Step 2) |
 | `federation_compiler` | Which sites may join a round, whether quorum is met, whether aggregation may run, and whether a candidate passes its release gates |
 

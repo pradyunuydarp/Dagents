@@ -44,7 +44,7 @@ const STATUS = [
   "The GMA can send each round's jobs to the LMAs over their HTTP APIs and combine training updates through a model kind the application contributes. It is not a secure-aggregation protocol: the GMA sees each site's clipped update. The in-process engine is a simulator for tests and the getting-started example.",
   "The LMA and GMA accept bearer tokens with fixed scopes. The framework services check no identity, so they belong on a private network.",
   "The stroke demo calls one LMA per hospital and a GMA only through their HTTP APIs. On the published demo, and locally by default, the agents run inside the demo's server and are called without a socket. With the network option of the local start script, in Docker Compose and in one CI test they run as separate processes, called by the same client code.",
-  "Kubernetes manifests are generated and tested, but are not yet deployed to a cluster in CI.",
+  "Kubernetes manifests and Docker Compose files are generated and tested, but CI deploys neither.",
   "The stroke demo's store and isolation tests run in CI against PostgreSQL 16. The tests that need the pagila sample database are skipped in CI."
 ];
 

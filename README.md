@@ -74,8 +74,8 @@ test checks that the two match.
 |---|---|
 | `agents/` | The LMA (one per data source) and GMA (coordinator) services |
 | `agents/common/extensions/` | The interface applications use to extend the framework |
-| `bindings/ocaml/` | The planners: validation, DAG planning, model routing, Kubernetes manifests, governance, federated rounds |
-| `services/core-service/` | Service catalog, topology, workload compilation, Kubernetes manifests |
+| `bindings/ocaml/` | The planners: validation, DAG planning, model routing, Kubernetes manifests and Docker Compose files, governance, federated rounds |
+| `services/core-service/` | Service catalog, topology, workload compilation, Kubernetes manifests and Docker Compose files |
 | `services/pipeline-service/` | Pipeline registry, validation and runs |
 | `services/model-service/` | Model training, checks and jobs |
 | `services/spring-services/` | Spring Boot versions of the control and core APIs |

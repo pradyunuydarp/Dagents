@@ -1,0 +1,25 @@
+{
+  "planId": "add-hospital-d",
+  "target": {
+    "kind": "compose",
+    "placement": "merge",
+    "network": "default",
+    "existingServices": ["postgres", "setup", "gma", "lma-uk-134", "lma-it-002", "lma-ch-245", "healthcare-demo-backend", "healthcare-demo-frontend"]
+  },
+  "components": [
+    {
+      "name": "lma-hospital-d",
+      "image": "dagents/healthcare-demo-backend:local",
+      "args": ["uvicorn", "agents.lma.main:app", "--host", "0.0.0.0", "--port", "8085"],
+      "envFiles": ["../../env/.env.shared", "lma-hospital-d.env"],
+      "env": [
+        {"name": "LMA_SITE_ID", "value": "hospital-d"},
+        {"name": "LMA_SITE_SOURCE", "value": "healthcare_site_store"},
+        {"name": "LMA_API_PORT", "value": "8085"}
+      ],
+      "ports": [{"name": "http", "containerPort": 8085, "hostPort": 8085}],
+      "healthCheck": {"command": ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8085/api/v1/health')"]},
+      "dependsOn": [{"service": "gma", "condition": "service_healthy"}]
+    }
+  ]
+}

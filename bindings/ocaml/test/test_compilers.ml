@@ -5,7 +5,7 @@
       schema validation, and transforms;
     - pipeline DAG validation and compilation;
     - model routing;
-    - manifest rendering;
+    - manifest rendering for Kubernetes and Docker Compose;
     - JSON codec round-trips.
 
     The tests intentionally avoid service or network dependencies so failures
@@ -35,6 +35,13 @@ let expect_invalid_argument message thunk =
     failwith message
   with
   | Invalid_argument _ -> ()
+
+(** Assert that two texts are equal, printing both when they differ. *)
+let assert_equal_text message expected actual =
+  if expected <> actual then begin
+    Printf.eprintf "%s\n--- expected ---\n%s\n--- actual ---\n%s\n--- end ---\n%!" message expected actual;
+    failwith message
+  end
 
 (** Verifies that profiling counts records, classifies numeric fields, and
     excludes the supervised label from inferred features. *)
@@ -319,66 +326,78 @@ let test_model_router () =
   assert_true "forecasting should use long running deployment"
     (plan.packaging_mode = LongRunningDeployment)
 
+(** A Deployment, a CronJob and a Service, with both spec-wide companion flags
+    on. Several manifest tests render it. *)
+let three_component_spec =
+  {
+    plan_id = "plan-1";
+    namespace = "dagents";
+    include_services = true;
+    include_config_maps = true;
+    target = Kubernetes;
+    components =
+      [
+        {
+          name = "core";
+          image = "ghcr.io/example/core:latest";
+          kind = Deployment;
+          replicas = 2;
+          schedule = None;
+          env = [ { name = "APP_ENV"; value = "cloud" } ];
+          ports = [ { port_name = "http"; container_port = 8060; publication = NotPublished } ];
+          args = [ "--server.port=8060" ];
+          resources = default_resources;
+          generated_resources = [];
+          service_account_name = None;
+          service_type = "ClusterIP";
+          config_map_data = [];
+          env_files = [];
+          health_check = None;
+          service_dependencies = [];
+        };
+        {
+          name = "reconciler";
+          image = "ghcr.io/example/reconciler:latest";
+          kind = CronJob;
+          replicas = 1;
+          schedule = Some "*/15 * * * *";
+          env = [ { name = "MODE"; value = "reconcile" } ];
+          ports = [];
+          args = [ "--sync" ];
+          resources = default_resources;
+          generated_resources = [];
+          service_account_name = None;
+          service_type = "ClusterIP";
+          config_map_data = [];
+          env_files = [];
+          health_check = None;
+          service_dependencies = [];
+        };
+        {
+          name = "edge-service";
+          image = "ghcr.io/example/edge:latest";
+          kind = Service;
+          replicas = 1;
+          schedule = None;
+          env = [];
+          ports = [ { port_name = "grpc"; container_port = 9090; publication = NotPublished } ];
+          args = [];
+          resources = default_resources;
+          generated_resources = [];
+          service_account_name = None;
+          service_type = "ClusterIP";
+          config_map_data = [];
+          env_files = [];
+          health_check = None;
+          service_dependencies = [];
+        };
+      ];
+  }
+
 (** Verifies manifest rendering for Deployment, CronJob, Service, ConfigMap,
     environment variables, command args, and plan metadata. *)
 let test_manifest_compiler_plan () =
-  let plan =
-    Dagents_manifest_compiler.compile_plan
-      {
-        plan_id = "plan-1";
-        namespace = "dagents";
-        include_services = true;
-        include_config_maps = true;
-        components =
-          [
-            {
-              name = "core";
-              image = "ghcr.io/example/core:latest";
-              kind = Deployment;
-              replicas = 2;
-              schedule = None;
-              env = [ { name = "APP_ENV"; value = "cloud" } ];
-              ports = [ { port_name = "http"; container_port = 8060 } ];
-              args = [ "--server.port=8060" ];
-              resources = default_resources;
-              generated_resources = [];
-              service_account_name = None;
-              service_type = "ClusterIP";
-              config_map_data = [];
-            };
-            {
-              name = "reconciler";
-              image = "ghcr.io/example/reconciler:latest";
-              kind = CronJob;
-              replicas = 1;
-              schedule = Some "*/15 * * * *";
-              env = [ { name = "MODE"; value = "reconcile" } ];
-              ports = [];
-              args = [ "--sync" ];
-              resources = default_resources;
-              generated_resources = [];
-              service_account_name = None;
-              service_type = "ClusterIP";
-              config_map_data = [];
-            };
-            {
-              name = "edge-service";
-              image = "ghcr.io/example/edge:latest";
-              kind = Service;
-              replicas = 1;
-              schedule = None;
-              env = [];
-              ports = [ { port_name = "grpc"; container_port = 9090 } ];
-              args = [];
-              resources = default_resources;
-              generated_resources = [];
-              service_account_name = None;
-              service_type = "ClusterIP";
-              config_map_data = [];
-            };
-          ];
-      }
-  in
+  let plan = Dagents_manifest_compiler.compile_plan three_component_spec in
   assert_true "manifest compiler should preserve plan id" (plan.plan_id = "plan-1");
   assert_true "manifest compiler should render deployment" (contains plan.combined_yaml "kind: Deployment");
   assert_true "manifest compiler should render cronjob" (contains plan.combined_yaml "kind: CronJob");
@@ -1448,13 +1467,16 @@ let test_manifest_per_component_resources () =
       replicas = 1;
       schedule = None;
       env = [];
-      ports = [ { port_name = "http"; container_port = 8080 } ];
+      ports = [ { port_name = "http"; container_port = 8080; publication = NotPublished } ];
       args = [];
       resources = default_resources;
       generated_resources = [ Service; ConfigMap; ServiceAccount ];
       service_account_name = None;
       service_type = "NodePort";
       config_map_data = [ ("router_mode", "edge") ];
+      env_files = [];
+      health_check = None;
+      service_dependencies = [];
     }
   in
   let plan =
@@ -1466,6 +1488,7 @@ let test_manifest_per_component_resources () =
         (* Both spec-wide flags off: everything below comes from the component. *)
         include_services = false;
         include_config_maps = false;
+        target = Kubernetes;
       }
   in
   let manifest = List.hd plan.manifests in
@@ -1497,13 +1520,16 @@ let test_manifest_does_not_duplicate_a_primary_object () =
       replicas = 1;
       schedule = None;
       env = [];
-      ports = [ { port_name = "http"; container_port = 8080 } ];
+      ports = [ { port_name = "http"; container_port = 8080; publication = NotPublished } ];
       args = [];
       resources = default_resources;
       generated_resources = [ Service ];
       service_account_name = None;
       service_type = "ClusterIP";
       config_map_data = [];
+      env_files = [];
+      health_check = None;
+      service_dependencies = [];
     }
   in
   let plan =
@@ -1514,12 +1540,1177 @@ let test_manifest_does_not_duplicate_a_primary_object () =
         components = [ component ];
         include_services = true;
         include_config_maps = false;
+        target = Kubernetes;
       }
   in
   let manifest = List.hd plan.manifests in
   assert_true "a Service component must not also carry a companion Service"
     (manifest.service_yaml = None);
   assert_true "the primary Service is still rendered" (contains manifest.deployment_yaml "kind: Service")
+
+(** One Job with arguments, environment, a port and a generated service
+    account, and no spec-wide companions. *)
+let job_spec =
+  {
+    plan_id = "job-1";
+    namespace = "batch";
+    include_services = false;
+    include_config_maps = false;
+    target = Kubernetes;
+    components =
+      [
+        {
+          name = "seed";
+          image = "ghcr.io/example/seed:1.0";
+          kind = Job;
+          replicas = 1;
+          schedule = None;
+          env = [ { name = "SEED_ROWS"; value = "400" } ];
+          ports = [ { port_name = "metrics"; container_port = 9100; publication = NotPublished } ];
+          args = [ "--once" ];
+          resources = default_resources;
+          generated_resources = [ ServiceAccount ];
+          service_account_name = None;
+          service_type = "ClusterIP";
+          config_map_data = [];
+          env_files = [];
+          health_check = None;
+          service_dependencies = [];
+        };
+      ];
+  }
+
+(** Verifies the exact Kubernetes YAML and JSON for two specs.
+
+    The text was captured before the Docker Compose target was added. Adding a
+    target must not change one byte of the Kubernetes output, and these
+    literals fail on any change. *)
+let test_manifest_kubernetes_output_is_pinned () =
+  let check name spec expected_yaml expected_json =
+    let plan = Dagents_manifest_compiler.compile_plan spec in
+    assert_equal_text (name ^ ": Kubernetes YAML changed") expected_yaml plan.combined_yaml;
+    (* Compared as JSON values, so the literal can be laid out for reading and
+       the printer's spacing does not matter; key order still does. *)
+    assert_equal_text (name ^ ": Kubernetes JSON changed")
+      (Yojson.Safe.to_string (Yojson.Safe.from_string expected_json))
+      (Yojson.Safe.to_string (Json_codec.yojson_of_workload_plan plan))
+  in
+  check "three components" three_component_spec
+    {|apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: core
+  namespace: dagents
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: core
+  template:
+    metadata:
+      labels:
+        app: core
+    spec:
+      containers:
+      - name: main
+        image: ghcr.io/example/core:latest
+        args:
+        - "--server.port=8060"
+        ports:
+        - name: http
+          containerPort: 8060
+        env:
+        - name: APP_ENV
+          value: "cloud"
+        resources:
+          requests:
+            cpu: 250m
+            memory: 256Mi
+          limits:
+            cpu: 1
+            memory: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: core
+  namespace: dagents
+spec:
+  type: ClusterIP
+  selector:
+    app: core
+  ports:
+  - name: http
+    port: 8060
+    targetPort: 8060
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: core-config
+  namespace: dagents
+data:
+  component-kind: "Deployment"
+  image: "ghcr.io/example/core:latest"
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: reconciler
+  namespace: dagents
+spec:
+  schedule: "*/15 * * * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+          - name: main
+            image: ghcr.io/example/reconciler:latest
+            args:
+            - "--sync"
+            env:
+            - name: MODE
+              value: "reconcile"
+            resources:
+              requests:
+                cpu: 250m
+                memory: 256Mi
+              limits:
+                cpu: 1
+                memory: 1Gi
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: reconciler-config
+  namespace: dagents
+data:
+  component-kind: "CronJob"
+  image: "ghcr.io/example/reconciler:latest"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: edge-service
+  namespace: dagents
+spec:
+  type: ClusterIP
+  selector:
+    app: edge-service
+  ports:
+  - name: grpc
+    port: 9090
+    targetPort: 9090
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: edge-service-config
+  namespace: dagents
+data:
+  component-kind: "Service"
+  image: "ghcr.io/example/edge:latest"|}
+    {|{
+  "planId": "plan-1",
+  "namespace": "dagents",
+  "manifests": [
+    {
+      "componentName": "core",
+      "kind": "Deployment",
+      "deploymentYaml": "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: core\n  namespace: dagents\nspec:\n  replicas: 2\n  selector:\n    matchLabels:\n      app: core\n  template:\n    metadata:\n      labels:\n        app: core\n    spec:\n      containers:\n      - name: main\n        image: ghcr.io/example/core:latest\n        args:\n        - \"--server.port=8060\"\n        ports:\n        - name: http\n          containerPort: 8060\n        env:\n        - name: APP_ENV\n          value: \"cloud\"\n        resources:\n          requests:\n            cpu: 250m\n            memory: 256Mi\n          limits:\n            cpu: 1\n            memory: 1Gi",
+      "serviceYaml": "apiVersion: v1\nkind: Service\nmetadata:\n  name: core\n  namespace: dagents\nspec:\n  type: ClusterIP\n  selector:\n    app: core\n  ports:\n  - name: http\n    port: 8060\n    targetPort: 8060",
+      "configMapYaml": "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: core-config\n  namespace: dagents\ndata:\n  component-kind: \"Deployment\"\n  image: \"ghcr.io/example/core:latest\"",
+      "serviceAccountYaml": null
+    },
+    {
+      "componentName": "reconciler",
+      "kind": "CronJob",
+      "deploymentYaml": "apiVersion: batch/v1\nkind: CronJob\nmetadata:\n  name: reconciler\n  namespace: dagents\nspec:\n  schedule: \"*/15 * * * *\"\n  jobTemplate:\n    spec:\n      template:\n        spec:\n          restartPolicy: Never\n          containers:\n          - name: main\n            image: ghcr.io/example/reconciler:latest\n            args:\n            - \"--sync\"\n            env:\n            - name: MODE\n              value: \"reconcile\"\n            resources:\n              requests:\n                cpu: 250m\n                memory: 256Mi\n              limits:\n                cpu: 1\n                memory: 1Gi",
+      "serviceYaml": null,
+      "configMapYaml": "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: reconciler-config\n  namespace: dagents\ndata:\n  component-kind: \"CronJob\"\n  image: \"ghcr.io/example/reconciler:latest\"",
+      "serviceAccountYaml": null
+    },
+    {
+      "componentName": "edge-service",
+      "kind": "Service",
+      "deploymentYaml": "apiVersion: v1\nkind: Service\nmetadata:\n  name: edge-service\n  namespace: dagents\nspec:\n  type: ClusterIP\n  selector:\n    app: edge-service\n  ports:\n  - name: grpc\n    port: 9090\n    targetPort: 9090",
+      "serviceYaml": null,
+      "configMapYaml": "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: edge-service-config\n  namespace: dagents\ndata:\n  component-kind: \"Service\"\n  image: \"ghcr.io/example/edge:latest\"",
+      "serviceAccountYaml": null
+    }
+  ],
+  "combinedYaml": "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: core\n  namespace: dagents\nspec:\n  replicas: 2\n  selector:\n    matchLabels:\n      app: core\n  template:\n    metadata:\n      labels:\n        app: core\n    spec:\n      containers:\n      - name: main\n        image: ghcr.io/example/core:latest\n        args:\n        - \"--server.port=8060\"\n        ports:\n        - name: http\n          containerPort: 8060\n        env:\n        - name: APP_ENV\n          value: \"cloud\"\n        resources:\n          requests:\n            cpu: 250m\n            memory: 256Mi\n          limits:\n            cpu: 1\n            memory: 1Gi\n---\napiVersion: v1\nkind: Service\nmetadata:\n  name: core\n  namespace: dagents\nspec:\n  type: ClusterIP\n  selector:\n    app: core\n  ports:\n  - name: http\n    port: 8060\n    targetPort: 8060\n---\napiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: core-config\n  namespace: dagents\ndata:\n  component-kind: \"Deployment\"\n  image: \"ghcr.io/example/core:latest\"\n---\napiVersion: batch/v1\nkind: CronJob\nmetadata:\n  name: reconciler\n  namespace: dagents\nspec:\n  schedule: \"*/15 * * * *\"\n  jobTemplate:\n    spec:\n      template:\n        spec:\n          restartPolicy: Never\n          containers:\n          - name: main\n            image: ghcr.io/example/reconciler:latest\n            args:\n            - \"--sync\"\n            env:\n            - name: MODE\n              value: \"reconcile\"\n            resources:\n              requests:\n                cpu: 250m\n                memory: 256Mi\n              limits:\n                cpu: 1\n                memory: 1Gi\n---\napiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: reconciler-config\n  namespace: dagents\ndata:\n  component-kind: \"CronJob\"\n  image: \"ghcr.io/example/reconciler:latest\"\n---\napiVersion: v1\nkind: Service\nmetadata:\n  name: edge-service\n  namespace: dagents\nspec:\n  type: ClusterIP\n  selector:\n    app: edge-service\n  ports:\n  - name: grpc\n    port: 9090\n    targetPort: 9090\n---\napiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: edge-service-config\n  namespace: dagents\ndata:\n  component-kind: \"Service\"\n  image: \"ghcr.io/example/edge:latest\""
+}|};
+  check "one job" job_spec
+    {|apiVersion: batch/v1
+kind: Job
+metadata:
+  name: seed
+  namespace: batch
+spec:
+  template:
+    spec:
+      restartPolicy: Never
+      serviceAccountName: seed
+      containers:
+      - name: main
+        image: ghcr.io/example/seed:1.0
+        args:
+        - "--once"
+        ports:
+        - name: metrics
+          containerPort: 9100
+        env:
+        - name: SEED_ROWS
+          value: "400"
+        resources:
+          requests:
+            cpu: 250m
+            memory: 256Mi
+          limits:
+            cpu: 1
+            memory: 1Gi
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: seed
+  namespace: batch|}
+    {|{
+  "planId": "job-1",
+  "namespace": "batch",
+  "manifests": [
+    {
+      "componentName": "seed",
+      "kind": "Job",
+      "deploymentYaml": "apiVersion: batch/v1\nkind: Job\nmetadata:\n  name: seed\n  namespace: batch\nspec:\n  template:\n    spec:\n      restartPolicy: Never\n      serviceAccountName: seed\n      containers:\n      - name: main\n        image: ghcr.io/example/seed:1.0\n        args:\n        - \"--once\"\n        ports:\n        - name: metrics\n          containerPort: 9100\n        env:\n        - name: SEED_ROWS\n          value: \"400\"\n        resources:\n          requests:\n            cpu: 250m\n            memory: 256Mi\n          limits:\n            cpu: 1\n            memory: 1Gi",
+      "serviceYaml": null,
+      "configMapYaml": null,
+      "serviceAccountYaml": "apiVersion: v1\nkind: ServiceAccount\nmetadata:\n  name: seed\n  namespace: batch"
+    }
+  ],
+  "combinedYaml": "apiVersion: batch/v1\nkind: Job\nmetadata:\n  name: seed\n  namespace: batch\nspec:\n  template:\n    spec:\n      restartPolicy: Never\n      serviceAccountName: seed\n      containers:\n      - name: main\n        image: ghcr.io/example/seed:1.0\n        args:\n        - \"--once\"\n        ports:\n        - name: metrics\n          containerPort: 9100\n        env:\n        - name: SEED_ROWS\n          value: \"400\"\n        resources:\n          requests:\n            cpu: 250m\n            memory: 256Mi\n          limits:\n            cpu: 1\n            memory: 1Gi\n---\napiVersion: v1\nkind: ServiceAccount\nmetadata:\n  name: seed\n  namespace: batch"
+}|}
+
+(** Parse a workload spec from JSON text, as [dagentsc manifest compile --input] does. *)
+let spec_of_json text = Json_codec.workload_spec_of_yojson (Yojson.Safe.from_string text)
+
+(** The first component of a spec parsed from JSON text. *)
+let component_of_json text = List.hd (spec_of_json text).components
+
+(** Verifies every form of the [target] key, the new component and port keys,
+    and the shape errors that stop a request before planning. *)
+let test_deployment_target_codec () =
+  let target_of text = (spec_of_json text).target in
+  let compose placement network existing =
+    Compose { compose_placement = placement; compose_network = network; existing_services = existing }
+  in
+  (* Every Kubernetes form, including a spec written before the target existed. *)
+  List.iter
+    (fun text -> assert_true ("should mean Kubernetes: " ^ text) (target_of text = Kubernetes))
+    [
+      {|{"components": []}|};
+      {|{"target": null}|};
+      {|{"target": "kubernetes"}|};
+      {|{"target": {"kind": "kubernetes"}}|};
+    ];
+  (* The Compose forms and their defaults. *)
+  List.iter
+    (fun text -> assert_true ("should mean the default Compose target: " ^ text) (target_of text = Compose default_compose_target))
+    [
+      {|{"target": "compose"}|};
+      {|{"target": {"kind": "compose"}}|};
+      {|{"target": {"kind": "compose", "placement": null, "network": null}}|};
+      {|{"target": {"kind": "compose", "placement": "own", "network": "default", "externalNetwork": false, "existingServices": []}}|};
+    ];
+  assert_true "default_compose_target is its own project on the default network"
+    (default_compose_target
+    = { compose_placement = OwnProject; compose_network = ProjectNetwork "default"; existing_services = [] });
+  assert_true "every Compose key should be read"
+    (target_of
+       {|{"target": {"kind": "compose", "placement": "merge", "network": "healthcare-demo_default", "externalNetwork": true, "existingServices": ["gma", "lma-uk-134"]}}|}
+    = compose MergedProject (ExternalNetwork "healthcare-demo_default") [ "gma"; "lma-uk-134" ]);
+  assert_true "a network that is not external should be declared by the file"
+    (target_of {|{"target": {"kind": "compose", "network": "dagents"}}|}
+    = compose OwnProject (ProjectNetwork "dagents") []);
+  (* The object form round-trips, and always carries all five keys in order. *)
+  List.iter
+    (fun target ->
+      let json = Json_codec.yojson_of_deployment_target target in
+      assert_true "a deployment target should read back unchanged"
+        (Json_codec.deployment_target_of_yojson json = target))
+    [
+      Kubernetes;
+      Compose default_compose_target;
+      compose MergedProject (ExternalNetwork "shared") [ "gma"; "core" ];
+      compose OwnProject (ProjectNetwork "dagents") [ "gma" ];
+    ];
+  (match Json_codec.yojson_of_deployment_target (Compose default_compose_target) with
+  | `Assoc fields ->
+      assert_true "the Compose object form should list every key in a fixed order"
+        (List.map fst fields = [ "kind"; "placement"; "network"; "externalNetwork"; "existingServices" ])
+  | _ -> failwith "expected a deployment target object");
+  assert_true "Kubernetes in object form is only its kind"
+    (Json_codec.yojson_of_deployment_target Kubernetes = `Assoc [ ("kind", `String "kubernetes") ]);
+  (* Ports: hostPort decides publication; hostIp is read only with it. *)
+  let ports_of text = (component_of_json text).ports |> List.map (fun p -> p.publication) in
+  assert_true "port publication keys should parse"
+    (ports_of
+       {|{"components": [{"name": "a", "image": "x", "ports": [
+           {"containerPort": 8080},
+           {"containerPort": 8081, "hostPort": null},
+           {"containerPort": 8082, "hostIp": "0.0.0.0"},
+           {"containerPort": 8083, "hostPort": 9083},
+           {"containerPort": 8084, "hostPort": 9084, "hostIp": "0.0.0.0"},
+           {"containerPort": 8085, "hostPort": 9085, "hostIp": null}]}]}|}
+    = [
+        NotPublished;
+        NotPublished;
+        NotPublished;
+        PublishedOn { host_ip = "127.0.0.1"; host_port = 9083 };
+        PublishedOn { host_ip = "0.0.0.0"; host_port = 9084 };
+        PublishedOn { host_ip = "127.0.0.1"; host_port = 9085 };
+      ]);
+  (* Components: env files, health check and dependencies, with their defaults. *)
+  let plain = component_of_json {|{"components": [{"name": "a", "image": "x"}]}|} in
+  assert_true "a component without the Compose keys should get empty defaults"
+    (plain.env_files = [] && plain.health_check = None && plain.service_dependencies = []);
+  let nulls =
+    component_of_json {|{"components": [{"name": "a", "image": "x", "healthCheck": null, "dependsOn": null}]}|}
+  in
+  assert_true "null healthCheck and dependsOn should mean none"
+    (nulls.health_check = None && nulls.service_dependencies = []);
+  let full =
+    component_of_json
+      {|{"components": [{"name": "a", "image": "x",
+          "envFiles": ["../../env/.env.shared", "env/site.env"],
+          "healthCheck": {"shell": "true", "command": null},
+          "dependsOn": [
+            {"service": "b"},
+            {"service": "c", "condition": null},
+            {"service": "d", "condition": "service_started"},
+            {"service": "e", "condition": "service_healthy"},
+            {"service": "f", "condition": "service_completed_successfully"}]}]}|}
+  in
+  assert_true "envFiles should keep their order" (full.env_files = [ "../../env/.env.shared"; "env/site.env" ]);
+  assert_true "a null command should count as absent"
+    (match full.health_check with Some { health_test = ShellTest "true"; _ } -> true | _ -> false);
+  assert_true "dependency conditions should parse, defaulting to service_started"
+    (List.map (fun d -> (d.dependency_service, d.dependency_condition)) full.service_dependencies
+    = [
+        ("b", ServiceStarted);
+        ("c", ServiceStarted);
+        ("d", ServiceStarted);
+        ("e", ServiceHealthy);
+        ("f", ServiceCompletedSuccessfully);
+      ]);
+  List.iter
+    (fun condition ->
+      assert_true "a dependency condition should read back from its word"
+        (dependency_condition_of_string (string_of_dependency_condition condition) = condition))
+    [ ServiceStarted; ServiceHealthy; ServiceCompletedSuccessfully ];
+  (* Shape errors: no plan can be made, so the codec raises. *)
+  List.iter
+    (fun text -> expect_invalid_argument ("should be refused: " ^ text) (fun () -> spec_of_json text))
+    [
+      {|{"target": "helm"}|};
+      {|{"target": {"kind": "helm"}}|};
+      {|{"target": {"placement": "own"}}|};
+      {|{"target": {"kind": "compose", "placement": "stack"}}|};
+      {|{"target": 3}|};
+      {|{"target": ["compose"]}|};
+      {|{"components": [{"name": "a", "image": "x", "dependsOn": [{"service": "b", "condition": "started"}]}]}|};
+      {|{"components": [{"name": "a", "image": "x", "dependsOn": [{"condition": "service_started"}]}]}|};
+      {|{"components": [{"name": "a", "image": "x", "dependsOn": {"service": "b"}}]}|};
+      {|{"components": [{"name": "a", "image": "x", "healthCheck": {"command": ["true"], "shell": "true"}}]}|};
+      {|{"components": [{"name": "a", "image": "x", "healthCheck": {"intervalSeconds": 5}}]}|};
+      {|{"components": [{"name": "a", "image": "x", "healthCheck": {"command": null, "shell": null}}]}|};
+      {|{"components": [{"name": "a", "image": "x", "healthCheck": "true"}]}|};
+      {|{"components": [{"name": "a", "image": "x", "ports": [{"containerPort": 80, "hostPort": "80"}]}]}|};
+    ]
+
+(** Verifies that a Compose spec with a string that is not UTF-8 is refused
+    before planning, wherever the string is, and that a Kubernetes spec is
+    read as before. Yojson reads an escaped lone low surrogate as bytes that
+    are not UTF-8 and refuses an escaped lone high surrogate itself. *)
+let test_compose_codec_refuses_text_that_is_not_utf_8 () =
+  let compose_spec component = Printf.sprintf {|{"target": "compose", "components": [%s]}|} component in
+  List.iter
+    (fun text ->
+      expect_invalid_argument ("should be refused: " ^ String.escaped text) (fun () -> spec_of_json text))
+    [
+      compose_spec {|{"name": "a", "image": "\udc80"}|};
+      compose_spec "{\"name\": \"a\", \"image\": \"x\255y\"}";
+      compose_spec {|{"name": "a", "image": "x", "env": [{"name": "V", "value": "a\udfffb"}]}|};
+      compose_spec {|{"name": "a", "image": "x", "args": ["ok", "\udc80"]}|};
+      compose_spec {|{"name": "a", "image": "x", "dependsOn": [{"service": "\udc80"}]}|};
+      compose_spec "{\"name\": \"a\", \"image\": \"x\", \"x\192\": 1}";
+      {|{"target": {"kind": "compose", "existingServices": ["\udc80"]}, "components": [{"name": "a", "image": "x"}]}|};
+      {|{"planId": "\udc80", "target": "compose", "components": [{"name": "a", "image": "x"}]}|};
+    ];
+  (try
+     ignore (spec_of_json (compose_spec {|{"name": "a", "image": "\ud800"}|}));
+     failwith "an escaped lone high surrogate should be refused"
+   with Yojson.Json_error _ -> ());
+  assert_true "valid UTF-8 and escaped surrogate pairs should be read"
+    ((component_of_json (compose_spec {|{"name": "a", "image": "z\u00fcrich \ud83d\ude00 \u2028"}|})).image
+    = "z\195\188rich \240\159\152\128 \226\128\168");
+  assert_true "the UTF-8 check should apply to Compose specs only"
+    ((component_of_json {|{"components": [{"name": "a", "image": "\udc80"}]}|}).image = "\237\178\128")
+
+(** Verifies how caller values are quoted in a Compose file: YAML escapes,
+    [$] doubled so Compose does not read a variable, the line breaks YAML
+    would fold and the characters Compose refuses escaped, other UTF-8
+    copied, and a byte that is not UTF-8 replaced. *)
+let test_compose_quoting () =
+  List.iter
+    (fun (input, expected) ->
+      assert_equal_text ("quote_compose_scalar " ^ String.escaped input) expected
+        (Dagents_manifest_compiler.quote_compose_scalar input))
+    [
+      ("", {|""|});
+      ("plain", {|"plain"|});
+      ({|C:\path|}, {|"C:\\path"|});
+      ({|say "hi"|}, {|"say \"hi\""|});
+      ("$HOME and ${VAR} and $$", {|"$$HOME and $${VAR} and $$$$"|});
+      ("line1\nline2", {|"line1\nline2"|});
+      ("tab\there", {|"tab\there"|});
+      ("cr\rx", {|"cr\rx"|});
+      ("nul\000x", {|"nul\x00x"|});
+      ("bell\001", {|"bell\x01"|});
+      ("esc\027", {|"esc\x1B"|});
+      ("unit\031", {|"unit\x1F"|});
+      ("del\127", {|"del\x7F"|});
+      ("z\195\188rich", "\"z\195\188rich\"");
+      ("space and: colon # hash", {|"space and: colon # hash"|});
+      ("nel\194\133x", {|"nel\Nx"|});
+      ("ls\226\128\168x", {|"ls\Lx"|});
+      ("ps\226\128\169x", {|"ps\Px"|});
+      ("c1\194\128\194\159", {|"c1\x80\x9F"|});
+      ("nbsp\194\160", "\"nbsp\194\160\"");
+      ("nonchar\239\191\190\239\191\191", {|"nonchar\uFFFE\uFFFF"|});
+      ("replacement\239\191\189", "\"replacement\239\191\189\"");
+      ("emoji\240\159\152\128", "\"emoji\240\159\152\128\"");
+      ("bad\255x", {|"bad\uFFFDx"|});
+    ]
+
+(** Compile a spec through {!Dagents_manifest_compiler.compile_for_target}
+    and return its Compose plan. *)
+let compose_plan_of_spec spec =
+  match Dagents_manifest_compiler.compile_for_target spec with
+  | ComposePlan plan -> plan
+  | KubernetesPlan _ -> failwith "expected a Compose plan"
+
+(** The Compose plan for a spec given as JSON text. *)
+let compose_plan_of_json text = compose_plan_of_spec (spec_of_json text)
+
+(** A Compose plan's issues as (service, code, value), as JSON shows them. *)
+let issue_triples (plan : compose_plan) =
+  List.map
+    (fun issue ->
+      let code, value = compose_issue_code_and_value issue.issue_reason in
+      (issue.issue_service, code, value))
+    plan.compose_issues
+
+(** The issue codes of one service, in order. *)
+let issue_codes_of service (plan : compose_plan) =
+  List.filter_map (fun (s, code, _) -> if s = Some service then Some code else None) (issue_triples plan)
+
+(** The Compose file for a spec given as JSON text; fails with the issues if
+    there is no file. *)
+let compose_yaml_of_json text =
+  let plan = compose_plan_of_json text in
+  match plan.compose_yaml with
+  | Some yaml -> yaml
+  | None ->
+      failwith
+        ("expected a Compose file, got issues: "
+        ^ String.concat ", " (List.map (fun (_, code, _) -> code) (issue_triples plan)))
+
+(** One LMA merged into a running project with a GMA and three hospital
+    LMAs: the reference example of the Compose target, in camelCase as
+    dagentsc reads it. *)
+let lma_merge_json =
+  {|{
+  "planId": "add-hospital-d",
+  "target": {
+    "kind": "compose",
+    "placement": "merge",
+    "network": "default",
+    "existingServices": ["postgres", "setup", "gma", "lma-uk-134", "lma-it-002", "lma-ch-245", "healthcare-demo-backend", "healthcare-demo-frontend"]
+  },
+  "components": [
+    {
+      "name": "lma-hospital-d",
+      "image": "dagents/healthcare-demo-backend:local",
+      "args": ["uvicorn", "agents.lma.main:app", "--host", "0.0.0.0", "--port", "8085"],
+      "envFiles": ["../../env/.env.shared", "lma-hospital-d.env"],
+      "env": [
+        {"name": "LMA_SITE_ID", "value": "hospital-d"},
+        {"name": "LMA_SITE_SOURCE", "value": "healthcare_site_store"},
+        {"name": "LMA_API_PORT", "value": "8085"}
+      ],
+      "ports": [{"name": "http", "containerPort": 8085, "hostPort": 8085}],
+      "healthCheck": {"command": ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8085/api/v1/health')"]},
+      "dependsOn": [{"service": "gma", "condition": "service_healthy"}]
+    }
+  ]
+}|}
+
+(** The Compose file [lma_merge_json] renders, byte for byte. *)
+let lma_merge_yaml =
+  {|services:
+  "lma-hospital-d":
+    image: "dagents/healthcare-demo-backend:local"
+    command: ["uvicorn", "agents.lma.main:app", "--host", "0.0.0.0", "--port", "8085"]
+    env_file:
+      - "../../env/.env.shared"
+      - "lma-hospital-d.env"
+    environment:
+      "LMA_SITE_ID": "hospital-d"
+      "LMA_SITE_SOURCE": "healthcare_site_store"
+      "LMA_API_PORT": "8085"
+    ports:
+      - "127.0.0.1:8085:8085"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8085/api/v1/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    depends_on:
+      "gma":
+        condition: service_healthy
+    networks:
+      - "default"
+    restart: unless-stopped
+networks:
+  "default": {}|}
+
+(** Verifies the reference example: an LMA merged into a running project
+    renders byte for byte, [compile_for_target] dispatches on the target, and
+    the JSON form has a fixed key order with a null file when there are
+    issues. *)
+let test_compose_renders_an_lma_merged_into_a_project () =
+  let spec = spec_of_json lma_merge_json in
+  let plan = compose_plan_of_spec spec in
+  assert_true "the merged LMA should have no issues" (plan.compose_issues = []);
+  assert_true "the plan should keep its id" (plan.compose_plan_id = "add-hospital-d");
+  assert_true "the plan should name its one service" (plan.compose_service_names = [ "lma-hospital-d" ]);
+  assert_equal_text "the merged LMA's Compose file changed" lma_merge_yaml (Option.get plan.compose_yaml);
+  (match spec.target with
+  | Compose target ->
+      assert_true "compile_for_target should give compile_compose_plan's plan"
+        (Dagents_manifest_compiler.compile_compose_plan target spec = plan)
+  | Kubernetes -> failwith "expected a Compose target");
+  assert_true "the same spec for Kubernetes should give compile_plan's plan"
+    (Dagents_manifest_compiler.compile_for_target { spec with target = Kubernetes }
+    = KubernetesPlan (Dagents_manifest_compiler.compile_plan spec));
+  (match Json_codec.yojson_of_compose_plan plan with
+  | `Assoc fields ->
+      assert_true "the Compose plan JSON should have a fixed key order"
+        (List.map fst fields = [ "planId"; "services"; "issues"; "composeYaml" ]);
+      assert_true "the Compose plan JSON should carry the file"
+        (List.assoc "composeYaml" fields = `String lma_merge_yaml && List.assoc "issues" fields = `List [])
+  | _ -> failwith "expected a Compose plan object");
+  (* The same spec as its own project cannot reach the running gma. *)
+  let own =
+    compose_plan_of_spec
+      {
+        spec with
+        target =
+          Compose
+            {
+              compose_placement = OwnProject;
+              compose_network = ProjectNetwork "default";
+              existing_services = [ "gma"; "lma-uk-134" ];
+            };
+      }
+  in
+  assert_true "an own project should report the dependency on the running gma"
+    (issue_triples own = [ (Some "lma-hospital-d", "dependency_outside_project", Some "gma") ]);
+  assert_true "a plan with issues should have no file" (own.compose_yaml = None);
+  assert_true "a plan with issues should still name its services" (own.compose_service_names = [ "lma-hospital-d" ]);
+  assert_true "the JSON of a plan with issues should hold the issue and a null file"
+    (Json_codec.yojson_of_compose_plan own
+    = `Assoc
+        [
+          ("planId", `String "add-hospital-d");
+          ("services", `List [ `String "lma-hospital-d" ]);
+          ( "issues",
+            `List
+              [
+                `Assoc
+                  [
+                    ("service", `String "lma-hospital-d");
+                    ("code", `String "dependency_outside_project");
+                    ("value", `String "gma");
+                  ];
+              ] );
+          ("composeYaml", `Null);
+        ])
+
+(** Verifies the kind rule: a Deployment is a service that restarts, a Job
+    runs once, and every other kind has no Compose equivalent. *)
+let test_compose_maps_every_workload_kind () =
+  let spec_for kind =
+    Printf.sprintf {|{"target": "compose", "components": [{"name": "a", "image": "x", "kind": "%s"}]}|} kind
+  in
+  assert_true "a Deployment should restart unless stopped"
+    (contains (compose_yaml_of_json (spec_for "Deployment")) "\n    restart: unless-stopped");
+  assert_true "a Job should not restart" (contains (compose_yaml_of_json (spec_for "Job")) "\n    restart: \"no\"");
+  List.iter
+    (fun kind ->
+      let plan = compose_plan_of_json (spec_for (string_of_workload_kind kind)) in
+      assert_true
+        ("a " ^ string_of_workload_kind kind ^ " should have no Compose equivalent")
+        (List.map (fun issue -> issue.issue_reason) plan.compose_issues = [ NoComposeEquivalent kind ]
+        && plan.compose_yaml = None))
+    [ CronJob; Service; ConfigMap; ServiceAccount ]
+
+(** Verifies health checks: none keeps the image's own, both command forms,
+    the codec's timing defaults, and the two health check issues. A duration
+    may not exceed 9223372036 seconds, the most a Go [time.Duration] holds. *)
+let test_compose_health_checks () =
+  let with_check check =
+    Printf.sprintf {|{"target": "compose", "components": [{"name": "a", "image": "x"%s}]}|} check
+  in
+  assert_true "a component without a health check should keep the image's own"
+    (not (contains (compose_yaml_of_json (with_check "")) "healthcheck"));
+  assert_true "a command should run without a shell, with the default timing"
+    (contains
+       (compose_yaml_of_json (with_check {|, "healthCheck": {"command": ["curl", "-f", "http://127.0.0.1/"]}|}))
+       {|    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:|});
+  assert_true "a shell line should run by the shell, with its own timing"
+    (contains
+       (compose_yaml_of_json
+          (with_check
+             {|, "healthCheck": {"shell": "pg_isready -U $USER", "intervalSeconds": 2, "timeoutSeconds": 1, "retries": 30, "startPeriodSeconds": 0}|}))
+       {|    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$USER"]
+      interval: 2s
+      timeout: 1s
+      retries: 30
+      start_period: 0s|});
+  let codes check = issue_codes_of "a" (compose_plan_of_json (with_check check)) in
+  assert_true "an empty command should be reported"
+    (codes {|, "healthCheck": {"command": []}|} = [ "empty_health_check" ]);
+  assert_true "an empty shell line should be reported"
+    (codes {|, "healthCheck": {"shell": ""}|} = [ "empty_health_check" ]);
+  List.iter
+    (fun timing ->
+      assert_true ("timing should be refused: " ^ timing)
+        (codes (Printf.sprintf {|, "healthCheck": {"command": ["true"], %s}|} timing)
+        = [ "invalid_health_check_timing" ]))
+    [
+      {|"intervalSeconds": 0|};
+      {|"timeoutSeconds": 0|};
+      {|"retries": 0|};
+      {|"startPeriodSeconds": -1|};
+      {|"intervalSeconds": 9223372037|};
+      {|"timeoutSeconds": 9223372037|};
+      {|"startPeriodSeconds": 9223372037|};
+    ];
+  assert_true "the longest duration Compose reads should be accepted"
+    (contains
+       (compose_yaml_of_json
+          (with_check
+             {|, "healthCheck": {"command": ["true"], "intervalSeconds": 9223372036, "timeoutSeconds": 9223372036, "retries": 4611686018427387903, "startPeriodSeconds": 9223372036}|}))
+       {|      interval: 9223372036s
+      timeout: 9223372036s
+      retries: 4611686018427387903
+      start_period: 9223372036s|});
+  assert_true "both health check issues should be reported, emptiness first"
+    (codes {|, "healthCheck": {"shell": "", "retries": 0}|} = [ "empty_health_check"; "invalid_health_check_timing" ])
+
+(** Verifies ports: unpublished ports are exposed on the network, published
+    ports bind to loopback unless asked, and the port and address issues. *)
+let test_compose_ports () =
+  let yaml =
+    compose_yaml_of_json
+      {|{"target": "compose", "components": [{"name": "a", "image": "x", "ports": [
+          {"containerPort": 8010},
+          {"containerPort": 8085, "hostPort": 18085},
+          {"containerPort": 8011},
+          {"containerPort": 9100, "hostPort": 9100, "hostIp": "0.0.0.0"}]}]}|}
+  in
+  assert_true "unpublished ports should be exposed in order, published ports bound in order"
+    (contains yaml
+       {|    expose:
+      - "8010"
+      - "8011"
+    ports:
+      - "127.0.0.1:18085:8085"
+      - "0.0.0.0:9100:9100"
+    networks:|});
+  assert_true "a spec without published ports should have no ports key"
+    (not
+       (contains
+          (compose_yaml_of_json {|{"target": "compose", "components": [{"name": "a", "image": "x", "ports": [{"containerPort": 80}]}]}|})
+          "ports:"));
+  List.iter
+    (fun address ->
+      assert_true ("a valid host address should be accepted: " ^ address)
+        ((compose_plan_of_json
+            (Printf.sprintf
+               {|{"target": "compose", "components": [{"name": "a", "image": "x", "ports": [{"containerPort": 80, "hostPort": 8080, "hostIp": "%s"}]}]}|}
+               address))
+           .compose_issues = []))
+    [ "0.0.0.0"; "127.0.0.1"; "10.20.30.40"; "255.255.255.255" ];
+  List.iter
+    (fun address ->
+      assert_true ("an invalid host address should be reported: " ^ address)
+        (issue_triples
+           (compose_plan_of_json
+              (Printf.sprintf
+                 {|{"target": "compose", "components": [{"name": "a", "image": "x", "ports": [{"containerPort": 80, "hostPort": 8080, "hostIp": "%s"}]}]}|}
+                 address))
+        = [ (Some "a", "invalid_host_ip", Some address) ]))
+    [ "localhost"; "127.0.0.01"; "256.0.0.1"; "1.2.3"; "1.2.3.4.5"; ""; "::1"; "1.2.3.-4"; "1..3.4" ];
+  assert_true "container and host ports outside 1 to 65535 should be reported"
+    (issue_triples
+       (compose_plan_of_json
+          {|{"target": "compose", "components": [{"name": "a", "image": "x", "ports": [
+              {"containerPort": 0}, {"containerPort": 65536}, {"containerPort": 65535, "hostPort": 0}, {"containerPort": 1, "hostPort": 65536}]}]}|})
+    = [
+        (Some "a", "invalid_port", Some "0");
+        (Some "a", "invalid_port", Some "65536");
+        (Some "a", "invalid_port", Some "0");
+        (Some "a", "invalid_port", Some "65536");
+      ]);
+  assert_true "one host port used twice should clash, across services and host addresses"
+    (issue_triples
+       (compose_plan_of_json
+          {|{"target": "compose", "components": [
+              {"name": "a", "image": "x", "ports": [{"containerPort": 80, "hostPort": 8080}, {"containerPort": 81, "hostPort": 8080, "hostIp": "0.0.0.0"}]},
+              {"name": "b", "image": "x", "ports": [{"containerPort": 80, "hostPort": 8080, "hostIp": "10.0.0.1"}, {"containerPort": 81, "hostPort": 8081}]}]}|})
+    = [ (Some "a", "host_port_conflict", Some "8080"); (Some "b", "host_port_conflict", Some "8080") ]);
+  assert_true "an invalid host port should not count as used"
+    ((compose_plan_of_json
+        {|{"target": "compose", "components": [
+            {"name": "a", "image": "x", "ports": [{"containerPort": 80, "hostPort": 70000}]},
+            {"name": "b", "image": "x", "ports": [{"containerPort": 80, "hostPort": 8080}]}]}|})
+       .compose_issues
+    |> List.map (fun issue -> issue.issue_reason)
+    = [ InvalidPort 70000 ])
+
+(** The job fixture: a long-running LMA, a seed job and an init job on a
+    network that exists already. *)
+let job_on_external_network_json =
+  {|{"planId": "job-on-external-network",
+     "target": {"kind": "compose", "placement": "own", "network": "healthcare-demo_default", "externalNetwork": true, "existingServices": ["gma"]},
+     "components": [
+       {"name": "lma-hospital-e", "image": "dagents/lma:1",
+        "ports": [{"containerPort": 8010}, {"containerPort": 9100, "hostPort": 9100, "hostIp": "0.0.0.0"}],
+        "healthCheck": {"command": ["curl", "-fsS", "http://127.0.0.1:8010/health"]}},
+       {"name": "seed-hospital-e", "image": "dagents/lma:1", "kind": "Job", "args": ["seed"],
+        "dependsOn": [{"service": "lma-hospital-e", "condition": "service_healthy"},
+                      {"service": "lma-hospital-e-init", "condition": "service_completed_successfully"}]},
+       {"name": "lma-hospital-e-init", "image": "dagents/lma:1", "kind": "job"}]}|}
+
+(** Verifies the network and placement: a network the file declares or one
+    that exists already, the network in every service, the network name rule,
+    and which dependencies and names each placement allows. *)
+let test_compose_network_and_placement () =
+  assert_equal_text "the external-network job file changed"
+    {|services:
+  "lma-hospital-e":
+    image: "dagents/lma:1"
+    expose:
+      - "8010"
+    ports:
+      - "0.0.0.0:9100:9100"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8010/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - "healthcare-demo_default"
+    restart: unless-stopped
+  "seed-hospital-e":
+    image: "dagents/lma:1"
+    command: ["seed"]
+    depends_on:
+      "lma-hospital-e":
+        condition: service_healthy
+      "lma-hospital-e-init":
+        condition: service_completed_successfully
+    networks:
+      - "healthcare-demo_default"
+    restart: "no"
+  "lma-hospital-e-init":
+    image: "dagents/lma:1"
+    networks:
+      - "healthcare-demo_default"
+    restart: "no"
+networks:
+  "healthcare-demo_default":
+    external: true|}
+    (compose_yaml_of_json job_on_external_network_json);
+  let two_services network =
+    Printf.sprintf
+      {|{"target": {"kind": "compose", "network": "%s"}, "components": [{"name": "a", "image": "x"}, {"name": "b", "image": "x"}]}|}
+      network
+  in
+  let yaml = compose_yaml_of_json (two_services "dagents.net-1") in
+  assert_true "a network the file declares should be an empty mapping"
+    (contains yaml "\nnetworks:\n  \"dagents.net-1\": {}" && not (contains yaml "external"));
+  assert_true "every service should join the network"
+    (contains yaml "  \"a\":\n    image: \"x\"\n    networks:\n      - \"dagents.net-1\"\n"
+    && contains yaml "  \"b\":\n    image: \"x\"\n    networks:\n      - \"dagents.net-1\"\n");
+  (* Each pair is the name as JSON text and as the parsed value. *)
+  List.iter
+    (fun (json_text, network) ->
+      assert_true ("an invalid network name should be reported: " ^ json_text)
+        (issue_triples (compose_plan_of_json (two_services json_text)) = [ (None, "invalid_network_name", Some network) ]))
+    [
+      ("Bad Net", "Bad Net");
+      ("UPPER", "UPPER");
+      ("-dash-first", "-dash-first");
+      ("_under", "_under");
+      ("", "");
+      ("a:b", "a:b");
+      ({|a\nb|}, "a\nb");
+    ];
+  let placement_plan placement depends =
+    compose_plan_of_json
+      (Printf.sprintf
+         {|{"target": {"kind": "compose", "placement": "%s", "existingServices": ["gma"]},
+            "components": [{"name": "lma-x", "image": "x", "dependsOn": [{"service": "%s"}]}]}|}
+         placement depends)
+  in
+  assert_true "a merged file may depend on a running service" ((placement_plan "merge" "gma").compose_issues = []);
+  assert_true "an own project may not depend on a running service"
+    (issue_triples (placement_plan "own" "gma") = [ (Some "lma-x", "dependency_outside_project", Some "gma") ]);
+  List.iter
+    (fun placement ->
+      assert_true ("a dependency on nothing known should be reported: " ^ placement)
+        (issue_triples (placement_plan placement "nowhere") = [ (Some "lma-x", "unknown_dependency", Some "nowhere") ]))
+    [ "own"; "merge" ];
+  List.iter
+    (fun placement ->
+      assert_true ("a running service's name may not be reused: " ^ placement)
+        (issue_triples
+           (compose_plan_of_json
+              (Printf.sprintf
+                 {|{"target": {"kind": "compose", "placement": "%s", "existingServices": ["gma"]}, "components": [{"name": "gma", "image": "x"}]}|}
+                 placement))
+        = [ (Some "gma", "service_name_in_use", None) ]))
+    [ "own"; "merge" ];
+  assert_true "an invalid running service name should be reported for the spec"
+    (issue_triples
+       (compose_plan_of_json
+          {|{"target": {"kind": "compose", "placement": "merge", "existingServices": ["gma", "Bad Name", "ok", "x y"]}, "components": [{"name": "a", "image": "x"}]}|})
+    = [ (None, "invalid_service_name", Some "Bad Name"); (None, "invalid_service_name", Some "x y") ])
+
+(** The quoting fixture: every escape in one service. *)
+let quoting_json =
+  {|{"planId": "quoting", "target": {"kind": "compose"}, "components": [{"name": "quoting",
+     "image": "registry.example/z\u00fcrich:1",
+     "args": ["say \"hi\"", "C:\\path", "$HOME", "line1\nline2", "tab\there", "bell\u0001", "del\u007f", "cr\rx",
+              "nel\u0085x", "ls\u2028x", "ps\u2029x", "c1\u0080", "nonchar\ufffe\uffff"],
+     "envFiles": ["env/$SITE.env"],
+     "env": [{"name": "PRICE", "value": "$5 and ${VAR}"}, {"name": "_under_score9", "value": ""}],
+     "healthCheck": {"shell": "test \"$(cat /tmp/ready)\" = ok", "intervalSeconds": 5, "timeoutSeconds": 2, "retries": 10, "startPeriodSeconds": 0}}]}|}
+
+(** Verifies that every caller value in a rendered file is quoted, with the
+    escapes of the quoting table. *)
+let test_compose_quoted_file () =
+  assert_equal_text "the quoting fixture's Compose file changed"
+    {|services:
+  "quoting":
+    image: "registry.example/zürich:1"
+    command: ["say \"hi\"", "C:\\path", "$$HOME", "line1\nline2", "tab\there", "bell\x01", "del\x7F", "cr\rx", "nel\Nx", "ls\Lx", "ps\Px", "c1\x80", "nonchar\uFFFE\uFFFF"]
+    env_file:
+      - "env/$$SITE.env"
+    environment:
+      "PRICE": "$$5 and $${VAR}"
+      "_under_score9": ""
+    healthcheck:
+      test: ["CMD-SHELL", "test \"$$(cat /tmp/ready)\" = ok"]
+      interval: 5s
+      timeout: 2s
+      retries: 10
+      start_period: 0s
+    networks:
+      - "default"
+    restart: unless-stopped
+networks:
+  "default": {}|}
+    (compose_yaml_of_json quoting_json)
+
+(** The names fixture: valid names that YAML reads as a number, null, a
+    boolean or a date when they are not quoted. *)
+let yaml_typed_names_json =
+  {|{"planId": "yaml-typed-names",
+     "target": {"kind": "compose", "placement": "merge", "network": "123", "existingServices": ["null"]},
+     "components": [
+       {"name": "134", "image": "x",
+        "env": [{"name": "NULL", "value": "a"}, {"name": "True", "value": "b"}, {"name": "false", "value": "c"}, {"name": "Y", "value": "d"}],
+        "dependsOn": [{"service": "null"}, {"service": "true"}]},
+       {"name": "true", "image": "x"},
+       {"name": "1e3", "image": "x"},
+       {"name": "0x1f", "image": "x"},
+       {"name": "1.0", "image": "x"},
+       {"name": "1_000", "image": "x"},
+       {"name": "2024-01-01", "image": "x"}]}|}
+
+(** Verifies that service, dependency, network and environment names are
+    double-quoted. Unquoted, YAML reads [134], [true], [1e3], [0x1f], [1.0],
+    [1_000], [2024-01-01], [NULL] and [True] as numbers, booleans, null or a
+    date, and Docker Compose refuses a key that is not a string. *)
+let test_compose_quotes_names () =
+  let plan = compose_plan_of_json yaml_typed_names_json in
+  assert_true "names YAML would read as other types are valid names" (plan.compose_issues = []);
+  assert_equal_text "the names fixture's Compose file changed"
+    {|services:
+  "134":
+    image: "x"
+    environment:
+      "NULL": "a"
+      "True": "b"
+      "false": "c"
+      "Y": "d"
+    depends_on:
+      "null":
+        condition: service_started
+      "true":
+        condition: service_started
+    networks:
+      - "123"
+    restart: unless-stopped
+  "true":
+    image: "x"
+    networks:
+      - "123"
+    restart: unless-stopped
+  "1e3":
+    image: "x"
+    networks:
+      - "123"
+    restart: unless-stopped
+  "0x1f":
+    image: "x"
+    networks:
+      - "123"
+    restart: unless-stopped
+  "1.0":
+    image: "x"
+    networks:
+      - "123"
+    restart: unless-stopped
+  "1_000":
+    image: "x"
+    networks:
+      - "123"
+    restart: unless-stopped
+  "2024-01-01":
+    image: "x"
+    networks:
+      - "123"
+    restart: unless-stopped
+networks:
+  "123": {}|}
+    (Option.get plan.compose_yaml);
+  assert_true "an external network's name should be quoted too"
+    (contains
+       (compose_yaml_of_json
+          {|{"target": {"kind": "compose", "network": "123", "externalNetwork": true}, "components": [{"name": "a", "image": "x"}]}|})
+       "\nnetworks:\n  \"123\":\n    external: true")
+
+(** A spec with 19 of the 20 issue codes; only [no_services] is missing. *)
+let every_issue_json =
+  {|{"planId": "every-issue",
+     "target": {"kind": "compose", "placement": "own", "network": "Bad Net", "existingServices": ["gma", "Bad Name", "core"]},
+     "components": [
+      {"name": "Lma_1", "image": "", "kind": "CronJob", "replicas": 3,
+       "env": [{"name": "9X", "value": "a"}, {"name": "A", "value": "b"}, {"name": "A", "value": "c"}],
+       "ports": [{"containerPort": 0}, {"containerPort": 8080, "hostPort": 70000, "hostIp": "localhost"}, {"containerPort": 8081, "hostPort": 8085}],
+       "healthCheck": {"command": [], "intervalSeconds": 0}},
+      {"name": "gma", "image": "x", "ports": [{"containerPort": 8086, "hostPort": 8085, "hostIp": "127.0.0.01"}],
+       "dependsOn": [{"service": "gma"}, {"service": "b"}, {"service": "b"}, {"service": "nowhere"}]},
+      {"name": "b", "image": "x", "dependsOn": [{"service": "c"}]},
+      {"name": "c", "image": "x", "dependsOn": [{"service": "b"}, {"service": "gma"}, {"service": "core"}]},
+      {"name": "b", "image": "x", "healthCheck": {"shell": "", "retries": 0}}]}|}
+
+(** Verifies that every issue is reported, in the documented order, and that
+    a plan with issues has no file. *)
+let test_compose_reports_every_issue_in_order () =
+  let plan = compose_plan_of_json every_issue_json in
+  assert_true "a plan with issues should have no file" (plan.compose_yaml = None);
+  assert_true "a plan with issues should name every component in order"
+    (plan.compose_service_names = [ "Lma_1"; "gma"; "b"; "c"; "b" ]);
+  let expected =
+    [
+      (None, "invalid_network_name", Some "Bad Net");
+      (None, "invalid_service_name", Some "Bad Name");
+      (Some "Lma_1", "invalid_service_name", Some "Lma_1");
+      (Some "Lma_1", "empty_image", None);
+      (Some "Lma_1", "no_compose_equivalent", Some "CronJob");
+      (Some "Lma_1", "unsupported_replicas", Some "3");
+      (Some "Lma_1", "invalid_environment_name", Some "9X");
+      (Some "Lma_1", "duplicate_environment_name", Some "A");
+      (Some "Lma_1", "invalid_port", Some "0");
+      (Some "Lma_1", "invalid_host_ip", Some "localhost");
+      (Some "Lma_1", "invalid_port", Some "70000");
+      (Some "Lma_1", "empty_health_check", None);
+      (Some "Lma_1", "invalid_health_check_timing", None);
+      (Some "gma", "service_name_in_use", None);
+      (Some "gma", "invalid_host_ip", Some "127.0.0.01");
+      (Some "gma", "host_port_conflict", Some "8085");
+      (Some "gma", "self_dependency", None);
+      (Some "gma", "duplicate_dependency", Some "b");
+      (Some "gma", "unknown_dependency", Some "nowhere");
+      (Some "gma", "dependency_cycle", None);
+      (Some "b", "dependency_cycle", None);
+      (Some "c", "dependency_outside_project", Some "core");
+      (Some "c", "dependency_cycle", None);
+      (Some "b", "duplicate_service_name", None);
+      (Some "b", "empty_health_check", None);
+      (Some "b", "invalid_health_check_timing", None);
+    ]
+  in
+  let actual = issue_triples plan in
+  if actual <> expected then begin
+    let show (service, code, value) =
+      Printf.sprintf "(%s, %s, %s)" (Option.value service ~default:"null") code (Option.value value ~default:"null")
+    in
+    assert_equal_text "every-issue list changed"
+      (String.concat "\n" (List.map show expected))
+      (String.concat "\n" (List.map show actual))
+  end;
+  let codes = List.sort_uniq compare (List.map (fun (_, code, _) -> code) actual) in
+  assert_true "the spec should cover 19 of the 20 issue codes" (List.length codes = 19 && not (List.mem "no_services" codes));
+  let empty = compose_plan_of_json {|{"planId": "no-services", "target": "compose", "components": []}|} in
+  assert_true "a spec with no components should report no_services and nothing else"
+    (issue_triples empty = [ (None, "no_services", None) ]
+    && empty.compose_service_names = [] && empty.compose_yaml = None && empty.compose_plan_id = "no-services")
+
+(** Verifies cycle detection: every member of a cycle is reported, a service
+    that only leads into a cycle is not, and a self-dependency is reported
+    once, as itself. *)
+let test_compose_dependency_cycles () =
+  let plan =
+    compose_plan_of_json
+      {|{"target": "compose", "components": [
+          {"name": "a", "image": "x", "dependsOn": [{"service": "b"}]},
+          {"name": "b", "image": "x", "dependsOn": [{"service": "a"}]},
+          {"name": "c", "image": "x", "dependsOn": [{"service": "a"}]},
+          {"name": "d", "image": "x", "dependsOn": [{"service": "e"}]},
+          {"name": "e", "image": "x", "dependsOn": [{"service": "f"}]},
+          {"name": "f", "image": "x", "dependsOn": [{"service": "d"}, {"service": "c"}]},
+          {"name": "g", "image": "x", "dependsOn": [{"service": "g"}, {"service": "c"}]}]}|}
+  in
+  List.iter
+    (fun service ->
+      assert_true (service ^ " is in a cycle") (issue_codes_of service plan = [ "dependency_cycle" ]))
+    [ "a"; "b"; "d"; "e"; "f" ];
+  assert_true "a service that only leads into a cycle is not in it" (issue_codes_of "c" plan = []);
+  assert_true "a self-dependency is reported once, not as a cycle" (issue_codes_of "g" plan = [ "self_dependency" ]);
+  let chain =
+    compose_plan_of_json
+      {|{"target": "compose", "components": [
+          {"name": "a", "image": "x", "dependsOn": [{"service": "b", "condition": "service_healthy"}]},
+          {"name": "b", "image": "x", "dependsOn": [{"service": "c", "condition": "service_completed_successfully"}]},
+          {"name": "c", "image": "x", "kind": "Job"}]}|}
+  in
+  assert_true "a chain without a cycle should render" (chain.compose_issues = [] && chain.compose_yaml <> None)
+
+(** Verifies determinism: the same spec gives the same bytes, and services,
+    environment variables, ports and dependencies keep the request's order. *)
+let test_compose_output_is_deterministic () =
+  let spec = spec_of_json job_on_external_network_json in
+  let first = compose_plan_of_spec spec in
+  let second = compose_plan_of_spec (spec_of_json job_on_external_network_json) in
+  assert_true "two compiles should give the same plan" (first = second);
+  let reversed = compose_plan_of_spec { spec with components = List.rev spec.components } in
+  assert_true "reversed components should give reversed services"
+    (reversed.compose_service_names = List.rev first.compose_service_names);
+  let yaml = Option.get reversed.compose_yaml in
+  let position needle =
+    let rec find index =
+      if index + String.length needle > String.length yaml then failwith ("missing " ^ needle)
+      else if String.sub yaml index (String.length needle) = needle then index
+      else find (index + 1)
+    in
+    find 0
+  in
+  assert_true "services should appear in request order, not sorted"
+    (position "\n  \"lma-hospital-e-init\":\n" < position "\n  \"seed-hospital-e\":\n"
+    && position "\n  \"seed-hospital-e\":\n" < position "\n  \"lma-hospital-e\":\n");
+  let ordered =
+    compose_yaml_of_json
+      {|{"target": {"kind": "compose", "placement": "merge", "existingServices": ["zeta", "alpha"]}, "components": [{"name": "a", "image": "x",
+          "env": [{"name": "Z", "value": "1"}, {"name": "A", "value": "2"}, {"name": "M", "value": "3"}],
+          "ports": [{"containerPort": 9000}, {"containerPort": 80}, {"containerPort": 81, "hostPort": 9081}, {"containerPort": 82, "hostPort": 8082}],
+          "dependsOn": [{"service": "zeta"}, {"service": "alpha"}]}]}|}
+  in
+  assert_true "environment variables, ports and dependencies should keep their order"
+    (contains ordered
+       {|    environment:
+      "Z": "1"
+      "A": "2"
+      "M": "3"
+    expose:
+      - "9000"
+      - "80"
+    ports:
+      - "127.0.0.1:9081:81"
+      - "127.0.0.1:8082:82"
+    depends_on:
+      "zeta":
+        condition: service_started
+      "alpha":
+        condition: service_started
+|})
+
+(** Verifies that the Kubernetes renderers ignore the Compose fields and the
+    target: one spec renders the same YAML and JSON with and without them. *)
+let test_kubernetes_ignores_the_compose_fields () =
+  let with_compose_fields =
+    {
+      three_component_spec with
+      target = Compose { default_compose_target with compose_placement = MergedProject; existing_services = [ "gma" ] };
+      components =
+        List.map
+          (fun (c : workload_component) ->
+            {
+              c with
+              ports =
+                List.map
+                  (fun (p : port) -> { p with publication = PublishedOn { host_ip = "0.0.0.0"; host_port = 18000 } })
+                  c.ports;
+              env_files = [ "env/.env.shared" ];
+              health_check =
+                Some
+                  {
+                    health_test = ShellTest "true";
+                    interval_seconds = 1;
+                    timeout_seconds = 1;
+                    retries = 1;
+                    start_period_seconds = 0;
+                  };
+              service_dependencies = [ { dependency_service = "gma"; dependency_condition = ServiceHealthy } ];
+            })
+          three_component_spec.components;
+    }
+  in
+  let plain = Dagents_manifest_compiler.compile_plan three_component_spec in
+  let extended = Dagents_manifest_compiler.compile_plan with_compose_fields in
+  assert_equal_text "Kubernetes YAML should not read the Compose fields" plain.combined_yaml extended.combined_yaml;
+  assert_true "Kubernetes plans should be equal with and without the Compose fields" (plain = extended);
+  assert_true "Kubernetes JSON should not read the Compose fields"
+    (Json_codec.yojson_of_workload_plan plain = Json_codec.yojson_of_workload_plan extended)
 
 (** Run one named test and print a progress line before and after it. *)
 let run_test ~index ~total (name, test) =
@@ -1546,7 +2737,22 @@ let () =
       ("manifest compiler plan", test_manifest_compiler_plan);
       ("manifest per-component resources", test_manifest_per_component_resources);
       ("manifest does not duplicate a primary object", test_manifest_does_not_duplicate_a_primary_object);
+      ("manifest Kubernetes output is pinned", test_manifest_kubernetes_output_is_pinned);
       ("JSON codec round trip", test_json_codec_roundtrip);
+      ("deployment target codec", test_deployment_target_codec);
+      ("compose codec refuses text that is not UTF-8", test_compose_codec_refuses_text_that_is_not_utf_8);
+      ("compose quoting", test_compose_quoting);
+      ("compose renders an LMA merged into a project", test_compose_renders_an_lma_merged_into_a_project);
+      ("compose maps every workload kind", test_compose_maps_every_workload_kind);
+      ("compose health checks", test_compose_health_checks);
+      ("compose ports", test_compose_ports);
+      ("compose network and placement", test_compose_network_and_placement);
+      ("compose quoted file", test_compose_quoted_file);
+      ("compose quotes names", test_compose_quotes_names);
+      ("compose reports every issue in order", test_compose_reports_every_issue_in_order);
+      ("compose dependency cycles", test_compose_dependency_cycles);
+      ("compose output is deterministic", test_compose_output_is_deterministic);
+      ("kubernetes ignores the compose fields", test_kubernetes_ignores_the_compose_fields);
       ("KYU trust assessment", test_kyu_assessment);
       ("model updates are never released raw", test_model_update_is_never_allowed_raw);
       ("restriction strategy is monotone in trust", test_strategy_is_monotone_in_trust);

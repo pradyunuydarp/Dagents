@@ -97,12 +97,39 @@ count cross as the source's runner wrote them
 ([Step 6](06-federated-rounds.md#3-the-sources-side-the-worker)), so the runner
 must put only aggregate numbers in them.
 
-## 5. Kubernetes manifests
+## 5. Kubernetes manifests and Compose files
 
-Compile manifests for your own components with core-service
+Compile Kubernetes manifests for your own components with core-service
 ([Step 7](07-framework-services.md#1-compile-a-workload-plan-core-service)) and
-apply them with `kubectl apply -f`. The manifests are generated and tested, but
-no Dagents deployment runs on a cluster in CI yet. That work is in `TODO.md`.
+apply them with `kubectl apply -f`. To add a service to a project that Docker
+Compose already runs, such as one more agent next to the running GMA, ask
+core-service for a Compose file
+([Render a Docker Compose file](../reference/api/framework-services.md#core-service-post-api-v1-manifests-compose)).
+With `"placement": "merge"`, the new service may wait for the services you list
+in `existing_services`, and you pass the file after the project's own file.
+List every service the project runs, so the planner can refuse a name that is
+already in use. A published port listens on `127.0.0.1` unless you set
+`host_ip`. From the repository root, with the stack from section 2 running:
+
+```bash
+curl -s -X POST http://127.0.0.1:8040/api/v1/manifests/compose \
+  -H 'Content-Type: application/json' -d '{
+    "placement": "merge",
+    "existing_services": ["gma", "lma", "model-service", "pipeline-service", "core-service",
+      "spring-control-service", "spring-core-service", "nl2sql-demo-backend", "nl2sql-demo-frontend"],
+    "components": [{
+      "name": "store-south-agent",
+      "image": "example/returns-store-agent:1.0.0",
+      "env": [{"name": "STORE_ID", "value": "store-south"}],
+      "ports": [{"container_port": 8010, "host_port": 8011}],
+      "depends_on": [{"service": "gma", "condition": "service_healthy"}]
+    }]
+  }' | python3 -c "import json, sys; print(json.load(sys.stdin)['compose_yaml'])" > store-south.yml
+docker compose --env-file env/.env.compose -f docker-compose.yml -f store-south.yml up -d store-south-agent
+```
+
+Both kinds of file are generated and tested, but CI deploys neither. The plan
+for checking the Kubernetes manifests on a live cluster is in `TODO.md`.
 
 ## 6. Who may call the agents and services
 
@@ -243,5 +270,6 @@ Pass them to `GovernanceService(audit=...)` and
 | `403` with the code `forbidden` | The token's scope may not call the route, or a site's token was used for another site | Use the token of the right scope |
 | An agent logs "runs without tokens: every caller may call every route" | No token is configured | Set the tokens, and `LMA_REQUIRE_TOKENS=1` or `GMA_REQUIRE_TOKENS=1` |
 | `AgentUnavailableError` in your application, or a round result `failed` with "the job run failed: ..." | An agent did not answer in time, or has no address configured | Check the agent is running and its address is in `GMA_SITE_ENDPOINTS` or `LMA_GMA_ENDPOINT`; in process, cap concurrent requests (section 7) |
+| `store-south.yml` holds only `None` | The planner found issues, so `compose_yaml` is null | Read `issues` in the answer: each names the service and the rule it breaks |
 
 Next: [Step 9: Test your integration](09-test-your-integration.md).

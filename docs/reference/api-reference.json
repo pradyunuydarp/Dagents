@@ -1,7 +1,7 @@
 {
  "generated_by": "scripts/api_reference.py",
  "regenerate": ".venv/bin/python scripts/api_reference.py --write",
- "endpoint_count": 223,
+ "endpoint_count": 224,
  "services": [
   {
    "name": "core-service",
@@ -49,6 +49,56 @@
        "content_type": "application/json",
        "schema": {
         "$ref": "#/components/schemas/HealthResponse"
+       }
+      }
+     ],
+     "alias_of": null
+    },
+    {
+     "id": "core-service-post-api-v1-manifests-compose",
+     "method": "POST",
+     "path": "/api/v1/manifests/compose",
+     "summary": "Render one Docker Compose file for a list of workloads.",
+     "description": "The OCaml manifest compiler renders it through `dagentsc manifest compile`.\nWhen the planner cannot be started, the service renders it in Python.\nNothing is stored.",
+     "status_code": 200,
+     "deprecated": false,
+     "handler": {
+      "function": "render_compose_manifest",
+      "module": "app.api.routes",
+      "file": "services/core-service/app/api/routes.py",
+      "calls": [
+       {
+        "kind": "method",
+        "class": "ManifestService",
+        "module": "app.services.manifest_service",
+        "file": "services/core-service/app/services/manifest_service.py",
+        "name": "render_compose"
+       }
+      ]
+     },
+     "parameters": [],
+     "request_body": {
+      "required": true,
+      "content_type": "application/json",
+      "schema": {
+       "$ref": "#/components/schemas/ComposeManifestRequest"
+      }
+     },
+     "responses": [
+      {
+       "status": "200",
+       "description": "Successful Response",
+       "content_type": "application/json",
+       "schema": {
+        "$ref": "#/components/schemas/ComposeManifestResponse"
+       }
+      },
+      {
+       "status": "422",
+       "description": "Validation Error",
+       "content_type": "application/json",
+       "schema": {
+        "$ref": "#/components/schemas/HTTPValidationError"
        }
       }
      ],
@@ -292,6 +342,372 @@
     }
    ],
    "schemas": {
+    "ComposeComponent": {
+     "properties": {
+      "name": {
+       "type": "string",
+       "title": "Name",
+       "description": "The Compose service name: lower-case letters, digits, `-`, `_` and `.`, starting with a letter or a digit."
+      },
+      "image": {
+       "type": "string",
+       "title": "Image",
+       "description": "The container image to run."
+      },
+      "kind": {
+       "type": "string",
+       "enum": [
+        "Deployment",
+        "Job"
+       ],
+       "title": "Kind",
+       "description": "`Deployment` keeps the container running (`restart: unless-stopped`). `Job` runs it once (`restart: \"no\"`).",
+       "default": "Deployment"
+      },
+      "args": {
+       "items": {
+        "type": "string"
+       },
+       "type": "array",
+       "title": "Args",
+       "description": "The command that replaces the image's default command, written as `command`. Empty keeps the image's command."
+      },
+      "env_files": {
+       "items": {
+        "type": "string"
+       },
+       "type": "array",
+       "title": "Env Files",
+       "description": "Files of `NAME=value` lines that Docker Compose reads into the container's environment, written as `env_file`. A relative path is relative to the directory of the first Compose file. Put secrets here, so the rendered file does not contain them."
+      },
+      "env": {
+       "items": {
+        "$ref": "#/components/schemas/ComposeEnvironmentVariable"
+       },
+       "type": "array",
+       "title": "Env",
+       "description": "Environment variables written into the file. A name here wins over the same name in `env_files`."
+      },
+      "ports": {
+       "items": {
+        "$ref": "#/components/schemas/ComposePort"
+       },
+       "type": "array",
+       "title": "Ports",
+       "description": "Ports the container listens on. Only a port with a `host_port` is published on the host."
+      },
+      "health_check": {
+       "anyOf": [
+        {
+         "$ref": "#/components/schemas/ComposeHealthCheck"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "How Docker Compose checks that the container is healthy. Null keeps the image's own `HEALTHCHECK`."
+      },
+      "depends_on": {
+       "items": {
+        "$ref": "#/components/schemas/ComposeDependency"
+       },
+       "type": "array",
+       "title": "Depends On",
+       "description": "The services that must reach a condition before this one starts."
+      }
+     },
+     "additionalProperties": false,
+     "type": "object",
+     "required": [
+      "name",
+      "image"
+     ],
+     "title": "ComposeComponent"
+    },
+    "ComposeDependency": {
+     "properties": {
+      "service": {
+       "type": "string",
+       "title": "Service",
+       "description": "A service this one waits for: another component in the request or, when `placement` is `merge`, one of `existing_services`."
+      },
+      "condition": {
+       "type": "string",
+       "enum": [
+        "service_started",
+        "service_healthy",
+        "service_completed_successfully"
+       ],
+       "title": "Condition",
+       "description": "What Docker Compose waits for: `service_started` (the container has started), `service_healthy` (its health check passes) or `service_completed_successfully` (it has exited with status 0, as a `Job` does).",
+       "default": "service_started"
+      }
+     },
+     "additionalProperties": false,
+     "type": "object",
+     "required": [
+      "service"
+     ],
+     "title": "ComposeDependency"
+    },
+    "ComposeEnvironmentVariable": {
+     "properties": {
+      "name": {
+       "type": "string",
+       "title": "Name",
+       "description": "The variable's name: a letter or `_`, then letters, digits or `_`. The planner reports any other name as an issue."
+      },
+      "value": {
+       "type": "string",
+       "title": "Value",
+       "description": "Its value. The file quotes it, escapes its control characters and line breaks, and writes each `$` as `$$`, so Docker Compose passes the value to the container unchanged."
+      }
+     },
+     "additionalProperties": false,
+     "type": "object",
+     "required": [
+      "name",
+      "value"
+     ],
+     "title": "ComposeEnvironmentVariable"
+    },
+    "ComposeHealthCheck": {
+     "properties": {
+      "command": {
+       "anyOf": [
+        {
+         "items": {
+          "type": "string"
+         },
+         "type": "array"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Command",
+       "description": "The check as a program and its arguments, run without a shell (`CMD`). Give this or `shell`, not both."
+      },
+      "shell": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Shell",
+       "description": "The check as one command line, run by the container's shell (`CMD-SHELL`). Give this or `command`, not both."
+      },
+      "interval_seconds": {
+       "type": "integer",
+       "title": "Interval Seconds",
+       "description": "Seconds between two checks. From 1 to 9223372036, the longest duration Docker Compose reads.",
+       "default": 30
+      },
+      "timeout_seconds": {
+       "type": "integer",
+       "title": "Timeout Seconds",
+       "description": "Seconds one check may take before it counts as failed. From 1 to 9223372036.",
+       "default": 5
+      },
+      "retries": {
+       "type": "integer",
+       "title": "Retries",
+       "description": "Failed checks in a row after which the container is unhealthy. At least 1.",
+       "default": 3
+      },
+      "start_period_seconds": {
+       "type": "integer",
+       "title": "Start Period Seconds",
+       "description": "Seconds after the container starts during which a failed check does not count. From 0 to 9223372036.",
+       "default": 10
+      }
+     },
+     "additionalProperties": false,
+     "type": "object",
+     "title": "ComposeHealthCheck"
+    },
+    "ComposeIssue": {
+     "properties": {
+      "service": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Service",
+       "description": "The component the issue is about, or null for an issue with the whole request."
+      },
+      "code": {
+       "type": "string",
+       "enum": [
+        "no_services",
+        "invalid_network_name",
+        "invalid_service_name",
+        "duplicate_service_name",
+        "service_name_in_use",
+        "empty_image",
+        "no_compose_equivalent",
+        "unsupported_replicas",
+        "invalid_environment_name",
+        "duplicate_environment_name",
+        "invalid_port",
+        "invalid_host_ip",
+        "host_port_conflict",
+        "empty_health_check",
+        "invalid_health_check_timing",
+        "self_dependency",
+        "duplicate_dependency",
+        "dependency_outside_project",
+        "unknown_dependency",
+        "dependency_cycle"
+       ],
+       "title": "Code",
+       "description": "What is wrong. The `dagentsc manifest compile` reference explains each code."
+      },
+      "value": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Value",
+       "description": "The name or number the issue is about, as a string, or null when the code needs none."
+      }
+     },
+     "type": "object",
+     "required": [
+      "service",
+      "code",
+      "value"
+     ],
+     "title": "ComposeIssue"
+    },
+    "ComposeManifestRequest": {
+     "properties": {
+      "placement": {
+       "type": "string",
+       "enum": [
+        "own",
+        "merge"
+       ],
+       "title": "Placement",
+       "description": "`own`: the file is a whole Compose project. `merge`: the file is passed with `-f` after the files of the project that runs `existing_services`, so its services can depend on them.",
+       "default": "own"
+      },
+      "network": {
+       "type": "string",
+       "title": "Network",
+       "description": "The network every service joins. `default` is the project's default network. The name follows the rule for service names.",
+       "default": "default"
+      },
+      "external_network": {
+       "type": "boolean",
+       "title": "External Network",
+       "description": "True when `network` exists already and the file only joins it; give its full Docker name, such as `healthcare-demo_default`. False declares the network in the file.",
+       "default": false
+      },
+      "existing_services": {
+       "items": {
+        "type": "string"
+       },
+       "type": "array",
+       "title": "Existing Services",
+       "description": "The services the project already runs. A component may not take one of these names. With `merge`, a component may depend on them; with `own`, such a dependency is an issue."
+      },
+      "components": {
+       "items": {
+        "$ref": "#/components/schemas/ComposeComponent"
+       },
+       "type": "array",
+       "title": "Components",
+       "description": "The services to render, in the order the file lists them."
+      }
+     },
+     "additionalProperties": false,
+     "type": "object",
+     "title": "ComposeManifestRequest"
+    },
+    "ComposeManifestResponse": {
+     "properties": {
+      "services": {
+       "items": {
+        "type": "string"
+       },
+       "type": "array",
+       "title": "Services",
+       "description": "The name of every component, in request order, including the ones with issues."
+      },
+      "issues": {
+       "items": {
+        "$ref": "#/components/schemas/ComposeIssue"
+       },
+       "type": "array",
+       "title": "Issues",
+       "description": "Every reason the request cannot become a Compose file, in a fixed order. Empty when the file is rendered."
+      },
+      "compose_yaml": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Compose Yaml",
+       "description": "The Compose file, with no newline at the end, or null when `issues` is not empty. Docker Compose reads it with `-f`."
+      }
+     },
+     "type": "object",
+     "required": [
+      "services",
+      "issues",
+      "compose_yaml"
+     ],
+     "title": "ComposeManifestResponse"
+    },
+    "ComposePort": {
+     "properties": {
+      "container_port": {
+       "type": "integer",
+       "title": "Container Port",
+       "description": "The port the container listens on, from 1 to 65535."
+      },
+      "host_port": {
+       "anyOf": [
+        {
+         "type": "integer"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Host Port",
+       "description": "The port on the host that forwards to `container_port`, written under `ports`. Null writes the port under `expose` instead: it is not published on the host, and the other services on the network reach it."
+      },
+      "host_ip": {
+       "type": "string",
+       "title": "Host Ip",
+       "description": "The IPv4 address on the host that `host_port` listens on. The default accepts connections from this machine only, because an LMA or a GMA started without tokens answers every caller. Read only when `host_port` is set.",
+       "default": "127.0.0.1"
+      }
+     },
+     "additionalProperties": false,
+     "type": "object",
+     "required": [
+      "container_port"
+     ],
+     "title": "ComposePort"
+    },
     "ErrorResponse": {
      "properties": {
       "detail": {
@@ -30535,6 +30951,425 @@
    "defs": {}
   },
   {
+   "service": "core-service",
+   "class": "app.models.ComposeComponent",
+   "name": "ComposeComponent",
+   "module": "app.models",
+   "file": "services/core-service/app/models.py",
+   "summary": null,
+   "description": null,
+   "schema": {
+    "additionalProperties": false,
+    "properties": {
+     "name": {
+      "description": "The Compose service name: lower-case letters, digits, `-`, `_` and `.`, starting with a letter or a digit.",
+      "title": "Name",
+      "type": "string"
+     },
+     "image": {
+      "description": "The container image to run.",
+      "title": "Image",
+      "type": "string"
+     },
+     "kind": {
+      "default": "Deployment",
+      "description": "`Deployment` keeps the container running (`restart: unless-stopped`). `Job` runs it once (`restart: \"no\"`).",
+      "enum": [
+       "Deployment",
+       "Job"
+      ],
+      "title": "Kind",
+      "type": "string"
+     },
+     "args": {
+      "description": "The command that replaces the image's default command, written as `command`. Empty keeps the image's command.",
+      "items": {
+       "type": "string"
+      },
+      "title": "Args",
+      "type": "array"
+     },
+     "env_files": {
+      "description": "Files of `NAME=value` lines that Docker Compose reads into the container's environment, written as `env_file`. A relative path is relative to the directory of the first Compose file. Put secrets here, so the rendered file does not contain them.",
+      "items": {
+       "type": "string"
+      },
+      "title": "Env Files",
+      "type": "array"
+     },
+     "env": {
+      "description": "Environment variables written into the file. A name here wins over the same name in `env_files`.",
+      "items": {
+       "$ref": "#/$defs/ComposeEnvironmentVariable"
+      },
+      "title": "Env",
+      "type": "array"
+     },
+     "ports": {
+      "description": "Ports the container listens on. Only a port with a `host_port` is published on the host.",
+      "items": {
+       "$ref": "#/$defs/ComposePort"
+      },
+      "title": "Ports",
+      "type": "array"
+     },
+     "health_check": {
+      "anyOf": [
+       {
+        "$ref": "#/$defs/ComposeHealthCheck"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "How Docker Compose checks that the container is healthy. Null keeps the image's own `HEALTHCHECK`."
+     },
+     "depends_on": {
+      "description": "The services that must reach a condition before this one starts.",
+      "items": {
+       "$ref": "#/$defs/ComposeDependency"
+      },
+      "title": "Depends On",
+      "type": "array"
+     }
+    },
+    "required": [
+     "name",
+     "image"
+    ],
+    "title": "ComposeComponent",
+    "type": "object"
+   },
+   "defs": {
+    "ComposeDependency": {
+     "additionalProperties": false,
+     "properties": {
+      "service": {
+       "description": "A service this one waits for: another component in the request or, when `placement` is `merge`, one of `existing_services`.",
+       "title": "Service",
+       "type": "string"
+      },
+      "condition": {
+       "default": "service_started",
+       "description": "What Docker Compose waits for: `service_started` (the container has started), `service_healthy` (its health check passes) or `service_completed_successfully` (it has exited with status 0, as a `Job` does).",
+       "enum": [
+        "service_started",
+        "service_healthy",
+        "service_completed_successfully"
+       ],
+       "title": "Condition",
+       "type": "string"
+      }
+     },
+     "required": [
+      "service"
+     ],
+     "title": "ComposeDependency",
+     "type": "object"
+    },
+    "ComposeEnvironmentVariable": {
+     "additionalProperties": false,
+     "properties": {
+      "name": {
+       "description": "The variable's name: a letter or `_`, then letters, digits or `_`. The planner reports any other name as an issue.",
+       "title": "Name",
+       "type": "string"
+      },
+      "value": {
+       "description": "Its value. The file quotes it, escapes its control characters and line breaks, and writes each `$` as `$$`, so Docker Compose passes the value to the container unchanged.",
+       "title": "Value",
+       "type": "string"
+      }
+     },
+     "required": [
+      "name",
+      "value"
+     ],
+     "title": "ComposeEnvironmentVariable",
+     "type": "object"
+    },
+    "ComposeHealthCheck": {
+     "additionalProperties": false,
+     "properties": {
+      "command": {
+       "anyOf": [
+        {
+         "items": {
+          "type": "string"
+         },
+         "type": "array"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "description": "The check as a program and its arguments, run without a shell (`CMD`). Give this or `shell`, not both.",
+       "title": "Command"
+      },
+      "shell": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "description": "The check as one command line, run by the container's shell (`CMD-SHELL`). Give this or `command`, not both.",
+       "title": "Shell"
+      },
+      "interval_seconds": {
+       "default": 30,
+       "description": "Seconds between two checks. From 1 to 9223372036, the longest duration Docker Compose reads.",
+       "title": "Interval Seconds",
+       "type": "integer"
+      },
+      "timeout_seconds": {
+       "default": 5,
+       "description": "Seconds one check may take before it counts as failed. From 1 to 9223372036.",
+       "title": "Timeout Seconds",
+       "type": "integer"
+      },
+      "retries": {
+       "default": 3,
+       "description": "Failed checks in a row after which the container is unhealthy. At least 1.",
+       "title": "Retries",
+       "type": "integer"
+      },
+      "start_period_seconds": {
+       "default": 10,
+       "description": "Seconds after the container starts during which a failed check does not count. From 0 to 9223372036.",
+       "title": "Start Period Seconds",
+       "type": "integer"
+      }
+     },
+     "title": "ComposeHealthCheck",
+     "type": "object"
+    },
+    "ComposePort": {
+     "additionalProperties": false,
+     "properties": {
+      "container_port": {
+       "description": "The port the container listens on, from 1 to 65535.",
+       "title": "Container Port",
+       "type": "integer"
+      },
+      "host_port": {
+       "anyOf": [
+        {
+         "type": "integer"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "description": "The port on the host that forwards to `container_port`, written under `ports`. Null writes the port under `expose` instead: it is not published on the host, and the other services on the network reach it.",
+       "title": "Host Port"
+      },
+      "host_ip": {
+       "default": "127.0.0.1",
+       "description": "The IPv4 address on the host that `host_port` listens on. The default accepts connections from this machine only, because an LMA or a GMA started without tokens answers every caller. Read only when `host_port` is set.",
+       "title": "Host Ip",
+       "type": "string"
+      }
+     },
+     "required": [
+      "container_port"
+     ],
+     "title": "ComposePort",
+     "type": "object"
+    }
+   }
+  },
+  {
+   "service": "core-service",
+   "class": "app.models.ComposeIssue",
+   "name": "ComposeIssue",
+   "module": "app.models",
+   "file": "services/core-service/app/models.py",
+   "summary": null,
+   "description": null,
+   "schema": {
+    "properties": {
+     "service": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "The component the issue is about, or null for an issue with the whole request.",
+      "title": "Service"
+     },
+     "code": {
+      "description": "What is wrong. The `dagentsc manifest compile` reference explains each code.",
+      "enum": [
+       "no_services",
+       "invalid_network_name",
+       "invalid_service_name",
+       "duplicate_service_name",
+       "service_name_in_use",
+       "empty_image",
+       "no_compose_equivalent",
+       "unsupported_replicas",
+       "invalid_environment_name",
+       "duplicate_environment_name",
+       "invalid_port",
+       "invalid_host_ip",
+       "host_port_conflict",
+       "empty_health_check",
+       "invalid_health_check_timing",
+       "self_dependency",
+       "duplicate_dependency",
+       "dependency_outside_project",
+       "unknown_dependency",
+       "dependency_cycle"
+      ],
+      "title": "Code",
+      "type": "string"
+     },
+     "value": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "The name or number the issue is about, as a string, or null when the code needs none.",
+      "title": "Value"
+     }
+    },
+    "required": [
+     "service",
+     "code",
+     "value"
+    ],
+    "title": "ComposeIssue",
+    "type": "object"
+   },
+   "defs": {}
+  },
+  {
+   "service": "core-service",
+   "class": "app.models.ComposeManifestResponse",
+   "name": "ComposeManifestResponse",
+   "module": "app.models",
+   "file": "services/core-service/app/models.py",
+   "summary": null,
+   "description": null,
+   "schema": {
+    "properties": {
+     "services": {
+      "description": "The name of every component, in request order, including the ones with issues.",
+      "items": {
+       "type": "string"
+      },
+      "title": "Services",
+      "type": "array"
+     },
+     "issues": {
+      "description": "Every reason the request cannot become a Compose file, in a fixed order. Empty when the file is rendered.",
+      "items": {
+       "$ref": "#/$defs/ComposeIssue"
+      },
+      "title": "Issues",
+      "type": "array"
+     },
+     "compose_yaml": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "The Compose file, with no newline at the end, or null when `issues` is not empty. Docker Compose reads it with `-f`.",
+      "title": "Compose Yaml"
+     }
+    },
+    "required": [
+     "services",
+     "issues",
+     "compose_yaml"
+    ],
+    "title": "ComposeManifestResponse",
+    "type": "object"
+   },
+   "defs": {
+    "ComposeIssue": {
+     "properties": {
+      "service": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The component the issue is about, or null for an issue with the whole request.",
+       "title": "Service"
+      },
+      "code": {
+       "description": "What is wrong. The `dagentsc manifest compile` reference explains each code.",
+       "enum": [
+        "no_services",
+        "invalid_network_name",
+        "invalid_service_name",
+        "duplicate_service_name",
+        "service_name_in_use",
+        "empty_image",
+        "no_compose_equivalent",
+        "unsupported_replicas",
+        "invalid_environment_name",
+        "duplicate_environment_name",
+        "invalid_port",
+        "invalid_host_ip",
+        "host_port_conflict",
+        "empty_health_check",
+        "invalid_health_check_timing",
+        "self_dependency",
+        "duplicate_dependency",
+        "dependency_outside_project",
+        "unknown_dependency",
+        "dependency_cycle"
+       ],
+       "title": "Code",
+       "type": "string"
+      },
+      "value": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The name or number the issue is about, as a string, or null when the code needs none.",
+       "title": "Value"
+      }
+     },
+     "required": [
+      "service",
+      "code",
+      "value"
+     ],
+     "title": "ComposeIssue",
+     "type": "object"
+    }
+   }
+  },
+  {
    "service": "nl2sql-demo-backend",
    "class": "app.models.DagentsServiceStatus",
    "name": "DagentsServiceStatus",
@@ -45330,11 +46165,16 @@
      "manifest",
      "compile"
     ],
-    "usage": "dagentsc manifest compile [--input <file|->] [--output yaml|json]",
+    "usage": "dagentsc manifest compile [--input <file|->] [--target kubernetes|compose] [--output yaml|json]",
     "flags": [
      {
       "name": "--output",
       "default": "yaml",
+      "repeated": false
+     },
+     {
+      "name": "--target",
+      "default": "kubernetes",
       "repeated": false
      },
      {
@@ -45372,11 +46212,11 @@
      "function": "manifest_compile",
      "file": "bindings/ocaml/bin/dagentsc.ml"
     },
-    "doc": "Handle `dagentsc manifest compile`.\n\nInputs: CLI args, optionally including `--input` JSON. Without `--input`, the handler builds a small demo workload from flags. Output: YAML by default, JSON when `--output json`.",
+    "doc": "Handle `dagentsc manifest compile`.\n\nRenders a workload spec as Kubernetes YAML or as one Docker Compose file. With `--input`, the spec is JSON from a file or standard input, and its `target` key chooses the target; `--target` is then an error. Without `--input`, the handler builds one demo component from flags, and `--target` chooses the target.\n\nOutput: the YAML by default, or the plan as JSON with `--output json`. For a Compose spec with issues, the JSON output lists the issues with a null `composeYaml` and exits with code 0, because the plan is the answer. The YAML output is one comment line per issue and exits with code 3, so that `dagentsc ... > file && docker compose -f project.yml -f file up -d` stops instead of merging an empty file into the project.",
     "calls": [
      {
       "module": "Dagents_manifest_compiler",
-      "function": "compile_plan",
+      "function": "compile_for_target",
       "folder": "bindings/ocaml/lib/manifest_compiler"
      }
     ],
@@ -45384,7 +46224,8 @@
      "workload_spec"
     ],
     "writes": [
-     "workload_plan"
+     "workload_plan",
+     "compose_plan"
     ]
    },
    {

@@ -7,7 +7,7 @@ or run the service inside the same boundary as the data.
 
 | Service | Port | Use it to |
 |---|---|---|
-| core-service | 8040 | Compile a workload plan and render Kubernetes manifests |
+| core-service | 8040 | Compile a workload plan and render Kubernetes manifests and Docker Compose files |
 | pipeline-service | 8030 | Register a pipeline of steps, validate it and run it on a payload |
 | model-service | 8000 | List the model families this runtime can run, train models and run checks |
 
