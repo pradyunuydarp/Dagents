@@ -1,0 +1,14 @@
+# The build backend and its dependencies, pinned for every sdist and wheel that
+# .github/workflows/release.yml publishes and the ci.yml packaging job builds.
+# The workflows pass this file to `python -m build` as PIP_CONSTRAINT and
+# PIP_BUILD_CONSTRAINT, and scripts/check_dist.py --build-constraints fails
+# unless each wheel names the hatchling version pinned here. Update these pins
+# on purpose, like the action pins in release.yml, to releases at least two
+# weeks old.
+hatchling==1.32.4
+hatch-fancy-pypi-readme==25.1.0
+packaging==26.3
+pathspec==1.1.1
+pluggy==1.6.0
+tomlkit==0.15.1
+trove-classifiers==2026.9.21.13
