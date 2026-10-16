@@ -189,6 +189,8 @@ both store implementations are tested. The same holds for the agents' twins:
 (builds OCaml, runs `dune test`, and uploads `dagentsc` for the other jobs),
 `agents`, `framework-services` (core-service twice, with and without
 `DAGENTSC_BIN`), `contracts`, `spring`, `demo-apps`, `frontends`,
+`deploy-smoke` (the healthcare UI in network mode with `--deploy` against
+PostgreSQL 16, where the smoke test adds Hospital 290 from the page),
 `docs-impact`, and a `ci` gate job that is the single required check.
 
 `docs-impact` runs `scripts/check_docs_impact.py` on pull requests and pushes
@@ -265,7 +267,9 @@ the UI sends at the exact path and query string it sends it, or whose healthcare
 answers do not list the agent calls behind them (`framework_calls`, with the
 GMA's round call and a `jobs:run` call to each hospital's LMA in the pilot, a
 run dispatch row the hospital accepted for each hospital in the round reports,
-and `agents.mode` in the status). The capture refuses to write such a recording.
+and `agents.mode` in the status), or whose `GET /api/v1/deployments` offers or
+lists a deployment. The capture runs with `HEALTHCARE_DEMO_DEPLOYER=off` and
+refuses to write such a recording.
 `--port` sets the port of the demo backend the capture starts. Recordings are
 gitignored; the workflow makes them.
 
@@ -420,8 +424,12 @@ view and checks that its charts draw, submits a data entry and checks that the
 record appears, switches to the dark theme and checks that the charts are drawn
 again, checks that a 503 without the app's `X-Dagents-App` header shows the
 connecting banner while the app's own 503 shows at once, checks that every
-"Dagents API calls" table names its agent and route and holds no address, and
-fails on any console error. A typecheck
+"Dagents API calls" table names its agent and route and holds no address,
+checks that the "Add a hospital" panel says why it offers no button, and
+fails on any console error. With `--expect-join pl-290`, which
+`run_frontend_demo.sh --deploy --check` passes, it also adds the hospital from
+the page after its other checks and prints `ok  deploy: hospital pl-290
+joined`. A typecheck
 and a bundle only prove that the app compiles. The smoke test exits 2 and prints
 `SKIP` when no browser is available; report that as skipped, not passed.
 

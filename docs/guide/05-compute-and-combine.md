@@ -278,7 +278,9 @@ slot with `series_slot` (1 to 3). For a fourth source, pass `series_slot=None`:
 the chart draws it in neutral ink (`--ds-ink-2`), so it never borrows another
 source's colour. A chart with named series still takes at most three.
 Drawing needs matplotlib. The `_table` functions do not. The stroke demo's
-hospital pages use it.
+hospital pages use it. After a fourth hospital joins the demo, its charts draw
+every hospital in neutral ink, so no hospital keeps a colour another could
+take.
 
 ## What can go wrong
 

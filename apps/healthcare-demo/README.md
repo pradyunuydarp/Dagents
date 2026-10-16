@@ -448,6 +448,21 @@ reason "This hospital's store holds no records yet." The two consortium charts
 of records and outcome rates are listed the same way, with the reason "No
 hospital's store holds records yet.", when every store is empty.
 
+### Add a hospital
+
+The last panel on the consortium page lists the hospital that can join,
+Hospital 290, with its records and whether it is in the consortium. A run
+started with `--deploy` offers a button that adds it; any other run, the
+published demo and its replay say why they offer none. After a press the panel
+shows the seven steps in words, each with its time and one sentence, then the
+Compose file core-service rendered, what the planner's answer for the next
+round means, and the agent calls the attempt made. Focus moves to the attempt,
+and a live region says whether the hospital joined. The page then loads the
+overview, the status and the charts again, so the table, the header and every
+later pilot include the hospital. If a joined hospital's LMA stops, the panel
+offers to start it again, even while the overview cannot load. See
+[Add a hospital while the demo runs](#add-a-hospital-while-the-demo-runs).
+
 ## How it works
 
 ```mermaid
@@ -717,7 +732,10 @@ submits a data entry, checks that every "Dagents API calls" table names its
 agent and route and holds no address, and fails on any console error or failed
 request. Without a browser it exits 2 and prints `SKIP`.
 `scripts/run_frontend_demo.sh --check --agents network` runs the same test
-against agents in their own processes.
+against agents in their own processes. `scripts/run_frontend_demo.sh --deploy
+--check` also adds Hospital 290 from the page after the other checks, opens
+its page, runs a pilot with it, and prints `ok  deploy: hospital pl-290
+joined`; CI's `deploy-smoke` job requires that line.
 
 `tests/test_network_mode.py` starts the GMA, the three LMAs and the API as five
 uvicorn processes on free loopback ports against a scratch PostgreSQL 16

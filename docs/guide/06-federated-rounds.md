@@ -962,7 +962,9 @@ baseline (`baseline_from_round`). The averaging
 itself is the app's model kind, `LogisticRegressionKind.combine` in
 [`app/domain/model_kinds.py`](../../apps/healthcare-demo/backend/app/domain/model_kinds.py),
 which the GMA calls. [Demo apps](../reference/api/demo-apps.md#the-federated-pilot-and-model-releases)
-lists every call of a pilot.
+lists every call of a pilot. A hospital that joins while the demo runs is
+enrolled from what its LMA reports, and the GMA's planner decides whether the
+next round selects it, with the same eligibility rules as the others.
 
 ## 8. Decide on release
 

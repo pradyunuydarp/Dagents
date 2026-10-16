@@ -20,7 +20,8 @@
 #
 # --agents and --deploy combine with the other options. --deploy implies
 # --agents network, starts core-service too (see run_local_demo.sh), and binds
-# the API and the UI to 127.0.0.1 only. The ports come from the environment
+# the API and the UI to 127.0.0.1 only. With --check it also adds the hospital
+# from the page and checks that it joined. The ports come from the environment
 # or from env/.env.healthcare-demo (HEALTHCARE_DEMO_API_PORT,
 # HEALTHCARE_DEMO_UI_PORT and, for network mode, the agents' ports). Ctrl-C
 # stops every server the script started.
@@ -229,6 +230,13 @@ if [[ "${MODE}" != "run" ]]; then
   bold "Running the frontend smoke test"
   SMOKE_ARGS=("http://127.0.0.1:${UI_PORT}/")
   [[ -n "${SHOT_DIR}" ]] && SMOKE_ARGS+=(--screenshots "${SHOT_DIR}")
+  if [[ -n "${DEPLOY}" ]]; then
+    # The smoke test adds the first hospital that can join, after its other
+    # checks, and prints "ok  deploy: hospital <site> joined" when it did.
+    JOIN_SITE="$(cd "${APP_ROOT}/backend" && PYTHONPATH="${DAGENTS_HOME}" "${PYTHON}" -c \
+      'from app.domain.dataset import JOINING_SITES; print(JOINING_SITES[0].site_id)')"
+    SMOKE_ARGS+=(--expect-join "${JOIN_SITE}")
+  fi
   set +e
   (cd "${APP_ROOT}/frontend" && node smoke.mjs "${SMOKE_ARGS[@]}")
   SMOKE_STATUS=$?

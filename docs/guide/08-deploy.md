@@ -81,7 +81,9 @@ deployment, not as a tested one.
   `admin` token. The GMA accepts only the listed address, keeps it in memory,
   and calls the LMA from the next site refresh on. With tokens, the GMA also
   needs the source's entries in `GMA_LMA_TOKENS` and `GMA_SITE_TOKENS` from the
-  start. The full lists are in [`agents/lma/README.md`](../../agents/lma/README.md) and
+  start. The stroke demo does this when Hospital 290 joins a `--deploy` run:
+  core-service renders the new LMA's Compose file, an applier starts it, and
+  the app sends its address to the GMA. The full lists are in [`agents/lma/README.md`](../../agents/lma/README.md) and
   [`agents/gma/README.md`](../../agents/gma/README.md). Tokens and database
   addresses come from the environment and are never committed.
 

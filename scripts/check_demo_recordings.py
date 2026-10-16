@@ -16,6 +16,9 @@ So the deploy checks the capture's content, not only that a file was written:
   release and names their fields, and the published file must not carry rows;
 - the pilot reached its release gates;
 - the recorded framework status says every hospital store is ready;
+- the panel to add a hospital was recorded (`GET /api/v1/deployments`), from
+  a server that offers no deployment and lists none, because a replay must
+  not offer one or show one;
 - every hospital has each request its pages send, at exactly the path and
   query string the UI uses, because the replay matches a request character
   for character: the dashboard, the worklist, the entered records, the audit
@@ -60,7 +63,7 @@ from typing import Any
 # The capture script defines the paths the UI sends; both scripts must use the
 # same ones. It imports only the standard library at module level.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from capture_demo_recordings import after_pilot_hospital_paths, hospital_view_paths  # noqa: E402
+from capture_demo_recordings import DEPLOYMENTS_PATH, after_pilot_hospital_paths, hospital_view_paths  # noqa: E402
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -173,6 +176,23 @@ def check_healthcare(document: dict[str, Any]) -> list[str]:
             "the captured framework status says the hospital stores are not ready, so the page "
             "would open with a banner saying the records are not loaded"
         )
+
+    deployments = entries_for(document, "GET", DEPLOYMENTS_PATH)
+    if not any(entry.get("status") == 200 for entry in deployments):
+        problems.append(
+            f"the panel to add a hospital was not captured (GET {DEPLOYMENTS_PATH} with status 200), so the "
+            "replay would say it was not recorded"
+        )
+    for entry in deployments:
+        response = entry.get("response")
+        if not isinstance(response, dict):
+            continue
+        if response.get("available") is not False or response.get("deployments"):
+            problems.append(
+                f"the captured GET {DEPLOYMENTS_PATH} offers or lists a deployment, and a replay must not offer "
+                "or show a deployment. Capture with HEALTHCARE_DEMO_DEPLOYER=off"
+            )
+            break
 
     probed = {probe.get("request", {}).get("site_id") for probe in probes}
     unprobed = [site_id for site_id in site_ids if site_id not in probed]

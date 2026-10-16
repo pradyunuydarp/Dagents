@@ -85,6 +85,24 @@ The script starts the GMA on port 8081 and the three LMAs on ports 8082 to
 [demo's README](../../apps/healthcare-demo/README.md#run-the-agents-as-separate-processes)
 explains how to set up the database.
 
+With `--deploy` instead of `--agents network`, the same run can add a fourth
+hospital, Hospital 290, while it runs:
+
+```bash
+apps/healthcare-demo/scripts/run_frontend_demo.sh --deploy
+```
+
+The script also starts the Dagents core service on port 8040. On the
+consortium page, the **Add a hospital** panel lists Hospital 290. Press **Add
+Hospital 290**. The panel shows seven steps: core-service renders the new
+LMA's Compose file, the app starts the LMA on port 8085, the LMA reports its
+site, the GMA accepts its address and enrols it, the app adds the hospital,
+and the GMA's planner says whether the next round selects it. Run the pilot
+again and every round includes the fourth hospital. Any other run lists
+Hospital 290 and says why it cannot add it. The
+[demo's README](../../apps/healthcare-demo/README.md#add-a-hospital-while-the-demo-runs)
+has the rules the API checks before it starts a process.
+
 ## 6. Run the tests
 
 ```bash
