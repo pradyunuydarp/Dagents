@@ -126,14 +126,18 @@ requests stored. The healthcare demo reads Postgres only when
   exceptions in the healthcare demo: a data entry, an outcome, a Guard probe and
   a pilot request refuse an unknown key with `422`.
 - **State.** Nothing is persisted across restarts except in the healthcare demo
-  with a database. Ids such as `plan_id` are yours to choose where a field
+  with a database, and in an LMA or GMA whose settings name database tables for
+  its audit chain, job log or model registry. Ids such as `plan_id` are yours to choose where a field
   allows it; otherwise the service makes one.
 
 ## Authentication
 
-There is none. No service checks an identity, a token or an API key, and every
-endpoint answers any caller that can reach it. Run the services on a private
-network, or behind a gateway that authenticates callers.
+The LMA and the GMA check bearer tokens when their settings give them tokens:
+every route except `/health` then needs `Authorization: Bearer <token>`, and
+each token has a scope ([Tokens](agents.md#tokens-errors-and-calls-between-agents)).
+An agent started without tokens answers every caller. No other service checks
+an identity, a token or an API key. Run the services on a private network, or
+behind a gateway that authenticates callers.
 
 Some request bodies describe a requester, for example the `requester` of a
 governance request. That is input to the planner's trust assessment, not proof
@@ -152,6 +156,7 @@ the body depends on the service family.
 | Family | Error body |
 |---|---|
 | Agents, framework services, NL2SQL backend | `{"detail": "Unknown workload plan: plan-missing"}` |
+| Agents: tokens, sites, jobs, updates, model versions, releases, and the planner or a store that cannot be reached | `{"detail": "...", "code": "conflict"}`: the `code` names the kind of error ([the codes](agents.md#tokens-errors-and-calls-between-agents)) |
 | The same, for a request that fails validation (`422`) | `{"detail": [{"type": "literal_error", "loc": ["body", "components", 0, "kind"], "msg": "...", "input": "...", "ctx": {...}}]}`: one entry per problem, with the path to the field in `loc` |
 | model-service, for a model family it cannot run (`400`) | `{"detail": "...", "model_family": "...", "task": "..."}` |
 | Healthcare demo | `{"detail": "There is no hospital with the id 'xx-1'."}` |
@@ -164,24 +169,28 @@ the plain text `Internal Server Error`; the healthcare demo sends
 
 When the planner cannot be run, the result depends on the endpoint. The Guard
 fails closed: an enforcement request returns `200` with `"permitted": false`
-and a `deny` decision, and the denial is recorded. A planning request on the
-LMA or GMA returns `500`. The healthcare demo returns `503` with a plain
-message.
+and a `deny` decision, and the denial is recorded. A request that needs a plan
+on the LMA or GMA returns `503` with the code `planner_unavailable`. The
+healthcare demo returns `503` with a plain message.
 
 | Status | Meaning | Where |
 |---|---|---|
 | `200` | Success | Every service |
-| `201` | A record was created | Healthcare demo: entering a record |
+| `201` | A record was created | Healthcare demo: entering a record; GMA: registering a model version |
 | `202` | Accepted; the work may finish later | model-service and pipeline-service job submissions, and some versioned twins on the agents |
-| `304` | The chart has not changed since the `ETag` you sent in `If-None-Match` | Healthcare demo: chart SVGs |
+| `204` | Done; no body | GMA: discarding a round |
+| `304` | The resource has not changed since the `ETag` you sent in `If-None-Match` | Healthcare demo: chart SVGs; GMA: the released model version |
 | `400` | The path id and the body id differ, or the request cannot be served | LMA and GMA (classifications, sites, round results), model-service (model family), healthcare demo (a request with both `Content-Length` and `Transfer-Encoding`), Spring services (a body that is not JSON, or a value of the wrong type, with Spring's own error body) |
+| `401` | No bearer token, or one the agent does not accept | LMA and GMA started with tokens |
+| `403` | The token may not call this route, or the request asks for something the agent's configuration forbids | LMA and GMA |
 | `404` | No resource has this id | Most services with ids. Exceptions: the LMA and GMA source lookup (`GET /api/v1/sources/{source_id}`) and the GMA's agent lookup answer `200` with `null`, and the Spring services answer `200` with an empty body |
-| `409` | The request conflicts with the current state | GMA (aggregation not permitted), healthcare demo (an `Idempotency-Key` reused for another record, an outcome already recorded, a full entry form, a pilot already running, a model that may not be approved) |
+| `409` | The request conflicts with the current state | LMA and GMA (a round id used twice, a late result, a result posted to the HTTP engine, a second offer, update, aggregate, release decision or approval, a classification that differs from the registered one, aggregation not permitted), healthcare demo (an `Idempotency-Key` reused for another record, an outcome already recorded, a full entry form, a pilot already running, a model that may not be approved) |
 | `413` | The body is larger than 64 KB | Healthcare demo |
 | `422` | The request does not match the schema | Every FastAPI service, and the Spring services |
 | `429` | Too many requests; wait for the seconds in `Retry-After` | Healthcare demo |
 | `500` | An error the code does not handle | Any service |
-| `503` | A store or the planner cannot be reached | Healthcare demo |
+| `502` | Another agent answered with an error | LMA and GMA |
+| `503` | A store, the planner or another agent cannot be reached | LMA, GMA and healthcare demo |
 
 ## Rate limits
 
@@ -199,6 +208,7 @@ own process.
 | Pilots running at once | 1; a second gets `409` | none |
 | Records entered at one hospital | 300; then `409` | `HEALTHCARE_DEMO_MAX_ENTERED_PER_SITE` |
 | Request body | 64 KB; larger gets `413` | `HEALTHCARE_DEMO_MAX_BODY_BYTES` |
+| Requests in progress, all clients together | 12; a request beyond it waits up to 20 seconds for a slot, then gets `503` with `Retry-After: 60`. The health routes never wait | `HEALTHCARE_DEMO_MAX_IN_FLIGHT`, `HEALTHCARE_DEMO_IN_FLIGHT_WAIT_SECONDS` |
 
 A per-minute limit lets a client send that many requests at once, then one more
 every `60 / limit` seconds. A setting of `0` turns a limit off. Over a limit,

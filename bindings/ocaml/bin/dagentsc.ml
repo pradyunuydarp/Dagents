@@ -51,6 +51,7 @@ let usage () =
   prerr_endline "  dagentsc federation round digest [--input <file|->]";
   prerr_endline "  dagentsc federation aggregate readiness [--input <file|->]";
   prerr_endline "  dagentsc federation release evaluate [--input <file|->]";
+  prerr_endline "  dagentsc federation model lifecycle [--input <file|->]";
   exit 1
 
 (** Read a flag value from the command-line argument list.
@@ -387,7 +388,10 @@ let federation_round action args =
            ])
   | _ -> usage ()
 
-(** Handle [dagentsc federation aggregate readiness]. *)
+(** Handle [dagentsc federation aggregate readiness].
+
+    [selectedSites] is optional: without it the selection is not checked, so
+    inputs written before the key existed give the same answer. *)
 let federation_aggregate action args =
   match action with
   | "readiness" ->
@@ -399,9 +403,10 @@ let federation_aggregate action args =
         | Some `Null | None -> []
         | _ -> invalid_arg "Expected results list"
       in
+      let selection = Json_codec.selection_of_yojson (List.assoc_opt "selectedSites" fields) in
       output_json
         (Json_codec.yojson_of_aggregation_readiness
-           (Dagents_federation_compiler.evaluate_aggregation_readiness manifest results))
+           (Dagents_federation_compiler.evaluate_aggregation_readiness ~selection manifest results))
   | _ -> usage ()
 
 (** Handle [dagentsc federation release evaluate]. *)
@@ -442,6 +447,18 @@ let federation_release action args =
               (string_or "roundId" "unknown-round")))
   | _ -> usage ()
 
+(** Handle [dagentsc federation model lifecycle].
+
+    Reads [{"version": ..., "event": {"kind": ...}}] and prints whether the
+    event is allowed, the refusal and its reason, and the status changes a
+    model registry applies. A refusal is a normal result, so it exits 0. *)
+let federation_model action args =
+  match action with
+  | "lifecycle" ->
+      let request = Json_codec.lifecycle_request_of_yojson (read_json_input args) in
+      output_json (Json_codec.yojson_of_lifecycle_outcome (Dagents_federation_compiler.decide_model_lifecycle request))
+  | _ -> usage ()
+
 (** Dispatch the top-level command.
 
     The nested pattern match keeps command names explicit and makes unsupported
@@ -461,4 +478,5 @@ let () =
   | "federation" :: "round" :: action :: rest -> federation_round action rest
   | "federation" :: "aggregate" :: action :: rest -> federation_aggregate action rest
   | "federation" :: "release" :: action :: rest -> federation_release action rest
+  | "federation" :: "model" :: action :: rest -> federation_model action rest
   | _ -> usage ()

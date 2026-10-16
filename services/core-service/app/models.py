@@ -211,7 +211,8 @@ class ComposePort(BaseModel):
         default="127.0.0.1",
         description=(
             "The IPv4 address on the host that `host_port` listens on. The default accepts connections from this "
-            "machine only, because the LMA and the GMA have no authentication. Read only when `host_port` is set."
+            "machine only, because an LMA or a GMA started without tokens answers every caller. Read only when "
+            "`host_port` is set."
         ),
     )
 

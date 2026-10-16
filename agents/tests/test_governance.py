@@ -12,6 +12,8 @@ import json
 import os
 import pathlib
 import shutil
+import sys
+import threading
 import unittest
 import warnings
 
@@ -21,12 +23,15 @@ from agents.common.application.ethical_guard import (
     InMemoryAuditLog,
 )
 from agents.common.application.governance_service import GovernanceService
+from agents.common.domain.errors import ClassificationConflict
 from agents.common.domain.governance import (
+    AuditRecord,
     DataClassification,
     KyuAttribute,
     Requester,
     RestrictionRequest,
 )
+from agents.common.extensions import ExtensionRegistry
 from agents.common.infrastructure.dagents_runner import dagentsc_binary
 
 
@@ -414,6 +419,205 @@ class GovernanceServiceTests(unittest.TestCase):
         self.assertEqual(service.recent_audit(), [])
         service.enforce(request_for(), RECORDS)
         self.assertEqual(len(service.recent_audit()), 1)
+
+
+class _PolicyExtension:
+    """An extension that contributes one classification and nothing else."""
+
+    def __init__(self, classification: DataClassification, extension_id: str = "policy") -> None:
+        self.extension_id = extension_id
+        self.version = "1.0.0"
+        self._classification = classification
+
+    def classifications(self) -> list[DataClassification]:
+        return [self._classification]
+
+
+#: A caller's own classification with the registered id: every field low.
+ALL_LOW = CLASSIFICATION.model_copy(
+    update={
+        "field_sensitivity": {"nihss_total": "low", "age_band": "low", "arrival_mode": "low"},
+        "default_sensitivity": "low",
+        "minimum_cohort": 0,
+    }
+)
+
+
+def registry_with(classification: DataClassification) -> ExtensionRegistry:
+    registry = ExtensionRegistry()
+    registry.register(_PolicyExtension(classification))
+    return registry
+
+
+class RuntimeClassificationTests(unittest.TestCase):
+    """A classification registered at runtime cannot replace one an extension contributes."""
+
+    def setUp(self) -> None:
+        self.registry = registry_with(CLASSIFICATION)
+        self.service = GovernanceService(registry=self.registry)
+
+    def test_a_different_classification_with_an_extension_id_is_refused(self) -> None:
+        with self.assertRaises(ClassificationConflict) as caught:
+            self.service.register_classification(ALL_LOW)
+        self.assertEqual(caught.exception.code, "conflict")
+        self.assertEqual(caught.exception.http_status, 409)
+        self.assertIn("stroke-triage-v1", str(caught.exception))
+        self.assertEqual(self.service.get_classification("stroke-triage-v1"), CLASSIFICATION)
+
+    def test_the_same_classification_registers_again_without_change(self) -> None:
+        """An app that registers its own extension's classification keeps working."""
+        self.assertEqual(self.service.register_classification(CLASSIFICATION.model_copy(deep=True)), CLASSIFICATION)
+        self.assertEqual(
+            [c.classification_id for c in self.service.list_classifications()], ["stroke-triage-v1"]
+        )
+
+    def test_a_new_id_registers_as_before(self) -> None:
+        other = ALL_LOW.model_copy(update={"classification_id": "runtime-only"})
+        self.service.register_classification(other)
+        self.assertEqual(self.service.get_classification("runtime-only"), other)
+        replaced = other.model_copy(update={"minimum_cohort": 7})
+        self.service.register_classification(replaced)
+        self.assertEqual(self.service.get_classification("runtime-only").minimum_cohort, 7)
+
+    def test_an_extension_registered_later_wins_over_a_runtime_classification(self) -> None:
+        """The extension's policy applies even when the runtime entry came first."""
+        registry = ExtensionRegistry()
+        service = GovernanceService(registry=registry)
+        service.register_classification(ALL_LOW)
+        registry.register(_PolicyExtension(CLASSIFICATION))
+        self.assertEqual(service.get_classification("stroke-triage-v1"), CLASSIFICATION)
+        self.assertEqual(service.list_classifications(), [CLASSIFICATION])
+
+
+class StrictClassificationRefusalTests(unittest.TestCase):
+    """Strict mode refuses a request before the planner runs, so these need no planner."""
+
+    def setUp(self) -> None:
+        self.service = GovernanceService(registry=registry_with(CLASSIFICATION), strict_classifications=True)
+
+    def test_a_differing_inline_classification_is_refused(self) -> None:
+        for call in (
+            lambda: self.service.plan(request_for(classification=ALL_LOW)),
+            lambda: self.service.enforce(request_for(classification=ALL_LOW), RECORDS),
+        ):
+            with self.assertRaises(ClassificationConflict) as caught:
+                call()
+            self.assertIn("stroke-triage-v1", str(caught.exception))
+        self.assertEqual(self.service.audit_record_count(), 0)
+
+    def test_an_unknown_classification_id_is_refused(self) -> None:
+        """Otherwise a caller could choose a new id and send any policy it likes."""
+        unknown = ALL_LOW.model_copy(update={"classification_id": "made-up"})
+        with self.assertRaises(ClassificationConflict) as caught:
+            self.service.enforce(request_for(classification=unknown), RECORDS)
+        self.assertIn("made-up", str(caught.exception))
+        self.assertEqual(self.service.audit_record_count(), 0)
+
+    def test_strict_mode_is_off_by_default(self) -> None:
+        self.assertFalse(GovernanceService(registry=registry_with(CLASSIFICATION)).strict_classifications)
+        self.assertTrue(self.service.strict_classifications)
+
+
+@unittest.skipUnless(dagentsc_available(), "dagentsc binary is not available")
+class StrictClassificationTests(unittest.TestCase):
+    """Strict mode against the real planner."""
+
+    def test_the_registered_classification_is_enforced(self) -> None:
+        service = GovernanceService(registry=registry_with(CLASSIFICATION), strict_classifications=True)
+        decision = service.enforce(request_for(), RECORDS)
+        self.assertTrue(decision.permitted)
+        self.assertEqual(service.audit_record_count(), 1)
+        self.assertEqual(service.plan(request_for()).decision, decision.plan.decision)
+
+    def test_a_runtime_classification_with_a_new_id_is_enforced(self) -> None:
+        service = GovernanceService(registry=ExtensionRegistry(), strict_classifications=True)
+        service.register_classification(CLASSIFICATION)
+        self.assertTrue(service.enforce(request_for(), RECORDS).permitted)
+
+    def test_without_strict_mode_the_inline_classification_is_used(self) -> None:
+        """Today's behaviour, kept for agents with no site or condition pack."""
+        service = GovernanceService(registry=registry_with(CLASSIFICATION))
+        decision = service.enforce(request_for(request_id="low", classification=ALL_LOW), RECORDS)
+        self.assertEqual(decision.plan.decision, "permit")
+
+
+class AuditLogConcurrencyTests(unittest.TestCase):
+    """Agent handlers run in a thread pool, so appends can arrive together."""
+
+    def test_concurrent_appends_keep_one_chain(self) -> None:
+        log = InMemoryAuditLog()
+        threads = 8
+        per_thread = 150
+        record = AuditRecord(
+            audit_id="a",
+            recorded_at=1,
+            boundary="before_read",
+            request_id="r",
+            requester_id="x",
+            decision="permit",
+            permitted=True,
+            granularity="row",
+            filtering_score=0.0,
+        )
+        start = threading.Barrier(threads)
+
+        def append_many(worker: int) -> None:
+            start.wait()
+            for index in range(per_thread):
+                log.append(record.model_copy(update={"audit_id": f"{worker}-{index}"}))
+
+        previous_interval = sys.getswitchinterval()
+        # Switch threads as often as possible, so an unlocked append would be
+        # interrupted between reading the last digest and storing its record.
+        sys.setswitchinterval(1e-6)
+        try:
+            workers = [threading.Thread(target=append_many, args=(n,)) for n in range(threads)]
+            for worker in workers:
+                worker.start()
+            for worker in workers:
+                worker.join()
+        finally:
+            sys.setswitchinterval(previous_interval)
+
+        stored = list(reversed(log.list_recent(limit=threads * per_thread)))
+        self.assertEqual(len(stored), threads * per_thread)
+        previous = [entry.previous_digest for entry in stored]
+        self.assertEqual(len(previous), len(set(previous)), "two records name the same previous record")
+        self.assertTrue(log.verify_chain(full=True))
+
+
+class MissingValueTests(unittest.TestCase):
+    """A missing value stays missing under every strategy."""
+
+    def test_generalize_keeps_none(self) -> None:
+        for level in (1.0, 2.0, 3.0):
+            with self.subTest(level=level):
+                self.assertIsNone(EthicalGuard._transform(None, "generalize", level, seed="s"))
+        self.assertEqual(EthicalGuard._transform("ambulance", "generalize", 1.0, seed="s"), "amb*")
+
+    @unittest.skipUnless(dagentsc_available(), "dagentsc binary is not available")
+    def test_a_generalized_field_returns_none_for_a_missing_value(self) -> None:
+        guard = EthicalGuard(DagentscRestrictionPlanner(), InMemoryAuditLog())
+        records = [{"age": None, "zip": "02139"}, {"age": 32, "zip": None}, {"age": 55, "zip": "02138"}]
+        decision = guard.enforce(
+            RestrictionRequest(
+                request_id="missing",
+                boundary="before_read",
+                requester=UNTRUSTED_BUT_KNOWN,
+                classification=DataClassification(
+                    classification_id="missing", default_sensitivity="medium", minimum_cohort=0
+                ),
+                requested_fields=["age", "zip"],
+                granularity="row",
+                cohort_size=3,
+            ),
+            records,
+        )
+        strategies = {r.field: r.strategy for r in decision.plan.field_restrictions}
+        self.assertTrue(strategies["zip"].startswith("generalize"), strategies)
+        self.assertEqual([row["age"] for row in decision.payload], [None, 30, 60])
+        self.assertEqual([row["zip"] for row in decision.payload], ["021*", None, "021*"])
+        self.assertEqual(decision.withheld_fields, [])
 
 
 if __name__ == "__main__":

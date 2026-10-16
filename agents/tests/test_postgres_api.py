@@ -1,14 +1,28 @@
+"""Postgres sources through the LMA and GMA APIs.
+
+The pagila tests read a local copy of the pagila sample database and skip
+without it. The other tests need no database: they check what the agents do
+with a Postgres source definition before any connection is made.
+"""
+
 from __future__ import annotations
 
 import importlib.util
-import time
 import unittest
 from uuid import uuid4
 
 from fastapi.testclient import TestClient
 
+from agents.common.infrastructure.sources import REDACTED
+from agents.gma.app_factory import create_app as create_gma
+from agents.gma.config import Settings as GmaSettings
 from agents.gma.main import app as gma_app
+from agents.lma.app_factory import LmaDeps
+from agents.lma.app_factory import create_app as create_lma
+from agents.lma.config import Settings as LmaSettings
 from agents.lma.main import app as lma_app
+from agents.tests.fixtures.gma_fixtures import toy_registry
+from agents.tests.fixtures.toy_extension import TOY_CONDITION_ID, toy_site_source
 
 PSYCOPG_AVAILABLE = importlib.util.find_spec("psycopg") is not None
 
@@ -153,3 +167,53 @@ class PostgresBackedAgentApiTests(unittest.TestCase):
         run_payload = model.json()
         self.assertEqual(run_payload["run"]["scope_kind"], "assimilated")
         self.assertEqual(run_payload["run"]["record_count"], 512)
+
+
+def credentialed_payload(source_id: str) -> dict[str, object]:
+    """The pagila source, with a password and an unreachable port, as a careless request could send it."""
+    payload = pagila_source_payload(source_id)
+    payload["connection_ref"]["options"].update({"password": "pagila-secret", "port": 1})  # type: ignore[index]
+    return payload
+
+
+class PostgresSourceRequestTests(unittest.TestCase):
+    """What each agent does with a Postgres source a request sends. No database is needed: nothing connects."""
+
+    def test_an_lma_serving_a_site_refuses_the_source(self) -> None:
+        app = create_lma(
+            LmaSettings(site_id="site-a", condition_id=TOY_CONDITION_ID),
+            LmaDeps(registry=toy_registry(), source=toy_site_source(None, "unused", "site-a")),
+        )
+        client = TestClient(app)
+        source_id = f"pagila-source-{uuid4().hex[:8]}"
+        response = client.post("/api/v1/sources", json=credentialed_payload(source_id))
+        self.assertEqual(response.status_code, 403, response.text)
+        self.assertEqual(response.json()["code"], "forbidden")
+        self.assertNotIn("pagila-secret", response.text)
+        self.assertEqual(client.get("/api/v1/sources").json(), [])
+        # A dataset cannot carry the source either.
+        profile = client.post(
+            "/api/v1/datasets:profile",
+            json={"scope_id": "site-a", "dataset": {"source": credentialed_payload(source_id)}},
+        )
+        self.assertEqual(profile.status_code, 403, profile.text)
+
+    def test_a_gma_with_source_reads_off_refuses_the_source(self) -> None:
+        client = TestClient(create_gma(GmaSettings(allow_source_reads=False)))
+        response = client.post("/api/v1/sources", json=credentialed_payload(f"pagila-source-{uuid4().hex[:8]}"))
+        self.assertEqual(response.status_code, 403, response.text)
+        self.assertEqual(response.json()["code"], "forbidden")
+
+    def test_an_agent_without_a_site_stores_the_source_and_never_shows_its_options(self) -> None:
+        for name, client in (("lma", TestClient(lma_app)), ("gma", TestClient(gma_app))):
+            source_id = f"pagila-source-{uuid4().hex[:8]}"
+            with self.subTest(agent=name):
+                echoed = client.post("/api/v1/sources", json=credentialed_payload(source_id))
+                self.assertEqual(echoed.status_code, 200, echoed.text)
+                stored = client.get(f"/api/v1/sources/{source_id}")
+                listed = [item for item in client.get("/api/v1/sources").json() if item["source_id"] == source_id]
+                for body in (echoed.json(), stored.json(), *listed):
+                    options = body["connection_ref"]["options"]
+                    self.assertEqual(set(options), {"dbname", "user", "host", "port", "password"})
+                    self.assertEqual(set(options.values()), {REDACTED})
+                    self.assertNotIn("pagila-secret", str(body))

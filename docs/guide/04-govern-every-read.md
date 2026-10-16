@@ -314,7 +314,80 @@ decision without enforcing it. That call writes no audit record. The LMA runs
 inside the source's boundary, because the records travel to it. The endpoints
 are in the API reference, under [LMA governance](../reference/api/agents.md#lma-governance).
 
-## 6. The Guard fails closed
+Three things change when the agent is configured:
+
+- **Tokens.** An agent started with tokens needs the header
+  `Authorization: Bearer <token>` on every route except `/health`. The Guard
+  routes of an LMA take its `site` token ([Step 8](08-deploy.md#6-who-may-call-the-agents-and-services)).
+- **The registered classification wins.** An LMA started for a site, and a GMA
+  with condition packs, look the classification up by its id and refuse a
+  request whose inline classification differs, with `409`:
+  `the request's classification retail-orders differs from the one registered with this agent`.
+  A caller cannot send a lower sensitivity and get a wider answer.
+- **The records stay at the site.** An LMA started for a site reads its records
+  from its own source, so a caller does not send them. Use the probe below.
+
+## 6. Ask a site's LMA what the Guard would release
+
+An LMA started for a site (Step 6 builds two) serves
+`POST /api/v1/governance/restrictions:probe`. The caller sends who asks, the
+boundary, the granularity, the fields and the purpose. The LMA adds the site's
+classification and the condition pack's approved purposes, runs the Guard over
+the site's first `record_limit` records (5 by default, at most 20), and records
+the decision in the site's audit chain. The answer says what the Guard would
+release, never the records:
+
+```json
+{
+  "boundary": "before_read",
+  "granularity": "row",
+  "requested_fields": ["order_value", "category"],
+  "record_limit": 5,
+  "requester": {
+    "requester_id": "analyst-anna",
+    "requester_kind": "human",
+    "attributes": [
+      {"attribute_id": "staff_id", "verified": true},
+      {"attribute_id": "data_training", "verified": true}
+    ],
+    "compliance_history": 0.9
+  },
+  "declared_purpose": "returns_quality_review"
+}
+```
+
+At store-north's LMA, from the example in Step 6, the answer, with the plan
+shortened:
+
+```json
+{
+    "request_id": "probe:store-north:a43955ecf37b4edfaa516f87b9ad010a",
+    "boundary": "before_read",
+    "permitted": true,
+    "plan": {
+        "decision": "narrow",
+        "field_restrictions": [
+            {"field": "order_value", "strategy": "generalize:1"},
+            {"field": "category", "strategy": "allow_full"}
+        ]
+    },
+    "released_count": 5,
+    "released_fields": ["order_value", "category"],
+    "withheld_fields": [],
+    "transformed_fields": ["order_value"],
+    "audit_id": "05122876dcf34f31af65be7c29a0e597",
+    "message": "permitted with restrictions"
+}
+```
+
+The request id and the audit id are new for every call. Then
+`GET /api/v1/governance/audit:summary` answers
+`{"chain_intact": true, "record_count": 1}`: whether the site's chain verifies
+and how many decisions it holds, without the decisions. The GMA reads the same
+summary from every site (Step 6). The probe and the summary are in the API
+reference, under [LMA site](../reference/api/agents.md#lma-site).
+
+## 7. The Guard fails closed
 
 Run `step2_guard_check.py` with a planner path that does not exist:
 
@@ -344,16 +417,21 @@ Audit log at store-north: 3 records, chain intact: True
 The Guard denies every request and records every denial. Never add a fallback
 that permits a request when the planner fails.
 
-## 7. Choose where the audit log is kept
+## 8. Choose where the audit log is kept
 
 `GovernanceService()` keeps its audit log in memory. Pass your own sink to keep
 it elsewhere:
 
 | Sink | Where | Use it for |
 |---|---|---|
-| `InMemoryAuditLog` | This process | Tests and examples |
+| `InMemoryAuditLog` | This process | Tests and examples. Appends take a lock, so concurrent requests keep one chain |
 | `PostgresAuditSink` | A table in the source's own schema, written as the source's role | A deployment with Postgres (Step 3) |
 | Your own class | Anywhere | Implement `append`, `list_recent`, `count` and `verify_chain` from the `AuditSink` protocol in `ethical_guard.py` |
+
+An LMA started from settings keeps its chain in Postgres when it has
+`LMA_DATABASE_URL`, `LMA_SITE_ROLE` and `LMA_AUDIT_TABLE`; a GMA does the same
+with `GMA_DATABASE_URL`, `GMA_DATABASE_ROLE` and `GMA_AUDIT_TABLE`. Without
+them, each keeps its chain in memory.
 
 Each record's digest covers every field and the previous record's digest, so
 removing or editing a record breaks every digest after it. `verify_chain()`
@@ -369,5 +447,7 @@ production audit store also needs append-only storage and retention rules.
 | `cohort_size 12 is below minimum_cohort 20` | The group is too small to describe | This is the policy working. Ask for a larger group or a row request with more protection |
 | A field you expected comes back redacted for everyone | The field is not in the classification, so it is `high` by default | Add it to `field_sensitivity` with the sensitivity you have decided |
 | Every decision is `deny` with "The planner could not be reached" | The planner is missing in this process | Set `DAGENTSC_BIN` or put `dagentsc` on `PATH` |
+| `409` with "the request's classification X differs from the one registered with this agent" | The agent runs with a site or condition packs, and the request's inline classification is not the registered one | Send the registered classification (`GET /api/v1/governance/classifications`), or change it in the extension |
+| `503` with the code `planner_unavailable` from an agent's `restrictions:plan` | The agent cannot run `dagentsc` | Put the planner in the agent's container (Step 8) |
 
 Next: [Step 5: Compute at each source and combine](05-compute-and-combine.md).

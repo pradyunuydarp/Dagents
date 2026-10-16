@@ -264,8 +264,9 @@ directory of the first file. To join a network that another project made, set
 What the file contains:
 
 - A port with `host_port` is published on `host_ip`, which is `127.0.0.1` by
-  default, because the LMA and the GMA have no authentication. A port without
-  `host_port` is listed under `expose` and is not published on the host.
+  default, because an LMA or a GMA started without tokens answers every caller.
+  A port without `host_port` is listed under `expose` and is not published on
+  the host.
 - Every value is quoted, each `$` is written as `$$`, and control characters
   are escaped, including the line breaks U+0085, U+2028 and U+2029. Docker
   Compose then passes the value to the container unchanged instead of reading

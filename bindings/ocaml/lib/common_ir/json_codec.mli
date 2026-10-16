@@ -126,6 +126,17 @@ val yojson_of_round_plan : round_plan -> Yojson.Safe.t
 val site_result_of_yojson : Yojson.Safe.t -> site_result
 (** Serialize one site result. *)
 val yojson_of_site_result : site_result -> Yojson.Safe.t
+(** Parse the optional [selectedSites] value of a readiness input.
+
+    [None] (the key is absent) and [null] give [Unchecked]; a list of strings
+    gives [Selected]. Anything else raises [Invalid_argument].
+
+    Example test case:
+    {[
+      assert (selection_of_yojson None = Unchecked);
+      assert (selection_of_yojson (Some (`List [ `String "a" ])) = Selected [ "a" ])
+    ]} *)
+val selection_of_yojson : Yojson.Safe.t option -> selection
 (** Serialize an aggregation-readiness verdict. *)
 val yojson_of_aggregation_readiness : aggregation_readiness -> Yojson.Safe.t
 (** Parse one release gate and its comparison. *)
@@ -136,6 +147,34 @@ val yojson_of_release_decision : release_decision -> Yojson.Safe.t
 val aggregation_method_of_yojson : Yojson.Safe.t -> aggregation_method
 (** Serialize an aggregation method as a parameterized object. *)
 val yojson_of_aggregation_method : aggregation_method -> Yojson.Safe.t
+(** Parse the release decision stored with a candidate.
+
+    An unstated [guardPermitted] is [false] and an unstated [metricsSource] is
+    [MetricsSourceUnrecorded], so a decision that does not say both cannot lead
+    to a release. *)
+val recorded_release_decision_of_yojson : Yojson.Safe.t -> recorded_release_decision
+(** Parse one model lifecycle event: [registered], [aggregated],
+    [release_evaluated] or [approval_requested], named by its ["kind"]. *)
+val lifecycle_event_of_yojson : Yojson.Safe.t -> lifecycle_event
+(** Parse a model lifecycle request, [{"version": ..., "event": {...}}].
+
+    Example test case:
+    {[
+      let request =
+        lifecycle_request_of_yojson
+          (`Assoc
+             [
+               ("version", `String "model-2");
+               ("event", `Assoc [ ("kind", `String "registered") ]);
+             ])
+      in
+      assert (request.lifecycle_event = Registered { requested_status = RequestCandidate; released_version = None })
+    ]} *)
+val lifecycle_request_of_yojson : Yojson.Safe.t -> lifecycle_request
+(** Serialize one status change, with a [null] [fromStatus] for a new version. *)
+val yojson_of_status_change : status_change -> Yojson.Safe.t
+(** Serialize a lifecycle outcome: [allowed], [refusal], [reason], [statusChanges]. *)
+val yojson_of_lifecycle_outcome : lifecycle_outcome -> Yojson.Safe.t
 
 (** Parse a deployment target: absent or [null] (Kubernetes), ["kubernetes"],
     ["compose"], or an object with a [kind]. Raises [Invalid_argument] on an

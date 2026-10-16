@@ -1,11 +1,13 @@
 import type { Recording } from "../api";
+import { ApiCalls } from "../components/ApiCalls";
 import { ErrorNote, Loading, Panel } from "../components/Basics";
 import { ChartGrid } from "../components/Chart";
 import { GuardProbe } from "../components/GuardProbe";
 import { HospitalsTable } from "../components/HospitalsTable";
 import { PilotPanel } from "../components/PilotPanel";
+import { WhoDoesWhat } from "../components/WhoDoesWhat";
 import { countWord } from "../format";
-import type { ChartInfo, FrameworkStatus, Overview, Pilot } from "../types";
+import type { ChartList, FrameworkStatus, Overview, Pilot } from "../types";
 import { useResource } from "../useResource";
 
 /**
@@ -30,7 +32,7 @@ export function ConsortiumPage({
   onApproved: () => void;
 }) {
   // The pilot changes three of the charts, so the list is fetched again after it.
-  const charts = useResource<{ charts: ChartInfo[] }>(`/api/v1/charts`);
+  const charts = useResource<ChartList>(`/api/v1/charts`);
   const reloadCharts = charts.reload;
   const list = charts.data?.charts ?? [];
   const trainingChart = pilot ? list.find((chart) => chart.chart_id === "training-curve") : undefined;
@@ -60,6 +62,7 @@ export function ConsortiumPage({
       </header>
 
       <HospitalsTable overview={overview} status={status} />
+      <WhoDoesWhat overview={overview} status={status} />
       <GuardProbe overview={overview} recording={recording} />
       <PilotPanel
         overview={overview}
@@ -82,6 +85,7 @@ export function ConsortiumPage({
         </p>
         <ErrorNote error={charts.error} />
         {charts.data ? <ChartGrid charts={gridCharts} /> : !charts.error && <Loading what="the charts" />}
+        {charts.data && <ApiCalls calls={charts.data.framework_calls} />}
       </Panel>
     </div>
   );

@@ -783,7 +783,7 @@ let completed_result site_id examples =
     that weights follow accepted example counts, and that the weights sum to one. *)
 let test_aggregation_readiness_accepts_verified_contributions () =
   let readiness =
-    Dagents_federation_compiler.evaluate_aggregation_readiness stroke_manifest
+    Dagents_federation_compiler.evaluate_aggregation_readiness ~selection:Unchecked stroke_manifest
       [
         completed_result "hospital-a" 300;
         completed_result "hospital-b" 100;
@@ -811,7 +811,7 @@ let test_aggregation_readiness_accepts_verified_contributions () =
     single site's update. *)
 let test_aggregation_readiness_rejects_bad_contributions () =
   let reason_for result =
-    let readiness = Dagents_federation_compiler.evaluate_aggregation_readiness stroke_manifest [ result ] in
+    let readiness = Dagents_federation_compiler.evaluate_aggregation_readiness ~selection:Unchecked stroke_manifest [ result ] in
     match
       List.find_opt
         (fun rejection -> rejection.rejected_site_id = result.result_site_id)
@@ -833,19 +833,100 @@ let test_aggregation_readiness_rejects_bad_contributions () =
   assert_true "a contribution below the cohort floor should be rejected"
     (contains (reason_for (completed_result "hospital-a" 10)) "below the per-site minimum");
   let blocked =
-    Dagents_federation_compiler.evaluate_aggregation_readiness stroke_manifest
+    Dagents_federation_compiler.evaluate_aggregation_readiness ~selection:Unchecked stroke_manifest
       [ completed_result "hospital-a" 300; { (completed_result "hospital-b" 200) with participation = SiteFailed } ]
   in
   assert_true "aggregation must not proceed on a single surviving contribution"
     (not blocked.aggregation_permitted);
   assert_true "a blocked aggregation should report why" (blocked.readiness_stop_reason <> None)
 
+(** Verifies that readiness rejects a result from a site the round plan did not
+    select, before any other check, and that such a result counts toward
+    neither the quorum nor the weights. A site named [intruder], never enrolled
+    or invited, was once accepted with most of the weight. *)
+let test_aggregation_readiness_checks_the_selection () =
+  let not_selected = "site was not selected for this round" in
+  let results =
+    [
+      completed_result "hospital-a" 100;
+      completed_result "intruder" 900;
+      { (completed_result "hospital-b" 200) with participation = SiteFailed };
+    ]
+  in
+  let unchecked =
+    Dagents_federation_compiler.evaluate_aggregation_readiness ~selection:Unchecked stroke_manifest results
+  in
+  assert_true "without a selection, today's behaviour is kept"
+    (unchecked.accepted_sites = [ "hospital-a"; "intruder" ] && unchecked.aggregation_permitted);
+  let selected =
+    Dagents_federation_compiler.evaluate_aggregation_readiness
+      ~selection:(Selected [ "hospital-a"; "hospital-b" ])
+      stroke_manifest results
+  in
+  let reason_for site_id =
+    match List.find_opt (fun rejection -> rejection.rejected_site_id = site_id) selected.rejected_contributions with
+    | Some rejection -> rejection.rejection_reason
+    | None -> failwith ("expected a rejection for " ^ site_id)
+  in
+  assert_true "an unselected site is rejected with the selection reason" (reason_for "intruder" = not_selected);
+  assert_true "a selected site keeps its own reason" (contains (reason_for "hospital-b") "failed run");
+  assert_true "only the selected, completed site is accepted" (selected.accepted_sites = [ "hospital-a" ]);
+  assert_true "an unselected site's examples are not counted" (selected.accepted_examples = 100);
+  assert_true "an unselected site gets no weight" (selected.site_weights = [ ("hospital-a", 1.0) ]);
+  assert_true "an unselected site does not make the quorum" (not selected.aggregation_permitted);
+  assert_true "the stop reason is a missed quorum" (selected.readiness_stop_reason = Some QuorumNotMet);
+  assert_true "rejections stay ordered by site"
+    (List.map (fun rejection -> rejection.rejected_site_id) selected.rejected_contributions
+    = [ "hospital-b"; "intruder" ]);
+  (* The selection is checked first: a failed run from an unselected site is
+     reported as not selected, not as a failed run. *)
+  let first =
+    Dagents_federation_compiler.evaluate_aggregation_readiness ~selection:(Selected [ "hospital-a" ])
+      stroke_manifest
+      [ { (completed_result "hospital-c" 300) with participation = SiteFailed } ]
+  in
+  assert_true "the selection is checked before the participation"
+    (List.map (fun rejection -> rejection.rejection_reason) first.rejected_contributions = [ not_selected ]);
+  (* A site that was never selected cannot drop out of the round, so its
+     dropout does not turn a missed quorum into excessive dropout. *)
+  let dropout =
+    Dagents_federation_compiler.evaluate_aggregation_readiness ~selection:(Selected [ "hospital-a" ])
+      stroke_manifest
+      [ completed_result "hospital-a" 300; { (completed_result "intruder" 300) with participation = SiteDropped } ]
+  in
+  assert_true "an unselected dropout is not counted as a dropout"
+    (dropout.readiness_stop_reason = Some QuorumNotMet);
+  let counted_dropout =
+    Dagents_federation_compiler.evaluate_aggregation_readiness
+      ~selection:(Selected [ "hospital-a"; "hospital-b" ])
+      stroke_manifest
+      [ completed_result "hospital-a" 300; { (completed_result "hospital-b" 300) with participation = SiteDropped } ]
+  in
+  assert_true "a selected dropout is still counted"
+    (counted_dropout.readiness_stop_reason = Some ExcessiveDropout);
+  let empty =
+    Dagents_federation_compiler.evaluate_aggregation_readiness ~selection:(Selected []) stroke_manifest
+      [ completed_result "hospital-a" 300; completed_result "hospital-b" 300 ]
+  in
+  assert_true "an empty selection accepts no result"
+    (empty.accepted_sites = [] && List.length empty.rejected_contributions = 2);
+  assert_true "an absent selectedSites parses as unchecked" (Json_codec.selection_of_yojson None = Unchecked);
+  assert_true "a null selectedSites parses as unchecked" (Json_codec.selection_of_yojson (Some `Null) = Unchecked);
+  assert_true "a list parses as a selection"
+    (Json_codec.selection_of_yojson (Some (`List [ `String "hospital-a" ])) = Selected [ "hospital-a" ]);
+  assert_true "an empty list parses as an empty selection"
+    (Json_codec.selection_of_yojson (Some (`List [])) = Selected []);
+  expect_invalid_argument "a selection that is not a list is refused" (fun () ->
+      Json_codec.selection_of_yojson (Some (`String "hospital-a")));
+  expect_invalid_argument "a selection with a non-string entry is refused" (fun () ->
+      Json_codec.selection_of_yojson (Some (`List [ `Int 1 ])))
+
 (** Verifies that a secure-aggregation profile requires a reported update norm
     and rejects a contribution that exceeds the permitted bound. *)
 let test_secure_aggregation_bounds_contributions () =
   let manifest = { stroke_manifest with aggregation = SecureAggregation 2 } in
   let readiness =
-    Dagents_federation_compiler.evaluate_aggregation_readiness manifest
+    Dagents_federation_compiler.evaluate_aggregation_readiness ~selection:Unchecked manifest
       [
         {
           (completed_result "hospital-a" 300) with
@@ -1005,6 +1086,281 @@ let test_release_gate_results_carry_their_threshold () =
     | _ -> false
   in
   assert_true "an unknown threshold is written as null" missing
+
+(** Run the lifecycle rule on one event for one version. *)
+let lifecycle version event =
+  Dagents_federation_compiler.decide_model_lifecycle { lifecycle_version = version; lifecycle_event = event }
+
+(** A change that adds a version, or moves one from one status to another. *)
+let change ?from version to_status = { changed_version = version; from_status = from; to_status }
+
+(** The status changes an allowed event makes; fails on a refusal. *)
+let changes_of message outcome =
+  match outcome.verdict with
+  | LifecycleAllowed changes -> changes
+  | LifecycleRefused refusal -> failwith (message ^ ": refused as " ^ string_of_lifecycle_refusal refusal)
+
+(** The refusal kind of a refused event; fails when the event was allowed. *)
+let refusal_of message outcome =
+  match outcome.verdict with
+  | LifecycleRefused refusal -> string_of_lifecycle_refusal refusal
+  | LifecycleAllowed _ -> failwith (message ^ ": expected a refusal")
+
+(** A release decision as a pilot stores it when everything passed. *)
+let passing_decision =
+  {
+    recorded_action = ReleaseCandidate;
+    recorded_guard_permitted = true;
+    recorded_metrics_source = MetricsFromRounds;
+    recorded_baseline_version = Some "rule-v1";
+  }
+
+(** Verifies the status changes each lifecycle event makes when it is allowed,
+    and that they come back sorted by version. *)
+let test_model_lifecycle_events () =
+  assert_true "a version registered as a candidate is a candidate"
+    (changes_of "register candidate"
+       (lifecycle "logreg-init" (Registered { requested_status = RequestCandidate; released_version = Some "rule-v1" }))
+    = [ change "logreg-init" ModelCandidate ]);
+  assert_true "the first version registered as released is the release"
+    (changes_of "register released"
+       (lifecycle "rule-v1" (Registered { requested_status = RequestReleased; released_version = None }))
+    = [ change "rule-v1" ModelReleased ]);
+  assert_true "aggregation supersedes a candidate parent, sorted by version"
+    (changes_of "aggregate from candidate"
+       (lifecycle "logreg+round-2" (Aggregated { parent_version = "logreg+round-1"; parent_status = ModelCandidate }))
+    = [ change ~from:ModelCandidate "logreg+round-1" ModelSuperseded; change "logreg+round-2" ModelCandidate ]);
+  assert_true "aggregation leaves a parent that is not a candidate as it is"
+    (List.for_all
+       (fun parent_status ->
+         changes_of "aggregate from settled parent"
+           (lifecycle "logreg+round-1" (Aggregated { parent_version = "logreg-init"; parent_status }))
+         = [ change "logreg+round-1" ModelCandidate ])
+       [ ModelReleased; ModelRejected; ModelSuperseded ]);
+  assert_true "a candidate the gates and the Guard passed stays a candidate"
+    (changes_of "release evaluated"
+       (lifecycle "logreg+round-5" (ReleaseEvaluated { status = ModelCandidate; action = ReleaseCandidate; guard_permitted = true }))
+    = []);
+  let rejected = [ change ~from:ModelCandidate "logreg+round-5" ModelRejected ] in
+  List.iter
+    (fun (action, guard_permitted, wording) ->
+      let outcome =
+        lifecycle "logreg+round-5" (ReleaseEvaluated { status = ModelCandidate; action; guard_permitted })
+      in
+      assert_true "a candidate that did not pass is rejected" (changes_of "release evaluated" outcome = rejected);
+      assert_true
+        ("the rejection reason names what failed: " ^ outcome.lifecycle_reason)
+        (outcome.lifecycle_reason = "logreg+round-5 is rejected, because " ^ wording))
+    [
+      (RejectCandidate, true, "the release gates decided reject");
+      (RequireAnotherRound, true, "the release gates decided another_round");
+      (ReleaseCandidate, false, "the release Guard did not permit it");
+      (* The gates are named first when both failed, as in the approval order. *)
+      (RejectCandidate, false, "the release gates decided reject");
+    ];
+  (* "model-b" is approved while "model-a" is released, so the changes are
+     listed in version order, not in the order the rule makes them. *)
+  let approved =
+    lifecycle "model-b"
+      (ApprovalRequested
+         {
+           status = ModelCandidate;
+           decision = Some { passing_decision with recorded_baseline_version = Some "model-a" };
+           released_version = Some "model-a";
+         })
+  in
+  assert_true "an approval releases the candidate and supersedes the release"
+    (changes_of "approve" approved
+    = [ change ~from:ModelReleased "model-a" ModelSuperseded; change ~from:ModelCandidate "model-b" ModelReleased ]);
+  assert_true "an approval with nothing released only releases the candidate"
+    (changes_of "approve with nothing released"
+       (lifecycle "model-b"
+          (ApprovalRequested
+             {
+               status = ModelCandidate;
+               decision = Some { passing_decision with recorded_baseline_version = None };
+               released_version = None;
+             }))
+    = [ change ~from:ModelCandidate "model-b" ModelReleased ])
+
+(** Verifies each refusal, its wording, and the order of the approval checks:
+    no decision, gates, Guard, metrics source, status, baseline. *)
+let test_model_lifecycle_refusals_and_order () =
+  let approve ?(status = ModelCandidate) ?(released = Some "rule-v1") decision =
+    lifecycle "logreg+round-5" (ApprovalRequested { status; decision; released_version = released })
+  in
+  let check name outcome expected_kind expected_reason =
+    assert_true (name ^ ": refusal kind") (refusal_of name outcome = expected_kind);
+    assert_true
+      (name ^ ": reason was \"" ^ outcome.lifecycle_reason ^ "\"")
+      (outcome.lifecycle_reason = expected_reason)
+  in
+  check "already released"
+    (lifecycle "rule-v2" (Registered { requested_status = RequestReleased; released_version = Some "rule-v1" }))
+    "already_released" "rule-v2 cannot be registered as released while rule-v1 is released";
+  check "release evaluated on a rejected version"
+    (lifecycle "logreg+round-5" (ReleaseEvaluated { status = ModelRejected; action = ReleaseCandidate; guard_permitted = true }))
+    "not_candidate" "logreg+round-5 is rejected, not a candidate";
+  check "no decision" (approve None) "no_decision"
+    "logreg+round-5 has no release decision; only a pilot's candidate can be approved";
+  check "gates decided reject"
+    (approve (Some { passing_decision with recorded_action = RejectCandidate }))
+    "gates_decided" "the release gates decided reject for logreg+round-5";
+  check "gates decided another round"
+    (approve (Some { passing_decision with recorded_action = RequireAnotherRound }))
+    "gates_decided" "the release gates decided another_round for logreg+round-5";
+  check "guard denied"
+    (approve (Some { passing_decision with recorded_guard_permitted = false }))
+    "guard_denied" "the release Guard did not permit logreg+round-5";
+  check "metrics from the request"
+    (approve (Some { passing_decision with recorded_metrics_source = MetricsFromRequest }))
+    "metrics_not_from_rounds" "the release decision for logreg+round-5 did not take its metrics from the rounds";
+  check "metrics source unrecorded"
+    (approve (Some { passing_decision with recorded_metrics_source = MetricsSourceUnrecorded }))
+    "metrics_not_from_rounds" "the release decision for logreg+round-5 did not take its metrics from the rounds";
+  check "not a candidate" (approve ~status:ModelSuperseded (Some passing_decision)) "not_candidate"
+    "logreg+round-5 is superseded, not a candidate";
+  check "approved twice"
+    (approve ~status:ModelReleased ~released:(Some "logreg+round-5") (Some passing_decision))
+    "not_candidate" "logreg+round-5 is released, not a candidate";
+  check "baseline changed" (approve ~released:(Some "logreg+round-3") (Some passing_decision)) "baseline_changed"
+    "logreg+round-5 was checked against rule-v1, but logreg+round-3 is now in use. Run the pilot again.";
+  check "baseline unrecorded"
+    (approve (Some { passing_decision with recorded_baseline_version = None }))
+    "baseline_changed"
+    "logreg+round-5 has no record of the model it was checked against, but rule-v1 is now in use. Run the pilot again.";
+  check "nothing in use any more" (approve ~released:None (Some passing_decision)) "baseline_changed"
+    "logreg+round-5 was checked against rule-v1, but no model is now in use. Run the pilot again.";
+  (* Order: each pair fails two checks, and the earlier check is the refusal. *)
+  let everything_wrong =
+    {
+      recorded_action = RejectCandidate;
+      recorded_guard_permitted = false;
+      recorded_metrics_source = MetricsFromRequest;
+      recorded_baseline_version = Some "old";
+    }
+  in
+  assert_true "no decision comes before the status"
+    (refusal_of "order 1" (approve ~status:ModelRejected None) = "no_decision");
+  assert_true "the gates come before the Guard"
+    (refusal_of "order 2" (approve ~status:ModelRejected (Some everything_wrong)) = "gates_decided");
+  assert_true "the Guard comes before the metrics source"
+    (refusal_of "order 3"
+       (approve ~status:ModelRejected (Some { everything_wrong with recorded_action = ReleaseCandidate }))
+    = "guard_denied");
+  assert_true "the metrics source comes before the status"
+    (refusal_of "order 4"
+       (approve ~status:ModelRejected
+          (Some { everything_wrong with recorded_action = ReleaseCandidate; recorded_guard_permitted = true }))
+    = "metrics_not_from_rounds");
+  assert_true "the status comes before the baseline"
+    (refusal_of "order 5"
+       (approve ~status:ModelRejected
+          (Some
+             {
+               everything_wrong with
+               recorded_action = ReleaseCandidate;
+               recorded_guard_permitted = true;
+               recorded_metrics_source = MetricsFromRounds;
+             }))
+    = "not_candidate");
+  expect_invalid_argument "a version cannot be its own parent" (fun () ->
+      lifecycle "logreg+round-1" (Aggregated { parent_version = "logreg+round-1"; parent_status = ModelCandidate }));
+  expect_invalid_argument "a candidate cannot also be the released version" (fun () ->
+      lifecycle "model-b"
+        (ApprovalRequested
+           {
+             status = ModelCandidate;
+             decision = Some { passing_decision with recorded_baseline_version = Some "model-b" };
+             released_version = Some "model-b";
+           }))
+
+(** Verifies the lifecycle request and outcome at the JSON boundary dagentsc
+    uses: the event kinds, the cautious defaults, invalid input and the output
+    keys. *)
+let test_model_lifecycle_codec () =
+  let parse json = Json_codec.lifecycle_request_of_yojson json in
+  let request kind extra = `Assoc [ ("version", `String "model-2"); ("event", `Assoc (("kind", `String kind) :: extra)) ] in
+  assert_true "an unstated requested status is a candidate"
+    ((parse (request "registered" [])).lifecycle_event
+    = Registered { requested_status = RequestCandidate; released_version = None });
+  assert_true "an unstated Guard verdict is not permitted"
+    ((parse (request "release_evaluated" [ ("status", `String "candidate"); ("action", `String "release") ]))
+       .lifecycle_event
+    = ReleaseEvaluated { status = ModelCandidate; action = ReleaseCandidate; guard_permitted = false });
+  let approval =
+    parse
+      (request "approval_requested"
+         [
+           ("status", `String "candidate");
+           ("decision", `Assoc [ ("action", `String "release"); ("guardPermitted", `Bool true) ]);
+           ("releasedVersion", `String "rule-v1");
+         ])
+  in
+  assert_true "an unstated metrics source and baseline are unrecorded"
+    (approval.lifecycle_event
+    = ApprovalRequested
+        {
+          status = ModelCandidate;
+          decision =
+            Some
+              {
+                recorded_action = ReleaseCandidate;
+                recorded_guard_permitted = true;
+                recorded_metrics_source = MetricsSourceUnrecorded;
+                recorded_baseline_version = None;
+              };
+          released_version = Some "rule-v1";
+        });
+  assert_true "a null decision is no decision"
+    ((parse (request "approval_requested" [ ("status", `String "candidate"); ("decision", `Null) ])).lifecycle_event
+    = ApprovalRequested { status = ModelCandidate; decision = None; released_version = None });
+  assert_true "an aggregation names its parent"
+    ((parse (request "aggregated" [ ("parentVersion", `String "model-1"); ("parentStatus", `String "superseded") ]))
+       .lifecycle_event
+    = Aggregated { parent_version = "model-1"; parent_status = ModelSuperseded });
+  expect_invalid_argument "an unknown event kind is refused" (fun () -> parse (request "deployed" []));
+  expect_invalid_argument "a registration cannot ask to be rejected" (fun () ->
+      parse (request "registered" [ ("requestedStatus", `String "rejected") ]));
+  expect_invalid_argument "an unknown status is refused" (fun () ->
+      parse (request "release_evaluated" [ ("status", `String "draft"); ("action", `String "release") ]));
+  expect_invalid_argument "an unknown action is refused" (fun () ->
+      parse (request "release_evaluated" [ ("status", `String "candidate"); ("action", `String "ship") ]));
+  expect_invalid_argument "an unknown metrics source is refused" (fun () ->
+      parse
+        (request "approval_requested"
+           [ ("status", `String "candidate"); ("decision", `Assoc [ ("action", `String "release"); ("metricsSource", `String "memory") ]) ]));
+  expect_invalid_argument "a missing version is refused" (fun () ->
+      parse (`Assoc [ ("event", `Assoc [ ("kind", `String "registered") ]) ]));
+  expect_invalid_argument "an empty version is refused" (fun () ->
+      parse (`Assoc [ ("version", `String ""); ("event", `Assoc [ ("kind", `String "registered") ]) ]));
+  expect_invalid_argument "a missing event is refused" (fun () -> parse (`Assoc [ ("version", `String "model-2") ]));
+  expect_invalid_argument "an aggregation without its parent is refused" (fun () ->
+      parse (request "aggregated" [ ("parentStatus", `String "candidate") ]));
+  let encoded outcome = match Json_codec.yojson_of_lifecycle_outcome outcome with `Assoc fields -> fields | _ -> [] in
+  let allowed =
+    encoded (lifecycle "model-2" (Aggregated { parent_version = "model-1"; parent_status = ModelCandidate }))
+  in
+  assert_true "the output has exactly four keys"
+    (List.map fst allowed = [ "allowed"; "refusal"; "reason"; "statusChanges" ]);
+  assert_true "an allowed event has no refusal"
+    (List.assoc "allowed" allowed = `Bool true && List.assoc "refusal" allowed = `Null);
+  assert_true "a new version has a null fromStatus"
+    (List.assoc "statusChanges" allowed
+    = `List
+        [
+          `Assoc
+            [ ("version", `String "model-1"); ("fromStatus", `String "candidate"); ("toStatus", `String "superseded") ];
+          `Assoc [ ("version", `String "model-2"); ("fromStatus", `Null); ("toStatus", `String "candidate") ];
+        ]);
+  let refused =
+    encoded
+      (lifecycle "model-2" (ApprovalRequested { status = ModelCandidate; decision = None; released_version = None }))
+  in
+  assert_true "a refused event names its refusal and changes nothing"
+    (List.assoc "allowed" refused = `Bool false
+    && List.assoc "refusal" refused = `String "no_decision"
+    && List.assoc "statusChanges" refused = `List [])
 
 (** Verifies that governance payloads survive the JSON boundary services use,
     since the planners are reached over a subprocess rather than in-process. *)
@@ -1683,18 +2039,18 @@ let lma_merge_json =
     "kind": "compose",
     "placement": "merge",
     "network": "default",
-    "existingServices": ["gma", "lma-uk-134", "lma-it-002", "lma-ch-245", "healthcare-demo-backend", "healthcare-demo-frontend"]
+    "existingServices": ["postgres", "setup", "gma", "lma-uk-134", "lma-it-002", "lma-ch-245", "healthcare-demo-backend", "healthcare-demo-frontend"]
   },
   "components": [
     {
       "name": "lma-hospital-d",
       "image": "dagents/healthcare-demo-backend:local",
-      "args": ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8085"],
-      "envFiles": ["../../env/.env.shared", "env/.env.healthcare-demo"],
+      "args": ["uvicorn", "agents.lma.main:app", "--host", "0.0.0.0", "--port", "8085"],
+      "envFiles": ["../../env/.env.shared", "lma-hospital-d.env"],
       "env": [
-        {"name": "HEALTHCARE_DEMO_ROLE", "value": "lma"},
-        {"name": "HEALTHCARE_DEMO_SITE_ID", "value": "hospital-d"},
-        {"name": "HEALTHCARE_DEMO_API_PORT", "value": "8085"}
+        {"name": "LMA_SITE_ID", "value": "hospital-d"},
+        {"name": "LMA_SITE_SOURCE", "value": "healthcare_site_store"},
+        {"name": "LMA_API_PORT", "value": "8085"}
       ],
       "ports": [{"name": "http", "containerPort": 8085, "hostPort": 8085}],
       "healthCheck": {"command": ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8085/api/v1/health')"]},
@@ -1708,14 +2064,14 @@ let lma_merge_yaml =
   {|services:
   "lma-hospital-d":
     image: "dagents/healthcare-demo-backend:local"
-    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8085"]
+    command: ["uvicorn", "agents.lma.main:app", "--host", "0.0.0.0", "--port", "8085"]
     env_file:
       - "../../env/.env.shared"
-      - "env/.env.healthcare-demo"
+      - "lma-hospital-d.env"
     environment:
-      "HEALTHCARE_DEMO_ROLE": "lma"
-      "HEALTHCARE_DEMO_SITE_ID": "hospital-d"
-      "HEALTHCARE_DEMO_API_PORT": "8085"
+      "LMA_SITE_ID": "hospital-d"
+      "LMA_SITE_SOURCE": "healthcare_site_store"
+      "LMA_API_PORT": "8085"
     ports:
       - "127.0.0.1:8085:8085"
     healthcheck:
@@ -2409,10 +2765,14 @@ let () =
       ("round digest is deterministic", test_round_digest_is_deterministic);
       ("aggregation accepts verified contributions", test_aggregation_readiness_accepts_verified_contributions);
       ("aggregation rejects bad contributions", test_aggregation_readiness_rejects_bad_contributions);
+      ("aggregation checks the round's selection", test_aggregation_readiness_checks_the_selection);
       ("secure aggregation bounds contributions", test_secure_aggregation_bounds_contributions);
       ("release allows a passing candidate", test_release_allows_a_passing_candidate);
       ("release gates block and defer", test_release_gates_block_and_defer);
       ("release gate results carry their threshold", test_release_gate_results_carry_their_threshold);
+      ("model lifecycle events", test_model_lifecycle_events);
+      ("model lifecycle refusals and their order", test_model_lifecycle_refusals_and_order);
+      ("model lifecycle JSON codec", test_model_lifecycle_codec);
       ("governance and federation codec round trip", test_governance_and_federation_codec_roundtrip);
     ]
   in

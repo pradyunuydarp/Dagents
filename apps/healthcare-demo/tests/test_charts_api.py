@@ -1,13 +1,18 @@
 """The chart endpoints: lists, SVGs in both themes, caching, and the empty states.
 
-Hospital charts come from one hospital's records. Consortium charts come from
-the hospitals' summaries and the last pilot; before a pilot, the charts that
-need one are listed as unavailable, and the list itself never fails. The
-after-pilot tests use the real planner and skip without it.
+Hospital charts come from one hospital's records, read in its store. The risk
+chart scores them with the model the hospital's LMA reports in use, and the GMA
+checks every model version with the planner, so the hospital chart tests need
+it. Consortium charts come from what the hospitals' LMAs report through the GMA
+and from the last pilot; before a pilot, the charts that need one are listed as
+unavailable, and the list itself never fails. The after-pilot tests use the
+real planner and skip without it.
 """
 
 from __future__ import annotations
 
+import os
+import tempfile
 import unittest
 from unittest import mock
 
@@ -15,15 +20,25 @@ from tests.api_support import ApiTestCase, main, parse_svg
 from tests.support import HIGH_RISK_ENTRY, dagentsc_available, tiny_site
 
 from app.domain.dataset import DATASET_NOTICE, SITES
-from app.services.charts_service import CONSORTIUM_CHART_IDS, NEEDS_PILOT, SITE_CHART_IDS
-from app.services.consortium import Consortium
+from app.services.agents import HealthcareDemo
+from app.services.charts_service import (
+    CONSORTIUM_CHART_IDS,
+    DATA_FROM_PILOT,
+    DATA_FROM_SITE_RECORDS,
+    DATA_FROM_SITE_SCORES,
+    DRAWN_BY,
+    NEEDS_PILOT,
+    SITE_CHART_IDS,
+)
 
 ENTRY_KEYS = {
     "chart_id", "title", "description", "alt", "available", "reason", "table", "notice", "svg_path", "version",
+    "drawn_by", "data_from",
 }
 NEEDS_A_PILOT = {"site-auc", "training-curve", "release-gates"}
 
 
+@unittest.skipUnless(dagentsc_available(), "dagentsc binary is not available")
 class HospitalChartTests(ApiTestCase):
     def charts(self, site_id: str = "uk-134") -> list[dict]:
         payload = self.ok(self.client.get(f"/api/v1/hospitals/{site_id}/charts"))
@@ -44,6 +59,9 @@ class HospitalChartTests(ApiTestCase):
                 self.assertTrue(all(len(row) == len(chart["table"]["columns"]) for row in chart["table"]["rows"]))
                 self.assertEqual(DATASET_NOTICE, chart["notice"])
                 self.assertEqual(f"/api/v1/hospitals/uk-134/charts/{chart['chart_id']}.svg", chart["svg_path"])
+                self.assertEqual(DRAWN_BY, chart["drawn_by"])
+                expected = DATA_FROM_SITE_SCORES if chart["chart_id"] == "risk-scores" else DATA_FROM_SITE_RECORDS
+                self.assertEqual(expected, chart["data_from"])
 
     def test_every_chart_draws_in_both_themes(self) -> None:
         for chart in self.charts("ch-245"):
@@ -128,13 +146,16 @@ class ConsortiumChartsBeforeAPilotTests(ApiTestCase):
         for chart in charts:
             with self.subTest(chart=chart["chart_id"]):
                 self.assertEqual(ENTRY_KEYS, set(chart))
+                self.assertEqual(DRAWN_BY, chart["drawn_by"])
                 if chart["chart_id"] in NEEDS_A_PILOT:
                     self.assertFalse(chart["available"])
                     self.assertEqual(NEEDS_PILOT, chart["reason"])
                     self.assertEqual({"columns": [], "rows": []}, chart["table"])
+                    self.assertEqual(DATA_FROM_PILOT, chart["data_from"])
                 else:
                     self.assertTrue(chart["available"])
                     self.assertTrue(chart["table"]["rows"])
+                    self.assertIn("through the GMA", chart["data_from"])
 
     def test_a_chart_that_needs_a_pilot_is_a_404_only_when_asked_for(self) -> None:
         response = self.client.get("/api/v1/charts/release-gates.svg?theme=light")
@@ -151,7 +172,7 @@ class ConsortiumChartsBeforeAPilotTests(ApiTestCase):
         charts = {c["chart_id"]: c for c in self.ok(self.client.get("/api/v1/charts"))["charts"]}
         rows = {row[0]: row for row in charts["hospital-records"]["table"]["rows"]}
         for site in SITES:
-            summary = self.consortium.hospital(site.site_id).summary()
+            summary = self.demo.hospital(site.site_id).summary()
             self.assertEqual(summary["record_count"], rows[site.display_name][3])
             self.assertEqual(summary["entered_count"], rows[site.display_name][2])
 
@@ -164,9 +185,9 @@ class SuppressedRateChartTests(ApiTestCase):
     """
 
     @classmethod
-    def make_consortium(cls) -> Consortium:
+    def make_demo(cls) -> HealthcareDemo:
         tiny, store = tiny_site(5)
-        return Consortium(sites=[*SITES, tiny], site_stores={tiny.site_id: store})
+        return HealthcareDemo(sites=[*SITES, tiny], site_stores={tiny.site_id: store})
 
     def test_the_small_hospitals_rate_is_suppressed(self) -> None:
         charts = {c["chart_id"]: c for c in self.ok(self.client.get("/api/v1/charts"))["charts"]}
@@ -177,10 +198,15 @@ class SuppressedRateChartTests(ApiTestCase):
         parse_svg(self, self.client.get("/api/v1/charts/hospital-records.svg?theme=light"))
 
     def test_a_rate_withheld_for_another_reason_is_not_called_suppressed(self) -> None:
-        """The table repeats the hospital's reason; a missing planner is not a small cohort."""
-        from app.services.hospital import Hospital
+        """The table repeats the hospital's reason; a missing planner is not a small cohort.
 
-        with mock.patch.object(Hospital, "outcome_rate_status", return_value="withheld"):
+        Each hospital's LMA decides whether its rate may leave. With the
+        planner missing, it withholds the rate and says why.
+        """
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        missing = os.path.join(folder.name, "missing-dagentsc")
+        with mock.patch.dict(os.environ, {"DAGENTSC_BIN": missing}):
             main.chart_service.clear()
             charts = {c["chart_id"]: c for c in self.ok(self.client.get("/api/v1/charts"))["charts"]}
         main.chart_service.clear()
@@ -250,7 +276,7 @@ class ConsortiumChartsAfterAPilotTests(ApiTestCase):
         charts = {c["chart_id"]: c for c in self.ok(self.client.get("/api/v1/charts"))["charts"]}
         rows = {row[0]: row for row in charts["site-auc"]["table"]["rows"]}
         for result in self.pilot["rounds"]["candidate_validation"]["results"]:
-            name = self.consortium.hospital(result["site_id"]).display_name
+            name = self.demo.hospital(result["site_id"]).display_name
             self.assertAlmostEqual(result["metrics"]["auc"], rows[name][2], places=4)
 
     def test_the_training_curve_has_one_point_per_round_and_the_start(self) -> None:

@@ -40,6 +40,11 @@ AGENT_TESTS = REPO_ROOT / "agents" / "tests"
 HEALTHCARE_TESTS = REPO_ROOT / "apps" / "healthcare-demo" / "tests"
 WORKFLOWS = REPO_ROOT / ".github" / "workflows"
 CI_WORKFLOW = WORKFLOWS / "ci.yml"
+DATA_WORKFLOW = WORKFLOWS / "healthcare-data.yml"
+#: The logs of the steps that run the database tests on a PostgreSQL service:
+#: the healthcare suite, and the framework's database tests from agents/tests.
+HEALTHCARE_LOG = "healthcare-suite.log"
+FRAMEWORK_DATABASE_LOG = "framework-database.log"
 #: Where a module named in `--require-ran` can live: the suites run from the
 #: repository root, except the healthcare suite, which runs from its app.
 TEST_ROOTS = (REPO_ROOT, REPO_ROOT / "apps" / "healthcare-demo")
@@ -608,16 +613,26 @@ class WorkflowGuardTests(unittest.TestCase):
                 )
 
     def test_the_data_workflow_requires_what_ci_requires_before_migrating(self) -> None:
-        """healthcare-data.yml tests on a scratch database before it touches the project."""
-        data = (WORKFLOWS / "healthcare-data.yml").read_text(encoding="utf-8")
-        [data_call] = guard_calls(jobs(data)["migrate"])
-        [ci_call] = [
-            call for call in guard_calls(jobs(self.CI)["demo-apps"]) if call.log.endswith("healthcare-suite.log")
-            and call.require_ran
-        ]
-        self.assertLessEqual({"planner", "database"}, set(data_call.forbid))
-        self.assertEqual(sorted(ci_call.require_ran), sorted(data_call.require_ran))
-        self.assertLess(data.index("ci_no_skipped_tests.py"), data.index("apply_migrations.py"))
+        """healthcare-data.yml tests on a scratch database before it touches the project.
+
+        It requires every class the demo-apps job requires: the healthcare
+        database classes and the framework's, because the deployed demo runs
+        both on the project's database.
+        """
+        data = DATA_WORKFLOW.read_text(encoding="utf-8")
+        data_calls = [call for call in guard_calls(jobs(data)["migrate"]) if call.require_ran]
+        ci_calls = [call for call in guard_calls(jobs(self.CI)["demo-apps"]) if call.require_ran]
+        self.assertTrue(data_calls, "healthcare-data.yml requires no test class to run")
+        for call in data_calls:
+            with self.subTest(log=call.log):
+                self.assertLessEqual({"planner", "database"}, set(call.forbid))
+        self.assertEqual(
+            sorted(name for call in ci_calls for name in call.require_ran),
+            sorted(name for call in data_calls for name in call.require_ran),
+            "healthcare-data.yml and the demo-apps job in ci.yml must require the same classes",
+        )
+        # Every check runs before the first step that changes the project.
+        self.assertLess(data.rindex("ci_no_skipped_tests.py"), data.index("apply_migrations.py"))
         self.assertLess(data.index("SHOW server_version"), data.index("apply_migrations.py"))
 
     # `--forbid database` catches a skip with the database message. A database
@@ -625,16 +640,17 @@ class WorkflowGuardTests(unittest.TestCase):
     # only by `--require-ran`, so every database class must be listed.
 
     def demo_apps_call(self, log: str) -> Any:
-        [call] = [
+        calls = [
             call for call in guard_calls(jobs(self.CI)["demo-apps"])
-            if call.log.endswith(log) and call.require_ran
+            if Path(call.log).name == log and call.require_ran
         ]
-        return call
+        self.assertEqual(1, len(calls), f"the demo-apps job should check {log} with --require-ran exactly once")
+        return calls[0]
 
     def test_every_healthcare_database_class_is_required_to_run(self) -> None:
         needed = database_test_classes(HEALTHCARE_TESTS, "tests.")
         self.assertIn("tests.test_site_isolation.SiteIsolationTests", needed, "the class finder found nothing")
-        missing = sorted(needed - set(self.demo_apps_call("healthcare-suite.log").require_ran))
+        missing = sorted(needed - set(self.demo_apps_call(HEALTHCARE_LOG).require_ran))
         self.assertEqual(
             [],
             missing,
@@ -645,13 +661,33 @@ class WorkflowGuardTests(unittest.TestCase):
     def test_every_framework_database_class_is_required_to_run(self) -> None:
         needed = database_test_classes(AGENT_TESTS, "agents.tests.")
         self.assertIn("agents.tests.test_postgres_roles.ActingAsTests", needed, "the class finder found nothing")
-        missing = sorted(needed - set(self.demo_apps_call("postgres-roles.log").require_ran))
+        missing = sorted(needed - set(self.demo_apps_call(FRAMEWORK_DATABASE_LOG).require_ran))
         self.assertEqual(
             [],
             missing,
-            "these agent classes need a database and are not in the demo-apps --require-ran list for "
-            "postgres-roles.log; the agents job has no database, so they run only there",
+            f"these agent classes need a database and are not in the demo-apps --require-ran list for "
+            f"{FRAMEWORK_DATABASE_LOG}; the agents job has no database, so they run only there. "
+            "Add them there and in healthcare-data.yml",
         )
+
+    def test_every_database_log_is_also_checked_for_planner_skips(self) -> None:
+        """The database steps have the planner, and some database classes need it.
+
+        The model registry, the GMA's coordinator wiring and the pilot skip
+        without `dagentsc`. `--require-ran` sees such a skip only when every
+        test of the class skipped, so each log checked for database skips is
+        also checked for planner skips.
+        """
+        workflows = {"ci.yml": jobs(self.CI)["demo-apps"], "healthcare-data.yml": jobs(DATA_WORKFLOW.read_text())["migrate"]}
+        for workflow, text in workflows.items():
+            forbidden: dict[str, set[str]] = {}
+            for call in guard_calls(text):
+                forbidden.setdefault(Path(call.log).name, set()).update(call.forbid)
+            database_logs = sorted(log for log, names in forbidden.items() if "database" in names)
+            self.assertTrue(database_logs, f"{workflow} checks no log for database skips")
+            for log in database_logs:
+                with self.subTest(workflow=workflow, log=log):
+                    self.assertIn("planner", forbidden[log], f"{workflow} does not check {log} for planner skips")
 
     def test_the_finder_skips_mixins_and_follows_helpers(self) -> None:
         source = (
@@ -675,7 +711,7 @@ class WorkflowGuardTests(unittest.TestCase):
 
     def test_each_required_module_runs_in_the_step_that_writes_the_log(self) -> None:
         """A class can only run if the command that writes the log runs its module."""
-        workflows = {"ci.yml": self.CI, "healthcare-data.yml": (WORKFLOWS / "healthcare-data.yml").read_text()}
+        workflows = {"ci.yml": self.CI, "healthcare-data.yml": DATA_WORKFLOW.read_text(encoding="utf-8")}
         for workflow, text in workflows.items():
             blocks = run_blocks(text)
             for call in guard_calls(text):

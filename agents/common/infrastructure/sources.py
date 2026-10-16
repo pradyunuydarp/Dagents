@@ -1,20 +1,39 @@
-"""Shared source adapters and registries."""
+"""Shared source adapters and registries.
+
+Besides the adapters, this module has three helpers for an LMA that serves a
+configured site:
+
+- :func:`redact_source` returns a copy of a source definition that is safe to
+  return to a caller: connection options other than a few safe keys are
+  replaced, so a password sent in a definition is never echoed back.
+- :func:`check_site_request_source` and :func:`check_site_request_dataset`
+  refuse what a request may not ask of a site's LMA: a source that reads
+  through a connection or a file, a role, a credential, a connection target,
+  embedded SQL, or a source definition embedded in a dataset request. The
+  site's records come from its configured source only.
+
+The LMA decides when to call the two checks; this module does not know whether
+a site is configured.
+"""
 
 from __future__ import annotations
 
 import csv
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 try:  # pragma: no cover - exercised indirectly by integration tests when installed
     import psycopg
+    from psycopg import sql
     from psycopg.rows import dict_row
 except ModuleNotFoundError:  # pragma: no cover - dependency is optional in some local environments
     psycopg = None
+    sql = None
     dict_row = None
 
 from agents.common.application.ports import ConnectionResolver, SourceAdapter, SourceCatalog, SourceResolver
+from agents.common.domain.errors import DagentsError
 from agents.common.domain.sources import (
     ConnectionRef,
     DatasetInput,
@@ -29,7 +48,37 @@ from agents.common.domain.sources import (
     SourceSpec,
     SourceValidationResult,
 )
-from agents.common.infrastructure.postgres_roles import RoleScopeError, set_local_role, validate_role_name
+from agents.common.infrastructure.postgres_roles import RoleScopeError, acting_as, connect, validate_role_name
+
+#: Statement timeout for one Postgres source read, in milliseconds. The same as
+#: a store operation's (``postgres_lease.DEFAULT_STATEMENT_TIMEOUT_MS``).
+DEFAULT_SOURCE_STATEMENT_TIMEOUT_MS = 15_000
+
+#: What replaces a hidden connection option in a returned source definition.
+REDACTED = "[redacted]"
+
+#: Connection options a returned source definition shows as they are. None of
+#: them is a credential or says where the database is. Every other value,
+#: including keys this version does not know, is replaced with ``REDACTED``.
+SHOWN_CONNECTION_OPTIONS = frozenset({"role", "sslmode", "connect_timeout"})
+
+#: Connection options a request may send to a site's LMA: fixed records, which
+#: are data, not a way to reach a database.
+SITE_REQUEST_CONNECTION_OPTIONS = frozenset({"rows", "documents"})
+
+#: Source kinds a request may register with, or send to, a site's LMA. Every
+#: other kind reads through a connection or a local file.
+SITE_REQUEST_SOURCE_KINDS = frozenset({"inline"})
+
+
+class SourceRequestRefused(DagentsError, PermissionError):
+    """A request asked a site's LMA for something only its configuration may set.
+
+    The message names what was refused, never a value the request sent.
+    """
+
+    code: ClassVar[str] = "forbidden"
+    http_status: ClassVar[int] = 403
 
 
 def infer_schema(records: list[dict[str, Any]]) -> list[RecordSchemaField]:
@@ -175,7 +224,29 @@ class InlineSourceAdapter:
 
 
 class PostgresSourceAdapter:
+    """Read a Postgres table or query, in one transaction, as the source's role.
+
+    Params:
+    - `statement_timeout_ms`: the statement timeout for each read, set with
+      ``SET LOCAL`` in the read's transaction. A query that runs longer is
+      cancelled with ``QueryCanceled``.
+    - `omit_null_keys`: leave a NULL value out of its record instead of
+      returning it as ``None``. For consumers whose records mark a missing
+      value by an absent key.
+
+    Both are configuration of the service that builds the adapter. A source
+    definition cannot change them.
+    """
+
     kind = "postgres"
+
+    def __init__(
+        self, *, statement_timeout_ms: int = DEFAULT_SOURCE_STATEMENT_TIMEOUT_MS, omit_null_keys: bool = False
+    ) -> None:
+        if int(statement_timeout_ms) <= 0:
+            raise ValueError("the statement timeout must be a positive number of milliseconds")
+        self.statement_timeout_ms = int(statement_timeout_ms)
+        self.omit_null_keys = bool(omit_null_keys)
 
     def validate(self, source: SourceSpec, resolved_connection: dict[str, Any]) -> SourceValidationResult:
         """Validate a Postgres source definition.
@@ -236,35 +307,46 @@ class PostgresSourceAdapter:
         What it does:
         - Prefers mocked rows in tests for determinism and speed.
         - Falls back to a live psycopg query when a real connection is provided.
+          The connection is autocommit and the query runs in one transaction
+          with the statement timeout set by ``SET LOCAL``.
         - When the resolved connection names a `role`, runs the query as that
-          role: `SET LOCAL ROLE` in the same transaction, on the same
-          connection, with `current_user` checked first. The role ends when
-          the transaction ends.
+          role through :func:`postgres_roles.acting_as`: ``SET LOCAL ROLE`` in
+          the same transaction, with `current_user` checked first. The role and
+          the timeout end when the transaction ends.
+        - Leaves NULL values out of the records when `omit_null_keys` is set.
 
         Returns:
         - A fully materialized list of row dicts.
         """
         role = _postgres_role(resolved_connection)
         if "rows" in source.options:
-            return list(source.options["rows"])
+            return self._records(source.options["rows"])
         if "rows" in resolved_connection:
-            return list(resolved_connection["rows"])
+            return self._records(resolved_connection["rows"])
         if psycopg is None or dict_row is None:
             raise ValueError("Postgres adapter requires psycopg to execute live SQL scans")
         connection_args = _postgres_connection_args(resolved_connection)
         query = _postgres_query(source)
+        timeout = {"statement_timeout": f"{self.statement_timeout_ms}ms"}
         # The adapter intentionally materializes the full query result before
         # chunking so every downstream service receives the same batch format.
-        # The connection is not in autocommit mode, so the first statement opens
-        # the transaction that SET LOCAL ROLE needs, and leaving the block ends
-        # it.
-        with psycopg.connect(row_factory=dict_row, **connection_args) as connection:
-            with connection.cursor() as cursor:
-                if role is not None:
-                    set_local_role(cursor, role)
-                cursor.execute(query)
-                rows = cursor.fetchall()
-        return [dict(row) for row in rows]
+        with connect(connection_args, row_factory=dict_row) as connection:
+            if role is not None:
+                with acting_as(connection, role, timeout):
+                    rows = connection.execute(query).fetchall()
+            else:
+                with connection.transaction():
+                    connection.execute(
+                        sql.SQL("SET LOCAL statement_timeout = {}").format(sql.Literal(timeout["statement_timeout"]))
+                    )
+                    rows = connection.execute(query).fetchall()
+        return self._records([dict(row) for row in rows])
+
+    def _records(self, rows: Any) -> list[dict[str, Any]]:
+        """The rows as a list, without NULL values when `omit_null_keys` is set."""
+        if self.omit_null_keys:
+            return [{key: value for key, value in dict(row).items() if value is not None} for row in rows]
+        return list(rows)
 
 
 class MongoSourceAdapter:
@@ -475,14 +557,26 @@ class DefaultSourceResolver:
         return source
 
 
-def _default_adapters() -> list[SourceAdapter]:
-    """Return the standard adapter set shipped with Dagents."""
+def default_adapters(
+    *, statement_timeout_ms: int = DEFAULT_SOURCE_STATEMENT_TIMEOUT_MS, omit_null_keys: bool = False
+) -> list[SourceAdapter]:
+    """Return the standard adapter set shipped with Dagents.
+
+    Params:
+    - `statement_timeout_ms`, `omit_null_keys`: passed to the
+      :class:`PostgresSourceAdapter`, for a service that configures them.
+    """
     return [
         InlineSourceAdapter(),
-        PostgresSourceAdapter(),
+        PostgresSourceAdapter(statement_timeout_ms=statement_timeout_ms, omit_null_keys=omit_null_keys),
         MongoSourceAdapter(),
         ObjectStorageSourceAdapter(),
     ]
+
+
+def _default_adapters() -> list[SourceAdapter]:
+    """The standard adapter set with its default settings."""
+    return default_adapters()
 
 
 def _ensure_source_type(source: SourceSpec, expected_type: type[Any]) -> Any:
@@ -575,3 +669,97 @@ def _postgres_query(source: PostgresSourceSpec) -> str:
     if source.batching.max_records is not None:
         query += f" LIMIT {int(source.batching.max_records)}"
     return query
+
+
+def redact_source(source: SourceSpec) -> SourceSpec:
+    """Return a copy of ``source`` that is safe to return to a caller.
+
+    Params:
+    - `source`: a stored or submitted source definition.
+
+    What it does:
+    - Keeps every key of ``connection_ref.options`` and replaces each value
+      with ``REDACTED``, except the keys in ``SHOWN_CONNECTION_OPTIONS``. A
+      password, user, host or database name sent in a definition is then never
+      echoed back, and neither are fixed records.
+
+    Returns:
+    - The same definition when it has no connection options, otherwise a copy.
+      The stored definition is not changed.
+    """
+    connection_ref = getattr(source, "connection_ref", None)
+    if not isinstance(connection_ref, ConnectionRef) or not connection_ref.options:
+        return source
+    options = {
+        key: value if key in SHOWN_CONNECTION_OPTIONS else REDACTED
+        for key, value in connection_ref.options.items()
+    }
+    return source.model_copy(update={"connection_ref": connection_ref.model_copy(update={"options": options})})
+
+
+def check_site_request_source(source: SourceSpec) -> None:
+    """Refuse a source definition that a request may not send to a site's LMA.
+
+    Params:
+    - `source`: a source definition from a request body, to register or to read
+      once.
+
+    What it does:
+    - Refuses every kind outside ``SITE_REQUEST_SOURCE_KINDS``: a Postgres,
+      MongoDB or object storage source reads through a connection or a local
+      file, and a site's records come from its configured source only. For a
+      Postgres source it also names the embedded SQL: every part of its
+      selection is pasted into the query text.
+    - Refuses connection options outside ``SITE_REQUEST_CONNECTION_OPTIONS``,
+      in any kind: a role, a credential or a connection target is
+      configuration, never part of a request.
+
+    Raises:
+    - :class:`SourceRequestRefused` naming every problem found. The message
+      names keys and kinds, never a value the request sent.
+    """
+    problems: list[str] = []
+    if source.kind not in SITE_REQUEST_SOURCE_KINDS:
+        allowed = ", ".join(sorted(SITE_REQUEST_SOURCE_KINDS))
+        problems.append(
+            f"a request may not send a {source.kind} source to a site's LMA, only: {allowed}; "
+            "the site's records come from its configured source"
+        )
+    if isinstance(source, PostgresSourceSpec):
+        # Every part of a Postgres selection is pasted into the query text,
+        # the table name included.
+        problems.append(
+            "a request may not send embedded SQL (a query, table, columns, condition or order) to a site's LMA"
+        )
+    connection_ref = getattr(source, "connection_ref", None)
+    if isinstance(connection_ref, ConnectionRef):
+        refused = sorted(set(connection_ref.options) - SITE_REQUEST_CONNECTION_OPTIONS)
+        if refused:
+            problems.append(
+                "a request may not set these connection options on a site's LMA: "
+                + ", ".join(refused)
+                + "; roles, credentials and connection targets come from the site's configuration"
+            )
+    if problems:
+        raise SourceRequestRefused("; ".join(problems))
+
+
+def check_site_request_dataset(dataset: DatasetInput) -> None:
+    """Refuse a dataset request that embeds a source definition, for a site's LMA.
+
+    Params:
+    - `dataset`: the ``dataset`` of a profiling, pipeline or model request.
+
+    What it does:
+    - Refuses ``dataset.source``. Inline records (the caller's own data) and
+      ``source_id`` (a source registered with the LMA, which was checked when
+      it was registered) are accepted.
+
+    Raises:
+    - :class:`SourceRequestRefused`.
+    """
+    if dataset.source is not None:
+        raise SourceRequestRefused(
+            "a request may not embed a source definition in a dataset sent to a site's LMA; "
+            "send inline_records or the source_id of a registered source"
+        )

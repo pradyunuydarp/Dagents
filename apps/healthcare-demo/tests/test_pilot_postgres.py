@@ -3,9 +3,11 @@
 Two setups, both on a scratch database with the real migrations:
 
 - The demo's deployment: one connection string. Every store operation acts as
-  the hospital's role or as ``dagents_coordinator``. The pilot gives the same
-  numbers as with the in-memory stores, and the registry, contributions and
-  audit chains end up in the right schemas.
+  the hospital's role or as ``dagents_coordinator``. Each hospital's LMA reads
+  its store and keeps its audit chain and job log as the hospital's role; the
+  GMA keeps the model registry and its audit chain as ``dagents_coordinator``.
+  The pilot gives the same numbers as with the in-memory stores, and the
+  registry, contributions and audit chains end up in the right schemas.
 - A deployment where each party has its own login: each hospital's login may
   act only as that hospital, and the coordinator's login only as the
   coordinator. The pilot still runs, while the coordinator's login cannot read
@@ -31,10 +33,11 @@ sys.path.insert(0, str(APP_ROOT.parents[1]))
 from agents.common.infrastructure.postgres_roles import acting_as, connect  # noqa: E402
 
 from app.domain.dataset import SITES, load_site_records  # noqa: E402
-from app.services.consortium import Consortium  # noqa: E402
-from app.services.runtime import INITIAL_VERSION, SEED_VERSION  # noqa: E402
+from app.domain.model_kinds import INITIAL_VERSION, SEED_VERSION  # noqa: E402
+from app.services.agents import HealthcareDemo  # noqa: E402
+from app.services.overview import ApprovalRefused  # noqa: E402
 from app.services.site_store import PostgresSiteStore  # noqa: E402
-from tests.support import dagentsc_available  # noqa: E402
+from tests.support import dagentsc_available, gated_extension  # noqa: E402
 from tests.test_site_isolation import SupabaseLikeDatabase, admin_dsn_or_skip  # noqa: E402
 
 try:
@@ -44,6 +47,18 @@ except ModuleNotFoundError:  # pragma: no cover - psycopg is in the app's requir
     errors = sql = make_conninfo = None
 
 TRAINING_ROUNDS = 2
+
+
+def _lenient_gates() -> list:
+    """One gate the candidate clears, so the planner decides ``release``."""
+    from agents.common.domain.federation import GateComparison, ReleaseGate
+
+    return [ReleaseGate(gate_id="discrimination", metric="auc", comparison=GateComparison(kind="at_least", value=0.5))]
+
+
+def _gma_audit(demo: HealthcareDemo) -> dict:
+    """The GMA's release audit chain, newest first, as its audit route answers."""
+    return demo.agents.gma().request("GET", "/api/v1/governance/audit", params={"limit": 50}).body
 
 
 def _seeded_database() -> SupabaseLikeDatabase:
@@ -62,25 +77,29 @@ def _seeded_database() -> SupabaseLikeDatabase:
 class PostgresPilotTests(unittest.TestCase):
     db: SupabaseLikeDatabase
     report: dict
-    consortium: Consortium
+    consortium: HealthcareDemo
 
     @classmethod
     def setUpClass(cls) -> None:
         cls.db = _seeded_database()
         try:
-            cls.consortium = Consortium(database_url=cls.db.dsn, environ={})
-            cls.report = cls.consortium.run_pilot("postgres", training_rounds=TRAINING_ROUNDS)
+            cls.consortium = HealthcareDemo(database_url=cls.db.dsn, environ={})
+            cls.report = cls.consortium.pilot.run_pilot("postgres", training_rounds=TRAINING_ROUNDS)
         except BaseException:
+            cls.consortium.close()
             cls.db.stop()
             raise
 
     @classmethod
     def tearDownClass(cls) -> None:
+        cls.consortium.close()
         cls.db.stop()
 
     def test_the_pilot_gives_the_same_numbers_as_the_in_memory_stores(self) -> None:
         """Both store implementations hold the same records, so every metric matches."""
-        memory = Consortium().run_pilot("memory", training_rounds=TRAINING_ROUNDS)
+        demo = HealthcareDemo()
+        self.addCleanup(demo.close)
+        memory = demo.pilot.run_pilot("memory", training_rounds=TRAINING_ROUNDS)
         self.assertEqual(memory["baseline_metrics"], self.report["baseline_metrics"])
         self.assertEqual(memory["candidate"]["metrics"], self.report["candidate"]["metrics"])
         self.assertEqual(memory["candidate"]["artifact_digest"], self.report["candidate"]["artifact_digest"])
@@ -107,7 +126,8 @@ class PostgresPilotTests(unittest.TestCase):
             ).fetchall()
         self.assertEqual({site.role: rounds for site in SITES}, dict(rows))
         for site in SITES:
-            self.assertEqual(rounds, len(self.consortium.hospital(site.site_id).contributions(limit=50)))
+            # The hospital's LMA reads its job log back from the same table, as the hospital's role.
+            self.assertEqual(rounds, len(self.consortium.hospital(site.site_id).lma().job_log(50)))
 
     def test_each_audit_chain_is_in_its_hospitals_schema(self) -> None:
         rounds = 3 + TRAINING_ROUNDS
@@ -127,6 +147,8 @@ class PostgresPilotTests(unittest.TestCase):
             rows = conn.execute("SELECT boundary, audit_id FROM coordinator.guard_audit ORDER BY seq").fetchall()
         self.assertEqual([("before_release", self.report["release"]["guard"]["audit_id"])], [tuple(r) for r in rows])
         self.assertEqual({"chain_intact": True, "record_count": 1}, self.report["coordinator_audit"])
+        self.assertEqual("rounds", self.report["release"]["metrics_source"])
+        self.assertEqual(SEED_VERSION, self.report["release"]["baseline_version"])
 
     def test_the_pilot_report_is_stored_in_the_coordinator_schema(self) -> None:
         with self.db.admin() as conn:
@@ -146,6 +168,8 @@ class PostgresPilotTests(unittest.TestCase):
         self.assertEqual(gates["action"], decision["action"])
         self.assertEqual(gates["gate_results"], decision["gate_results"])
         self.assertEqual(self.report["release"]["guard"]["permitted"], decision["guard_permitted"])
+        self.assertEqual(SEED_VERSION, decision["baseline_version"])
+        self.assertEqual("rounds", decision["metrics_source"])
         self.assertIsNotNone(decided_at)
 
 
@@ -154,28 +178,26 @@ class PostgresApprovalAfterRestartTests(unittest.TestCase):
     """An approval reads the release decision from the database, so it works after a restart."""
 
     def test_a_new_process_approves_a_candidate_the_last_one_tested(self) -> None:
-        from unittest import mock
-
-        from agents.common.domain.federation import GateComparison, ReleaseGate
-
         db = _seeded_database()
         self.addCleanup(db.stop)
-        lenient = [
-            ReleaseGate(gate_id="discrimination", metric="auc", comparison=GateComparison(kind="at_least", value=0.5))
-        ]
-        first = Consortium(database_url=db.dsn, environ={})
-        with mock.patch("app.services.consortium.STROKE_RELEASE_GATES", lenient):
-            report = first.run_pilot("restart", training_rounds=1)
-        first.close()
+        first = HealthcareDemo(database_url=db.dsn, environ={}, extension=gated_extension(_lenient_gates()))
+        try:
+            report = first.pilot.run_pilot("restart", training_rounds=1)
+        finally:
+            first.close()
         version = report["candidate"]["candidate_version"]
         self.assertEqual("release", report["release"]["gates"]["action"])
 
-        restarted = Consortium(database_url=db.dsn, environ={})
+        # A restarted API: new stores, a new GMA, the same database.
+        restarted = HealthcareDemo(database_url=db.dsn, environ={})
         self.addCleanup(restarted.close)
-        self.assertEqual(SEED_VERSION, restarted.model_in_use()["version"])
-        approved = restarted.approve(version)
+        self.assertEqual(SEED_VERSION, restarted.overview.model_in_use()["version"])
+        listed = {model["version"]: model for model in restarted.overview.models(50)["models"]}
+        self.assertEqual("release", listed[version]["release_decision"]["action"])
+        self.assertTrue(listed[version]["release_decision"]["guard_permitted"])
+        approved = restarted.overview.approve(version)
         self.assertEqual(SEED_VERSION, approved["previous"])
-        self.assertEqual(version, restarted.model_in_use()["version"])
+        self.assertEqual(version, restarted.overview.model_in_use()["version"])
         with db.admin() as conn:
             statuses = dict(conn.execute("SELECT version, status FROM coordinator.models").fetchall())
         self.assertEqual("released", statuses[version])
@@ -187,8 +209,8 @@ class PostgresRestartTests(unittest.TestCase):
     """What a restarted API reads back from Postgres: the last pilot, the release audit chain, the baseline.
 
     Two pilots run with one gate the candidate clears, so both candidates get a
-    ``release`` decision against the seed rule. Each test then builds a new
-    consortium on the same database, as a restarted API would.
+    ``release`` decision against the seed rule. Each test then builds new app
+    services and agents on the same database, as a restarted API would.
     """
 
     db: SupabaseLikeDatabase
@@ -197,20 +219,14 @@ class PostgresRestartTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls) -> None:
-        from unittest import mock
-
-        from agents.common.domain.federation import GateComparison, ReleaseGate
-
         cls.db = _seeded_database()
-        lenient = [
-            ReleaseGate(gate_id="discrimination", metric="auc", comparison=GateComparison(kind="at_least", value=0.5))
-        ]
         try:
-            consortium = Consortium(database_url=cls.db.dsn, environ={})
-            with mock.patch("app.services.consortium.STROKE_RELEASE_GATES", lenient):
-                cls.first = consortium.run_pilot("restart-a", training_rounds=1)
-                cls.second = consortium.run_pilot("restart-b", training_rounds=1)
-            consortium.close()
+            consortium = HealthcareDemo(database_url=cls.db.dsn, environ={}, extension=gated_extension(_lenient_gates()))
+            try:
+                cls.first = consortium.pilot.run_pilot("restart-a", training_rounds=1)
+                cls.second = consortium.pilot.run_pilot("restart-b", training_rounds=1)
+            finally:
+                consortium.close()
         except BaseException:
             cls.db.stop()
             raise
@@ -219,8 +235,8 @@ class PostgresRestartTests(unittest.TestCase):
     def tearDownClass(cls) -> None:
         cls.db.stop()
 
-    def restarted(self) -> Consortium:
-        consortium = Consortium(database_url=self.db.dsn, environ={})
+    def restarted(self) -> HealthcareDemo:
+        consortium = HealthcareDemo(database_url=self.db.dsn, environ={})
         self.addCleanup(consortium.close)
         return consortium
 
@@ -228,31 +244,30 @@ class PostgresRestartTests(unittest.TestCase):
         from app.services.charts_service import ChartService
 
         consortium = self.restarted()
-        self.assertEqual(self.second["pilot_id"], consortium.last_pilot()["pilot_id"])
-        self.assertEqual(self.second["training_curve"], consortium.last_pilot()["training_curve"])
-        charts = {chart["chart_id"]: chart for chart in ChartService().consortium_list(consortium)}
+        self.assertEqual(self.second["pilot_id"], consortium.overview.last_pilot()["pilot_id"])
+        self.assertEqual(self.second["training_curve"], consortium.overview.last_pilot()["training_curve"])
+        charts = {chart["chart_id"]: chart for chart in ChartService().consortium_list(consortium.overview)}
         for chart_id in ("site-auc", "training-curve", "release-gates"):
             self.assertTrue(charts[chart_id]["available"], charts[chart_id]["reason"])
 
     def test_the_release_audit_chain_survives_a_restart(self) -> None:
-        consortium = self.restarted()
-        records = consortium.governance.recent_audit()
-        self.assertEqual(["before_release", "before_release"], [record.boundary for record in records])
-        self.assertEqual(self.second["release"]["guard"]["audit_id"], records[0].audit_id)
-        self.assertTrue(consortium.governance.audit_chain_intact())
+        audit = _gma_audit(self.restarted())
+        records = audit["records"]
+        self.assertEqual(["before_release", "before_release"], [record["boundary"] for record in records])
+        self.assertEqual(self.second["release"]["guard"]["audit_id"], records[0]["audit_id"])
+        self.assertTrue(audit["chain_intact"])
 
     def test_a_candidate_checked_against_an_older_model_cannot_be_approved(self) -> None:
-        from app.services.consortium import ApprovalRefused
-
         older = self.first["candidate"]["candidate_version"]
         newer = self.second["candidate"]["candidate_version"]
         consortium = self.restarted()
+        gma = consortium.agents.gma()
         for version in (older, newer):
-            self.assertEqual(SEED_VERSION, consortium.registry.get(version).release_decision["baseline_version"])
-        consortium.approve(newer)
+            self.assertEqual(SEED_VERSION, gma.get_model_version(version).release_decision.baseline_version)
+        consortium.overview.approve(newer)
         with self.assertRaises(ApprovalRefused):
-            self.restarted().approve(older)
-        self.assertEqual(newer, self.restarted().model_in_use()["version"])
+            self.restarted().overview.approve(older)
+        self.assertEqual(newer, self.restarted().overview.model_in_use()["version"])
 
 
 @unittest.skipUnless(dagentsc_available(), "dagentsc binary is not available")
@@ -310,10 +325,11 @@ class SeparateLoginTests(unittest.TestCase):
         }
 
     def test_the_pilot_runs_when_the_coordinator_cannot_read_any_hospital(self) -> None:
-        consortium = Consortium(database_url=self.logins["dagents_coordinator"], environ=self.environ())
-        overview = consortium.overview()
+        consortium = HealthcareDemo(database_url=self.logins["dagents_coordinator"], environ=self.environ())
+        self.addCleanup(consortium.close)
+        overview = consortium.overview.overview()
         self.assertEqual([524, 292, 198], [hospital["record_count"] for hospital in overview["hospitals"]])
-        report = consortium.run_pilot("logins", training_rounds=1)
+        report = consortium.pilot.run_pilot("logins", training_rounds=1)
         self.assertIsNotNone(report["candidate"])
         rounds = report["rounds"]
         for round_report in [rounds["analytics"], rounds["evaluation"], *rounds["training"]]:

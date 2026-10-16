@@ -123,13 +123,25 @@ consumer that stores site data:
   rates only when the site's planner permits a table request at that cohort,
   and each audit chain's state and length) and round results. Its role has no
   grant on any site schema, and a test checks that its reads fail.
-- **Training labels never leave the site.** A site trains on the Guard's
-  `before_read` payload, in its own process, and returns a parameter update.
+- **Training labels never leave the site.** A site's LMA trains on the
+  Guard's `before_read` payload, inside the LMA, and returns a parameter
+  update.
 - **The update vector never enters `SiteResult`.** `LocalFederatedWorker` sends
   it through the `before_send` Guard, which clips it, and hands the clipped
-  vector to an `UpdateChannel`. `SiteResult` carries only `update_digest` and
-  `update_norm`, because results are shown to the coordinator. An update with no
-  channel is refused.
+  vector to an `UpdateChannel`. The LMA's channel, `HttpUpdateChannel`, sends it
+  to the GMA's write-only update store; no route reads it back. `SiteResult`
+  carries only `update_digest` and `update_norm`, because results are shown to
+  the coordinator. An update with no channel is refused.
+- **Each site's LMA reads only its own store, and the GMA reads none.** The
+  healthcare demo hands each LMA a site source over that hospital's store, and
+  the LMA keeps its audit chain and job log on the store's connection, as the
+  hospital's role. The GMA holds only the coordinator's connection, and its
+  source routes are off (`GMA_ALLOW_SOURCE_READS=0`).
+  `apps/healthcare-demo/tests/test_agents_wiring.py` checks both.
+- **No app lock or store connection is held across an agent call.** In
+  process, an agent can use the same store the app writes. Finish the write,
+  release the lock, then call the agent. `apps/healthcare-demo/tests/test_concurrency.py`
+  fails if a lock is held during a call.
 - **Entries are typed.** A data-entry endpoint accepts enums, numeric ranges and
   yes/no fields, built from the field domains the app declares. It accepts no
   free text and no identifiers, and it refuses unknown keys.
@@ -184,14 +196,28 @@ consumer**, through `agents/common/extensions`. Nothing in `agents/` knows what
 a stroke is, and nothing in `apps/healthcare-demo/` implements a quorum rule.
 
 A consumer contributes feature contracts, data classifications, condition packs,
-named pipeline steps and named model adapters through
+model kinds, site sources, named pipeline steps and named model adapters through
 `agents/common/extensions`. It never patches the framework. Registration is
 explicit, and two extensions registering the same id is an error, because
 otherwise a guard decision would depend on import order.
-`apps/healthcare-demo/backend/app/extension.py` is the reference: about a
-hundred declarative lines that import no framework internals. If a new consumer's needs
+`apps/healthcare-demo/backend/app/extension.py` is the reference: one
+declarative file that imports no framework internals. If a new consumer's needs
 do not fit through this interface, improve the interface instead of working
 around it.
+
+The healthcare demo shows the split. The app owns its clinical feature
+contract, the dataset extract, the per-hospital stores, the scoring rule, the
+logistic regression model (contributed as a model kind, including how an update
+is checked and combined), the study sequence, the FHIR mapping and the
+intended-use statement. It calls the LMA and GMA APIs through
+`agents/common/infrastructure/agent_client.py`; `app/services/agents.py` is the
+only module that builds or connects to the agents. Dagents owns governance,
+federation (the LMA and GMA APIs, job dispatch, the update store, the model
+registry and approval), role scoping, the running profile, the chart renderer
+and everything else generic. **Never** import the Guard, the round controller,
+the worker, the running profile or `dagents_runner` into the app: it reaches
+them only through the agents' APIs. `apps/healthcare-demo/tests/test_boundary.py`
+lists what each app file may import.
 
 ## 3. The test loop
 

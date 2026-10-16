@@ -4,6 +4,7 @@ import json
 import os
 import subprocess
 import tempfile
+from collections.abc import Sequence
 from typing import Any
 
 # Keys whose VALUES are caller data and must be passed through untouched.
@@ -219,12 +220,26 @@ def round_digest(manifest: dict[str, Any]) -> dict[str, Any]:
     return run_dagentsc(["federation", "round", "digest", "--input", "-"], {"manifest": manifest})
 
 
-def evaluate_aggregation_readiness(manifest: dict[str, Any], results: list[dict[str, Any]]) -> dict[str, Any]:
-    """Decide whether returned contributions may be aggregated."""
-    return run_dagentsc(
-        ["federation", "aggregate", "readiness", "--input", "-"],
-        {"manifest": manifest, "results": results},
-    )
+def evaluate_aggregation_readiness(
+    manifest: dict[str, Any],
+    results: list[dict[str, Any]],
+    selected_sites: Sequence[str] | None = None,
+) -> dict[str, Any]:
+    """Decide whether returned contributions may be aggregated.
+
+    ``selected_sites`` is the round plan's ``selected_sites``. When it is
+    given, a result from any other site is rejected with the reason "site was
+    not selected for this round" and counts toward neither the quorum nor the
+    weights; an empty list accepts no result. ``None`` leaves the selection
+    unchecked, which is the answer callers got before the key existed.
+    """
+    payload: dict[str, Any] = {"manifest": manifest, "results": results}
+    if isinstance(selected_sites, str):
+        # list("site-a") would select the sites "s", "i", "t", ...
+        raise TypeError("selected_sites must be a list of site ids, not one string")
+    if selected_sites is not None:
+        payload["selected_sites"] = list(selected_sites)
+    return run_dagentsc(["federation", "aggregate", "readiness", "--input", "-"], payload)
 
 
 def evaluate_release(
@@ -246,4 +261,29 @@ def evaluate_release(
             "rollback_version": rollback_version,
             "round_id": round_id,
         },
+    )
+
+
+def model_lifecycle(version: str, event: dict[str, Any]) -> dict[str, Any]:
+    """Decide the status changes that follow one event on one model version.
+
+    ``event["kind"]`` is one of:
+
+    - ``registered``: ``requested_status`` (``candidate``, the default, or
+      ``released``) and ``released_version``.
+    - ``aggregated``: ``parent_version`` and ``parent_status``.
+    - ``release_evaluated``: ``status``, ``action`` and ``guard_permitted``.
+    - ``approval_requested``: ``status``, ``decision`` (the stored release
+      decision, with ``action``, ``guard_permitted``, ``metrics_source`` and
+      ``baseline_version``, or ``None``) and ``released_version``.
+
+    Returns ``allowed``, ``refusal`` (``None`` or a kind such as
+    ``not_candidate``), ``reason`` and ``status_changes`` (``version``,
+    ``from_status``, ``to_status``), sorted by version. A refusal is a normal
+    answer. Raises :class:`PlannerUnavailableError` when the planner cannot be
+    run or cannot read the event.
+    """
+    return run_dagentsc(
+        ["federation", "model", "lifecycle", "--input", "-"],
+        {"version": version, "event": event},
     )

@@ -50,7 +50,8 @@ its own, and keeps the Kubernetes deployment simple.
 
 ```text
 agents/
-  common/        shared domain contracts + dagents_runner (the dagentsc bridge)
+  common/        shared domain contracts, the extension registry, dagents_runner (the dagentsc
+                 bridge), and agent_client and agent_auth (how agents call each other)
   lma/           Local Monitoring Agent service
   gma/           Global Monitoring Agent service
   tests/         agent + control-plane + runner tests
@@ -173,12 +174,14 @@ admin login:
 
 ```bash
 export HEALTHCARE_DEMO_TEST_DATABASE_URL=postgresql://admin:pw@127.0.0.1:5432/postgres  # healthcare suite
-export DAGENTS_TEST_DATABASE_URL=postgresql://admin:pw@127.0.0.1:5432/postgres          # agents/tests/test_postgres_roles.py
+export DAGENTS_TEST_DATABASE_URL=postgresql://admin:pw@127.0.0.1:5432/postgres          # agents/tests: role scoping, the lease, the model store, the job log, the GMA's Postgres wiring
 ```
 
 Without them these tests skip with a message that starts `database test
 skipped`. The in-memory store runs the same assertions without a database, so
-both store implementations are tested.
+both store implementations are tested. The same holds for the agents' twins:
+`InMemoryModelStore` and `PostgresModelStore`, `InMemoryJobLog` and
+`PostgresJobLog` each run one shared suite.
 
 ### CI
 
@@ -238,7 +241,8 @@ framework site at the root and the two demos below it. The addresses are in
 | NL2SQL demo | <https://pradyunuydarp.github.io/Dagents/nl2sql-demo/> (replays a recording) |
 
 The deployed healthcare API keeps each hospital's records in its own Postgres
-schema and has the planner in its image. Its address is written only in
+schema, runs the hospitals' LMAs and the GMA in its own process, and has the
+planner in its image. Its address is written only in
 `env/.env.published`, which the Pages build reads. Never copy it into a README,
 the guide or the UI: `tests/test_publishing_guards.py` fails if the API's host
 appears in any tracked file outside `env/` and `.github/`. Docs that call the
@@ -256,9 +260,14 @@ cd site && npm install && npm run build && npm run check         # the site, che
 
 The capture script refuses to run without `dagentsc`. The Guard fails closed, so
 a recording made without the planner would hold only denials. The checker
-refuses a recording whose guard controls change nothing, or that lacks a
-request the UI sends at the exact path and query string it sends it. Recordings
-are gitignored; the workflow makes them.
+refuses a recording whose guard controls change nothing, that lacks a request
+the UI sends at the exact path and query string it sends it, or whose healthcare
+answers do not list the agent calls behind them (`framework_calls`, with the
+GMA's round call and a `jobs:run` call to each hospital's LMA in the pilot, a
+run dispatch row the hospital accepted for each hospital in the round reports,
+and `agents.mode` in the status). The capture refuses to write such a recording.
+`--port` sets the port of the demo backend the capture starts. Recordings are
+gitignored; the workflow makes them.
 
 **A failed deploy.** A deploy can stall on GitHub's side. So the deploy job
 tries a failed deploy once more after 30 seconds, and a second failure fails the
@@ -362,6 +371,26 @@ apps/healthcare-demo/scripts/run_pilot.sh                  # no UI: one pilot, p
 apps/healthcare-demo/scripts/run_local_demo.sh             # the API alone on :8080
 ```
 
+The API runs one LMA per hospital and a GMA in its own process, and calls them
+through their routes with `httpx.ASGITransport`. With
+`HEALTHCARE_DEMO_DATABASE_URL` set (migrations applied, records loaded), the
+agents can run as separate processes instead, on the ports in
+`apps/healthcare-demo/env/.env.healthcare-demo`:
+
+```bash
+apps/healthcare-demo/scripts/run_local_demo.sh --agents network     # GMA, three LMAs, then the API
+apps/healthcare-demo/scripts/run_frontend_demo.sh --agents network  # the same, with the UI
+docker compose -f apps/healthcare-demo/docker-compose.yml \
+  --env-file apps/healthcare-demo/env/.env.healthcare-demo up --build  # the same layout in containers
+```
+
+The scripts make new tokens for each run and never print them. Compose's
+`setup` job makes them once per volume and keeps them until
+`docker compose down -v`. `apps/healthcare-demo/tests/test_network_mode.py`
+runs the network layout against PostgreSQL 16, checks that its pilot equals an
+in-process pilot, and approves a candidate across the processes (it needs
+`HEALTHCARE_DEMO_TEST_DATABASE_URL`).
+
 All of them need `dagentsc`. Without it the Ethical Guard denies every request,
 which is correct but makes every panel a denial, so the scripts check first.
 Without `HEALTHCARE_DEMO_DATABASE_URL`, each hospital keeps its records in
@@ -373,8 +402,9 @@ controls changes the `systolic_bp` strategy, runs a full pilot, opens a hospital
 view and checks that its charts draw, submits a data entry and checks that the
 record appears, switches to the dark theme and checks that the charts are drawn
 again, checks that a 503 without the app's `X-Dagents-App` header shows the
-connecting banner while the app's own 503 shows at once, and fails on any
-console error. A typecheck
+connecting banner while the app's own 503 shows at once, checks that every
+"Dagents API calls" table names its agent and route and holds no address, and
+fails on any console error. A typecheck
 and a bundle only prove that the app compiles. The smoke test exits 2 and prints
 `SKIP` when no browser is available; report that as skipped, not passed.
 
@@ -392,6 +422,8 @@ and a bundle only prove that the app compiles. The smoke test exits 2 and prints
 | nl2sql-demo backend | 8070 |
 | nl2sql-demo frontend | 5173 |
 | healthcare-demo backend | 8080 |
+| healthcare-demo GMA (`--agents network` and compose) | 8081 |
+| healthcare-demo LMAs (`uk-134`, `it-002`, `ch-245`) | 8082, 8083, 8084 |
 | healthcare-demo frontend | 5174 |
 | framework site (dev) | 5175 |
 
@@ -581,7 +613,11 @@ Governance follows the same split as the rest of the code:
   includes the digest of the previous record.
 - **Policy** is configuration: a `DataClassification` contributed by an
   extension or registered at runtime. Changing a field's sensitivity changes no
-  code path.
+  code path. A runtime registration cannot replace an extension's
+  classification (`ClassificationConflict`, `409`), and an LMA started for a
+  site or a GMA with condition packs runs strict: it refuses a request whose
+  inline classification differs from the registered one. Never let a caller
+  choose the policy a request is checked against.
 
 The Guard **fails closed**. If the planner cannot be reached, it denies the
 request and records the denial. Never add a fallback that permits a request when
@@ -609,12 +645,19 @@ hospital when no database is configured. These rules hold for both:
   rates the site's planner permits (at least the minimum cohort), round
   results, and each audit chain's state and length, never its records. The
   coordinator role has no grant on any site schema.
-- **Training labels never leave the site.** A site trains on the Guard's
-  `before_read` payload, in its own process, and returns a parameter update.
+- **Training labels never leave the site.** A site's LMA trains on the
+  Guard's `before_read` payload, inside the LMA, and returns a parameter
+  update.
 - **The update vector never enters `SiteResult`.** The worker sends it through
   the `before_send` Guard, which clips it, and hands the clipped vector to an
-  `UpdateChannel`. `SiteResult` carries only `update_digest` and `update_norm`,
-  because results are shown to the coordinator.
+  `UpdateChannel`. The LMA's channel is `HttpUpdateChannel`, which sends it to
+  the GMA's write-only update store; no route reads it back. `SiteResult`
+  carries only `update_digest` and `update_norm`, because results are shown to
+  the coordinator.
+- **Each site's LMA reads only its own store.** In the healthcare demo it reads
+  the hospital's store through the app's site source, as the hospital's role,
+  and keeps its audit chain and job log on that store's connection. The GMA
+  holds only the coordinator's connection.
 - **Entries are typed.** The data-entry body has enums, numeric ranges and
   yes/no fields only. It accepts no free text and no identifiers, because the
   public demo has no accounts.
@@ -632,27 +675,47 @@ login and database; the store reads an optional per-site connection string,
 ### Federated rounds
 
 `bindings/ocaml/lib/federation_compiler` makes every deterministic decision:
-eligibility, quorum, aggregation readiness and release gates.
+eligibility, quorum, aggregation readiness (which counts only the sites the
+plan selected), release gates, and every change of a model version's status
+(`dagentsc federation model lifecycle`).
 `agents/common/application/federation.py` holds state and side effects and calls
-the planner for the rest. Do not write a planning rule again in Python.
+the planner for the rest; the GMA's model registry
+(`agents/gma/application/model_registry.py`) applies the lifecycle answer and
+keeps no status rule of its own. Do not write a planning rule again in Python.
 
 The federated protocol belongs to a dedicated runtime behind `FederationEngine`.
-The in-process engine is a simulator for tests and demos; do not turn it into a
-federated optimizer.
+The in-process engine is a simulator for tests and the getting-started example;
+do not turn it into a federated optimizer. The GMA's HTTP engine
+(`agents/gma/adapters/http_federation_engine.py`) moves jobs to the LMAs and
+holds clipped updates until aggregation; how updates are combined comes from
+the model kind an extension contributes (`ModelKind.combine`), so no averaging
+rule lives in `agents/`. The healthcare demo runs its pilot on the HTTP engine:
+its study operator (`apps/healthcare-demo/backend/app/services/pilot.py`)
+calls only the GMA, and its logistic regression is the model kind
+(`app/domain/model_kinds.py`).
 
 Two rules always hold, and both have tests: aggregation produces a candidate,
 never a release; and a release gate whose metric is missing blocks the release.
+The controller also refuses a reused round id, a result from a site the plan
+did not select, a second aggregate or release decision for a round, and, with
+the HTTP engine, any posted result. Only a GMA whose engine collected the
+results itself records `metrics_source: rounds`, the one value an approval
+accepts.
 
 ### Extending the framework from an application
 
 An application contributes through `agents/common/extensions`, never by patching
 the framework. An extension supplies feature contracts, data classifications,
-condition packs, named pipeline steps and named model adapters. Registration is
+condition packs (with their label field and approved purposes), model kinds
+(how the LMA trains and evaluates a model and how the GMA checks and combines
+its updates), site sources (how an LMA started from settings reads a site's
+records), named pipeline steps and named model adapters. Registration is
 explicit, and two extensions registering the same id is an error, because
-otherwise a guard decision would depend on import order.
+otherwise a guard decision would depend on import order. The LMA and GMA load
+extensions named in `LMA_EXTENSIONS` and `GMA_EXTENSIONS`.
 
-`apps/healthcare-demo/backend/app/extension.py` is the reference: about a
-hundred declarative lines that import no framework internals. If a new application needs
+`apps/healthcare-demo/backend/app/extension.py` is the reference: one
+declarative file that imports no framework internals. If a new application needs
 something that does not fit this interface, improve the interface instead of
 working around it.
 
@@ -666,12 +729,16 @@ The two demos show the boundary:
   `services/nl2sql-demo/backend/app/services/dagents_orchestrator.py` for how an
   app calls the services.
 - Healthcare: the app owns its clinical feature contract, the dataset extract,
-  the per-hospital stores, the scoring rule, the logistic regression model and
-  its parameter-averaging runtime, the FHIR mapping and the intended-use
-  statement. Dagents owns governance, federation, role scoping
-  (`postgres_roles.py`), the running profile, the chart renderer and everything
-  else generic. See `apps/healthcare-demo/backend/app/extension.py` for the
-  extension.
+  the per-hospital stores, the scoring rule, the logistic regression model
+  (contributed as a model kind, including how an update is checked and
+  combined), the study sequence, the FHIR mapping and the intended-use
+  statement. It calls the LMA and GMA APIs through
+  `agents/common/infrastructure/agent_client.py`. Dagents owns governance,
+  federation (the LMA and GMA APIs, job dispatch, the update store, the model
+  registry and approval), role scoping, the running profile, the chart renderer
+  and everything else generic. See `apps/healthcare-demo/backend/app/extension.py`
+  for the extension and `apps/healthcare-demo/backend/app/services/agents.py`
+  for how the app builds or connects to the agents.
 
 Nothing in `agents/` knows what a stroke is, and nothing in the healthcare app
 implements a quorum rule. Apply that test to a new capability: if it would need a
@@ -695,9 +762,21 @@ The `writing` skill has the full rules, with examples.
 
 ## Current state
 
-The agents deliver messages in memory. Health and control endpoints come first;
-messaging and storage sit behind interfaces, and broker-backed infrastructure is
-deferred.
+The agents deliver messages in memory, and broker-backed messaging is deferred.
+An LMA can serve one site (its records, profile, Guard probe, federated jobs and
+job log), and a GMA can dispatch rounds to the LMAs over HTTP, keep model
+versions and handle approvals. They call each other through
+`agents/common/infrastructure/agent_client.py`, in one process through
+`httpx.ASGITransport` or over HTTP, with bearer tokens of fixed scopes
+(`agent_auth.py`). With a database, an LMA keeps its audit chain and job log in
+Postgres and the GMA keeps its model registry and audit chain there; the GMA's
+enrolments, rounds and pending updates stay in memory. The getting-started
+example's `step5_agents_over_http.py` runs a round this way, and so does the
+healthcare demo: it calls one LMA per hospital and a GMA only through their
+APIs, in its own process on the published demo and as separate processes in
+network mode. Every successful answer of the demo whose body is a JSON object
+lists the agent calls behind it (`framework_calls`); errors, the hospital list
+and the SVG charts do not.
 
 Open work is in `TODO.md`. The main item is live Kubernetes validation on
 Minikube, which is blocked on local Docker Desktop disk space (see `CHANGES.md`).

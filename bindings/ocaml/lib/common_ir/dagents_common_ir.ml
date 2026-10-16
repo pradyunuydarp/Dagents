@@ -868,6 +868,14 @@ module Federation_types = struct
     local_evidence_pointer : string option;
   }
 
+  (** Which sites a readiness check accepts results from.
+
+      [Selected sites] names the sites the round plan selected; a result from
+      any other site is rejected and counts toward neither the quorum nor the
+      weights. [Unchecked] skips that check, for callers that do not send the
+      plan's selection. *)
+  type selection = Unchecked | Selected of string list
+
   (** One contribution that may not enter the aggregate, and why. *)
   type contribution_rejection = { rejected_site_id : string; rejection_reason : string }
 
@@ -916,6 +924,75 @@ module Federation_types = struct
     blocking_failures : string list;
     rollback_version : string option;
   }
+
+  (** Where a model version stands in the registry.
+
+      A version enters the registry once, through the [Registered] or
+      [Aggregated] event; every later change of status comes from the model
+      lifecycle rule. At most one version is [ModelReleased] at a time. *)
+  type model_status = ModelCandidate | ModelReleased | ModelRejected | ModelSuperseded
+
+  (** Where the metrics behind a release decision came from.
+
+      [MetricsFromRounds]: the stored aggregates of the study's own rounds.
+      [MetricsFromRequest]: numbers the caller sent with the request.
+      [MetricsSourceUnrecorded]: the decision does not say, as with a decision
+      stored before the source was recorded. Only [MetricsFromRounds] can lead
+      to an approval. *)
+  type metrics_source = MetricsFromRounds | MetricsFromRequest | MetricsSourceUnrecorded
+
+  (** The release decision stored with a candidate, as an approval reads it. *)
+  type recorded_release_decision = {
+    recorded_action : release_action;
+    recorded_guard_permitted : bool;
+    recorded_metrics_source : metrics_source;
+    recorded_baseline_version : string option;
+        (** The released version the gates compared the candidate with. *)
+  }
+
+  (** The status a caller may ask for when it registers a version. *)
+  type requested_status = RequestCandidate | RequestReleased
+
+  (** Something that happened to one model version, with what the rule needs
+      to decide the status changes that follow. *)
+  type lifecycle_event =
+    | Registered of { requested_status : requested_status; released_version : string option }
+        (** A version is stored for the first time. [released_version] is the
+            version released now, if any. *)
+    | Aggregated of { parent_version : string; parent_status : model_status }
+        (** A training round produced the version from [parent_version]. *)
+    | ReleaseEvaluated of { status : model_status; action : release_action; guard_permitted : bool }
+        (** The release gates and the release Guard decided on the version. *)
+    | ApprovalRequested of {
+        status : model_status;
+        decision : recorded_release_decision option;
+        released_version : string option;
+      }
+        (** A person asked to release the version. *)
+
+  (** One question for the model lifecycle rule: an event on one version. *)
+  type lifecycle_request = { lifecycle_version : string; lifecycle_event : lifecycle_event }
+
+  (** Why the lifecycle rule refused an event. Each carries what its reason
+      names. *)
+  type lifecycle_refusal =
+    | AlreadyReleased of string  (** The version released now. *)
+    | NotCandidate of model_status  (** The version's status. *)
+    | NoDecision
+    | GatesDecided of release_action  (** What the gates decided instead of release. *)
+    | GuardDenied
+    | MetricsNotFromRounds  (** The decision's metrics did not come from the rounds. *)
+    | BaselineChanged of { checked_against : string option; in_use : string option }
+
+  (** One version moving from one status to another. [from_status] is [None]
+      for a version the event adds to the registry. *)
+  type status_change = { changed_version : string; from_status : model_status option; to_status : model_status }
+
+  (** The rule's answer: the status changes to apply, or the refusal. *)
+  type lifecycle_verdict = LifecycleAllowed of status_change list | LifecycleRefused of lifecycle_refusal
+
+  (** The verdict with a sentence that explains it. *)
+  type lifecycle_outcome = { verdict : lifecycle_verdict; lifecycle_reason : string }
 end
 
 include Federation_types
@@ -1218,6 +1295,59 @@ let site_participation_of_string = function
   | "failed" -> SiteFailed
   | "dropped" -> SiteDropped
   | value -> invalid_arg ("Unknown site participation: " ^ value)
+
+(** Convert a model status to its stable JSON/API string. *)
+let string_of_model_status = function
+  | ModelCandidate -> "candidate"
+  | ModelReleased -> "released"
+  | ModelRejected -> "rejected"
+  | ModelSuperseded -> "superseded"
+
+(** Convert a metrics source to its stable JSON/API string. *)
+let string_of_metrics_source = function
+  | MetricsFromRounds -> "rounds"
+  | MetricsFromRequest -> "request"
+  | MetricsSourceUnrecorded -> "unrecorded"
+
+(** Convert a lifecycle refusal to its stable JSON/API kind, without its details. *)
+let string_of_lifecycle_refusal = function
+  | AlreadyReleased _ -> "already_released"
+  | NotCandidate _ -> "not_candidate"
+  | NoDecision -> "no_decision"
+  | GatesDecided _ -> "gates_decided"
+  | GuardDenied -> "guard_denied"
+  | MetricsNotFromRounds -> "metrics_not_from_rounds"
+  | BaselineChanged _ -> "baseline_changed"
+
+(** Parse stable API strings into release-action variants. *)
+let release_action_of_string = function
+  | "release" -> ReleaseCandidate
+  | "another_round" -> RequireAnotherRound
+  | "reject" -> RejectCandidate
+  | value -> invalid_arg ("Unknown release action: " ^ value)
+
+(** Parse stable API strings into model-status variants. *)
+let model_status_of_string = function
+  | "candidate" -> ModelCandidate
+  | "released" -> ModelReleased
+  | "rejected" -> ModelRejected
+  | "superseded" -> ModelSuperseded
+  | value -> invalid_arg ("Unknown model status: " ^ value)
+
+(** Parse stable API strings into metrics-source variants. *)
+let metrics_source_of_string = function
+  | "rounds" -> MetricsFromRounds
+  | "request" -> MetricsFromRequest
+  | "unrecorded" -> MetricsSourceUnrecorded
+  | value -> invalid_arg ("Unknown metrics source: " ^ value)
+
+(** Parse the status a registration asks for. A version starts as a candidate
+    or, when nothing is released, as the release; it never starts rejected or
+    superseded. *)
+let requested_status_of_string = function
+  | "candidate" -> RequestCandidate
+  | "released" -> RequestReleased
+  | value -> invalid_arg ("Unknown requested status: " ^ value ^ "; a version is registered as candidate or released")
 
 (** Convert a Compose dependency condition to the word Compose uses. *)
 let string_of_dependency_condition = function

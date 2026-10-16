@@ -1,4 +1,12 @@
-"""Application orchestration for the Local Monitoring Agent."""
+"""Application orchestration for the Local Monitoring Agent.
+
+An LMA started for a site (``site_mode``) reads the site's records only from
+its configured source. A request may then register only an inline source with
+no role or credential, and a profiling or model request may not embed a source
+definition: :func:`check_site_request_source` and
+:func:`check_site_request_dataset` refuse them with a 403. In every mode a
+stored source definition comes back with its connection options redacted.
+"""
 
 from __future__ import annotations
 
@@ -7,7 +15,12 @@ import time
 
 from agents.common.application.ports import SourceResolver
 from agents.common.application.ml_orchestration import build_dataset_profile, execute_model_run
-from agents.common.infrastructure.sources import DefaultSourceResolver
+from agents.common.infrastructure.sources import (
+    DefaultSourceResolver,
+    check_site_request_dataset,
+    check_site_request_source,
+    redact_source,
+)
 from agents.lma.adapters.runner import MonitoringRunner
 from agents.lma.domain.models import (
     BundleRecord,
@@ -28,7 +41,12 @@ from agents.lma.infrastructure.state import BundleRepository, ModelRunRepository
 
 
 class MonitoringService:
-    """Coordinate a local monitoring run and publish its telemetry."""
+    """Coordinate a local monitoring run and publish its telemetry.
+
+    ``site_mode`` turns on the site lock-down described in the module
+    docstring. It is off by default, which keeps the behaviour an LMA had
+    before sites existed.
+    """
 
     def __init__(
         self,
@@ -38,6 +56,8 @@ class MonitoringService:
         runs: RunHistoryRepository,
         model_runs: ModelRunRepository,
         source_resolver: SourceResolver | None = None,
+        *,
+        site_mode: bool = False,
     ) -> None:
         self._runner = runner
         self._publisher = publisher
@@ -45,6 +65,7 @@ class MonitoringService:
         self._runs = runs
         self._model_runs = model_runs
         self._source_resolver = source_resolver or DefaultSourceResolver()
+        self.site_mode = site_mode
 
     def deploy_bundle(self, command: DeployBundleCommand) -> CommandStatus:
         config_digest = hashlib.sha256(
@@ -83,23 +104,33 @@ class MonitoringService:
         return self._runs.list_recent(limit=limit)
 
     def profile_source_dataset(self, request: DatasetProfileRequest) -> DatasetProfile:
+        if self.site_mode and request.dataset is not None:
+            check_site_request_dataset(request.dataset)
         source_request = request.model_copy(update={"scope_kind": "source"})
         return build_dataset_profile(source_request, source_resolver=self._source_resolver)
 
     def run_source_model(self, request: ModelExecutionRequest) -> ModelExecutionResponse:
+        if self.site_mode and request.dataset is not None:
+            check_site_request_dataset(request.dataset)
         source_request = request.model_copy(update={"scope_kind": "source"})
         response = execute_model_run(source_request, agent_role="LMA", source_resolver=self._source_resolver)
         self._model_runs.append(response.run)
         return response
 
     def register_source(self, source):
-        return self._source_resolver.register(source)
+        """Store a source definition and return it with its connection options redacted."""
+        if self.site_mode:
+            check_site_request_source(source)
+        return redact_source(self._source_resolver.register(source))
 
     def get_source(self, source_id: str):
-        return self._source_resolver.get(source_id)
+        """One stored source definition, with its connection options redacted, or ``None``."""
+        source = self._source_resolver.get(source_id)
+        return redact_source(source) if source is not None else None
 
     def list_sources(self):
-        return self._source_resolver.list()
+        """Every stored source definition, with its connection options redacted."""
+        return [redact_source(source) for source in self._source_resolver.list()]
 
     def validate_source(self, source_id: str):
         return self._source_resolver.validate(source_id)

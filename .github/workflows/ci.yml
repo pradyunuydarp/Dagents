@@ -115,12 +115,12 @@ jobs:
         # agents draw no charts and charts.py imports matplotlib only when it
         # draws one. They are installed here so the chart rendering tests run.
         # The ranges match apps/healthcare-demo/requirements.txt;
-        # tests/test_ci_guards.py checks that.
+        # tests/test_ci_guards.py checks that. httpx, which the agent client
+        # and the test client use, is in the agents' requirements.
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r agents/lma/requirements.txt \
                                 -r agents/gma/requirements.txt \
-                                httpx \
                                 "matplotlib>=3.9,<4" \
                                 "numpy>=2,<3"
 
@@ -132,9 +132,15 @@ jobs:
           python -m unittest discover -s agents/tests -t . -v 2>&1 | tee agents-suite.log
 
       - name: Fail if the governance or chart tests skipped
-        # This job has no database, so the database tests in
-        # agents/tests/test_postgres_roles.py skip here. They run in the
-        # demo-apps job, which has a PostgreSQL service.
+        # This job has no database, so the database tests in agents/tests
+        # skip here. They run in the demo-apps job, which has a PostgreSQL
+        # service. --forbid planner covers every planner test; the classes
+        # below must also have run: the Guard, the round controller, the
+        # charts, the LMA's federated jobs, the GMA's HTTP engine and release,
+        # the agent client over a real loopback socket, the update upload
+        # while every GMA thread token is held, the refused approval on the
+        # simulator, and a whole study through the GMA and three LMAs, in
+        # process and as separate uvicorn processes.
         run: |
           python scripts/ci_no_skipped_tests.py \
             --forbid planner \
@@ -142,6 +148,16 @@ jobs:
             --require-ran agents.tests.test_governance.EthicalGuardTests \
             --require-ran agents.tests.test_federation.RoundLifecycleTests \
             --require-ran agents.tests.test_charts.RenderTests \
+            --require-ran agents.tests.test_lma_federation_jobs.OfferTests \
+            --require-ran agents.tests.test_lma_federation_jobs.ExecuteTests \
+            --require-ran agents.tests.test_lma_federation_jobs.RunTests \
+            --require-ran agents.tests.test_gma_http_engine.HttpEngineTests \
+            --require-ran agents.tests.test_gma_http_engine.UploadThreadTests \
+            --require-ran agents.tests.test_gma_release.ReleaseEvaluationTests \
+            --require-ran agents.tests.test_gma_release.SimulatorRoundFlowTests \
+            --require-ran agents.tests.test_agent_client.NetworkClientTests \
+            --require-ran agents.tests.test_agent_network_flow.InProcessStudyTests \
+            --require-ran agents.tests.test_agent_network_flow.OverHttpStudyTests \
             agents-suite.log
 
       - name: Run the getting-started example and check the guide
@@ -350,8 +366,9 @@ jobs:
   # ---------------------------------------------------------------------------
   # The consumer apps. Both prove the framework is consumable; the healthcare
   # suite also carries the governance and federation assertions for the demo.
-  # The healthcare store and site isolation tests need a real PostgreSQL 16, so
-  # this job runs one as a service container and fails if those tests skip.
+  # The healthcare store and site isolation tests, the demo in network mode,
+  # and the framework's database tests need a real PostgreSQL 16, so this job
+  # runs one as a service container and fails if those tests skip.
   # ---------------------------------------------------------------------------
   demo-apps:
     name: Demo app backends
@@ -398,6 +415,12 @@ jobs:
                                 -r services/nl2sql-demo/backend/requirements.txt
 
       - name: healthcare-demo
+        # The demo calls the LMAs and the GMA only through their HTTP APIs.
+        # Most tests build the agents inside the API process.
+        # tests/test_network_mode.py starts the GMA, one LMA per hospital and
+        # the API as separate uvicorn processes on loopback ports the system
+        # picks, against the service container, and checks that their pilot
+        # equals the in-process pilot.
         working-directory: apps/healthcare-demo
         env:
           DAGENTSC_BIN: ${{ env.PLANNER_DIR }}/dagentsc.exe
@@ -410,21 +433,36 @@ jobs:
       - name: Fail if the healthcare governance tests skipped
         run: python scripts/ci_no_skipped_tests.py --forbid planner apps/healthcare-demo/healthcare-suite.log
 
-      - name: Framework role scoping against PostgreSQL
-        # agents/tests/test_postgres_roles.py also runs in the agents job, which
-        # has no database, so its database tests skip there. They run here.
+      - name: Framework database tests against PostgreSQL
+        # These modules also run in the agents job, which has no database, so
+        # their database tests skip there. They run here: role scoping, the
+        # connection lease, the model store and registry, the LMA job log and
+        # the GMA's coordinator wiring. The registry and the GMA tests also
+        # need the planner. The job installs only the healthcare demo's
+        # requirements, the set its image installs, so a framework dependency
+        # the demo lacks fails here.
         env:
+          DAGENTSC_BIN: ${{ env.PLANNER_DIR }}/dagentsc.exe
           DAGENTS_TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
         run: |
           set -o pipefail
-          python -m unittest agents.tests.test_postgres_roles -v 2>&1 | tee postgres-roles.log
+          python -m unittest -v \
+            agents.tests.test_postgres_roles \
+            agents.tests.test_postgres_lease \
+            agents.tests.test_model_registry \
+            agents.tests.test_job_log \
+            agents.tests.test_gma_release \
+            2>&1 | tee framework-database.log
 
       - name: Fail if the database tests skipped
         # Every database skip starts with "database test skipped". Here a skip
         # means the service container or the connection string is wrong.
         # --require-ran also catches a class whose tests did not run for a
         # reason the pattern does not match. Both logs are checked before the
-        # step fails, so one run reports every problem.
+        # step fails, so one run reports every problem. healthcare-data.yml
+        # requires the same classes; tests/test_ci_guards.py checks that, and
+        # that every database class in agents/tests and the healthcare tests
+        # is listed here.
         run: |
           status=0
           python scripts/ci_no_skipped_tests.py \
@@ -439,20 +477,32 @@ jobs:
             --require-ran tests.test_pilot_postgres.PostgresApprovalAfterRestartTests \
             --require-ran tests.test_pilot_postgres.PostgresRestartTests \
             --require-ran tests.test_data_entry_flow.PostgresDataEntryTests \
-            --require-ran tests.test_runtime.PostgresRegistryTests \
             --require-ran tests.test_store_connections.PostgresConnectionReuseTests \
             --require-ran tests.test_store_connections.PostgresPilotConnectionTests \
             --require-ran tests.test_api_postgres.PostgresApiTests \
             --require-ran tests.test_api_postgres.UnmigratedDatabaseApiTests \
             --require-ran tests.test_data_source_status.PostgresStatusTests \
+            --require-ran tests.test_agents_wiring.PostgresWiringTests \
+            --require-ran tests.test_concurrency.PostgresPilotWhileWritingTests \
+            --require-ran tests.test_network_mode.NetworkModeTests \
+            --require-ran tests.test_network_mode.NetworkApprovalTests \
             apps/healthcare-demo/healthcare-suite.log || status=1
           python scripts/ci_no_skipped_tests.py \
             --forbid database \
+            --forbid planner \
             --require-ran agents.tests.test_postgres_roles.ActingAsTests \
             --require-ran agents.tests.test_postgres_roles.ConnectTests \
             --require-ran agents.tests.test_postgres_roles.AdapterRoleTests \
             --require-ran agents.tests.test_postgres_roles.PostgresAuditSinkTests \
-            postgres-roles.log || status=1
+            --require-ran agents.tests.test_postgres_lease.KeptConnectionPostgresTests \
+            --require-ran agents.tests.test_postgres_lease.LeaseErrorTextPostgresTests \
+            --require-ran agents.tests.test_postgres_lease.LeaseAuditSinkPostgresTests \
+            --require-ran agents.tests.test_postgres_lease.SourceAdapterPostgresTests \
+            --require-ran agents.tests.test_model_registry.PostgresModelStoreTests \
+            --require-ran agents.tests.test_model_registry.PostgresModelRegistryTests \
+            --require-ran agents.tests.test_job_log.PostgresJobLogTests \
+            --require-ran agents.tests.test_gma_release.GmaPostgresWiringTests \
+            framework-database.log || status=1
           exit "${status}"
 
       - name: nl2sql-demo

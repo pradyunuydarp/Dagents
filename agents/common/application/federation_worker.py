@@ -424,7 +424,12 @@ class LocalFederatedWorker:
         )
 
     def _refused(self, job: FederatedJob, reason: str) -> SiteResult:
-        """Return a result that records a refusal rather than a gap."""
+        """Return a result that records a refusal rather than a gap.
+
+        The reason is in ``refusal_reason``. The evidence pointer still ends
+        with ``#refused:<reason>``, because callers written before that field
+        existed read the reason from there.
+        """
         return SiteResult(
             round_id=job.round_id,
             site_id=self.site_id,
@@ -435,4 +440,5 @@ class LocalFederatedWorker:
             contributed_examples=0,
             metrics={},
             local_evidence_pointer=f"site-local://{self.site_id}/{job.round_id}#refused:{reason}",
+            refusal_reason=reason,
         )

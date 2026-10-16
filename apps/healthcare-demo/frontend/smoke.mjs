@@ -31,7 +31,13 @@
  *      out of a round) is shown in words;
  *   9. at 375 px the charts keep their drawn size inside their own scroll box
  *      and the page does not scroll sideways;
- *  10. nothing logs a console error or fails a request on the way.
+ *  10. the framework is visible: the "Who does what" table shows the agent
+ *      mode the backend reports, every "Dagents API calls" strip names its
+ *      agent and route and matches the calls the backend reports, no strip
+ *      shows a host, each pilot round lists how the GMA dispatched its job
+ *      (a refused job with its reason), and the hospital page groups its
+ *      sections under the hospital's LMA and the app;
+ *  11. nothing logs a console error or fails a request on the way.
  *
  * Usage:
  *   node smoke.mjs [baseUrl] [--screenshots <dir>]
@@ -174,9 +180,52 @@ const lowestContrast = (target, selector) =>
     return { lowest: Number(lowest.toFixed(2)), count: elements.length };
   }, selector);
 
+/**
+ * Every "Dagents API calls" strip inside `scope`: its count, its label, its
+ * whole text (link text included, never an href) and one entry per row.
+ */
+const readStrips = (target, scope) =>
+  target.locator(`${scope} [data-api-calls]`).evaluateAll((strips) =>
+    strips.map((strip) => ({
+      count: Number(strip.getAttribute("data-api-calls-count")),
+      label: strip.querySelector(".api-calls-label")?.textContent?.trim() ?? "",
+      text: strip.textContent ?? "",
+      rows: [...strip.querySelectorAll("tr[data-call-path]")].map((row) => ({
+        service: row.getAttribute("data-call-service"),
+        site: row.getAttribute("data-call-site"),
+        via: row.getAttribute("data-call-via"),
+        path: row.getAttribute("data-call-path"),
+        agent: row.querySelector("[data-call-agent]")?.textContent?.trim() ?? "",
+        method: row.querySelector("[data-call-method]")?.textContent?.trim() ?? "",
+        route: row.querySelector("[data-call-route]")?.textContent?.trim() ?? "",
+      })),
+    }))
+  );
+
+/** The agent a call names, as a strip must print it. */
+const agentName = (call) => (call.service === "gma" ? "GMA" : `LMA ${call.site_id ?? call.site}`);
+
+/** Why a strip is wrong, or null: each row names its agent, method and route, and no host appears. */
+const stripProblem = (strip) => {
+  if (/https?:|\.internal\b|bearer/i.test(strip.text)) return `shows an address or a token: ${strip.text.trim().slice(0, 120)}`;
+  if (strip.count === 0) return /none/i.test(strip.text) ? null : "an empty strip does not say none";
+  if (strip.rows.length === 0) return `${strip.count} calls and no rows`;
+  for (const row of strip.rows) {
+    if (row.agent !== agentName(row)) return `row names "${row.agent}" for ${row.service} ${row.site}`;
+    if (!/^(GET|POST|PUT|DELETE|PATCH)$/.test(row.method)) return `row method "${row.method}"`;
+    if (!row.path?.startsWith("/api/v1/") || row.route !== row.path) return `row route "${row.route}" for ${row.path}`;
+  }
+  return null;
+};
+
+/** `service site method path via` for each distinct call, so lists compare without order or counts. */
+const callKeys = (calls) =>
+  [...new Set((calls ?? []).map((c) => `${c.service} ${c.site_id ?? c.site ?? ""} ${c.method} ${c.path} ${c.via}`))].sort();
+
 try {
   console.log(`Dagents healthcare demo — frontend smoke test against ${baseUrl}\n`);
   const overview = await api("/api/v1/overview");
+  const status = await api("/api/v1/framework/status");
   const firstSite = overview.hospitals[0];
   const labels = overview.field_labels ?? {};
 
@@ -190,10 +239,10 @@ try {
   const chartsPanel = page.locator('[data-panel="charts"]');
 
   // 1. The page renders and lists the hospitals the API reports.
-  await consortiumPanel.locator("table tbody tr").first().waitFor({ timeout: 30000 });
+  await consortiumPanel.locator("table.hospitals tbody tr").first().waitFor({ timeout: 30000 });
   const heading = (await page.locator("h1").first().textContent())?.trim() ?? "";
   check("page renders its heading", heading.length > 0, heading);
-  const hospitalRows = await consortiumPanel.locator("table tbody tr").count();
+  const hospitalRows = await consortiumPanel.locator("table.hospitals tbody tr").count();
   check(
     "consortium table lists the three hospitals the API reports",
     hospitalRows === 3 && hospitalRows === overview.hospitals.length,
@@ -203,6 +252,46 @@ try {
   check("the header links to every hospital", navLinks === overview.hospitals.length + 1, `${navLinks} links`);
   const notReady = await page.locator('[data-banner="not-ready"]').count();
   check("no not-loaded banner while every store holds records", notReady === 0, `${notReady} banners`);
+
+  //    Who does what: the parts of the demo, and where the agents run, as the
+  //    backend reports it. The page never guesses the mode.
+  const who = page.locator('[data-panel="who-does-what"]');
+  const reportedMode = status.agents?.mode ?? "missing";
+  await who.locator("[data-agents-mode]").first().waitFor({ timeout: 30000 }).catch(() => {});
+  const shownMode = (await who.locator("[data-agents-mode]").first().getAttribute("data-agents-mode").catch(() => null)) ?? "not shown";
+  const modeText = ((await who.locator("[data-agents-mode]").first().textContent().catch(() => "")) ?? "").trim();
+  const modeWords = { "in-process": /inside the demo server/i, network: /own process/i }[reportedMode];
+  check(
+    "the 'Who does what' table shows the agent mode the backend reports",
+    shownMode === reportedMode && Boolean(modeWords?.test(modeText)),
+    `backend ${reportedMode}, page ${shownMode}: "${modeText}"`
+  );
+  const agentRows = await who
+    .locator("tr[data-agent]")
+    .evaluateAll((rows) => rows.map((row) => [row.getAttribute("data-agent"), row.getAttribute("data-site") ?? ""]));
+  const lmaRows = agentRows.filter(([agent]) => agent === "lma").map(([, site]) => site);
+  check(
+    "the 'Who does what' table lists the app, the GMA and each hospital's LMA",
+    agentRows.filter(([agent]) => agent === "app").length === 1 &&
+      agentRows.filter(([agent]) => agent === "gma").length === 1 &&
+      lmaRows.join(",") === overview.hospitals.map((item) => item.site_id).join(","),
+    agentRows.map(([agent, site]) => `${agent}${site ? ` ${site}` : ""}`).join(", ") || "no rows"
+  );
+
+  //    The strips on arrival: the hospitals table and the "Who does what"
+  //    panel each list the agent calls behind their answer.
+  for (const [hook, path] of [
+    ["consortium", "/api/v1/overview"],
+    ["who-does-what", "/api/v1/framework/status"],
+  ]) {
+    const strips = await readStrips(page, `[data-panel="${hook}"]`);
+    const problem = strips.map(stripProblem).find(Boolean);
+    check(
+      `the ${hook} panel has a "Dagents API calls" strip that names each agent and route`,
+      strips.length > 0 && strips[0].count > 0 && !problem,
+      problem ?? `${strips.length} strips, ${strips[0]?.count ?? 0} calls, from ${path}`
+    );
+  }
   if (shotDir) {
     await staticHeader();
     await page.screenshot({
@@ -244,18 +333,33 @@ try {
       : value && typeof value === "object"
         ? Object.values(value).some(recordLists)
         : false;
+  //    `framework_calls` lists the agent calls behind the answer. It is a list
+  //    of objects too, so it is checked on its own: each entry may hold only a
+  //    call's seven keys, never a record value, a host or a body.
+  const CALL_KEYS = ["method", "ms", "path", "service", "site_id", "status", "via"].join(",");
+  const withoutCalls = (answer) => {
+    if (!answer || typeof answer !== "object") return answer;
+    const { framework_calls: _calls, ...rest } = answer;
+    return rest;
+  };
+  const callsAreCallsOnly = (answer) =>
+    Array.isArray(answer?.framework_calls) &&
+    answer.framework_calls.every((call) => Object.keys(call).sort().join(",") === CALL_KEYS);
   const releaseShownWithoutRows = async (label) => {
-    const extraTables = await guardPanel.locator("table:not(.restrictions)").count();
+    // The "Dagents API calls" table lists routes, and its own check below
+    // requires every one of its rows to be a call. Any other table fails.
+    const extraTables = await guardPanel.locator("table:not(.restrictions):not(.api-calls-table)").count();
+    const nonCallRows = await guardPanel.locator("table.api-calls-table tbody tr:not([data-call-path])").count();
     const released = ((await guardPanel.locator('[data-released="records"]').textContent().catch(() => "")) ?? "").trim();
     const expected = String(lastProbe?.released_count ?? "missing");
     check(
       `the guard shows what it would release, not the rows (${label})`,
-      extraTables === 0 && released === expected,
-      `${extraTables} other tables; released ${released || "not shown"}, the backend released ${expected}`
+      extraTables === 0 && nonCallRows === 0 && released === expected,
+      `${extraTables} other tables, ${nonCallRows} rows that are not calls; released ${released || "not shown"}, the backend released ${expected}`
     );
     check(
       `the probe's answer holds no patient rows (${label})`,
-      lastProbe !== null && !("payload" in lastProbe) && !recordLists(lastProbe),
+      lastProbe !== null && !("payload" in lastProbe) && !recordLists(withoutCalls(lastProbe)) && callsAreCallsOnly(lastProbe),
       lastProbe === null ? "no answer" : Object.keys(lastProbe).join(", ")
     );
   };
@@ -267,6 +371,17 @@ try {
   check("a verified row request is narrowed, not denied", /NARROW|PERMIT/.test(trusted), trusted);
   check("a trusted requester gets generalization", trustedStrategy.startsWith("generalize"), trustedStrategy);
   await releaseShownWithoutRows("verified row request");
+  const probeStrips = await readStrips(page, '[data-panel="guard"]');
+  const probeShown = callKeys(probeStrips.flatMap((strip) => strip.rows));
+  const probeReported = callKeys(lastProbe?.framework_calls);
+  check(
+    "the guard's strip lists the LMA call behind the answer",
+    probeReported.length > 0 &&
+      probeReported.every((key) => key.startsWith(`lma ${firstSite.site_id} `)) &&
+      probeShown.join("|") === probeReported.join("|") &&
+      !probeStrips.map(stripProblem).find(Boolean),
+    `shown [${probeShown.join("; ")}], reported [${probeReported.join("; ")}]`
+  );
   const grails = guardPanel.getByRole("link", { name: "GRAILS" });
   check(
     "the guard panel names GRAILS and links the paper",
@@ -382,6 +497,74 @@ try {
   const pilotText = (await pilotPanel.innerText()) ?? "";
   const explained = !/L2 norm/.test(pilotText) || /length of the update/.test(pilotText);
   check("the pilot panel says what the update size is", explained, explained ? "" : "mentions L2 norm without saying what it is");
+
+  //    The pilot's strip: the app called only the GMA, and the GMA's calls to
+  //    each hospital's LMA are listed as its own.
+  const pilotStrips = await readStrips(page, '[data-panel="pilot"]');
+  const pilotRows = pilotStrips.flatMap((strip) => strip.rows);
+  const pilotProblem = pilotStrips.map(stripProblem).find(Boolean);
+  //    The GMA sends each hospital one jobs:run call per round: the offer
+  //    and the execution in one call.
+  const executedAt = new Set(
+    pilotRows.filter((row) => row.via === "gma" && row.path === "/api/v1/federation/jobs:run").map((row) => row.site)
+  );
+  check(
+    "the pilot's strip lists the GMA's round calls and the GMA's calls to every LMA",
+    pilotRows.some((row) => row.service === "gma" && row.via === "app" && row.method === "POST" && row.path === "/api/v1/federation/rounds") &&
+      pilotRows.filter((row) => row.via === "app").every((row) => row.service === "gma") &&
+      overview.hospitals.every((item) => executedAt.has(item.site_id)) &&
+      callKeys(pilotRows).join("|") === callKeys(pilot.framework_calls).join("|") &&
+      !pilotProblem,
+    pilotProblem ?? `${pilotRows.length} rows; run calls at ${[...executedAt].join(", ") || "no hospital"}`
+  );
+
+  //    Dispatch rows: each round lists, per hospital, the job the GMA offered
+  //    and whether the hospital's LMA ran it, as the round report says.
+  const roundReports = [
+    ["analytics", pilot.rounds?.analytics],
+    ["evaluation", pilot.rounds?.evaluation],
+    ["candidate_validation", pilot.rounds?.candidate_validation],
+    ...(pilot.rounds?.training ?? []).map((round) => ["training", round]),
+  ].filter(([, round]) => round && Array.isArray(round.dispatch));
+  const dispatchShown = await pilotPanel.locator("tr[data-dispatch-site]").evaluateAll((rows) =>
+    rows.map((row) => ({
+      round: row.getAttribute("data-dispatch-round"),
+      site: row.getAttribute("data-dispatch-site"),
+      offer: row.getAttribute("data-offer"),
+      run: row.getAttribute("data-run"),
+    }))
+  );
+  //    A run row holds both steps: refused or failed at the offer, or the
+  //    participation of the job the hospital ran.
+  const dispatchReported = (round, siteId) => {
+    const runRow = round.dispatch.find((call) => call.site_id === siteId && call.step === "run");
+    if (runRow) {
+      const offer = runRow.outcome === "refused" || runRow.outcome === "failed" ? runRow.outcome : "accepted";
+      return { offer, run: offer === "accepted" ? runRow.outcome : "" };
+    }
+    return {
+      offer: round.dispatch.find((call) => call.site_id === siteId && call.step === "offer")?.outcome ?? "",
+      run: round.dispatch.find((call) => call.site_id === siteId && call.step === "execute")?.outcome ?? "",
+    };
+  };
+  const dispatchMismatch = [];
+  for (const [, round] of roundReports) {
+    for (const siteId of new Set(round.dispatch.map((call) => call.site_id))) {
+      const { offer, run } = dispatchReported(round, siteId);
+      const row = dispatchShown.find((item) => item.round === round.round_id && item.site === siteId);
+      if (!row || row.offer !== offer || row.run !== run) {
+        dispatchMismatch.push(`${round.round_id} ${siteId}: shown ${row ? `${row.offer}/${row.run}` : "no row"}, reported ${offer}/${run}`);
+      }
+    }
+  }
+  const runEverywhere = roundReports.every(([, round]) =>
+    overview.hospitals.every((item) => dispatchShown.some((row) => row.round === round.round_id && row.site === item.site_id && row.run))
+  );
+  check(
+    "each round lists how the GMA dispatched its job to every hospital",
+    roundReports.length > 0 && dispatchMismatch.length === 0 && runEverywhere,
+    dispatchMismatch[0] ?? `${dispatchShown.length} rows over ${roundReports.length} rounds`
+  );
   const curveWidth = await imageWidth(pilotPanel.locator('[data-chart="training-curve"] img.chart-image'));
   check("the training curve draws", curveWidth > 0, `${curveWidth}px`);
   if (shotDir) await pilotPanel.screenshot({ path: `${shotDir}/federated-pilot.png` });
@@ -390,10 +573,39 @@ try {
   const consortiumChart = chartsPanel.locator("img.chart-image").first();
   const consortiumWidth = await imageWidth(consortiumChart);
   check("a consortium chart draws", consortiumWidth > 0, `${consortiumWidth}px`);
+  const chartList = await api("/api/v1/charts");
+  const chartStrips = await readStrips(page, '[data-panel="charts"]');
+  const chartProblem = chartStrips.map(stripProblem).find(Boolean);
+  check(
+    "the charts panel's strip names the GMA call behind the chart data",
+    chartStrips.length === 1 &&
+      chartStrips[0].rows.some((row) => row.service === "gma") &&
+      callKeys(chartList.framework_calls).every((key) => callKeys(chartStrips[0].rows).includes(key)) &&
+      !chartProblem,
+    chartProblem ?? `${chartStrips.length} strips, ${chartStrips[0]?.rows.length ?? 0} rows`
+  );
+  const chartSources = await chartsPanel.locator("figure[data-chart]").evaluateAll((figures) =>
+    figures.map((figure) => [
+      figure.getAttribute("data-chart"),
+      figure.querySelector("[data-drawn-by]")?.textContent?.trim() ?? "",
+      figure.querySelector("[data-data-from]")?.textContent?.trim() ?? "",
+    ])
+  );
+  const sourceMismatch = chartSources.filter(([id, drawn, from]) => {
+    const info = chartList.charts.find((chart) => chart.chart_id === id);
+    return !info || drawn !== info.drawn_by || from !== info.data_from;
+  });
+  check(
+    "each consortium chart says who drew it and where its numbers come from",
+    chartSources.length > 0 && sourceMismatch.length === 0,
+    sourceMismatch.map(([id, drawn, from]) => `${id}: "${drawn}" / "${from}"`).join("; ") || `${chartSources.length} charts`
+  );
 
   //    Small text keeps at least 4.5:1 contrast in both themes: the footer,
-  //    the eyebrows (one on the guard panel's inset head) and the gate kinds.
-  const contrastTargets = ".foot p, .page-head .ds-eyebrow, .panel.guard .ds-eyebrow, .gate-kind";
+  //    the eyebrows (one on the guard panel's inset head), the gate kinds, the
+  //    "Dagents API calls" labels and the chart source labels.
+  const contrastTargets =
+    ".foot p, .page-head .ds-eyebrow, .panel.guard .ds-eyebrow, .gate-kind, .api-calls-label, .chart-source dt, .chart-source dd";
   const contrast = {};
   for (const theme of ["Light", "Dark"]) {
     await page.locator(`.theme-toggle button:has-text("${theme}")`).click();
@@ -417,7 +629,7 @@ try {
       firstSite.display_name
   );
   const enteredBefore = Number((await enteredCount.textContent())?.replace(/[^\d]/g, "") ?? "NaN");
-  const profileRows = await page.locator('[data-panel="profile"] tbody tr').count();
+  const profileRows = await page.locator('[data-panel="profile"] table.profile tbody tr').count();
   check("the running statistics are listed", profileRows > 0, `${profileRows} fields`);
   const profileLabels = await page
     .locator('[data-panel="profile"] tbody td[title]')
@@ -428,8 +640,8 @@ try {
     profileLabels.length > 0 && labelMismatch.length === 0,
     labelMismatch.map(([field, text]) => `${field}: "${text}" not "${labels[field]}"`).join("; ")
   );
-  await page.locator('[data-panel="worklist"] tbody tr').first().waitFor({ timeout: 30000 });
-  const worklistRows = await page.locator('[data-panel="worklist"] tbody tr').count();
+  await page.locator('[data-panel="worklist"] table.worklist tbody tr').first().waitFor({ timeout: 30000 });
+  const worklistRows = await page.locator('[data-panel="worklist"] table.worklist tbody tr').count();
   check("the worklist loads", worklistRows > 0, `${worklistRows} rows`);
   const worklistText = (await page.locator('[data-panel="worklist"]').innerText()) ?? "";
   check(
@@ -440,11 +652,55 @@ try {
   const sentHere = await page
     .locator('[data-panel="contributions"] td.values-sent')
     .evaluateAll((cells) => cells.map((cell) => cell.textContent ?? ""));
-  const codedHere = sentHere.filter((text) => identifier.test(text));
+  const codedHere = sentHere.filter((text) => identifier.test(text) || /label rate/.test(text));
   check(
     "the hospital's values sent are named in words",
     sentHere.length > 0 && codedHere.length === 0,
     codedHere[0] ?? `${sentHere.length} cells`
+  );
+
+  //    The hospital page in two groups: what the hospital's Dagents LMA holds,
+  //    and what the app does at the hospital.
+  const groups = await page.locator("main [data-group]").evaluateAll((sections) =>
+    sections.map((section) => ({
+      group: section.getAttribute("data-group"),
+      heading: section.querySelector("h2")?.textContent?.replace(/\s+/g, " ").trim() ?? "",
+      panels: [...section.querySelectorAll("[data-panel]")].map((panel) => panel.getAttribute("data-panel")),
+    }))
+  );
+  const lmaGroup = groups.find((item) => item.group === "lma");
+  const appGroup = groups.find((item) => item.group === "app");
+  const hasAll = (group, hooks) => Boolean(group) && hooks.every((hook) => group.panels.includes(hook));
+  check(
+    "the hospital page groups its sections under the hospital's LMA and the app",
+    groups.length === 2 &&
+      lmaGroup?.heading === `Dagents LMA ${firstSite.site_id}` &&
+      appGroup?.heading === "App at the hospital" &&
+      hasAll(lmaGroup, ["profile", "model", "audit", "contributions"]) &&
+      hasAll(appGroup, ["hospital-store", "worklist", "entered", "hospital-charts"]),
+    groups.map((item) => `${item.heading}: ${item.panels.join(", ")}`).join(" | ") || "no groups"
+  );
+
+  //    Every strip on the hospital page names this hospital's LMA, and the
+  //    LMA group's strip lists the calls the dashboard answer reports.
+  await page.locator('[data-panel="audit"] [data-api-calls]').waitFor({ timeout: 30000 }).catch(() => {});
+  const dashboardNow = await api(`/api/v1/hospitals/${firstSite.site_id}`);
+  const hospitalStrips = await readStrips(page, "main");
+  const hospitalProblem = hospitalStrips.map(stripProblem).find(Boolean);
+  const lmaStripKeys = callKeys((await readStrips(page, '[data-group="lma"] > .group-head')).flatMap((strip) => strip.rows));
+  const dashboardKeys = callKeys(dashboardNow.framework_calls);
+  const otherSite = hospitalStrips
+    .flatMap((strip) => strip.rows)
+    .find((row) => row.service === "lma" && row.site !== firstSite.site_id);
+  check(
+    "the hospital page's strips name only this hospital's LMA and list the dashboard's calls",
+    hospitalStrips.length >= 5 &&
+      dashboardKeys.length > 0 &&
+      dashboardKeys.every((key) => lmaStripKeys.includes(key)) &&
+      !otherSite &&
+      !hospitalProblem,
+    hospitalProblem ??
+      (otherSite ? `a strip names LMA ${otherSite.site}` : `${hospitalStrips.length} strips; LMA group [${lmaStripKeys.join("; ")}]`)
   );
   await page.locator('[data-panel="audit"] [data-audit-note]').waitFor({ timeout: 30000 });
   const hospitalAuditNote = ((await page.locator('[data-panel="audit"] [data-audit-note]').textContent()) ?? "").trim();
@@ -484,6 +740,16 @@ try {
     if (text.split(field.unit.toLowerCase()).length > 2) repeatedUnit.push(text.trim());
   }
   check("no field label repeats its unit", repeatedUnit.length === 0, repeatedUnit.join("; "));
+  const formStrips = await readStrips(page, '[data-panel="entry"]');
+  const formCalls = form.framework_calls ?? [];
+  check(
+    "the entry form's strip matches the calls the backend reports, and says none when there are none",
+    formStrips.length === 1 &&
+      formStrips[0].count === formCalls.length &&
+      callKeys(formStrips[0].rows).join("|") === callKeys(formCalls).join("|") &&
+      !stripProblem(formStrips[0]),
+    formStrips[0] ? `${formStrips[0].count} shown, ${formCalls.length} reported: ${formStrips[0].text.trim().slice(0, 80)}` : "no strip"
+  );
 
   expectRefusal = true;
   const refusal = page.waitForResponse((r) => r.url().endsWith("/encounters") && r.request().method() === "POST");
@@ -551,6 +817,16 @@ try {
     savedLabels.length > 0 && savedMismatch.length === 0,
     savedMismatch.map(([field, text]) => `${field}: "${text}" not "${labels[field]}"`).join("; ")
   );
+  const savedBody = await storedResponse.json().catch(() => null);
+  const savedStrips = await readStrips(page, '[data-panel="entry-result"]');
+  const savedKeys = callKeys(savedStrips.flatMap((strip) => strip.rows));
+  check(
+    "the saved record's strip shows the hospital's LMA reading the store again",
+    savedKeys.some((key) => key.startsWith(`lma ${firstSite.site_id} POST /api/v1/site/source:refresh`)) &&
+      callKeys(savedBody?.framework_calls).join("|") === savedKeys.join("|") &&
+      !savedStrips.map(stripProblem).find(Boolean),
+    `[${savedKeys.join("; ")}]`
+  );
 
   // 7. Back on the hospital page, the record is listed and counted, and it
   //    takes an outcome.
@@ -607,6 +883,9 @@ try {
   //    toggle clips its children, so the ring must be drawn inside the button.
   await page.locator("main h1").first().click();
   await page.evaluate(() => window.scrollTo(0, 0));
+  // Start from the wordmark, the first link in the header, so the number of
+  // focusable controls on the page does not decide whether the toggle is reached.
+  await page.locator(".masthead .wordmark").focus();
   let onDark = false;
   for (let presses = 0; presses < 20 && !onDark; presses += 1) {
     await page.keyboard.press("Tab");
@@ -684,7 +963,7 @@ try {
     });
     await coldPage.goto(baseUrl, { timeout: 60000 });
     const banner = coldPage.locator('[data-banner="connecting"]');
-    await coldPage.locator('[data-panel="consortium"] table tbody tr').first().waitFor({ timeout: 60000 });
+    await coldPage.locator('[data-panel="consortium"] table.hospitals tbody tr').first().waitFor({ timeout: 60000 });
     const bannerShown = await coldPage.evaluate(() => window.__sawConnecting === true);
     check(
       "a 503 without the app's header shows the connecting banner, then the page",
@@ -749,6 +1028,46 @@ try {
     }
   } finally {
     await coldPage.close();
+  }
+
+  //    The first hospital page after the demo server starts: the app registers
+  //    its model versions with the GMA before the dashboard answers, so the
+  //    dashboard lists those GMA calls too. The strip under the LMA lists only
+  //    this hospital's LMA; the GMA's calls get a strip of their own.
+  const firstPage = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  try {
+    const registration = [1, 2].map((n) => ({
+      service: "gma",
+      site_id: null,
+      method: "PUT",
+      path: "/api/v1/model-versions/{version}",
+      status: 201,
+      ms: n,
+      via: "app",
+    }));
+    await firstPage.route(new RegExp(`/api/v1/hospitals/${firstSite.site_id}$`), async (route) => {
+      const response = await route.fetch();
+      const body = await response.json();
+      await route.fulfill({ response, json: { ...body, framework_calls: [...registration, ...(body.framework_calls ?? [])] } });
+    });
+    await firstPage.goto(`${baseUrl}#/hospitals/${firstSite.site_id}`, { timeout: 60000 });
+    await firstPage.locator('[data-group="lma"] > .group-head [data-api-calls]').first().waitFor({ timeout: 30000 });
+    const headStrips = await readStrips(firstPage, '[data-group="lma"] > .group-head');
+    const lmaRows = headStrips[0]?.rows ?? [];
+    const gmaStrip = headStrips.find((strip) => strip.rows.some((row) => row.service === "gma"));
+    check(
+      "after a start, the LMA strip lists only the LMA and the GMA's calls have their own strip",
+      lmaRows.length > 0 &&
+        lmaRows.every((row) => row.service === "lma" && row.site === firstSite.site_id) &&
+        Boolean(gmaStrip) &&
+        gmaStrip !== headStrips[0] &&
+        /other agents/.test(gmaStrip.label) &&
+        gmaStrip.rows.every((row) => row.service === "gma" && row.path === "/api/v1/model-versions/{version}") &&
+        !headStrips.map(stripProblem).find(Boolean),
+      headStrips.map((strip) => `${strip.label}: ${strip.rows.map((row) => `${row.agent} ${row.method} ${row.path}`).join(", ")}`).join(" | ")
+    );
+  } finally {
+    await firstPage.close();
   }
 
   //    A dashboard reload that fails while older numbers are on screen says
@@ -853,11 +1172,64 @@ try {
     if (leftOut.rounds?.analytics?.plan) {
       leftOut.rounds.analytics.plan.excluded_sites = [{ site_id: smallSite.site_id, reason: rawReason }];
     }
+    //    A hospital's LMA refuses the evaluation job: the GMA's dispatch row
+    //    says so, with the LMA's reason, and the job does not run there.
+    const refusedReason = "the job's model digest does not match the model the site received";
+    const evaluationRound = leftOut.rounds?.evaluation;
+    if (evaluationRound?.dispatch) {
+      evaluationRound.dispatch = evaluationRound.dispatch
+        .filter((call) => !(call.site_id === withheldSite.site_id && call.step === "execute"))
+        .map((call) => (call.site_id === withheldSite.site_id ? { ...call, outcome: "refused" } : call));
+      evaluationRound.results = (evaluationRound.results ?? []).map((item) =>
+        item.site_id === withheldSite.site_id ? { ...item, participation: "rejected", refusal_reason: refusedReason } : item
+      );
+      evaluationRound.acceptances = (evaluationRound.acceptances ?? []).map((item) =>
+        item.site_id === withheldSite.site_id ? { ...item, accepted: false, reason: refusedReason } : item
+      );
+    }
+    //    In candidate validation, one LMA answers the job offer with an error
+    //    and another does not answer at all. The table tells the two apart.
+    const silentSite = overview.hospitals[2];
+    const validationRound = leftOut.rounds?.candidate_validation;
+    if (validationRound?.dispatch && silentSite) {
+      const changed = { [smallSite.site_id]: 503, [silentSite.site_id]: null };
+      validationRound.dispatch = validationRound.dispatch
+        .filter((call) => !(call.site_id in changed && call.step === "execute"))
+        .map((call) => (call.site_id in changed ? { ...call, outcome: "failed", status_code: changed[call.site_id] } : call));
+    }
     await reasonPage.route("**/api/v1/pilot:run", (route) =>
       route.fulfill({ status: 200, contentType: "application/json", headers: { "X-Dagents-App": "healthcare-demo" }, json: leftOut })
     );
 
+    //    The status reports agents in their own processes, and one LMA that
+    //    did not answer the GMA. The "Who does what" table says so.
+    await rewriteReason("**/api/v1/framework/status", (body) => ({
+      ...body,
+      agents: {
+        ...(body.agents ?? {}),
+        mode: "network",
+        lmas: (body.agents?.lmas ?? []).map((item) =>
+          item.site_id === smallSite.site_id ? { ...item, reachable: false, source_kind: null } : item
+        ),
+      },
+    }));
+
     await reasonPage.goto(baseUrl, { timeout: 60000 });
+    const networkMode = reasonPage.locator('[data-panel="who-does-what"] [data-agents-mode]');
+    await networkMode.waitFor({ timeout: 30000 }).catch(() => {});
+    const networkText = ((await networkMode.textContent().catch(() => "")) ?? "").trim();
+    const silentRow = (
+      (await reasonPage.locator(`[data-panel="who-does-what"] tr[data-agent="lma"][data-site="${smallSite.site_id}"]`).textContent().catch(() => "")) ?? ""
+    ).trim();
+    check(
+      "the 'Who does what' table follows the mode and the LMA answers the backend reports",
+      (await networkMode.getAttribute("data-agents-mode").catch(() => null)) === "network" &&
+        /own process/i.test(networkText) &&
+        /did not answer the GMA/i.test(silentRow) &&
+        /Not reported/.test(silentRow) &&
+        !/from not reported/i.test(silentRow),
+      `"${networkText}"; ${smallSite.site_id}: "${silentRow.replace(/\s+/g, " ").slice(0, 120)}"`
+    );
     const rateCell = (siteId) =>
       reasonPage.locator(`[data-panel="consortium"] tr[data-site="${siteId}"] td[data-rate-status]`);
     await rateCell(withheldSite.site_id).waitFor({ timeout: 30000 });
@@ -877,10 +1249,40 @@ try {
       /left out: The request is about 0 records, fewer than the minimum/.test(leftOutText) && !/cohort_size/.test(leftOutText),
       leftOutText || "no left-out line shown"
     );
+    const refusedRow = reasonPage.locator(
+      `[data-panel="pilot"] tr[data-dispatch-round="${evaluationRound?.round_id}"][data-dispatch-site="${withheldSite.site_id}"]`
+    );
+    const refusedText = ((await refusedRow.textContent().catch(() => "")) ?? "").replace(/\s+/g, " ").trim();
+    check(
+      "a job a hospital refused is shown as refused, with the LMA's reason, and not run",
+      (await refusedRow.getAttribute("data-offer").catch(() => null)) === "refused" &&
+        (await refusedRow.getAttribute("data-run").catch(() => "x")) === "" &&
+        /refused/i.test(refusedText) &&
+        refusedText.includes(refusedReason),
+      refusedText || "no dispatch row for the refusing hospital"
+    );
+    const offerCell = async (siteId) =>
+      (
+        (await reasonPage
+          .locator(
+            `[data-panel="pilot"] tr[data-dispatch-round="${validationRound?.round_id}"][data-dispatch-site="${siteId}"] td:has(.ds-chip)`
+          )
+          .textContent()
+          .catch(() => "")) ?? ""
+      )
+        .replace(/\s+/g, " ")
+        .trim();
+    const errorOffer = await offerCell(smallSite.site_id);
+    const silentOffer = silentSite ? await offerCell(silentSite.site_id) : "";
+    check(
+      "an offer the LMA answered with an error is shown as failed with its status, not as no answer",
+      /failed/.test(errorOffer) && errorOffer.includes("503") && !/no answer/.test(errorOffer) && /no answer/.test(silentOffer),
+      `${smallSite.site_id}: "${errorOffer}"; ${silentSite?.site_id}: "${silentOffer}"`
+    );
 
     await reasonPage.goto(`${baseUrl}#/hospitals/${withheldSite.site_id}`, { timeout: 60000 });
-    await reasonPage.locator('[data-panel="contributions"] tbody tr').first().waitFor({ timeout: 30000 });
-    const roundText = ((await reasonPage.locator('[data-panel="contributions"] tbody tr').first().innerText()) ?? "").trim();
+    await reasonPage.locator('[data-panel="contributions"] table.contributions tbody tr').first().waitFor({ timeout: 30000 });
+    const roundText = ((await reasonPage.locator('[data-panel="contributions"] table.contributions tbody tr').first().innerText()) ?? "").trim();
     const hospitalRate = ((await reasonPage.locator('[data-panel="hospital-store"] [data-rate-status]').textContent()) ?? "").trim();
     check(
       "the hospital page gives a refused round's reason and the rate's reason in words",
@@ -934,7 +1336,7 @@ try {
     }));
 
     await emptyPage.goto(baseUrl, { timeout: 60000 });
-    await emptyPage.locator('[data-panel="consortium"] table tbody tr').first().waitFor({ timeout: 30000 });
+    await emptyPage.locator('[data-panel="consortium"] table.hospitals tbody tr').first().waitFor({ timeout: 30000 });
     await emptyPage.waitForTimeout(500);
     const consortiumBanner = await emptyPage.locator('[data-banner="not-ready"]').count();
     const emptyRows = await emptyPage.locator('[data-panel="consortium"] tr[data-site] [data-empty-store]').count();
@@ -950,7 +1352,10 @@ try {
     await emptyPage.waitForTimeout(800);
     const hospitalBanner = await emptyPage.locator('[data-banner="not-ready"]').count();
     const storeEmpty = await emptyPage.locator('[data-panel="hospital-store"] [data-empty-store]').count();
-    const emptyTables = await emptyPage.locator('[data-panel="profile"] table, [data-panel="worklist"] table').count();
+    // The strips' tables list routes, not records, so they are not counted.
+    const emptyTables = await emptyPage
+      .locator('[data-panel="profile"] table:not(.api-calls-table), [data-panel="worklist"] table:not(.api-calls-table)')
+      .count();
     const worklistEmpty = ((await emptyPage.locator('[data-panel="worklist"]').innerText()) ?? "").includes("No records to rank");
     const reasons = await emptyPage.locator('[data-panel="hospital-charts"] .chart-unavailable').allTextContents();
     check(

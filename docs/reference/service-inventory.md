@@ -10,7 +10,7 @@ their Spring controllers. Regenerate with:
 .venv/bin/python scripts/service_inventory.py --write
 ```
 
-**179 endpoints across 9 services.**
+**224 endpoints across 9 services.**
 
 Ports come from `env/`; never hardcode them — each service has distinct
 `*_PUBLIC_URL` (host) and `*_INTERNAL_URL` (compose network) values.
@@ -20,9 +20,9 @@ Ports come from `env/`; never hardcode them — each service has distinct
 | Service | Language | Role | Port | Endpoints |
 |---|---|---|---|---|
 | [`core-service`](#core-service) | python | framework-service | 8040 | 7 |
-| [`gma`](#gma) | python | agent | 8020 | 63 |
-| [`healthcare-demo-backend`](#healthcare-demo-backend) | python | demo-app | 8080 | 27 |
-| [`lma`](#lma) | python | agent | 8010 | 29 |
+| [`gma`](#gma) | python | agent | 8020 | 83 |
+| [`healthcare-demo-backend`](#healthcare-demo-backend) | python | demo-app | 8080 | 26 |
+| [`lma`](#lma) | python | agent | 8010 | 55 |
 | [`model-service`](#model-service) | python | framework-service | 8000 | 14 |
 | [`nl2sql-demo-backend`](#nl2sql-demo-backend) | python | demo-app | 8070 | 5 |
 | [`pipeline-service`](#pipeline-service) | python | framework-service | 8030 | 17 |
@@ -45,7 +45,7 @@ Ports come from `env/`; never hardcode them — each service has distinct
 
 ## gma
 
-`python` · `fastapi` · port `8020` · 63 endpoints
+`python` · `fastapi` · port `8020` · 83 endpoints
 
 | Method | Path | Handler | Notes |
 |---|---|---|---|
@@ -64,12 +64,17 @@ Ports come from `env/`; never hardcode them — each service has distinct
 | GET | `/api/v1/federation/rounds/{round_id}` | `get_round_v1` | versioned alias of `GET /federation/rounds/{round_id}`; Versioned alias for fetching one round |
 | GET | `/api/v1/federation/rounds/{round_id}/readiness` | `round_readiness_v1` | versioned alias of `GET /federation/rounds/{round_id}/readiness`; Versioned alias for aggregation readiness |
 | POST | `/api/v1/federation/rounds/{round_id}/results` | `submit_result_v1` | versioned alias of `POST /federation/rounds/{round_id}/results`; returns `202`; Versioned alias for submitting a site result |
+| PUT | `/api/v1/federation/rounds/{round_id}/updates/{site_id}` | `upload_update_v1` | versioned alias of `PUT /federation/rounds/{round_id}/updates/{site_id}`; Versioned alias for storing a site's update |
 | POST | `/api/v1/federation/rounds/{round_id}:aggregate` | `aggregate_round_v1` | versioned alias of `POST /federation/rounds/{round_id}:aggregate`; Versioned alias for candidate aggregation |
+| POST | `/api/v1/federation/rounds/{round_id}:discard` | `discard_round_v1` | versioned alias of `POST /federation/rounds/{round_id}:discard`; returns `204`; Versioned alias for discarding a round |
 | POST | `/api/v1/federation/rounds/{round_id}:evaluate-release` | `evaluate_release_v1` | versioned alias of `POST /federation/rounds/{round_id}:evaluate-release`; Versioned alias for release evaluation |
 | POST | `/api/v1/federation/rounds:plan` | `plan_round_v1` | versioned alias of `POST /federation/rounds:plan`; Versioned alias for round planning |
 | GET | `/api/v1/federation/sites` | `list_sites_v1` | versioned alias of `GET /federation/sites`; Versioned alias for listing enrolled sites |
+| GET | `/api/v1/federation/sites/summaries` | `site_summaries_v1` | versioned alias of `GET /federation/sites/summaries`; Versioned alias for the site summaries |
 | PUT | `/api/v1/federation/sites/{site_id}` | `register_site_v1` | versioned alias of `PUT /federation/sites/{site_id}`; Versioned alias for site enrolment |
+| POST | `/api/v1/federation/sites:refresh` | `refresh_sites_v1` | versioned alias of `POST /federation/sites:refresh`; Versioned alias for refreshing the enrolments from the LMAs |
 | GET | `/api/v1/governance/audit` | `governance_audit_v1` | versioned alias of `GET /governance/audit`; Versioned alias for the guard audit log |
+| GET | `/api/v1/governance/audit:summary` | `governance_audit_summary_v1` | versioned alias of `GET /governance/audit:summary`; Versioned alias for the audit chain summary |
 | GET | `/api/v1/governance/classifications` | `list_classifications_v1` | versioned alias of `GET /governance/classifications`; Versioned alias for listing data classifications |
 | PUT | `/api/v1/governance/classifications/{classification_id}` | `register_classification_v1` | versioned alias of `PUT /governance/classifications/{classification_id}`; Versioned alias for registering a data classification |
 | POST | `/api/v1/governance/restrictions:enforce` | `enforce_restriction_v1` | versioned alias of `POST /governance/restrictions:enforce`; Versioned alias for guard enforcement |
@@ -77,6 +82,11 @@ Ports come from `env/`; never hardcode them — each service has distinct
 | GET | `/api/v1/health` | `health_v1` | versioned alias of `GET /health`; Versioned alias for the GMA health endpoint |
 | GET | `/api/v1/model-jobs` | `list_model_runs_v1` | versioned alias of `GET /models/runs`; Versioned alias for aggregate model-job listing |
 | POST | `/api/v1/model-jobs` | `run_assimilated_model_v1` | versioned alias of `POST /models/run`; returns `202`; Versioned alias that presents aggregate execution as a model-job API |
+| GET | `/api/v1/model-versions` | `list_model_versions_v1` | versioned alias of `GET /model-versions`; Versioned alias for listing model versions |
+| GET | `/api/v1/model-versions/{version}` | `get_model_version_v1` | versioned alias of `GET /model-versions/{version}`; Versioned alias for fetching one model version |
+| PUT | `/api/v1/model-versions/{version}` | `register_model_version_v1` | versioned alias of `PUT /model-versions/{version}`; returns `201`; Versioned alias for registering a model version |
+| POST | `/api/v1/model-versions/{version}:approve` | `approve_model_version_v1` | versioned alias of `POST /model-versions/{version}:approve`; Versioned alias for approving a model version |
+| GET | `/api/v1/model-versions:released` | `released_model_version_v1` | versioned alias of `GET /model-versions:released`; Versioned alias for the released model version |
 | GET | `/api/v1/sources` | `list_sources` | List all sources registered with the GMA |
 | POST | `/api/v1/sources` | `register_source` | Register a reusable source definition for aggregate workflows |
 | GET | `/api/v1/sources/{source_id}` | `get_source` | Fetch one source registered with the GMA |
@@ -87,22 +97,32 @@ Ports come from `env/`; never hardcode them — each service has distinct
 | POST | `/deployments/sync` | `sync_deployment` | Compare an LMA's current bundle with the desired deployment plan |
 | GET | `/extensions` | `list_extensions` | Describe what registered extensions contribute to this agent |
 | GET | `/federation/rounds` | `list_rounds` | List recent rounds, newest first |
-| POST | `/federation/rounds` | `dispatch_round` | Plan a round and, if quorum allows, offer it to the selected sites |
+| POST | `/federation/rounds` | `dispatch_round` | Plan a round and, if quorum allows, dispatch its jobs to the selected sites |
 | GET | `/federation/rounds/{round_id}` | `get_round` | Fetch one round's full lineage |
 | GET | `/federation/rounds/{round_id}/readiness` | `round_readiness` | Report whether the returned contributions may be aggregated |
 | POST | `/federation/rounds/{round_id}/results` | `submit_result` | Record one site's returned result against its round |
+| PUT | `/federation/rounds/{round_id}/updates/{site_id}` | `upload_update` | Store one site's clipped model update for a training round |
 | POST | `/federation/rounds/{round_id}:aggregate` | `aggregate_round` | Produce a candidate model, if and only if aggregation is permitted |
-| POST | `/federation/rounds/{round_id}:evaluate-release` | `evaluate_release` | Evaluate release gates against a candidate and record the verdict |
+| POST | `/federation/rounds/{round_id}:discard` | `discard_round` | returns `204`; Give up a round: delete its stored updates and record why |
+| POST | `/federation/rounds/{round_id}:evaluate-release` | `evaluate_release` | Evaluate a round's candidate against the release gates and record the verdict |
 | POST | `/federation/rounds:plan` | `plan_round` | Select the sites eligible for a round, without dispatching it |
 | GET | `/federation/sites` | `list_sites` | List enrolled sites |
+| GET | `/federation/sites/summaries` | `site_summaries` | Report what each configured site's LMA says about its records |
 | PUT | `/federation/sites/{site_id}` | `register_site` | Enrol or update one site in the consortium |
+| POST | `/federation/sites:refresh` | `refresh_sites` | Enrol each configured LMA from its own registration |
 | GET | `/governance/audit` | `governance_audit` | List recent guard decisions and whether the digest chain still verifies |
+| GET | `/governance/audit:summary` | `governance_audit_summary` | Report whether the GMA's audit chain verifies and how many decisions it holds, without its records |
 | GET | `/governance/classifications` | `list_classifications` | List the data classifications this agent can enforce against |
 | PUT | `/governance/classifications/{classification_id}` | `register_classification` | Register or replace one runtime data classification |
 | POST | `/governance/restrictions:enforce` | `enforce_restriction` | Plan, apply, and record one governed request against a payload |
 | POST | `/governance/restrictions:plan` | `plan_restriction` | Ask what protection a request would need, without enforcing anything |
 | GET | `/health` | `health` | Return the raw health payload used by the GMA's internal checks |
 | POST | `/heartbeat` | `heartbeat` | Ingest one heartbeat update from a registered LMA |
+| GET | `/model-versions` | `list_model_versions` | List the model in use and the newest model versions, without their parameters |
+| GET | `/model-versions/{version}` | `get_model_version` | Fetch one model version, with its status and latest release decision, without its parameters |
+| PUT | `/model-versions/{version}` | `register_model_version` | returns `201`; Register a model version under a name the caller chooses |
+| POST | `/model-versions/{version}:approve` | `approve_model_version` | Release a candidate, as the person who approves releases |
+| GET | `/model-versions:released` | `released_model_version` | Return the released model version, the one sites use, with its parameters |
 | POST | `/models/run` | `run_assimilated_model` | Execute an aggregate model run synchronously |
 | GET | `/models/runs` | `list_model_runs` | List recent aggregate model runs tracked by the GMA |
 | GET | `/overview` | `overview` | Return a fleet-level summary of agent and deployment state |
@@ -115,54 +135,66 @@ Ports come from `env/`; never hardcode them — each service has distinct
 
 ## healthcare-demo-backend
 
-`python` · `fastapi` · port `8080` · 27 endpoints
+`python` · `fastapi` · port `8080` · 26 endpoints
 
 | Method | Path | Handler | Notes |
 |---|---|---|---|
-| GET | `/api/v1/charts` | `consortium_charts` | The consortium charts, from site summaries and the last pilot. Never a 4xx |
+| GET | `/api/v1/charts` | `consortium_charts` | The consortium charts, from what the hospitals report through the GMA and the last pilot. Never a 4xx |
 | GET | `/api/v1/charts/{chart_id}.svg` | `consortium_chart_svg` | One consortium chart as SVG. 404 for a chart that needs a pilot that has not run |
 | GET | `/api/v1/conditions` | `conditions` | The condition this app implements, the conditions it plans, its contract and classification |
-| GET | `/api/v1/extension` | `extension` | What this app contributes to the framework, and what each side owns |
-| GET | `/api/v1/framework/status` | `framework_status` | Where the records are stored, which framework services answer, and the allowed origins |
-| GET | `/api/v1/framework/trace` | `framework_trace` | Run one hospital's records through the framework's planners, at that hospital |
-| POST | `/api/v1/governance:probe` | `governance_probe` | Run one request through a hospital's Guard and report what it would release |
+| GET | `/api/v1/extension` | `extension` | What this app contributes to the agents, as the GMA's extension registry describes it, and what each side owns |
+| GET | `/api/v1/framework/status` | `framework_status` | Where the records are stored, how the Dagents agents run, which answer, and the allowed origins |
+| POST | `/api/v1/governance:probe` | `governance_probe` | Run one request through a hospital's Guard, at its LMA, and report what it would release |
 | GET | `/api/v1/health` | `health_v1` | versioned alias of `GET /health`; Versioned alias for the health endpoint |
-| GET | `/api/v1/hospitals` | `hospitals` | What each hospital reports about its records: counts and an outcome rate |
-| GET | `/api/v1/hospitals/{site_id}` | `hospital_dashboard` | One hospital's own view: its store, statistics, local metrics and what it sent |
-| GET | `/api/v1/hospitals/{site_id}/audit` | `hospital_audit` | One hospital's Guard decisions, newest first, and whether its audit chain verifies |
+| GET | `/api/v1/hospitals` | `hospitals` | What each hospital reports about its records through the GMA: counts and an outcome rate |
+| GET | `/api/v1/hospitals/{site_id}` | `hospital_dashboard` | One hospital's own view: its store, what its LMA reports, local metrics and what it sent |
+| GET | `/api/v1/hospitals/{site_id}/audit` | `hospital_audit` | One hospital's Guard decisions, newest first, and whether its audit chain verifies, from its LMA |
 | GET | `/api/v1/hospitals/{site_id}/charts` | `hospital_charts` | One hospital's charts, from its own records. Shown only in that hospital's view |
 | GET | `/api/v1/hospitals/{site_id}/charts/{chart_id}.svg` | `hospital_chart_svg` | One hospital chart as SVG |
 | GET | `/api/v1/hospitals/{site_id}/encounters` | `hospital_encounters` | Records entered at one hospital, newest first, each with its assessment |
-| POST | `/api/v1/hospitals/{site_id}/encounters` | `hospital_enter` | returns `201`; Store a new record at one hospital, as that hospital, and update its running statistics |
+| POST | `/api/v1/hospitals/{site_id}/encounters` | `hospital_enter` | returns `201`; Store a new record at one hospital, as that hospital, and have its LMA read the store again |
 | POST | `/api/v1/hospitals/{site_id}/encounters/{encounter_id}/outcome` | `hospital_outcome` | Record the six-month outcome of a record entered at this hospital |
 | GET | `/api/v1/hospitals/{site_id}/entry-form` | `hospital_entry_form` | The data-entry form, built from the field domains. The browser only renders it |
 | GET | `/api/v1/hospitals/{site_id}/thresholds` | `hospital_thresholds` | Sensitivity, specificity and alerts at a range of alert thresholds, at one hospital |
-| GET | `/api/v1/hospitals/{site_id}/worklist` | `hospital_worklist` | One hospital's records ranked by the model in use. The list stays at the hospital |
+| GET | `/api/v1/hospitals/{site_id}/worklist` | `hospital_worklist` | One hospital's records ranked by the model its LMA reports in use. The list stays at the hospital |
 | POST | `/api/v1/ingest:fhir` | `ingest_fhir` | Map a FHIR-shaped bundle into the stroke feature contract, reporting codes it does not know |
-| GET | `/api/v1/models` | `models` | The model the hospitals use, and the 20 newest registered versions, oldest first |
-| POST | `/api/v1/models/{version}:approve` | `approve_model` | Release a candidate whose last release decision was ``release`` |
-| GET | `/api/v1/overview` | `overview` | The consortium, the numbers each hospital reports, and the release gates |
-| POST | `/api/v1/pilot:run` | `run_pilot` | Run the federated pilot across every hospital and return its evidence |
+| GET | `/api/v1/models` | `models` | The model the hospitals use, and the 20 newest registered versions, oldest first, from the GMA |
+| POST | `/api/v1/models/{version}:approve` | `approve_model` | Release a candidate whose last release decision was ``release``, through the GMA |
+| GET | `/api/v1/overview` | `overview` | The consortium, the numbers each hospital reports through the GMA, and the release gates |
+| POST | `/api/v1/pilot:run` | `run_pilot` | Run the federated pilot across every hospital, through the GMA, and return its evidence |
 | POST | `/api/v1/triage:assess` | `assess` | Score one record with the seed rule, with the basis for the score |
 | POST | `/api/v1/triage:worklist` | `worklist` | Rank records by the seed rule's score. Nothing is removed from the list |
-| GET | `/health` | `health` | Liveness. Reads no store |
+| GET | `/health` | `health` | Liveness. Reads no store and calls no agent |
 
 ## lma
 
-`python` · `fastapi` · port `8010` · 29 endpoints
+`python` · `fastapi` · port `8010` · 55 endpoints
 
 | Method | Path | Handler | Notes |
 |---|---|---|---|
 | POST | `/api/v1/datasets:profile` | `profile_source_dataset_v1` | versioned alias of `POST /datasets/profile`; Versioned alias for source dataset profiling |
 | GET | `/api/v1/extensions` | `list_extensions_v1` | versioned alias of `GET /extensions`; Versioned alias for the extension summary |
+| GET | `/api/v1/federation/jobs` | `list_jobs_v1` | versioned alias of `GET /federation/jobs`; Versioned alias for the site's job log |
+| POST | `/api/v1/federation/jobs:execute` | `execute_job_v1` | versioned alias of `POST /federation/jobs:execute`; Versioned alias for executing a job |
+| POST | `/api/v1/federation/jobs:offer` | `offer_job_v1` | versioned alias of `POST /federation/jobs:offer`; Versioned alias for offering a job |
+| POST | `/api/v1/federation/jobs:run` | `run_job_v1` | versioned alias of `POST /federation/jobs:run`; Versioned alias for running a job |
+| GET | `/api/v1/federation/registration` | `federation_registration_v1` | versioned alias of `GET /federation/registration`; Versioned alias for the site's registration |
 | GET | `/api/v1/governance/audit` | `governance_audit_v1` | versioned alias of `GET /governance/audit`; Versioned alias for the guard audit log |
+| GET | `/api/v1/governance/audit:summary` | `governance_audit_summary_v1` | versioned alias of `GET /governance/audit:summary`; Versioned alias for the audit chain summary |
 | GET | `/api/v1/governance/classifications` | `list_classifications_v1` | versioned alias of `GET /governance/classifications`; Versioned alias for listing data classifications |
 | PUT | `/api/v1/governance/classifications/{classification_id}` | `register_classification_v1` | versioned alias of `PUT /governance/classifications/{classification_id}`; Versioned alias for registering a data classification |
 | POST | `/api/v1/governance/restrictions:enforce` | `enforce_restriction_v1` | versioned alias of `POST /governance/restrictions:enforce`; Versioned alias for guard enforcement |
 | POST | `/api/v1/governance/restrictions:plan` | `plan_restriction_v1` | versioned alias of `POST /governance/restrictions:plan`; Versioned alias for restriction planning |
+| POST | `/api/v1/governance/restrictions:probe` | `probe_restriction_v1` | versioned alias of `POST /governance/restrictions:probe`; Versioned alias for the Guard probe |
 | GET | `/api/v1/health` | `health_v1` | versioned alias of `GET /health`; Versioned alias for the health endpoint used by newer clients |
 | GET | `/api/v1/model-jobs` | `list_model_runs_v1` | versioned alias of `GET /models/runs`; Versioned alias for listing source-level model jobs |
 | POST | `/api/v1/model-jobs` | `run_source_model_v1` | versioned alias of `POST /models/run`; returns `202`; Versioned alias that presents source execution as a model-job API |
+| GET | `/api/v1/site` | `site_info_v1` | versioned alias of `GET /site`; Versioned alias for the site description |
+| GET | `/api/v1/site/model` | `site_model_v1` | versioned alias of `GET /site/model`; Versioned alias for the site's model in use |
+| POST | `/api/v1/site/model:evaluate` | `evaluate_site_model_v1` | versioned alias of `POST /site/model:evaluate`; Versioned alias for evaluating the site's model in use |
+| GET | `/api/v1/site/profile` | `site_profile_v1` | versioned alias of `GET /site/profile`; Versioned alias for the site profile |
+| POST | `/api/v1/site/source:refresh` | `refresh_site_source_v1` | versioned alias of `POST /site/source:refresh`; Versioned alias for refreshing the site's source |
+| GET | `/api/v1/site/summary` | `site_summary_v1` | versioned alias of `GET /site/summary`; Versioned alias for the site summary |
 | GET | `/api/v1/sources` | `list_sources` | List all sources registered with this LMA instance |
 | POST | `/api/v1/sources` | `register_source` | Validate and register a reusable source definition at the agent edge |
 | GET | `/api/v1/sources/{source_id}` | `get_source` | Fetch one source definition registered with this LMA instance |
@@ -171,16 +203,29 @@ Ports come from `env/`; never hardcode them — each service has distinct
 | POST | `/bundles/deploy` | `deploy_bundle` | Store or update a bundle that future LMA runs may execute |
 | POST | `/datasets/profile` | `profile_source_dataset` | Profile source-scoped data before a model run is selected |
 | GET | `/extensions` | `list_extensions` | Describe what registered extensions contribute to this agent |
+| GET | `/federation/jobs` | `list_jobs` | List the jobs the site refused or ran, newest first, as its job log recorded them |
+| POST | `/federation/jobs:execute` | `execute_job` | Run a job the site accepted, on the Guard's payload, and return what the Guard lets leave |
+| POST | `/federation/jobs:offer` | `offer_job` | Let the site check a job before it reads any data, and accept or refuse it |
+| POST | `/federation/jobs:run` | `run_job` | Offer a job and, when the site accepts it, run it, in one call |
+| GET | `/federation/registration` | `federation_registration` | Return how the site enrols in a study, with its current record count as the cohort size |
 | GET | `/governance/audit` | `governance_audit` | List recent guard decisions and whether the digest chain still verifies |
+| GET | `/governance/audit:summary` | `governance_audit_summary` | Report whether the site's audit chain verifies and how many decisions it holds, without its records |
 | GET | `/governance/classifications` | `list_classifications` | List the data classifications this agent can enforce against |
 | PUT | `/governance/classifications/{classification_id}` | `register_classification` | Register or replace one runtime data classification |
 | POST | `/governance/restrictions:enforce` | `enforce_restriction` | Plan, apply, and record one governed request against a payload |
 | POST | `/governance/restrictions:plan` | `plan_restriction` | Ask what protection a request would need, without enforcing anything |
+| POST | `/governance/restrictions:probe` | `probe_restriction` | Run one request through the site's Guard over the site's first records, and report what it would release |
 | GET | `/health` | `health` | Return the raw health payload used by the LMA's internal health checks |
 | POST | `/models/run` | `run_source_model` | Execute a source-scoped model run synchronously |
 | GET | `/models/runs` | `list_model_runs` | List recent source-level model runs executed by the LMA |
 | POST | `/run` | `run_monitoring` | Execute a legacy monitoring run over a deployed bundle |
 | GET | `/runs` | `list_runs` | List recent local monitoring runs |
+| GET | `/site` | `site_info` | Describe the site this LMA serves: its condition, policy, source and record count |
+| GET | `/site/model` | `site_model` | Return the released model, as this LMA reads it from the GMA, after its model kind checked the digest |
+| POST | `/site/model:evaluate` | `evaluate_site_model` | Measure the released model on the site's own labelled records. The records stay at the site |
+| GET | `/site/profile` | `site_profile` | Return the running profile of the site's records, for the site's own staff |
+| POST | `/site/source:refresh` | `refresh_site_source` | Ask the site's source for its version now, and read the records again if it changed |
+| GET | `/site/summary` | `site_summary` | Report the site's counts, and its label rate only when the site's planner permits it |
 | GET | `/telemetry` | `list_telemetry` | List recent telemetry envelopes emitted by local monitoring runs |
 
 ## model-service

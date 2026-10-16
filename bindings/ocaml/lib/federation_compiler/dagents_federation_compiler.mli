@@ -60,6 +60,10 @@ val compile_round_plan : round_manifest -> site_registration list -> round_plan
 
 (** Decide whether returned contributions may be aggregated.
 
+    A result from a site outside [selection] is rejected first, with the reason
+    "site was not selected for this round"; it counts toward neither the quorum,
+    the dropouts nor the weights. [Unchecked] skips that check.
+
     A contribution is rejected when the site did not complete, failed code
     verification, failed its privacy checks, returned a mismatched job digest,
     contributed fewer examples than the per-site floor, or exceeded the norm
@@ -72,13 +76,23 @@ val compile_round_plan : round_manifest -> site_registration list -> round_plan
     the federated runtime's job.
 
     Inputs:
+    - [selection]: the sites the round plan selected, or [Unchecked].
     - [manifest]: the round contract.
     - [results]: what each site returned.
 
     Output:
     - [aggregation_readiness]: accepted sites and weights, rejected
-      contributions with reasons, and the stop condition when blocked. *)
-val evaluate_aggregation_readiness : round_manifest -> site_result list -> aggregation_readiness
+      contributions with reasons, and the stop condition when blocked.
+
+    Example test case:
+    {[
+      let readiness =
+        evaluate_aggregation_readiness ~selection:(Selected [ "site-a" ]) manifest [ result_from_site_b ]
+      in
+      assert (readiness.accepted_sites = [])
+    ]} *)
+val evaluate_aggregation_readiness :
+  selection:selection -> round_manifest -> site_result list -> aggregation_readiness
 
 (** Evaluate release gates against a candidate model's metrics.
 
@@ -110,3 +124,42 @@ val evaluate_release :
   string option ->
   string ->
   release_decision
+
+(** Decide the status changes that follow one event on one model version.
+
+    Every status change of a model version comes from here, so a registry
+    applies the answer and keeps no status rule of its own:
+
+    - [Registered]: a new version is a candidate, or the release when it asks
+      to be one and no version is released ([AlreadyReleased] otherwise).
+    - [Aggregated]: the new version is a candidate. Its parent becomes
+      superseded when the parent is a candidate, and keeps its status
+      otherwise.
+    - [ReleaseEvaluated]: the version stays a candidate when the gates decided
+      release and the release Guard permitted it, and becomes rejected
+      otherwise ([NotCandidate] when it is not a candidate).
+    - [ApprovalRequested]: the version becomes released and the released
+      version becomes superseded. The checks run in this order, and the first
+      that fails is the refusal: [NoDecision], [GatesDecided], [GuardDenied],
+      [MetricsNotFromRounds], [NotCandidate], [BaselineChanged].
+
+    A refusal changes nothing. Status changes are sorted by version. The
+    reason is one sentence; the approval refusals use the wording the
+    healthcare demo's approval has always used.
+
+    Raises [Invalid_argument] for an event that names one version twice: an
+    aggregation whose parent is the new version, or an approval of a
+    candidate that is also given as the released version.
+
+    Example test case:
+    {[
+      let outcome =
+        decide_model_lifecycle
+          {
+            lifecycle_version = "model-2";
+            lifecycle_event = ApprovalRequested { status = ModelCandidate; decision = None; released_version = None };
+          }
+      in
+      assert (outcome.verdict = LifecycleRefused NoDecision)
+    ]} *)
+val decide_model_lifecycle : lifecycle_request -> lifecycle_outcome

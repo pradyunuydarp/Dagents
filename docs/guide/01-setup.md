@@ -120,7 +120,7 @@ Expected output, one line per service:
 
 ```text
 {"status":"ok","agent_type":"LMA","deployed_bundles":0,"runs":0,"model_runs":0,"active_bundle":null}
-{"status":"ok","agent_type":"GMA"}
+{"status":"ok","agent_type":"GMA","engine":"in-process-simulator"}
 {"status":"ok","service":"dagents-core-service","environment":"development","transport":"http"}
 {"status":"ok","service":"dagents-pipeline-service","environment":"development","transport":"http"}
 ```

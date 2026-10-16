@@ -6,6 +6,8 @@ import time
 from tempfile import TemporaryDirectory
 import unittest
 
+from pydantic import TypeAdapter
+
 from agents.common.domain.models import (
     AgentIdentity,
     DatasetProfileRequest,
@@ -22,9 +24,10 @@ from agents.common.domain.models import (
     ObjectStorageSourceSpec,
     ConnectionRef,
     ObjectStorageSelection,
+    SourceSpec,
 )
 from agents.gma.application.aggregation_service import AggregationService
-from agents.common.infrastructure.sources import DefaultSourceResolver
+from agents.common.infrastructure.sources import REDACTED, DefaultSourceResolver, SourceRequestRefused
 from agents.gma.infrastructure.persistence import (
     InMemoryAgentRegistryRepository,
     InMemoryControlPlaneRepository,
@@ -144,6 +147,82 @@ class MonitoringServiceTests(unittest.TestCase):
             )
             self.assertEqual(profile.record_count, 2)
             self.assertEqual(profile.partition_count, 1)
+
+
+def postgres_source(source_id: str) -> SourceSpec:
+    """A Postgres source definition with a credential in its options, as a request could send it."""
+    return SOURCE_SPEC.validate_python(postgres_source_payload(source_id))
+
+
+def postgres_source_payload(source_id: str) -> dict[str, object]:
+    return {
+        "source_id": source_id,
+        "kind": "postgres",
+        "connection_ref": {
+            "connection_id": "warehouse",
+            "options": {"host": "db.internal", "user": "reader", "password": "s3cret", "role": "reader_role"},
+        },
+        "selection": {"table": "orders", "columns": ["value"]},
+        "format": "rows",
+    }
+
+
+def inline_source(source_id: str) -> SourceSpec:
+    return SOURCE_SPEC.validate_python(
+        {
+            "source_id": source_id,
+            "kind": "inline",
+            "selection": {"records": [{"value": 1.0}, {"value": 2.0}]},
+            "format": "rows",
+        }
+    )
+
+
+SOURCE_SPEC: TypeAdapter[SourceSpec] = TypeAdapter(SourceSpec)
+
+
+class MonitoringServiceSiteModeTests(unittest.TestCase):
+    """An LMA that serves a site reads the site's records only from its configured source."""
+
+    def service(self, *, site_mode: bool) -> MonitoringService:
+        return MonitoringService(
+            runner=InMemoryMonitoringRunner(),
+            publisher=InMemoryTelemetryPublisher(),
+            bundles=InMemoryBundleRepository(),
+            runs=InMemoryRunHistoryRepository(),
+            model_runs=InMemoryLocalModelRunRepository(),
+            site_mode=site_mode,
+        )
+
+    def test_a_site_refuses_a_requested_postgres_source_and_keeps_inline_ones(self) -> None:
+        service = self.service(site_mode=True)
+        with self.assertRaises(SourceRequestRefused) as refused:
+            service.register_source(postgres_source("warehouse-orders"))
+        self.assertEqual((refused.exception.code, refused.exception.http_status), ("forbidden", 403))
+        self.assertNotIn("s3cret", str(refused.exception))
+        self.assertEqual(service.list_sources(), [])
+        self.assertEqual(service.register_source(inline_source("inline-a")).source_id, "inline-a")
+
+    def test_a_site_refuses_a_source_embedded_in_a_dataset(self) -> None:
+        service = self.service(site_mode=True)
+        service.register_source(inline_source("inline-a"))
+        embedded = DatasetProfileRequest(scope_id="site", dataset={"source": postgres_source_payload("warehouse-orders")})
+        with self.assertRaises(SourceRequestRefused):
+            service.profile_source_dataset(embedded)
+        named = service.profile_source_dataset(DatasetProfileRequest(scope_id="site", dataset={"source_id": "inline-a"}))
+        self.assertEqual(named.record_count, 2)
+
+    def test_without_a_site_a_postgres_source_is_stored_and_shown_redacted(self) -> None:
+        service = self.service(site_mode=False)
+        echoed = service.register_source(postgres_source("warehouse-orders"))
+        shown = [echoed, service.get_source("warehouse-orders"), *service.list_sources()]
+        for source in shown:
+            options = source.connection_ref.options
+            self.assertEqual(options["password"], REDACTED)
+            self.assertEqual(options["host"], REDACTED)
+            self.assertEqual(options["user"], REDACTED)
+            self.assertEqual(options["role"], "reader_role")
+            self.assertNotIn("s3cret", source.model_dump_json())
 
 
 class AggregationServiceTests(unittest.TestCase):

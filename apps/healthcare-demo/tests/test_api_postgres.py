@@ -2,11 +2,13 @@
 
 A record entered through the API must land in its hospital's schema and in no
 other, its outcome must update that row, and a Guard probe at a hospital must
-extend that hospital's audit table. The stores reuse one connection each, so
-these tests also show that the role switches back after every request.
+extend that hospital's audit table. The stores reuse one connection each, and
+each hospital's LMA and the GMA run on those same connections, so these tests
+also show that the role switches back after every request.
 
-They need ``HEALTHCARE_DEMO_TEST_DATABASE_URL`` (see ``test_site_isolation.py``);
-the probe test also needs the planner.
+They need ``HEALTHCARE_DEMO_TEST_DATABASE_URL`` (see ``test_site_isolation.py``).
+The pages that show the model in use need the planner, because the GMA checks
+every model version with it.
 """
 
 from __future__ import annotations
@@ -20,7 +22,7 @@ from tests.test_site_isolation import MIGRATION_0001, SupabaseLikeDatabase, admi
 ORIGIN = "https://example.github.io"
 
 from app.domain.dataset import SITES, load_site_records
-from app.services.consortium import Consortium
+from app.services.agents import HealthcareDemo
 from app.services.site_store import PostgresSiteStore
 
 
@@ -32,11 +34,12 @@ def _entered(db: SupabaseLikeDatabase, schema: str) -> list[tuple]:
         ).fetchall()
 
 
+@unittest.skipUnless(dagentsc_available(), "dagentsc binary is not available")
 class PostgresApiTests(ApiTestCase):
     db: SupabaseLikeDatabase
 
     @classmethod
-    def make_consortium(cls) -> Consortium:
+    def make_demo(cls) -> HealthcareDemo:
         cls.db = SupabaseLikeDatabase(admin_dsn_or_skip())
         try:
             cls.db.start()
@@ -47,7 +50,7 @@ class PostgresApiTests(ApiTestCase):
         except BaseException:
             cls.db.stop()
             raise
-        return Consortium(database_url=cls.db.dsn, environ={})
+        return HealthcareDemo(database_url=cls.db.dsn, environ={})
 
     @classmethod
     def tearDownClass(cls) -> None:
@@ -106,14 +109,16 @@ class PostgresApiTests(ApiTestCase):
         self.assertTrue(response.headers["content-type"].startswith("image/svg+xml"))
 
     def test_each_store_kept_one_connection(self) -> None:
-        self.client.get("/api/v1/overview")
-        self.client.get("/api/v1/hospitals/uk-134")
+        """The hospital's LMA reads the store, and keeps its audit chain and job log, on the store's connection."""
+        self.ok(self.client.get("/api/v1/overview"))
+        self.ok(self.client.get("/api/v1/hospitals/uk-134"))
+        self.ok(self.client.post("/api/v1/governance:probe", json={"site_id": "ch-245", "granularity": "row"}))
+        self.ok(self.client.get("/api/v1/models"))
         for site in SITES:
-            store = self.consortium.hospital(site.site_id).store
+            store = self.demo.hospital(site.site_id).store
             self.assertEqual(1, store.connections_opened, site.site_id)
-        self.assertEqual(1, self.consortium.coordinator_store.connections_opened)
+        self.assertEqual(1, self.demo.coordinator_store.connections_opened)
 
-    @unittest.skipUnless(dagentsc_available(), "dagentsc binary is not available")
     def test_a_probe_extends_only_the_chosen_hospitals_audit_table(self) -> None:
         def audit_rows(schema: str) -> int:
             with self.db.admin() as conn:
@@ -150,7 +155,7 @@ class UnmigratedDatabaseApiTests(ApiTestCase):
     db: SupabaseLikeDatabase
 
     @classmethod
-    def make_consortium(cls) -> Consortium:
+    def make_demo(cls) -> HealthcareDemo:
         cls.db = SupabaseLikeDatabase(admin_dsn_or_skip())
         try:
             cls.db.start(migrate=False)
@@ -159,7 +164,7 @@ class UnmigratedDatabaseApiTests(ApiTestCase):
         except BaseException:
             cls.db.stop()
             raise
-        return Consortium(database_url=cls.db.dsn, environ={})
+        return HealthcareDemo(database_url=cls.db.dsn, environ={})
 
     @classmethod
     def tearDownClass(cls) -> None:

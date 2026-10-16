@@ -6,6 +6,8 @@ import hashlib
 import json
 from typing import Any, Mapping
 
+from agents.common.domain.errors import ModelVerificationError
+
 #: The rule the stores evaluate in this example.
 RULE_VERSION = "return-check-rule-v2"
 
@@ -45,3 +47,39 @@ def evaluate(orders: list[Mapping[str, Any]]) -> dict[str, float]:
         "recall": hits / returned if returned else 0.0,
         "flag_rate": len(flagged) / len(labelled) if labelled else 0.0,
     }
+
+
+class RuleKind:
+    """The rule as a model kind, so that a store's LMA can run it in a round.
+
+    The extension contributes this kind. Before an LMA reads any order for a
+    job, it checks that the job's parameters have the digest the manifest
+    names, and that the manifest's code digest is this kind's. The rule
+    cannot be trained, so the LMA refuses a training job that names it.
+    """
+
+    kind = "return_check_rule"
+    trainable = False
+    version_prefix = "return-check-rule"
+
+    def parameter_digest(self, params: Mapping[str, Any]) -> str:
+        try:
+            material = json.dumps(dict(params), sort_keys=True, separators=(",", ":"))
+        except (TypeError, ValueError) as error:
+            raise ModelVerificationError("the rule's parameters must be JSON values") from error
+        digest = "sha256:" + hashlib.sha256(material.encode("utf-8")).hexdigest()
+        # This store runs one rule: flag() reads RULE_PARAMETERS, not the job's.
+        if digest != RULE_DIGEST:
+            raise ModelVerificationError(f"this store runs only {RULE_VERSION}")
+        return digest
+
+    def code_digest(self) -> str:
+        # The rule has no training code, so the manifest names the rule's own
+        # digest as its code digest, as the coordinator in step 4 does.
+        return RULE_DIGEST
+
+    def evaluate(self, params: Mapping[str, Any], records: list[Mapping[str, Any]], label_field: str) -> dict[str, float]:
+        self.parameter_digest(params)
+        if label_field != "returned":
+            raise ModelVerificationError("the rule is measured against the returned field")
+        return evaluate(records)

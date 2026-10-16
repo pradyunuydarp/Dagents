@@ -134,18 +134,32 @@ roles and schemas:
         execute format('create schema if not exists %I authorization %I', s, s);
 ```
 
-Its store runs every query through `acting_as`:
+Its store keeps one connection, a `KeptConnection` from
+[`agents/common/infrastructure/postgres_lease.py`](../../agents/common/infrastructure/postgres_lease.py).
+The store builds the connection itself, or runs on one it is given:
 
 <!-- source: apps/healthcare-demo/backend/app/services/site_store.py -->
 ```python
-    @contextmanager
-    def _acting_as(self, role: str) -> Iterator[Any]:
-        # acting_as sends BEGIN, the role, the timeout and the current_user
-        # check as one message, so an operation costs its own queries plus two
-        # round trips (that message and COMMIT).
-        with self._lease() as conn, acting_as(conn, role, self._settings):
-            yield conn
+        if lease is not None:
+            if dsn is not None:
+                raise ValueError("give a Postgres store a connection string or a lease, not both")
+            self.lease = lease
+            self._owns_lease = False
+        else:
+            if not isinstance(dsn, str) or not dsn.strip():
+                raise ValueError("a Postgres store needs a connection string or a lease")
+            self.lease = KeptConnection(
+                dsn,
+                name=name,
+                statement_timeout_ms=statement_timeout_ms,
+                liveness_idle_seconds=liveness_idle_seconds,
+                hint=connection_hint,
+            )
+            self._owns_lease = True
 ```
+
+Every query runs through the connection's `acting_as`, which calls
+`postgres_roles.acting_as` for one transaction:
 
 <!-- source: apps/healthcare-demo/backend/app/services/site_store.py -->
 ```python
@@ -153,7 +167,7 @@ Its store runs every query through `acting_as`:
         query = self._sql.SQL(
             "SELECT {columns} FROM {table} ORDER BY source_row NULLS LAST, length(encounter_id), encounter_id"
         ).format(columns=self._select(ROW_COLUMNS), table=self._table)
-        with self._acting_as(self.role) as conn:
+        with self.lease.acting_as(self.role) as conn:
             rows = conn.execute(query).fetchall()
         return [_record_view(row) for row in rows]
 
@@ -162,10 +176,16 @@ Its store runs every query through `acting_as`:
             "SELECT count(*) AS total, count(*) FILTER (WHERE origin = 'entered') AS entered, "
             "count(poor_outcome_6m) AS labelled FROM {table}"
         )
-        with self._acting_as(self.role) as conn:
+        with self.lease.acting_as(self.role) as conn:
             row = conn.execute(query).fetchone()
         return {key: int(row[key]) for key in ("total", "entered", "labelled")}
 ```
+
+The hospital's LMA reads the same store, through a site source
+(`app/services/site_source.py`), and keeps its audit chain and job log on the
+store's connection, as the hospital's role. So each hospital still uses one
+database connection, and every read of its records acts as its role, whether
+the app or the LMA makes it.
 
 Rules for a Postgres store:
 
@@ -204,7 +224,7 @@ PYTHONPATH=../..:backend ../../.venv/bin/python -m unittest tests.test_site_stor
 Expected output, the last lines:
 
 ```text
-Ran 108 tests in 5.019s
+Ran 138 tests in 5.958s
 
 OK
 ```

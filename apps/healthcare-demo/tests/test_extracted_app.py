@@ -49,6 +49,19 @@ class ExtractedAppTests(unittest.TestCase):
             [sys.executable, *args], cwd=self.copy, env=env, capture_output=True, text=True, timeout=300
         )
 
+    def test_every_test_that_starts_python_finds_the_framework_through_dagents_home(self) -> None:
+        """A test that builds a subprocess's ``PYTHONPATH`` must read ``DAGENTS_HOME``.
+
+        Two directories up is the framework only inside the Dagents tree. In an
+        extracted copy, a path built from it names no framework, and the
+        subprocess fails with ``ModuleNotFoundError: No module named 'agents'``.
+        """
+        for path in sorted((APP_ROOT / "tests").glob("test_*.py")):
+            text = path.read_text(encoding="utf-8")
+            if '["PYTHONPATH"] =' in text or "'PYTHONPATH':" in text or '"PYTHONPATH":' in text:
+                with self.subTest(test=path.name):
+                    self.assertIn('os.environ.get("DAGENTS_HOME")', text)
+
     def test_the_copy_is_outside_the_framework(self) -> None:
         self.assertNotIn(FRAMEWORK_ROOT, self.copy.resolve().parents)
 

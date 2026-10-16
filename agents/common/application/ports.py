@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any, Callable, Protocol
 
 from agents.common.domain.execution import ModelJob, PipelineRun
+from agents.common.domain.site import JobLogEntry
 from agents.common.domain.sources import DatasetInput, RecordBatch, SourceMetadata, SourceSpec, SourceValidationResult
 
 
@@ -67,3 +68,46 @@ class JobExecutor(Protocol):
 class ArtifactStore(Protocol):
     def save_metadata(self, artifact_id: str, payload: dict[str, Any]) -> None:
         """Persist artifact metadata."""
+
+
+class SiteRecordSource(Protocol):
+    """Where an LMA started for a site reads that site's records.
+
+    A source reads the site's own store, acting as the site's role. An
+    extension contributes a factory for one through ``site_sources()``, and an
+    application can hand an LMA its own source directly.
+    """
+
+    def records(self) -> list[dict[str, Any]]:
+        """Return copies of every record, in a stable order."""
+
+    def count(self) -> int:
+        """Return how many records the source holds."""
+
+    def version(self) -> str:
+        """Return a value that changes whenever the records change.
+
+        The LMA compares it with the version it last read and reads the
+        records again when it differs. It must be cheap: the LMA asks for it
+        often.
+        """
+
+    def location(self) -> dict[str, str]:
+        """Return names that place the records, such as a schema.
+
+        Never a host, a password or a connection string: an LMA returns this
+        to callers.
+        """
+
+    def close(self) -> None:
+        """Release any connection the source holds."""
+
+
+class JobLog(Protocol):
+    """Where an LMA records each federated job it was offered and what it returned."""
+
+    def append(self, entry: JobLogEntry) -> JobLogEntry:
+        """Store one entry and return it with ``submitted_at`` set."""
+
+    def recent(self, limit: int = 20) -> list[JobLogEntry]:
+        """Return the newest entries first, at most ``limit`` of them."""

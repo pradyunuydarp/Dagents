@@ -104,7 +104,8 @@ For Docker Compose, it renders one Compose file:
   equivalent.
 - **Ports.** A port without `hostPort` is reachable only on the network
   (`expose`). A published port binds to `127.0.0.1` unless `hostIp` says
-  otherwise, because the LMA and GMA endpoints have no authentication.
+  otherwise, because an LMA or a GMA started without tokens answers every
+  caller.
 - **Issues.** A spec that cannot become a Compose file still gives a plan. The
   plan lists every issue, in a fixed order, and has no file. With
   `--output json`, `dagentsc` exits with code 0. With YAML output it prints the
@@ -160,8 +161,14 @@ audit.
   drift detection and stable round identity — explicitly not a signature.
 - `compile_round_plan`: site eligibility and quorum, with a recorded reason for every exclusion.
 - `evaluate_aggregation_readiness`: which contributions may enter an aggregate, and the FedAvg
-  weights, reported rather than applied.
+  weights, reported rather than applied. Given the round plan's selection (`Selected sites`), it
+  rejects a result from any other site with the reason "site was not selected for this round";
+  that result counts toward neither the quorum nor the weights. `Unchecked` skips the check.
 - `evaluate_release`: release gates against a candidate's metrics.
+- `decide_model_lifecycle`: the status changes that follow one event on a model version
+  (`registered`, `aggregated`, `release_evaluated`, `approval_requested`), or the refusal and its
+  reason. A version is a candidate, released, rejected or superseded. A model registry applies
+  the answer and keeps no status rule of its own.
 
 Two behaviours matter most. A secure aggregation threshold raises the minimum number of
 participants above the manifest's stated minimum, because the threshold is what stops the
@@ -169,7 +176,12 @@ coordinator from seeing any single site's update. And a gate whose metric the ca
 reported is `GateNotEvaluated`, not a pass, so leaving out a subgroup measurement cannot get an
 unevaluated model released.
 
-The module's main rule: aggregation produces a candidate, never a release.
+The module's main rule: aggregation produces a candidate, never a release. The lifecycle rule
+holds it: an aggregated version is always a candidate, and only an `approval_requested` event can
+release one. An approval is refused, in this order, when the version has no release decision, the
+gates did not decide `release`, the release Guard did not permit it, the gate metrics did not come
+from the rounds, the version is not a candidate, or the model the gates compared it with is no
+longer the released one.
 
 ## CLI Surface
 
@@ -192,11 +204,14 @@ dagentsc governance restrict --input request.json
 dagentsc governance assess --input requester.json
 dagentsc federation round plan --input '{"manifest": {...}, "registrations": [...]}'
 dagentsc federation round digest --input '{"manifest": {...}}'
-dagentsc federation aggregate readiness --input '{"manifest": {...}, "results": [...]}'
+dagentsc federation aggregate readiness --input '{"manifest": {...}, "results": [...], "selectedSites": [...]}'
 dagentsc federation release evaluate --input '{"gates": [...], "candidateMetrics": {...}}'
+dagentsc federation model lifecycle --input '{"version": "...", "event": {"kind": "approval_requested", ...}}'
 ```
 
 Use `--input -`, `--records -`, or similar flags to read JSON from stdin.
+
+`--input` takes a file name or `-`; the inline JSON above shows the shape of the input.
 
 ## Data-Engineering API Shape
 
@@ -240,12 +255,72 @@ Quality rules:
 ]
 ```
 
+Aggregation readiness with the round plan's selection (`selectedSites` is optional; without it
+the selection is not checked):
+
+```json
+{
+  "manifest": { "roundId": "returns-round-1", "...": "..." },
+  "results": [
+    { "roundId": "returns-round-1", "siteId": "store-north", "participation": "completed", "...": "..." }
+  ],
+  "selectedSites": ["store-north", "store-south"]
+}
+```
+
+Model lifecycle, an approval:
+
+```json
+{
+  "version": "returns-logreg+returns-train-2",
+  "event": {
+    "kind": "approval_requested",
+    "status": "candidate",
+    "decision": {
+      "action": "release",
+      "guardPermitted": true,
+      "metricsSource": "rounds",
+      "baselineVersion": "returns-rule-1.0"
+    },
+    "releasedVersion": "returns-rule-1.0"
+  }
+}
+```
+
+and its answer:
+
+```json
+{
+  "allowed": true,
+  "refusal": null,
+  "reason": "returns-logreg+returns-train-2 is released; returns-rule-1.0 is superseded",
+  "statusChanges": [
+    { "version": "returns-logreg+returns-train-2", "fromStatus": "candidate", "toStatus": "released" },
+    { "version": "returns-rule-1.0", "fromStatus": "released", "toStatus": "superseded" }
+  ]
+}
+```
+
 A Compose workload spec that adds one hospital's LMA to a running Compose
 project (`dagentsc manifest compile --input -`). The example assumes a project
 that runs the services listed in `existingServices`, among them a GMA named
-`gma`, and an image whose LMA reads `HEALTHCARE_DEMO_ROLE` and
-`HEALTHCARE_DEMO_SITE_ID`. The planner checks neither assumption: it sees only
-the names in `existingServices`, not the running project or the image:
+`gma`, as the stroke demo's Compose file does. It also assumes an image that
+contains the Dagents LMA (`agents.lma.main:app`), and a settings file,
+`lma-hospital-d.env`, with the new LMA's other `LMA_*` settings and its tokens.
+The planner checks none of these assumptions: it sees only the names in
+`existingServices`, not the running project, the image or the file.
+
+The stroke demo cannot add a hospital yet, so in the demo's own project this
+file does not start a working hospital:
+
+- The demo's `healthcare_site_store` site source accepts only the demo's three
+  hospitals (`uk-134`, `it-002` and `ch-245`). For `hospital-d` it raises an
+  error, so the LMA fails at startup and Compose keeps restarting it.
+- The GMA reads each LMA's address and tokens (`GMA_SITE_ENDPOINTS`,
+  `GMA_LMA_TOKENS` and `GMA_SITE_TOKENS`) when it starts. It sends no job to a
+  site that is missing from these settings.
+
+The spec:
 
 ```json
 {
@@ -254,18 +329,18 @@ the names in `existingServices`, not the running project or the image:
     "kind": "compose",
     "placement": "merge",
     "network": "default",
-    "existingServices": ["gma", "lma-uk-134", "lma-it-002", "lma-ch-245", "healthcare-demo-backend", "healthcare-demo-frontend"]
+    "existingServices": ["postgres", "setup", "gma", "lma-uk-134", "lma-it-002", "lma-ch-245", "healthcare-demo-backend", "healthcare-demo-frontend"]
   },
   "components": [
     {
       "name": "lma-hospital-d",
       "image": "dagents/healthcare-demo-backend:local",
-      "args": ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8085"],
-      "envFiles": ["../../env/.env.shared", "env/.env.healthcare-demo"],
+      "args": ["uvicorn", "agents.lma.main:app", "--host", "0.0.0.0", "--port", "8085"],
+      "envFiles": ["../../env/.env.shared", "lma-hospital-d.env"],
       "env": [
-        {"name": "HEALTHCARE_DEMO_ROLE", "value": "lma"},
-        {"name": "HEALTHCARE_DEMO_SITE_ID", "value": "hospital-d"},
-        {"name": "HEALTHCARE_DEMO_API_PORT", "value": "8085"}
+        {"name": "LMA_SITE_ID", "value": "hospital-d"},
+        {"name": "LMA_SITE_SOURCE", "value": "healthcare_site_store"},
+        {"name": "LMA_API_PORT", "value": "8085"}
       ],
       "ports": [{"name": "http", "containerPort": 8085, "hostPort": 8085}],
       "healthCheck": {"command": ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8085/api/v1/health')"]},
@@ -281,14 +356,14 @@ The Compose file it prints:
 services:
   "lma-hospital-d":
     image: "dagents/healthcare-demo-backend:local"
-    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8085"]
+    command: ["uvicorn", "agents.lma.main:app", "--host", "0.0.0.0", "--port", "8085"]
     env_file:
       - "../../env/.env.shared"
-      - "env/.env.healthcare-demo"
+      - "lma-hospital-d.env"
     environment:
-      "HEALTHCARE_DEMO_ROLE": "lma"
-      "HEALTHCARE_DEMO_SITE_ID": "hospital-d"
-      "HEALTHCARE_DEMO_API_PORT": "8085"
+      "LMA_SITE_ID": "hospital-d"
+      "LMA_SITE_SOURCE": "healthcare_site_store"
+      "LMA_API_PORT": "8085"
     ports:
       - "127.0.0.1:8085:8085"
     healthcheck:
@@ -355,6 +430,13 @@ not permission:
 | site `enrolled` | `false` | taking part has to be stated, never inferred from a record existing |
 | gate `blocking` | `true` | a gate whose severity nobody stated is not advisory |
 | round `phase` | `analytics` | the phase that moves the least |
+| lifecycle `requestedStatus` | `candidate` | a registration that does not ask for a release does not get one |
+| lifecycle `guardPermitted` | `false` | a release Guard verdict nobody recorded is not a permit |
+| decision `metricsSource` | `unrecorded` | only metrics from the rounds can lead to an approval |
+
+One optional key is not a cautious default: readiness without `selectedSites` does not check the
+selection, so inputs written before the key existed give the same answer. A caller that has the
+round plan should send its `selectedSites`.
 
 ## Extension Guidelines
 

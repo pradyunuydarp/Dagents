@@ -1146,6 +1146,20 @@ let yojson_of_site_result result =
       ("localEvidencePointer", yojson_of_string_option result.local_evidence_pointer);
     ]
 
+(** Parse the optional [selectedSites] of a readiness input.
+
+    An absent key or [null] is [Unchecked], so inputs written before the key
+    existed still parse. A list, even an empty one, is [Selected]: an empty
+    selection accepts no result. *)
+let selection_of_yojson = function
+  | None | Some `Null -> Unchecked
+  | Some (`List values) ->
+      Selected
+        (List.map
+           (function `String site_id -> site_id | _ -> fail "Expected string list field: selectedSites")
+           values)
+  | Some _ -> fail "Expected list field: selectedSites"
+
 (** Serialize an aggregation-readiness verdict. *)
 let yojson_of_aggregation_readiness readiness =
   `Assoc
@@ -1221,6 +1235,108 @@ let yojson_of_release_decision decision =
       ("action", `String (string_of_release_action decision.action));
       ("blockingFailures", yojson_of_string_list decision.blocking_failures);
       ("rollbackVersion", yojson_of_string_option decision.rollback_version);
+    ]
+
+(** Read a required string field that may not be empty. *)
+let non_empty_string_field name fields =
+  match string_field name fields with "" -> fail ("Expected a non-empty string field: " ^ name) | value -> value
+
+(** Parse the release decision stored with a candidate.
+
+    Defaults are the ones that cannot lead to a release: an unstated Guard
+    verdict is not permitted, and an unstated metrics source is
+    [MetricsSourceUnrecorded]. *)
+let recorded_release_decision_of_yojson (json : Yojson.Safe.t) =
+  match json with
+  | `Assoc fields ->
+      {
+        recorded_action = release_action_of_string (string_field "action" fields);
+        recorded_guard_permitted = bool_field_with_default "guardPermitted" false fields;
+        recorded_metrics_source =
+          (match string_option_field "metricsSource" fields with
+          | Some value -> metrics_source_of_string value
+          | None -> MetricsSourceUnrecorded);
+        recorded_baseline_version = string_option_field "baselineVersion" fields;
+      }
+  | _ -> fail "Expected release decision object"
+
+(** Parse one model lifecycle event from its ["kind"] discriminator. *)
+let lifecycle_event_of_yojson (json : Yojson.Safe.t) =
+  let status_field name fields = model_status_of_string (string_field name fields) in
+  match json with
+  | `Assoc fields -> (
+      match string_field "kind" fields with
+      | "registered" ->
+          Registered
+            {
+              (* Candidate is the safe default: a registration that does not
+                 ask for a release does not get one. *)
+              requested_status =
+                (match string_option_field "requestedStatus" fields with
+                | Some value -> requested_status_of_string value
+                | None -> RequestCandidate);
+              released_version = string_option_field "releasedVersion" fields;
+            }
+      | "aggregated" ->
+          Aggregated
+            {
+              parent_version = non_empty_string_field "parentVersion" fields;
+              parent_status = status_field "parentStatus" fields;
+            }
+      | "release_evaluated" ->
+          ReleaseEvaluated
+            {
+              status = status_field "status" fields;
+              action = release_action_of_string (string_field "action" fields);
+              guard_permitted = bool_field_with_default "guardPermitted" false fields;
+            }
+      | "approval_requested" ->
+          ApprovalRequested
+            {
+              status = status_field "status" fields;
+              decision =
+                (match List.assoc_opt "decision" fields with
+                | None | Some `Null -> None
+                | Some value -> Some (recorded_release_decision_of_yojson value));
+              released_version = string_option_field "releasedVersion" fields;
+            }
+      | value -> fail ("Unknown lifecycle event: " ^ value))
+  | _ -> fail "Expected lifecycle event object"
+
+(** Parse a model lifecycle request: a version and one event. *)
+let lifecycle_request_of_yojson (json : Yojson.Safe.t) =
+  match json with
+  | `Assoc fields ->
+      {
+        lifecycle_version = non_empty_string_field "version" fields;
+        lifecycle_event = lifecycle_event_of_yojson (field "event" fields);
+      }
+  | _ -> fail "Expected lifecycle request object"
+
+(** Serialize one status change. [fromStatus] is [null] for a new version. *)
+let yojson_of_status_change change =
+  `Assoc
+    [
+      ("version", `String change.changed_version);
+      ( "fromStatus",
+        match change.from_status with Some status -> `String (string_of_model_status status) | None -> `Null );
+      ("toStatus", `String (string_of_model_status change.to_status));
+    ]
+
+(** Serialize a lifecycle outcome as [allowed], [refusal], [reason] and
+    [statusChanges]. A refused event has no status changes. *)
+let yojson_of_lifecycle_outcome outcome =
+  let allowed, refusal, changes =
+    match outcome.verdict with
+    | LifecycleAllowed changes -> (true, `Null, changes)
+    | LifecycleRefused refusal -> (false, `String (string_of_lifecycle_refusal refusal), [])
+  in
+  `Assoc
+    [
+      ("allowed", `Bool allowed);
+      ("refusal", refusal);
+      ("reason", `String outcome.lifecycle_reason);
+      ("statusChanges", `List (List.map yojson_of_status_change changes));
     ]
 
 (** Serialize a deployment target in its object form, with every key, so that

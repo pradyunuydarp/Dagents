@@ -1,4 +1,4 @@
-"""Request bodies of the healthcare demo API, and the data-entry form.
+"""Request bodies of the healthcare demo API, the data-entry form, and shared response parts.
 
 The data-entry body and the form the browser renders are built from the same
 place: ``STROKE_FIELD_DOMAINS`` and ``STROKE_ENTRY_FIELDS`` in
@@ -6,6 +6,10 @@ place: ``STROKE_FIELD_DOMAINS`` and ``STROKE_ENTRY_FIELDS`` in
 number has the domain's range, and a yes/no field takes ``true``, ``false`` or
 ``null``. No field takes free text, and any other key is refused, so an entry
 cannot carry a name, an identifier or a note.
+
+Every successful answer whose body is a JSON object also has
+``framework_calls``: the calls to the Dagents LMAs and GMA behind it
+(:class:`FrameworkCall`).
 """
 
 from __future__ import annotations
@@ -285,18 +289,66 @@ class GuardProbeRequest(BaseModel):
         return fields
 
 
+class FrameworkCall(BaseModel):
+    """One call to a Dagents agent behind a response, as ``framework_calls`` lists it.
+
+    The app adds the list to every successful (2xx) answer whose body is a
+    JSON object. Errors, a JSON list and an SVG have none. It names the route,
+    never a host, a token or a body.
+    """
+
+    service: Literal["lma", "gma"] = Field(description="The agent called: a hospital's `lma` or the study's `gma`.")
+    site_id: str | None = Field(description="The hospital whose LMA was called. Null for the GMA.")
+    method: str = Field(description="The HTTP method, such as `GET` or `POST`.")
+    path: str = Field(
+        description="The route as the agent declares it, such as `/api/v1/federation/rounds/{round_id}`. Never a host."
+    )
+    status: int | None = Field(description="The status the agent answered with. Null when no answer came.")
+    ms: float = Field(description="How long the call took, in milliseconds.")
+    via: Literal["app", "gma"] = Field(
+        description=(
+            "`app` for a call the app made. `gma` for a call the GMA made to an LMA while it dispatched a round; "
+            "it follows the GMA call that made it."
+        )
+    )
+
+
+class AgentReach(BaseModel):
+    """One hospital's LMA, as the GMA reaches it."""
+
+    site_id: str = Field(description="The hospital.")
+    reachable: bool = Field(description="Whether the LMA answered the GMA.")
+    source_kind: str | None = Field(
+        description="The kind of store the LMA reports it reads: `postgres` or `in-memory`. Null when it did not answer."
+    )
+
+
+class AgentsStatus(BaseModel):
+    """How the Dagents agents run behind the demo, as ``GET /api/v1/framework/status`` reports it."""
+
+    mode: Literal["in-process", "network"] = Field(
+        description=(
+            "`in-process` when the three LMAs and the GMA run inside the demo server and are called through their "
+            "routes without a socket; `network` when they run as their own processes."
+        )
+    )
+    engine: str | None = Field(description="The GMA's round engine, such as `http`. Null when the GMA did not answer.")
+    lmas: list[AgentReach] | None = Field(description="Each hospital's LMA, from the GMA. Null when the GMA did not answer.")
+
+
 class GuardProbeResponse(BaseModel):
     """What a hospital's Guard would release for a probe, without the records.
 
     The coordinator's page calls the probe, and no patient row reaches the
     coordinator. So the answer counts the released records and names their
-    fields; the values stay at the hospital. A key the hospital's report adds
-    that is not listed here is dropped from the response.
+    fields; the values stay at the hospital. The hospital's LMA runs the Guard
+    (``POST /api/v1/governance/restrictions:probe``). A key the LMA's answer
+    adds that is not listed here is dropped from the response.
     """
 
     site_id: str = Field(description="The hospital whose Guard answered.")
     request_id: str = Field(
-        description="`probe:<site_id>:<boundary>:<granularity>`. It is the request id in the plan and the audit record."
+        description="`probe:<site_id>:<random hex>`, given by the hospital's LMA. It is the request id in the audit record."
     )
     boundary: GuardBoundary = Field(description="Copied from the request.")
     permitted: bool = Field(description="False when the plan's decision is `deny`.")
@@ -316,6 +368,10 @@ class GuardProbeResponse(BaseModel):
     )
     audit_id: str = Field(description="The id of the record the decision added to the hospital's audit chain.")
     message: str = Field(description="The Guard's decision in words, such as `permitted with restrictions`.")
+    framework_calls: list[FrameworkCall] = Field(
+        default_factory=list,
+        description="The calls to the hospital's LMA behind this answer: `POST /api/v1/governance/restrictions:probe`.",
+    )
 
 
 # --- Error bodies, for the OpenAPI document ---------------------------------------

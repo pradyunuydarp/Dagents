@@ -1,32 +1,267 @@
-# Runs the healthcare demo against the framework services.
+# Runs the healthcare demo with its Dagents agents in their own containers: the
+# API, the GMA (global monitoring agent), one LMA (local monitoring agent) per
+# hospital and the UI, on a local PostgreSQL 16.
 #
-# Build context is the Dagents repository root, because the backend image needs
-# both the app and the framework. From inside the Dagents checkout:
+# Build context is the Dagents repository root, because the image needs both
+# the app and the framework. From inside the Dagents checkout:
 #
 #   docker compose -f apps/healthcare-demo/docker-compose.yml \
-#     --env-file env/.env.compose up --build
+#     --env-file apps/healthcare-demo/env/.env.healthcare-demo up --build
 #
-# The in-process pilot needs none of these services. They are here so the
-# /api/v1/framework/* endpoints have something to reach.
+# The env file gives the ports. Then open the UI on HEALTHCARE_DEMO_UI_PORT and
+# the API's docs on HEALTHCARE_DEMO_API_PORT, for example
+# http://127.0.0.1:8080/docs.
+#
+# How it starts:
+#
+# 1. `postgres` starts the database.
+# 2. `setup` applies the migrations and loads each hospital's records into its
+#    own schema, keeping records entered earlier. Then it writes the settings of
+#    each agent and of the API to the `agent-settings` volume, one file per
+#    service. It makes the random tokens once per volume, so a restarted
+#    service gets the tokens the others still hold. It writes the addresses on
+#    every start, so a port changed in the env file reaches every service.
+#    `docker compose down -v` removes the tokens and the data.
+# 3. `gma`, `lma-uk-134`, `lma-it-002` and `lma-ch-245` start from the demo
+#    image. Each reads only its own settings file.
+# 4. `healthcare-demo-backend` runs with HEALTHCARE_DEMO_AGENTS=network and
+#    calls the agents over the compose network.
+#
+# Only the API and the UI are published on the host. The database and the
+# agents are reachable only inside the compose network, so the database accepts
+# local connections without a password. Never publish its port with this
+# setting.
+
+x-database-url: &database-url postgresql://postgres@postgres:5432/healthcare_demo
+
+x-demo-image: &demo-image
+  build:
+    context: ../..
+    dockerfile: apps/healthcare-demo/backend/Dockerfile
+  image: dagents/healthcare-demo-backend:local
+
+# An agent: the demo image, its settings file, and a health check on PORT.
+x-agent: &agent
+  <<: *demo-image
+  depends_on:
+    setup:
+      condition: service_completed_successfully
+  volumes:
+    - agent-settings:/run/agent-settings:ro
+  healthcheck:
+    test:
+      - CMD
+      - python
+      - -c
+      - "import os, urllib.request; urllib.request.urlopen('http://127.0.0.1:%s/api/v1/health' % os.environ['PORT'], timeout=3)"
+    interval: 3s
+    timeout: 5s
+    retries: 30
+    start_period: 5s
+  restart: unless-stopped
+
 services:
-  healthcare-demo-backend:
-    build:
-      context: ../..
-      dockerfile: apps/healthcare-demo/backend/Dockerfile
-    image: dagents/healthcare-demo-backend:local
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: healthcare_demo
+      POSTGRES_HOST_AUTH_METHOD: trust
+    volumes:
+      - healthcare-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d healthcare_demo"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+    restart: unless-stopped
+
+  setup:
+    <<: *demo-image
+    # Root, to write the settings files and give them to the image's user.
+    user: root
+    depends_on:
+      postgres:
+        condition: service_healthy
+    # The app's settings, such as HEALTHCARE_DEMO_DISPATCH_CONCURRENCY for the
+    # GMA. The ports below come from the same file through --env-file, so the
+    # addresses written here match the ports the agents bind.
     env_file:
-      - ../../env/.env.shared
       - env/.env.healthcare-demo
     environment:
-      HEALTHCARE_DEMO_API_PORT: "8080"
-      CORE_SERVICE_PUBLIC_URL: http://core-service:8040
-      PIPELINE_SERVICE_PUBLIC_URL: http://pipeline-service:8030
-      MODEL_SERVICE_PUBLIC_URL: http://model-service:8000
-      LMA_PUBLIC_URL: http://lma:8010
-      GMA_PUBLIC_URL: http://gma:8020
+      SUPABASE_DB_URL: *database-url
+      HEALTHCARE_DEMO_DATABASE_URL: *database-url
+      HEALTHCARE_DEMO_GMA_PORT: ${HEALTHCARE_DEMO_GMA_PORT:?run with --env-file apps/healthcare-demo/env/.env.healthcare-demo}
+      HEALTHCARE_DEMO_LMA_UK_134_PORT: ${HEALTHCARE_DEMO_LMA_UK_134_PORT:?run with --env-file apps/healthcare-demo/env/.env.healthcare-demo}
+      HEALTHCARE_DEMO_LMA_IT_002_PORT: ${HEALTHCARE_DEMO_LMA_IT_002_PORT:?run with --env-file apps/healthcare-demo/env/.env.healthcare-demo}
+      HEALTHCARE_DEMO_LMA_CH_245_PORT: ${HEALTHCARE_DEMO_LMA_CH_245_PORT:?run with --env-file apps/healthcare-demo/env/.env.healthcare-demo}
+    volumes:
+      # The image holds the app but not its migrations or data scripts.
+      - ./scripts:/app/scripts:ro
+      - ./supabase:/app/supabase:ro
+      - agent-settings:/run/agent-settings
+    restart: "no"
+    command:
+      - sh
+      - -c
+      - |
+        set -e
+        python scripts/apply_migrations.py
+        python scripts/seed_supabase.py --keep-entries
+        python - <<'PY'
+        """Write one settings file per service. The tokens are made once per volume."""
+        import dataclasses
+        import json
+        import os
+        import pwd
+        import shlex
+        from pathlib import Path
+
+        from app.core.config import lma_token_variable, lma_url_variable, settings
+        from app.domain.dataset import SITES
+        from app.services.agents import AgentTokens, gma_environment, lma_environment
+
+        out = Path("/run/agent-settings")
+
+
+        def write_secret(path, text, owner=None):
+            """Write a file that only its owner can read, then move it into place."""
+            temporary = path.with_name(f".{path.name}.new")
+            temporary.unlink(missing_ok=True)
+            descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            with os.fdopen(descriptor, "w") as handle:
+                handle.write(text)
+            if owner is not None:
+                os.chown(temporary, owner.pw_uid, owner.pw_gid)
+            temporary.chmod(0o400)
+            temporary.replace(path)
+
+
+        # The tokens stay in a file that only root can read, so a service that
+        # restarts gets the tokens the others still hold. The addresses are
+        # written on every start, because a port may have changed.
+        site_ids = sorted(site.site_id for site in SITES)
+        kept = out / "tokens.json"
+        tokens = None
+        if kept.exists():
+            tokens = AgentTokens(**json.loads(kept.read_text()))
+            if sorted(tokens.lma_site) != site_ids:
+                tokens = None
+        made = "kept from an earlier start"
+        if tokens is None:
+            tokens = AgentTokens.generate(site_ids)
+            write_secret(kept, json.dumps(dataclasses.asdict(tokens)))
+            made = "new"
+
+        database = os.environ["HEALTHCARE_DEMO_DATABASE_URL"]
+
+
+        def lma_port(site):
+            key = site.site_id.upper().replace("-", "_")
+            return os.environ[f"HEALTHCARE_DEMO_LMA_{key}_PORT"]
+
+
+        def site_map(values):
+            return ",".join(f"{site_id}={value}" for site_id, value in sorted(values.items()))
+
+
+        gma_url = "http://gma:" + os.environ["HEALTHCARE_DEMO_GMA_PORT"]
+        lma_urls = {site.site_id: f"http://lma-{site.site_id}:" + lma_port(site) for site in SITES}
+        files = {
+            "gma": {
+                **gma_environment(database=True, dispatch_concurrency=settings.dispatch_concurrency),
+                "GMA_DATABASE_URL": database,
+                "GMA_SITE_ENDPOINTS": site_map(lma_urls),
+                "GMA_LMA_TOKENS": site_map(tokens.lma_coordinator),
+                "GMA_SITE_TOKENS": site_map(tokens.gma_site),
+                "GMA_ADMIN_TOKEN": tokens.gma_admin,
+            },
+            "api": {
+                "HEALTHCARE_DEMO_AGENTS": "network",
+                "HEALTHCARE_DEMO_DATABASE_URL": database,
+                "HEALTHCARE_DEMO_GMA_URL": gma_url,
+                "HEALTHCARE_DEMO_GMA_TOKEN": tokens.gma_admin,
+            },
+        }
+        for site in SITES:
+            files["api"][lma_url_variable(site.site_id)] = lma_urls[site.site_id]
+            files["api"][lma_token_variable(site.site_id)] = tokens.lma_site[site.site_id]
+            files[f"lma-{site.site_id}"] = {
+                **lma_environment(site, database=True),
+                "LMA_DATABASE_URL": database,
+                "LMA_GMA_ENDPOINT": gma_url,
+                "LMA_GMA_TOKEN": tokens.gma_site[site.site_id],
+                "LMA_SITE_TOKEN": tokens.lma_site[site.site_id],
+                "LMA_COORDINATOR_TOKEN": tokens.lma_coordinator[site.site_id],
+            }
+
+        # Each file is readable only by the image's user, and holds only the
+        # tokens of its own service.
+        user = pwd.getpwnam("appuser")
+        for name, values in files.items():
+            text = "".join(f"{key}={shlex.quote(value)}\n" for key, value in values.items())
+            write_secret(out / f"{name}.env", text, owner=user)
+        print(f"Wrote the settings of {len(files)} services. The tokens are {made}.")
+        PY
+
+  gma:
+    <<: *agent
+    environment:
+      PORT: ${HEALTHCARE_DEMO_GMA_PORT}
+    command:
+      - sh
+      - -c
+      - set -a && . /run/agent-settings/gma.env && set +a && exec uvicorn agents.gma.main:app --host 0.0.0.0 --port "$$PORT" --log-level warning
+
+  lma-uk-134:
+    <<: *agent
+    environment:
+      PORT: ${HEALTHCARE_DEMO_LMA_UK_134_PORT}
+    command:
+      - sh
+      - -c
+      - set -a && . /run/agent-settings/lma-uk-134.env && set +a && exec uvicorn agents.lma.main:app --host 0.0.0.0 --port "$$PORT" --log-level warning
+
+  lma-it-002:
+    <<: *agent
+    environment:
+      PORT: ${HEALTHCARE_DEMO_LMA_IT_002_PORT}
+    command:
+      - sh
+      - -c
+      - set -a && . /run/agent-settings/lma-it-002.env && set +a && exec uvicorn agents.lma.main:app --host 0.0.0.0 --port "$$PORT" --log-level warning
+
+  lma-ch-245:
+    <<: *agent
+    environment:
+      PORT: ${HEALTHCARE_DEMO_LMA_CH_245_PORT}
+    command:
+      - sh
+      - -c
+      - set -a && . /run/agent-settings/lma-ch-245.env && set +a && exec uvicorn agents.lma.main:app --host 0.0.0.0 --port "$$PORT" --log-level warning
+
+  healthcare-demo-backend:
+    <<: *agent
+    env_file:
+      - env/.env.healthcare-demo
+    environment:
+      PORT: ${HEALTHCARE_DEMO_API_PORT:?run with --env-file apps/healthcare-demo/env/.env.healthcare-demo}
+    depends_on:
+      setup:
+        condition: service_completed_successfully
+      gma:
+        condition: service_healthy
+      lma-uk-134:
+        condition: service_healthy
+      lma-it-002:
+        condition: service_healthy
+      lma-ch-245:
+        condition: service_healthy
+    command:
+      - sh
+      - -c
+      - set -a && . /run/agent-settings/api.env && set +a && exec uvicorn app.main:app --host 0.0.0.0 --port "$$PORT"
     ports:
-      - "8080:8080"
-    restart: unless-stopped
+      - "${HEALTHCARE_DEMO_API_PORT}:${HEALTHCARE_DEMO_API_PORT}"
 
   healthcare-demo-frontend:
     build:
@@ -34,9 +269,14 @@ services:
       dockerfile: apps/healthcare-demo/frontend/Dockerfile
     image: dagents/healthcare-demo-frontend:local
     environment:
-      HEALTHCARE_DEMO_API_URL: http://healthcare-demo-backend:8080
+      HEALTHCARE_DEMO_API_URL: http://healthcare-demo-backend:${HEALTHCARE_DEMO_API_PORT}
     ports:
-      - "5174:5174"
+      # The frontend's dev script binds 5174 inside its container.
+      - "${HEALTHCARE_DEMO_UI_PORT:?run with --env-file apps/healthcare-demo/env/.env.healthcare-demo}:5174"
     depends_on:
       - healthcare-demo-backend
     restart: unless-stopped
+
+volumes:
+  healthcare-data:
+  agent-settings:

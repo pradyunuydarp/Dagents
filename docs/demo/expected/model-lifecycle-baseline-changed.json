@@ -1,0 +1,6 @@
+{
+  "allowed": false,
+  "refusal": "baseline_changed",
+  "reason": "returns-logreg+returns-train-2 was checked against returns-rule-1.0, but returns-rule-1.1 is now in use. Run the pilot again.",
+  "statusChanges": []
+}

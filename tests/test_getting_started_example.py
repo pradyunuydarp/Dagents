@@ -199,7 +199,7 @@ class ExampleRunTests(unittest.TestCase):
             cls.outputs[name] = result.stdout
 
     def test_every_step_runs(self) -> None:
-        self.assertEqual(4, len(self.outputs))
+        self.assertEqual(5, len(self.outputs))
 
     def test_the_guide_shows_the_real_output(self) -> None:
         marked = [block for block in guide_blocks() if block.marker and block.marker[0] == "output"]
@@ -237,6 +237,28 @@ class ExampleRunTests(unittest.TestCase):
         self.assertIn("store-south: completed, 45 examples", output)
         self.assertIn("Aggregation permitted: True", output)
         self.assertRegex(output, r"Decision: (release|another_round|reject)")
+
+    def test_the_agents_run_the_same_round_over_their_apis(self) -> None:
+        output = self.outputs["examples/getting-started/step5_agents_over_http.py"]
+        in_process = self.outputs["examples/getting-started/step4_federated_round.py"]
+        # Each store's LMA runs the same rule on the same guarded orders, so
+        # the results equal the in-process round of step 4.
+        for site_id in ("store-north", "store-south"):
+            with self.subTest(site=site_id):
+                ran_here = [line for line in in_process.splitlines() if line.startswith(f"  {site_id}: completed")]
+                self.assertEqual(1, len(ran_here))
+                self.assertIn(ran_here[0], output.splitlines())
+                # One jobs:run call per store: the offer and the execution.
+                self.assertRegex(output, rf"{site_id} run 200 completed")
+        self.assertIn("Aggregation permitted: True", output)
+        self.assertIn("store-east, which the round did not select: 403 forbidden", output)
+        # The GMA and the caller see counts and metrics, never an order.
+        for word in ("order_id", "customer_postcode", "order_value"):
+            self.assertNotIn(word, output)
+        # The call log holds route templates, never an address.
+        self.assertIn("GMA POST /api/v1/federation/rounds 202", output)
+        self.assertNotIn("://", output)
+        self.assertNotIn(".internal", output)
 
 
 if __name__ == "__main__":

@@ -3,12 +3,15 @@
 Drawing is the framework's (``agents.common.infrastructure.charts``). This
 module decides what each chart shows and where its numbers come from:
 
-- **Hospital charts** use one hospital's own records, through the hospital's
-  chart-data methods. They are shown only in that hospital's view.
-- **Consortium charts** use only what the hospitals report (their summaries)
-  and the results of the last pilot. A hospital reports its outcome rate only
-  when its planner permits it; otherwise the chart shows a gap and the table
-  gives the hospital's reason.
+- **Hospital charts** use one hospital's own records, through the hospital
+  view's chart-data methods (``app.services.hospital_views``): the records are
+  read in the hospital's store as its role, and the risk chart scores them with
+  the model the hospital's LMA reports in use. They are shown only in that
+  hospital's view.
+- **Consortium charts** use only what the hospitals report through the GMA
+  (each LMA's summary) and the stored report of the last pilot. A hospital
+  reports its outcome rate only when its planner permits it; otherwise the
+  chart shows a gap and the table gives the hospital's reason.
 
 Charts never decide anything. The gate chart shows the outcome the release
 decision gave each gate, and the threshold that gate was checked against.
@@ -20,6 +23,9 @@ with ``available: false`` and a reason. Drawn SVGs are cached by scope, chart, t
 drawn, so a repeated request for unchanged data is not drawn again. Each list
 entry's ``version`` (and the SVG's ETag) is a digest of the whole entry,
 including the table, so it changes whenever anything the page shows changes.
+
+Each list entry also says who drew the chart (``drawn_by``) and where its
+numbers come from (``data_from``).
 """
 
 from __future__ import annotations
@@ -33,7 +39,7 @@ from typing import Any, Callable, Mapping, Sequence
 
 from agents.common.infrastructure import charts
 
-from app.domain.conditions import STROKE_RELEASE_GATES
+from app.domain.conditions import STROKE_CLASSIFICATION, STROKE_RELEASE_GATES
 from app.domain.dataset import DATASET_NOTICE
 
 #: Hospital charts, in display order.
@@ -81,6 +87,19 @@ METRIC_FORMATS: dict[str, str] = {
 #: Most drawn SVGs kept in memory.
 CACHE_SIZE = 256
 
+#: Who draws every chart. The renderer is a library call: it holds no data and
+#: makes no decision.
+DRAWN_BY = "The app, with the Dagents chart renderer"
+
+#: Where each chart's numbers come from.
+DATA_FROM_SITE_RECORDS = "The hospital's own records, read in its store as the hospital's role"
+DATA_FROM_SITE_SCORES = "The hospital's own records, scored with the model its LMA reports in use"
+DATA_FROM_REPORTS = "What each hospital's LMA reports through the GMA"
+DATA_FROM_REPORTS_AND_ENTRIES = (
+    "What each hospital's LMA reports through the GMA, and each hospital's count of entered records"
+)
+DATA_FROM_PILOT = "The report of the last pilot, built from the GMA's answers"
+
 
 class UnknownChartError(KeyError):
     """No chart has this id."""
@@ -108,6 +127,7 @@ class ChartSpec:
     kwargs: dict[str, Any] = field(default_factory=dict)
     table: dict[str, list] | None = None
     reason: str | None = None
+    data_from: str = DATA_FROM_SITE_RECORDS
 
     @property
     def available(self) -> bool:
@@ -216,6 +236,7 @@ def _outcome_by_age_band(hospital: Any) -> ChartSpec:
             "series_slot": _slot(hospital),
         },
         table=table,
+        data_from=DATA_FROM_SITE_RECORDS,
     )
 
 
@@ -303,6 +324,7 @@ def _risk_scores(hospital: Any) -> ChartSpec:
         kwargs={"x_label": "Estimated risk of a poor outcome", "y_label": "Records",
                 "edge_format": "{:.1f}", "series_slot": _slot(hospital)},
         table=table,
+        data_from=DATA_FROM_SITE_SCORES,
     )
 
 
@@ -382,6 +404,7 @@ def _hospital_records(data: ConsortiumData) -> ChartSpec:
         ),
         alt="Grouped bar chart of record counts per hospital, from the dataset and entered in the demo.",
         table=table,
+        data_from=DATA_FROM_REPORTS_AND_ENTRIES,
     )
     if data.slots is None:
         spec.kind = "bar"
@@ -430,6 +453,7 @@ def _hospital_outcome_rates(data: ConsortiumData) -> ChartSpec:
         ),
         alt="Bar chart of the share of patients with a poor outcome at each hospital.",
         table=table,
+        data_from=DATA_FROM_REPORTS,
     )
     if data.slots is None:
         spec.kind = "bar"
@@ -445,7 +469,9 @@ def _hospital_outcome_rates(data: ConsortiumData) -> ChartSpec:
 
 
 def _needs_pilot(chart_id: str, title: str, description: str, alt: str) -> ChartSpec:
-    return ChartSpec(chart_id=chart_id, title=title, description=description, alt=alt, reason=NEEDS_PILOT)
+    return ChartSpec(
+        chart_id=chart_id, title=title, description=description, alt=alt, reason=NEEDS_PILOT, data_from=DATA_FROM_PILOT
+    )
 
 
 def _site_aucs(round_report: Mapping[str, Any] | None, site_ids: Sequence[str]) -> list[float | None]:
@@ -496,6 +522,7 @@ def _site_auc(data: ConsortiumData) -> ChartSpec:
         ),
         alt=alt,
         table=table,
+        data_from=DATA_FROM_PILOT,
     )
     if data.slots is None:
         spec.kind = "grouped_bar"
@@ -544,6 +571,7 @@ def _training_curve(data: ConsortiumData) -> ChartSpec:
         args=(rounds, series),
         kwargs={"x_label": "Training round", "y_label": "Log loss", "value_format": "{:.3f}"},
         table=table,
+        data_from=DATA_FROM_PILOT,
     )
 
 
@@ -611,6 +639,7 @@ def _release_gates(data: ConsortiumData) -> ChartSpec:
         args=(items,),
         kwargs={},
         table=table,
+        data_from=DATA_FROM_PILOT,
     )
 
 
@@ -626,14 +655,16 @@ _CONSORTIUM_BUILDERS: dict[str, Callable[[ConsortiumData], ChartSpec]] = {
 # --- The service --------------------------------------------------------------------------
 
 
-def consortium_data(consortium: Any) -> ConsortiumData:
-    """The site summaries and the last pilot, read the way the coordinator may read them."""
-    from app.domain.conditions import STROKE_CLASSIFICATION
+def consortium_data(overview: Any) -> ConsortiumData:
+    """The hospitals' rows and the last pilot, read the way the coordinator may read them.
 
-    summaries = [consortium.hospitals[site.site_id].summary() for site in consortium.sites]
+    ``overview`` is the study's overview (``app.services.overview.StudyOverview``):
+    the rows are what each hospital's LMA reports through the GMA, and the
+    pilot is the stored report.
+    """
     return ConsortiumData(
-        summaries=summaries,
-        last_pilot=consortium.last_pilot(),
+        summaries=overview.hospital_rows(),
+        last_pilot=overview.last_pilot(),
         minimum_cohort=STROKE_CLASSIFICATION.minimum_cohort,
     )
 
@@ -662,19 +693,24 @@ class ChartService:
             "notice": DATASET_NOTICE,
             "svg_path": svg_path,
             "version": spec.version,
+            "drawn_by": DRAWN_BY,
+            "data_from": spec.data_from,
         }
 
     def site_list(self, hospital: Any) -> list[dict[str, Any]]:
-        """The hospital's charts, from its own records. Unavailable while its store is empty."""
+        """The hospital's charts, from its own records. Unavailable while its store is empty.
+
+        ``hospital`` is a hospital view (``app.services.hospital_views.HospitalView``).
+        """
         empty = hospital.record_count() == 0
         return [
             self._entry(_site_spec(chart_id, hospital, empty), site_svg_path(hospital.site_id, chart_id))
             for chart_id in SITE_CHART_IDS
         ]
 
-    def consortium_list(self, consortium: Any) -> list[dict[str, Any]]:
+    def consortium_list(self, overview: Any) -> list[dict[str, Any]]:
         """The consortium charts. Never raises for a chart that needs a pilot."""
-        data = consortium_data(consortium)
+        data = consortium_data(overview)
         return [
             self._entry(_CONSORTIUM_BUILDERS[chart_id](data), consortium_svg_path(chart_id))
             for chart_id in CONSORTIUM_CHART_IDS
@@ -688,11 +724,11 @@ class ChartService:
         spec = _site_spec(chart_id, hospital, hospital.record_count() == 0)
         return self._render(f"site:{hospital.site_id}", spec, theme)
 
-    def consortium_svg(self, consortium: Any, chart_id: str, theme: str) -> RenderedChart:
+    def consortium_svg(self, overview: Any, chart_id: str, theme: str) -> RenderedChart:
         builder = _CONSORTIUM_BUILDERS.get(chart_id)
         if builder is None:
             raise UnknownChartError(chart_id)
-        return self._render("consortium", builder(consortium_data(consortium)), theme)
+        return self._render("consortium", builder(consortium_data(overview)), theme)
 
     def _render(self, scope: str, spec: ChartSpec, theme: str) -> RenderedChart:
         if not spec.available:

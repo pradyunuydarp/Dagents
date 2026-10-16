@@ -1,8 +1,13 @@
-"""A missing or broken planner gives the pilot a plain 503, and the Guard still fails closed.
+"""A missing or broken planner gives a plain 503, and the Guard still fails closed.
 
 These tests replace the planner on purpose: they check what the app does when
 the planner cannot be used, which the real planner never shows. The Guard's
 decisions themselves are tested against the real planner elsewhere.
+
+The agents run the planner, not the app: each hospital's LMA runs its Guard,
+and the GMA checks every model version and plans every round. A page that
+shows the model in use therefore needs the planner too. Its 503 has its own
+message; the pilot keeps the pilot's message.
 """
 
 from __future__ import annotations
@@ -14,8 +19,10 @@ import unittest
 from unittest import mock
 
 from tests.api_support import ApiTestCase
+from tests.support import dagentsc_available
 
 PLANNER_MESSAGE = "The planner is not available right now, so the pilot cannot run. Try again in a minute."
+PLANNER_NEEDED_MESSAGE = "The planner is not available right now. Try again in a minute."
 
 
 class PlannerUnavailableApiTests(ApiTestCase):
@@ -51,34 +58,83 @@ class PlannerUnavailableApiTests(ApiTestCase):
         self._assert_planner_503(self._stub('{"decision":"permit"}'))
 
     def test_the_guard_still_denies_when_the_planner_is_missing(self) -> None:
-        hospital = self.consortium.hospital("uk-134")
-        before = hospital.governance.recent_audit(1)
-        from agents.common.domain.governance import KyuAttribute, Requester, RestrictionRequest
-        from app.domain.conditions import STROKE_APPROVED_PURPOSES, STROKE_CLASSIFICATION
+        """The hospital's LMA runs the Guard. Without the planner it denies the probe and records the denial."""
+        def audit() -> dict:
+            return self.ok(self.client.get("/api/v1/hospitals/uk-134/audit?limit=500"))
 
-        request = RestrictionRequest(
-            request_id="planner-missing-probe",
-            boundary="before_read",
-            requester=Requester(
-                requester_id="test",
-                requester_kind="human",
-                affiliation="test",
-                stated_purpose="stroke_triage_research",
-                attributes=[KyuAttribute(attribute_id="verified_identity", verified=True)],
-            ),
-            classification=STROKE_CLASSIFICATION,
-            requested_fields=["age_band"],
-            granularity="table",
-            cohort_size=100,
-            declared_purpose="stroke_triage_research",
-            approved_purposes=STROKE_APPROVED_PURPOSES,
-        )
+        before = audit()["records"]
+        body = {"site_id": "uk-134", "verified": True, "granularity": "table", "cohort_size": 100,
+                "requested_fields": ["age_band"]}
         with mock.patch.dict(os.environ, {"DAGENTSC_BIN": os.path.join(self._dir.name, "missing")}):
-            decision = hospital.guard_probe(request)
+            decision = self.ok(self.client.post("/api/v1/governance:probe", json=body))
         self.assertFalse(decision["permitted"])
-        after = hospital.governance.recent_audit(1)
-        self.assertNotEqual(before, after, "the denial must be recorded")
-        self.assertTrue(hospital.governance.audit_chain_intact())
+        self.assertEqual(0, decision["released_count"])
+        self.assertEqual([], decision["released_fields"])
+        after = audit()
+        self.assertEqual(len(before) + 1, len(after["records"]), "the denial must be recorded")
+        self.assertEqual(decision["audit_id"], after["records"][0]["audit_id"])
+        self.assertFalse(after["records"][0]["permitted"])
+        self.assertTrue(after["chain_intact"])
+
+
+class PlannerMissingPageTests(ApiTestCase):
+    """Without the planner, the pages that need no model version still answer, and no rate leaves a hospital.
+
+    A fresh app: the model versions are registered with the GMA on first use,
+    and that needs the planner, so the pages that show the model in use get a
+    plain 503 with the app's header.
+    """
+
+    def setUp(self) -> None:
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        patcher = mock.patch.dict(os.environ, {"DAGENTSC_BIN": os.path.join(folder.name, "missing")})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_the_hospital_summaries_answer_without_a_rate(self) -> None:
+        hospitals = self.ok(self.client.get("/api/v1/hospitals"))
+        self.assertEqual(3, len(hospitals))
+        for hospital in hospitals:
+            with self.subTest(site=hospital["site_id"]):
+                self.assertGreater(hospital["labelled_count"], 20)
+                self.assertIsNone(hospital["outcome_rate"])
+                # Withheld because the planner could not be asked, not because the cohort is small.
+                self.assertEqual("withheld", hospital["outcome_rate_status"])
+
+    def test_the_status_report_and_the_audit_trail_answer(self) -> None:
+        status = self.ok(self.client.get("/api/v1/framework/status"))
+        self.assertEqual("in-process", status["agents"]["mode"])
+        self.assertTrue(status["ready"])
+        self.assertTrue(self.ok(self.client.get("/api/v1/hospitals/it-002/audit"))["chain_intact"])
+
+    def test_a_page_that_shows_the_model_in_use_is_a_plain_503(self) -> None:
+        for path in ("/api/v1/hospitals/it-002", "/api/v1/hospitals/it-002/worklist", "/api/v1/models",
+                     "/api/v1/overview"):
+            with self.subTest(path=path):
+                response = self.client.get(path, headers={"Origin": "http://localhost:5174"})
+                self.assertEqual(503, response.status_code, response.text[:300])
+                self.assertEqual({"detail": PLANNER_NEEDED_MESSAGE}, response.json())
+                self.assertIn("x-dagents-app", {key.lower() for key in response.headers})
+                # Inside the CORS middleware, so the published page can read it.
+                self.assertIn("access-control-allow-origin", {key.lower() for key in response.headers})
+
+
+@unittest.skipUnless(dagentsc_available(), "dagentsc binary is not available")
+class PlannerMissingAfterStartTests(ApiTestCase):
+    """The planner goes missing after the model versions were registered: the pages that need it still say so."""
+
+    def test_the_pilot_needs_the_planner_and_the_probe_still_denies(self) -> None:
+        self.ok(self.client.get("/api/v1/models"))  # the model versions are now registered
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        with mock.patch.dict(os.environ, {"DAGENTSC_BIN": os.path.join(folder.name, "missing")}):
+            pilot = self.client.post("/api/v1/pilot:run", json={"round_prefix": "api"})
+            probe = self.client.post("/api/v1/governance:probe", json={"site_id": "ch-245"})
+        self.assertEqual(503, pilot.status_code, pilot.text[:300])
+        self.assertEqual({"detail": PLANNER_MESSAGE}, pilot.json())
+        self.assertEqual(200, probe.status_code)
+        self.assertFalse(probe.json()["permitted"])
 
 
 if __name__ == "__main__":

@@ -60,22 +60,26 @@ which sources may join a round, and whether a release gate passes.
 |---|---|---|---|
 | **You write** | HTTP calls from any language | An extension (fields, sensitivity, release gates), your list of approved purposes, and one data store per source | Python code that calls the framework's classes |
 | **Dagents gives you** | Pipeline validation and runs, model routing, workload plans, Kubernetes manifests and Docker Compose files | The Guard at four boundaries, federated rounds, release decisions, audit logs | The same parts as B, wired the way your application needs |
-| **What it costs** | No Guard on your data: the services see what you send them | You run an LMA per source and a GMA, and keep the planner on each machine | You own the wiring; the framework's HTTP agents are not used |
-| **Example in this repository** | NL2SQL demo: [`dagents_orchestrator.py`](../../services/nl2sql-demo/backend/app/services/dagents_orchestrator.py) | Stroke demo: [`extension.py`](../../apps/healthcare-demo/backend/app/extension.py) | The [worked example](../../examples/getting-started/) used in this guide |
+| **What it costs** | No Guard on your data: the services see what you send them | You run an LMA per source and a GMA, as separate processes or inside your own, and keep the planner on each machine | You own the wiring; the framework's HTTP agents are not used |
+| **Example in this repository** | NL2SQL demo: [`dagents_orchestrator.py`](../../services/nl2sql-demo/backend/app/services/dagents_orchestrator.py) | Stroke demo: [`extension.py`](../../apps/healthcare-demo/backend/app/extension.py) and [`agents.py`](../../apps/healthcare-demo/backend/app/services/agents.py) | The [worked example](../../examples/getting-started/) used in this guide |
 
 How to choose:
 
 - Choose **A** if you need planning and manifests, and your data is not
   sensitive or never leaves your own service.
 - Choose **B** if your data sits in several places and must stay there. This is
-  the main use of Dagents.
-- Choose **C** if you want path B inside one process or one existing service,
-  as the stroke demo does. The stroke demo registers an extension (path B) and
-  runs each hospital's LMA role as a Python object in its own API process
-  (path C).
+  the main use of Dagents. The stroke demo follows it: it registers an
+  extension and calls one LMA per hospital and a GMA only through their HTTP
+  APIs. On the published demo the agents run inside the demo's own process and
+  are called without a socket; locally they can run as separate processes, and
+  the same client code calls them.
+- Choose **C** if you want to wire the framework's classes yourself, for
+  example inside an existing service that cannot call the agents.
 
-Most of this guide follows paths B and C. [Step 7](07-framework-services.md)
-covers path A.
+Most of this guide follows paths B and C. The worked example starts with the
+building blocks (path C) and runs its round through the agents in
+[Step 6](06-federated-rounds.md#6-run-the-round-through-the-lma-and-gma).
+[Step 7](07-framework-services.md) covers path A.
 
 ## The worked example
 
@@ -115,9 +119,12 @@ which block to update.
 
 - Dagents is not published as a Python package. You clone the repository and
   put its root on `PYTHONPATH`, as the demos do.
-- The LMA and GMA services keep their state in memory. A restart loses site
-  enrolments, rounds and their audit logs. The Python building blocks accept
-  your own stores and audit sinks (Step 3 and Step 4).
-- The in-process federation engine is a simulator for tests and examples. A
-  deployment connects a federated learning runtime through the
+- The LMA and GMA keep site enrolments, rounds and pending model updates in
+  memory, so a restart loses them. Their audit chains, the LMA's job log and
+  the GMA's model registry can be kept in Postgres
+  ([Step 8, section 9](08-deploy.md#9-state-that-survives-a-restart)). The Python building blocks accept your
+  own stores and audit sinks (Step 3 and Step 4).
+- The in-process federation engine is a simulator for tests and examples. The
+  GMA's HTTP engine sends each round's jobs to the LMAs over their APIs; a
+  deployment can connect another federated learning runtime through the
   `FederationEngine` interface (Step 6).

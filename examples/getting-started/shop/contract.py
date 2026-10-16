@@ -78,6 +78,9 @@ CONDITION = ConditionPack(
     intended_use="Flag orders that are likely to be returned, so staff can check sizes before dispatch.",
     feature_contract_id="retail-orders",
     classification_id="retail-orders",
+    # The field a model is measured against. An LMA reads it from the pack.
+    label_field="returned",
+    approved_purposes=APPROVED_PURPOSES,
     release_gates=RELEASE_GATES,
     limitations=["The orders in data/ are made up for this example."],
     owner="returns-team",

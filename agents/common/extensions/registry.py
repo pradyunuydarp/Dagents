@@ -1,7 +1,7 @@
 """The extension registry and the contracts an extension contributes.
 
-An extension contributes four kinds of thing, each one a place where a consumer
-legitimately knows something the framework cannot:
+An extension contributes these kinds of thing, each one a place where a
+consumer knows something the framework cannot:
 
 - **Feature contracts** — the fields a domain agrees on, their types, units, and
   which are required. The framework validates against a contract; it cannot
@@ -10,8 +10,13 @@ legitimately knows something the framework cannot:
   regulations cover them. This is what the GRAILS Rails read, and it is policy,
   not code.
 - **Condition packs** — one studied thing: its cohort, its approved fields, its
-  model or rule, its release gates. A platform can be shared across conditions;
-  a clinical application cannot.
+  label field and purposes, its release gates. A platform can be shared across
+  conditions; a clinical application cannot.
+- **Model kinds** — typed objects (:class:`ModelKind`) that compute a model's
+  digests, evaluate and train it, and check and combine updates. The LMA and
+  GMA run an application's model through them without importing it.
+- **Site sources** — named factories that build a :class:`SiteRecordSource`,
+  so an LMA started from settings can read a site's records.
 - **Pipeline steps and model adapters** — named callables the framework's
   generic executors can invoke without knowing what they do.
 
@@ -21,8 +26,10 @@ hard to audit, and these contributions decide what a guard permits.
 
 from __future__ import annotations
 
-from typing import Any, Callable, Protocol, runtime_checkable
+import importlib
+from typing import Any, Callable, Mapping, Protocol, runtime_checkable
 
+from agents.common.application.ports import SiteRecordSource
 from agents.common.domain.base import DagentsModel
 from agents.common.domain.federation import ReleaseGate
 from agents.common.domain.governance import DataClassification
@@ -105,6 +112,85 @@ class ConditionPack(DagentsModel):
     release_gates: list[ReleaseGate] = Field(default_factory=list)
     limitations: list[str] = Field(default_factory=list)
     owner: str = ""
+    #: The field that holds the outcome a model learns. It must be a field of
+    #: the pack's feature contract; registration fails otherwise.
+    label_field: str | None = None
+    #: The purposes a request about this condition may declare. The LMA and
+    #: GMA pass them to the Guard as the request's approved purposes.
+    approved_purposes: list[str] = Field(default_factory=list)
+
+
+class TrainingOutcome(DagentsModel):
+    """What a model kind's ``train`` returns for one site.
+
+    ``update`` is the change in parameters the site would send, by name, or
+    ``None`` when there is nothing to send (for example, no labelled records).
+    The LMA sends it through the ``before_send`` Guard; it never enters a
+    ``SiteResult``.
+    """
+
+    update: dict[str, float] | None = Field(
+        default=None, description="The parameter update, by name. Null when there is nothing to send."
+    )
+    metrics: dict[str, float] = Field(default_factory=dict, description="Measurements of the local run, by name.")
+    examples: int = Field(default=0, ge=0, description="How many records the run trained on. At least 0.")
+
+
+class ModelKind(Protocol):
+    """One kind of model an extension contributes, such as a rule or a logistic regression.
+
+    Every kind has:
+
+    - ``kind``: its name, unique across the registry.
+    - ``trainable``: whether a training round can train it.
+    - ``version_prefix``: the start of a candidate's version, which is
+      ``<version_prefix>+<round_id>``.
+    - ``parameter_digest(params)``: the digest of a model's parameters. It
+      raises ``ModelVerificationError`` (``agents.common.domain.errors``) for
+      parameters this kind cannot run.
+    - ``code_digest()``: the digest a round manifest's
+      ``training_code_digest`` must equal.
+    - ``evaluate(params, records, label_field)``: metrics the release gates
+      read, by name.
+
+    A trainable kind also has:
+
+    - ``train(params, records, label_field)``: local training on the Guard's
+      payload. Returns a :class:`TrainingOutcome`.
+    - ``check_update(update)``: returns the update as floats. Raises
+      ``ValueError`` for unknown names or values that are not finite.
+    - ``update_digest(update)``: the digest the site reports and the GMA
+      checks.
+    - ``combine(params, weighted_updates)``: adds each ``(weight, update)``
+      pair to the parameters, with the planner's weights.
+    - ``parameter_change(params, reference)``: the size of the change between
+      two sets of parameters, which the release Guard reads.
+
+    The registry checks these members when the extension registers, so a
+    malformed kind fails at startup rather than during a round.
+    """
+
+    kind: str
+    trainable: bool
+    version_prefix: str
+
+    def parameter_digest(self, params: Mapping[str, Any]) -> str:
+        """The digest of these parameters."""
+
+    def code_digest(self) -> str:
+        """The digest of the code this kind runs."""
+
+    def evaluate(self, params: Mapping[str, Any], records: list[Mapping[str, Any]], label_field: str) -> dict[str, float]:
+        """Measure the model on labelled records."""
+
+
+#: Members every model kind must have, and the members a trainable kind adds.
+_KIND_METHODS = ("parameter_digest", "code_digest", "evaluate")
+_TRAINABLE_METHODS = ("train", "check_update", "update_digest", "combine", "parameter_change")
+
+#: Builds a site's record source from a database lease (or ``None``), the
+#: site's role and the site's id.
+SiteSourceFactory = Callable[[Any, str, str], SiteRecordSource]
 
 
 class RegisteredExtension(DagentsModel):
@@ -157,6 +243,12 @@ class ExtensionSummary(DagentsModel):
     model_adapters: list[str] = Field(
         default_factory=list, description="The names of the contributed model adapters, sorted."
     )
+    model_kinds: list[str] = Field(
+        default_factory=list, description="The names of the contributed model kinds, sorted."
+    )
+    site_sources: list[str] = Field(
+        default_factory=list, description="The names of the contributed site source factories, sorted."
+    )
 
 
 @runtime_checkable
@@ -185,6 +277,12 @@ class DagentsExtension(Protocol):
     def model_adapters(self) -> dict[str, Callable[..., Any]]:
         """Named model adapters this extension contributes."""
 
+    def model_kinds(self) -> list[ModelKind]:
+        """Model kinds this extension contributes. Optional: the registry reads it only if present."""
+
+    def site_sources(self) -> dict[str, SiteSourceFactory]:
+        """Named site source factories. Optional: the registry reads it only if present."""
+
 
 class ExtensionRegistry:
     """Holds registered extensions and answers lookups by name.
@@ -201,6 +299,8 @@ class ExtensionRegistry:
         self._conditions: dict[str, ConditionPack] = {}
         self._steps: dict[str, Callable[..., Any]] = {}
         self._adapters: dict[str, Callable[..., Any]] = {}
+        self._kinds: dict[str, ModelKind] = {}
+        self._site_sources: dict[str, SiteSourceFactory] = {}
 
     def register(self, extension: DagentsExtension) -> DagentsExtension:
         """Register one extension and index everything it contributes."""
@@ -215,6 +315,8 @@ class ExtensionRegistry:
         conditions = list(self._call(extension, "condition_packs"))
         steps = dict(self._call(extension, "pipeline_steps", default={}))
         adapters = dict(self._call(extension, "model_adapters", default={}))
+        kinds = list(self._call(extension, "model_kinds"))
+        site_sources = dict(self._call(extension, "site_sources", default={}))
 
         # Check every contribution before storing any of it, so a conflict
         # cannot leave the registry half-populated.
@@ -228,11 +330,21 @@ class ExtensionRegistry:
         self._assert_free(self._conditions, [c.condition_id for c in conditions], "condition pack", extension_id)
         self._assert_free(self._steps, list(steps), "pipeline step", extension_id)
         self._assert_free(self._adapters, list(adapters), "model adapter", extension_id)
+        kind_names = [self._checked_kind(kind, extension_id) for kind in kinds]
+        self._assert_unique(kind_names, "model kind", extension_id)
+        self._assert_free(self._kinds, kind_names, "model kind", extension_id)
+        for name, factory in site_sources.items():
+            if not isinstance(name, str) or not name or not callable(factory):
+                raise ExtensionError(
+                    f"extension {extension_id} contributes site source {name!r}, which needs a non-empty name "
+                    "and a callable factory"
+                )
+        self._assert_free(self._site_sources, list(site_sources), "site source", extension_id)
 
-        known_contracts = {contract.contract_id for contract in contracts} | set(self._contracts)
+        all_contracts = {**self._contracts, **{contract.contract_id: contract for contract in contracts}}
         known_classifications = {c.classification_id for c in classifications} | set(self._classifications)
         for condition in conditions:
-            if condition.feature_contract_id not in known_contracts:
+            if condition.feature_contract_id not in all_contracts:
                 raise ExtensionError(
                     f"condition pack {condition.condition_id} references unknown feature contract "
                     f"{condition.feature_contract_id}"
@@ -246,6 +358,14 @@ class ExtensionRegistry:
                     f"condition pack {condition.condition_id} references unknown classification "
                     f"{condition.classification_id}"
                 )
+            # The label is read from records that follow the contract. A label
+            # outside it is a field no site agreed to provide.
+            contract = all_contracts[condition.feature_contract_id]
+            if condition.label_field is not None and condition.label_field not in contract.field_names():
+                raise ExtensionError(
+                    f"condition pack {condition.condition_id} names label field {condition.label_field}, "
+                    f"which is not a field of feature contract {contract.contract_id}"
+                )
 
         self._extensions[extension_id] = extension
         self._contracts.update({contract.contract_id: contract for contract in contracts})
@@ -255,14 +375,38 @@ class ExtensionRegistry:
         self._conditions.update({condition.condition_id: condition for condition in conditions})
         self._steps.update(steps)
         self._adapters.update(adapters)
+        self._kinds.update(zip(kind_names, kinds))
+        self._site_sources.update(site_sources)
         return extension
+
+    @staticmethod
+    def _checked_kind(kind: Any, extension_id: str) -> str:
+        """Check that a model kind has every member the agents call, and return its name."""
+        name = getattr(kind, "kind", None)
+        if not isinstance(name, str) or not name:
+            raise ExtensionError(f"extension {extension_id} contributes a model kind without a non-empty kind name")
+        trainable = getattr(kind, "trainable", None)
+        if not isinstance(trainable, bool):
+            raise ExtensionError(f"model kind {name} from extension {extension_id} must set trainable to true or false")
+        prefix = getattr(kind, "version_prefix", None)
+        if not isinstance(prefix, str) or not prefix:
+            raise ExtensionError(f"model kind {name} from extension {extension_id} needs a non-empty version_prefix")
+        required = _KIND_METHODS + (_TRAINABLE_METHODS if trainable else ())
+        missing = [member for member in required if not callable(getattr(kind, member, None))]
+        if missing:
+            raise ExtensionError(
+                f"model kind {name} from extension {extension_id} lacks {', '.join(missing)}"
+            )
+        return name
 
     @staticmethod
     def _call(extension: DagentsExtension, name: str, default: Any = ()) -> Any:
         method = getattr(extension, name, None)
         if method is None:
             return default
-        return method()
+        result = method()
+        # A class that inherits the protocol's empty method gets None back.
+        return default if result is None else result
 
     @staticmethod
     def _assert_free(existing: dict[str, Any], keys: list[str], label: str, extension_id: str) -> None:
@@ -271,6 +415,14 @@ class ExtensionRegistry:
                 raise ExtensionError(
                     f"extension {extension_id} redefines {label} {key}, which another extension already provides"
                 )
+
+    @staticmethod
+    def _assert_unique(keys: list[str], label: str, extension_id: str) -> None:
+        seen: set[str] = set()
+        for key in keys:
+            if key in seen:
+                raise ExtensionError(f"extension {extension_id} contributes {label} {key} twice")
+            seen.add(key)
 
     def extensions(self) -> list[DagentsExtension]:
         """Every registered extension, in registration order."""
@@ -311,6 +463,22 @@ class ExtensionRegistry:
         """Look up one contributed model adapter."""
         return self._adapters.get(name)
 
+    def model_kind(self, kind: str) -> ModelKind:
+        """Look up one model kind, raising if it is not registered.
+
+        The registered object is returned, not a copy: a model kind holds code,
+        not policy.
+        """
+        if kind not in self._kinds:
+            raise ExtensionError(f"unknown model kind: {kind}")
+        return self._kinds[kind]
+
+    def site_source(self, name: str) -> SiteSourceFactory:
+        """Look up one site source factory, raising if it is not registered."""
+        if name not in self._site_sources:
+            raise ExtensionError(f"unknown site source: {name}")
+        return self._site_sources[name]
+
     def list_feature_contracts(self) -> list[FeatureContract]:
         """Every registered feature contract, sorted by id."""
         return [self._contracts[key].model_copy(deep=True) for key in sorted(self._contracts)]
@@ -331,6 +499,14 @@ class ExtensionRegistry:
         """Names of every contributed model adapter."""
         return sorted(self._adapters)
 
+    def list_model_kinds(self) -> list[str]:
+        """Names of every contributed model kind, sorted."""
+        return sorted(self._kinds)
+
+    def list_site_sources(self) -> list[str]:
+        """Names of every contributed site source factory, sorted."""
+        return sorted(self._site_sources)
+
     def describe(self) -> dict[str, Any]:
         """Summarize the registry, for a service's capability endpoint."""
         return {
@@ -348,6 +524,8 @@ class ExtensionRegistry:
             ],
             "pipeline_steps": self.list_pipeline_steps(),
             "model_adapters": self.list_model_adapters(),
+            "model_kinds": self.list_model_kinds(),
+            "site_sources": self.list_site_sources(),
         }
 
     def clear(self) -> None:
@@ -362,6 +540,52 @@ default_registry = ExtensionRegistry()
 def register_extension(extension: DagentsExtension) -> DagentsExtension:
     """Register one extension with the default registry."""
     return default_registry.register(extension)
+
+
+def _resolve_extension(spec: str) -> DagentsExtension:
+    """Import ``module:attribute`` and return the extension it names.
+
+    A class, or a factory function, is called with no arguments. Any other
+    object is used as it is.
+    """
+    module_name, separator, attribute = spec.partition(":")
+    if not separator or not module_name or not attribute:
+        raise ExtensionError(f"extension spec {spec!r} must have the form module:attribute")
+    try:
+        module = importlib.import_module(module_name)
+    except ImportError as error:
+        raise ExtensionError(f"extension spec {spec!r}: cannot import module {module_name}: {error}") from error
+    try:
+        target = getattr(module, attribute)
+    except AttributeError as error:
+        raise ExtensionError(f"extension spec {spec!r}: module {module_name} has no attribute {attribute}") from error
+    if isinstance(target, type) or (callable(target) and not hasattr(target, "extension_id")):
+        target = target()
+    return target
+
+
+def load_extensions(specs: str, registry: ExtensionRegistry | None = None) -> list[DagentsExtension]:
+    """Register the extensions named in a setting such as ``LMA_EXTENSIONS``.
+
+    Params:
+    - `specs`: comma-separated ``module:attribute`` names, for example
+      ``app.extension:MyExtension``. Spaces around a name and
+      empty entries are ignored, so an empty setting registers nothing.
+    - `registry`: where to register them. Defaults to ``default_registry``.
+
+    Every name is imported before any extension is registered, so a name that
+    cannot be loaded registers none of them. A registration conflict raises
+    like :meth:`ExtensionRegistry.register`; extensions registered before the
+    conflicting one stay registered.
+
+    Returns the registered extensions, in the order named. Raises
+    :class:`ExtensionError` for a malformed name, a module that cannot be
+    imported, a missing attribute or a conflict.
+    """
+    target = registry if registry is not None else default_registry
+    names = [part.strip() for part in specs.split(",") if part.strip()]
+    extensions = [_resolve_extension(name) for name in names]
+    return [target.register(extension) for extension in extensions]
 
 
 def discover_entry_point_extensions(group: str = "dagents.extensions") -> list[DagentsExtension]:

@@ -11,10 +11,14 @@ the check that the planner accepts results that carry ``update_digest``.
 
 from __future__ import annotations
 
+import ast
 import hashlib
 import json
 import math
+import pathlib
 import unittest
+
+from pydantic import BaseModel, ValidationError
 
 from agents.common.application.ethical_guard import contribution_norm
 from agents.common.application.federation import FederatedRoundController, InProcessFederationEngine
@@ -322,6 +326,30 @@ class WorkerUpdateTests(unittest.TestCase):
         self.assertEqual(result.participation, "completed")
         self.assertEqual(result.update_norm, 1.0)
 
+    def test_a_refused_result_names_its_reason(self) -> None:
+        """The reason travels in its own field; the evidence pointer keeps its old form."""
+        cases = {
+            "channel": build_worker(),
+            "withheld": build_worker(runner=UpdateRunner({"w.reading": "0.3"}), update_channel=self.channel),
+            "update store unavailable": build_worker(update_channel=FailingChannel()),
+            "different update": build_worker(update_channel=DoublingChannel()),
+            "approved field list": build_worker(update_channel=self.channel, approved_fields=["other"]),
+        }
+        for expected, worker in cases.items():
+            with self.subTest(expected=expected):
+                job = build_job(self.manifest)
+                if expected == "approved field list":
+                    job = job.model_copy(update={"feature_fields": ["reading"]})
+                result = worker.execute(job)
+                self.assertEqual(result.participation, "rejected")
+                self.assertIn(expected, result.refusal_reason)
+                self.assertTrue(result.local_evidence_pointer.endswith(f"#refused:{result.refusal_reason}"))
+
+    def test_a_completed_result_has_no_refusal_reason(self) -> None:
+        result = build_worker(update_channel=self.channel).execute(build_job(self.manifest))
+        self.assertEqual(result.participation, "completed")
+        self.assertIsNone(result.refusal_reason)
+
 
 @unittest.skipUnless(dagentsc_available(), "dagentsc binary is not available")
 class PlannerAcceptsUpdateDigestTests(unittest.TestCase):
@@ -364,6 +392,31 @@ class PlannerAcceptsUpdateDigestTests(unittest.TestCase):
                 self.assertEqual(readiness.rejected_contributions, [])
                 self.assertAlmostEqual(sum(readiness.site_weights.values()), 1.0)
 
+    def test_readiness_accepts_results_that_carry_a_refusal_reason(self) -> None:
+        controller = FederatedRoundController(engine=InProcessFederationEngine())
+        manifest = build_manifest()
+        digest = controller.digest(manifest)
+        results = [self._result(site, job_digest=digest) for site in SITES[:2]]
+        results.append(
+            self._result(
+                "site-c",
+                job_digest=digest,
+                participation="rejected",
+                privacy_checks_passed=False,
+                contributed_examples=0,
+                update_norm=None,
+                update_digest=None,
+                refusal_reason="the guard withheld the outbound model update",
+            )
+        )
+        self.assertIn("refusal_reason", results[2])
+        readiness = AggregationReadiness.model_validate(
+            evaluate_aggregation_readiness(manifest.model_dump(mode="json"), results)
+        )
+        self.assertTrue(readiness.aggregation_permitted)
+        self.assertEqual(readiness.accepted_sites, ["site-a", "site-b"])
+        self.assertEqual([item.site_id for item in readiness.rejected_contributions], ["site-c"])
+
     def test_a_null_update_digest_is_accepted_too(self) -> None:
         controller = FederatedRoundController(engine=InProcessFederationEngine())
         manifest = build_manifest()
@@ -403,6 +456,358 @@ class PlannerAcceptsUpdateDigestTests(unittest.TestCase):
             {result.site_id: result.update_digest for result in stored.results},
             {result.site_id: result.update_digest for result in record.results},
         )
+
+
+DOMAIN_DIR = pathlib.Path(__file__).resolve().parents[1] / "common" / "domain"
+
+#: What a domain module may import: typing, pydantic and other domain modules.
+#: Anything else (a database driver, a subprocess, the network, the planner
+#: runner) would put I/O into the contracts.
+ALLOWED_DOMAIN_IMPORTS = {
+    "__future__",
+    "typing",
+    "pydantic",
+    "datetime",
+    "enum",
+    "dataclasses",
+    "math",
+    "re",
+    "collections",
+    "collections.abc",
+}
+
+
+class DomainContractTests(unittest.TestCase):
+    """The shared contracts the LMA, the GMA and the agent client exchange."""
+
+    def test_domain_modules_import_no_io(self) -> None:
+        for path in sorted(DOMAIN_DIR.glob("*.py")):
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    names = [alias.name for alias in node.names]
+                elif isinstance(node, ast.ImportFrom):
+                    names = [node.module or ""]
+                else:
+                    continue
+                for name in names:
+                    with self.subTest(module=path.name, imports=name):
+                        self.assertTrue(
+                            name in ALLOWED_DOMAIN_IMPORTS or name.startswith("agents.common.domain."),
+                            f"{path.name} imports {name}",
+                        )
+
+    def test_every_new_contract_field_has_a_description(self) -> None:
+        """The API reference test needs one for every field an endpoint sends or returns."""
+        from agents.common.domain import federation, site
+
+        models = [
+            federation.FederatedJob,
+            federation.JobAcceptance,
+            federation.JobModel,
+            federation.DispatchCall,
+            federation.RoundRecord,
+            federation.UpdateUpload,
+            federation.UpdateReceipt,
+            federation.ReleaseEvaluationRequest,
+            federation.ReleaseGuardCheck,
+            federation.ReleaseEvaluation,
+            federation.ModelReleaseDecision,
+            federation.ModelVersion,
+            federation.ModelVersionRegistration,
+            federation.ModelVersionList,
+            federation.ApprovalResult,
+            federation.ModelStatusChange,
+            federation.ModelLifecycleDecision,
+            site.AuditSummary,
+            site.SiteSourceInfo,
+            site.SiteInfo,
+            site.SourceState,
+            site.SiteSummary,
+            site.ProbeRequest,
+            site.ProbeResponse,
+            site.ModelInUse,
+            site.LocalEvaluation,
+            site.JobLogEntry,
+            site.SiteDirectoryEntry,
+        ]
+        for model in models:
+            for name, field in model.model_fields.items():
+                with self.subTest(model=model.__name__, field=name):
+                    self.assertTrue(field.description, f"{model.__name__}.{name} has no description")
+
+    def test_site_result_carries_an_optional_refusal_reason(self) -> None:
+        """A result without a reason keeps the keys results had before the field existed."""
+        result = SiteResult(round_id="r", site_id="s", participation="completed")
+        self.assertIsNone(result.refusal_reason)
+        self.assertNotIn("refusal_reason", result.model_dump(mode="json"))
+        self.assertNotIn("refusal_reason", json.loads(result.model_dump_json()))
+        refused = result.model_copy(update={"participation": "rejected", "refusal_reason": "no channel"})
+        self.assertEqual(refused.model_dump(mode="json")["refusal_reason"], "no channel")
+        self.assertEqual(SiteResult.model_validate_json(refused.model_dump_json()), refused)
+        self.assertIn("refusal_reason", SiteResult.model_json_schema(mode="serialization")["properties"])
+
+    def test_a_round_record_dump_leaves_out_empty_refusal_reasons_only(self) -> None:
+        from agents.common.domain.federation import RoundPlan, RoundRecord
+
+        manifest = build_manifest()
+        plan = RoundPlan(
+            round_id=manifest.round_id,
+            study_id=manifest.study_id,
+            phase=manifest.phase,
+            quorum_met=True,
+            required_participants=2,
+            aggregation=manifest.aggregation,
+            round_digest="fnv1a:0000000000000000",
+        )
+        record = RoundRecord(
+            manifest=manifest,
+            plan=plan,
+            created_at=1,
+            updated_at=1,
+            results=[
+                SiteResult(round_id="r", site_id="site-a", participation="completed"),
+                SiteResult(round_id="r", site_id="site-b", participation="rejected", refusal_reason="withheld"),
+            ],
+        )
+        dumped = record.model_dump(mode="json")["results"]
+        self.assertNotIn("refusal_reason", dumped[0])
+        self.assertEqual(dumped[1]["refusal_reason"], "withheld")
+
+    def test_a_round_record_keeps_acceptances_candidate_and_dispatch_rows(self) -> None:
+        from agents.common.domain.federation import (
+            CandidateModel,
+            DispatchCall,
+            JobAcceptance,
+            RoundPlan,
+            RoundRecord,
+        )
+
+        manifest = build_manifest()
+        plan = RoundPlan(
+            round_id=manifest.round_id,
+            study_id=manifest.study_id,
+            phase=manifest.phase,
+            selected_sites=list(SITES),
+            quorum_met=True,
+            required_participants=2,
+            aggregation=manifest.aggregation,
+            round_digest="fnv1a:0000000000000000",
+        )
+        bare = RoundRecord(manifest=manifest, plan=plan, created_at=1, updated_at=1)
+        self.assertEqual((bare.acceptances, bare.candidate, bare.dispatch, bare.abandoned_reason), ([], None, [], None))
+
+        full = bare.model_copy(
+            update={
+                "status": "dispatched",
+                "acceptances": [JobAcceptance(round_id=manifest.round_id, site_id="site-a", accepted=True)],
+                "candidate": CandidateModel(
+                    round_id=manifest.round_id,
+                    candidate_version="toy-linear+round-0007",
+                    parent_version="seed-v1",
+                    aggregation_method="fedavg",
+                ),
+                "dispatch": [
+                    DispatchCall(site_id="site-a", step="offer", status_code=200, ms=12.5, outcome="accepted"),
+                    DispatchCall(site_id="site-b", step="offer", status_code=None, ms=30000.0, outcome="failed"),
+                ],
+                "abandoned_reason": "a later round replaced it",
+            }
+        )
+        again = RoundRecord.model_validate_json(full.model_dump_json())
+        self.assertEqual(again, full)
+        with self.assertRaises(ValidationError):
+            DispatchCall(site_id="site-a", step="aggregate", status_code=200, ms=1.0, outcome="accepted")
+        with self.assertRaises(ValidationError):
+            DispatchCall(site_id="site-a", step="offer", status_code=200, ms=-1.0, outcome="accepted")
+
+    def test_a_job_carries_its_model_in_parameters(self) -> None:
+        from agents.common.domain.federation import JobModel
+
+        model = JobModel(version="toy-linear-init", kind="toy_linear", params={"bias": 0.0}, digest="sha256:abc")
+        job = build_job(build_manifest()).model_copy(update={"parameters": {"model": model.model_dump(mode="json")}})
+        self.assertEqual(JobModel.from_parameters(job.parameters), model)
+        self.assertIsNone(JobModel.from_parameters({}))
+        with self.assertRaises(ValueError):
+            JobModel.from_parameters({"model": {"version": "v"}})
+
+    def test_an_update_upload_refuses_values_that_are_not_finite_and_unknown_keys(self) -> None:
+        from agents.common.domain.federation import UpdateReceipt, UpdateUpload
+
+        upload = UpdateUpload(job_digest="fnv1a:1", update={"w": 0.5, "b": -1})
+        self.assertEqual(upload.update, {"w": 0.5, "b": -1.0})
+        self.assertEqual(UpdateReceipt(digest="sha256:x").digest, "sha256:x")
+        for bad in ({"w": math.nan}, {"w": math.inf}, {"w": "high"}, {"w": "0.5"}, {"w": True}):
+            with self.subTest(bad=bad):
+                with self.assertRaises(ValidationError):
+                    UpdateUpload(job_digest="fnv1a:1", update=bad)
+        with self.assertRaises(ValidationError):
+            UpdateUpload.model_validate({"job_digest": "fnv1a:1", "update": {"w": 0.1}, "site_id": "other"})
+
+    def test_the_release_request_keeps_the_bare_flow_and_adds_the_round_flow(self) -> None:
+        from agents.common.domain.federation import ReleaseEvaluationRequest
+
+        bare = ReleaseEvaluationRequest.model_validate(
+            {
+                "gates": [{"gate_id": "g", "metric": "auc", "comparison": {"kind": "at_least", "value": 0.8}}],
+                "candidate_version": "v+r",
+                "candidate_metrics": {"auc": 0.9},
+            }
+        )
+        self.assertIsNone(bare.condition_id)
+        self.assertIsNone(bare.metrics_from_round)
+        self.assertIsNone(bare.release_requester)
+        rounds = ReleaseEvaluationRequest.model_validate(
+            {
+                "candidate_version": "toy-linear+training-5",
+                "condition_id": "toy_condition",
+                "metrics_from_round": "validation",
+                "baseline_from_round": "evaluation",
+                "change_from_version": "toy-linear-init",
+                "rollback_version": "toy-threshold-v1",
+                "release_requester": {"requester_id": "committee", "requester_kind": "human"},
+                "declared_purpose": "toy_research",
+            }
+        )
+        self.assertEqual(rounds.gates, [])
+        self.assertEqual(rounds.release_requester.requester_kind, "human")
+
+    def test_model_versions_leave_parameters_out_unless_asked(self) -> None:
+        from agents.common.domain.federation import ModelVersion, ModelVersionRegistration
+
+        version = ModelVersion(version="v1", kind="toy_linear", digest="sha256:a", status="candidate")
+        self.assertIsNone(version.params)
+        self.assertIsNone(version.release_decision)
+        with self.assertRaises(ValidationError):
+            ModelVersion(version="v1", kind="toy_linear", digest="sha256:a", status="approved")
+        registration = ModelVersionRegistration(kind="toy_linear", params={"bias": 0.0})
+        self.assertEqual(registration.requested_status, "candidate")
+        with self.assertRaises(ValidationError):
+            ModelVersionRegistration(kind="toy_linear", params={}, requested_status="superseded")
+
+    def test_a_stored_release_decision_without_the_newer_keys_still_reads(self) -> None:
+        """Decisions stored before `baseline_version` and `metrics_source` existed lack them."""
+        from agents.common.domain.federation import ModelReleaseDecision
+
+        older = ModelReleaseDecision.model_validate(
+            {"action": "release", "guard_permitted": True, "gate_results": [], "round_id": "r"}
+        )
+        self.assertIsNone(older.baseline_version)
+        self.assertIsNone(older.metrics_source)
+
+    def test_a_probe_request_accepts_only_its_own_fields(self) -> None:
+        """A caller cannot send its own classification or purposes with a probe."""
+        from agents.common.domain.site import ProbeRequest
+
+        body = {
+            "boundary": "before_read",
+            "granularity": "row",
+            "requester": {"requester_id": "someone"},
+            "declared_purpose": "toy_research",
+        }
+        probe = ProbeRequest.model_validate(body)
+        self.assertEqual(probe.record_limit, 5)
+        self.assertIsNone(probe.requested_fields)
+        for extra in ({"classification": {"classification_id": "x"}}, {"approved_purposes": ["x"]}):
+            with self.subTest(extra=extra):
+                with self.assertRaises(ValidationError):
+                    ProbeRequest.model_validate({**body, **extra})
+        for limit in (-1, 21):
+            with self.subTest(limit=limit):
+                with self.assertRaises(ValidationError):
+                    ProbeRequest.model_validate({**body, "record_limit": limit})
+
+    def test_a_site_summary_names_why_a_rate_is_missing(self) -> None:
+        from agents.common.domain.site import SiteSummary
+
+        summary = SiteSummary(
+            site_id="site-a",
+            record_count=10,
+            labelled_count=3,
+            label_rate=None,
+            label_rate_status="below_minimum_cohort",
+            minimum_cohort=5,
+        )
+        self.assertIsNone(summary.planner_reason)
+        with self.assertRaises(ValidationError):
+            SiteSummary(
+                site_id="site-a",
+                record_count=10,
+                labelled_count=3,
+                label_rate_status="maybe",
+                minimum_cohort=5,
+            )
+
+    def test_site_info_has_no_field_for_a_connection_string(self) -> None:
+        from agents.common.domain.site import SiteInfo, SiteSourceInfo
+
+        names = set(SiteInfo.model_fields) | set(SiteSourceInfo.model_fields)
+        for forbidden in ("dsn", "url", "database_url", "connection", "password", "options"):
+            self.assertNotIn(forbidden, names)
+
+    def test_every_error_names_its_code_and_status(self) -> None:
+        from agents.common.domain import errors
+
+        expected = {
+            errors.StoreUnavailableError: ("store_unavailable", 503),
+            errors.StoreNotSetUpError: ("store_not_set_up", 503),
+            errors.RoundConflict: ("conflict", 409),
+            errors.NotSelected: ("forbidden", 403),
+            errors.AggregationRefused: ("aggregation_refused", 409),
+            errors.ClassificationConflict: ("conflict", 409),
+            errors.ModelVerificationError: ("conflict", 409),
+        }
+        for error, (code, status) in expected.items():
+            with self.subTest(error=error.__name__):
+                self.assertEqual((error.code, error.http_status), (code, status))
+                self.assertTrue(issubclass(error, errors.DagentsError))
+        self.assertTrue(issubclass(errors.StoreNotSetUpError, errors.StoreUnavailableError))
+        # The GMA answers a PermissionError from aggregation with 409, and a
+        # model kind raises ValueError for bad parameters; both keep working.
+        self.assertTrue(issubclass(errors.AggregationRefused, PermissionError))
+        self.assertTrue(issubclass(errors.ModelVerificationError, ValueError))
+
+    def test_new_models_are_pydantic_models(self) -> None:
+        from agents.common.domain import site
+
+        for name in ("SiteInfo", "SiteSummary", "JobLogEntry", "SiteDirectoryEntry"):
+            self.assertTrue(issubclass(getattr(site, name), BaseModel))
+
+
+@unittest.skipUnless(dagentsc_available(), "dagentsc binary is not available")
+class PlannerLifecycleContractTests(unittest.TestCase):
+    """The planner's lifecycle answer parses as `ModelLifecycleDecision`."""
+
+    def test_allowed_and_refused_answers_parse(self) -> None:
+        from agents.common.domain.federation import ModelLifecycleDecision
+        from agents.common.infrastructure.dagents_runner import model_lifecycle
+
+        registered = ModelLifecycleDecision.model_validate(
+            model_lifecycle("v2", {"kind": "registered", "requested_status": "candidate", "released_version": "v1"})
+        )
+        self.assertTrue(registered.allowed)
+        self.assertEqual(
+            [(c.version, c.from_status, c.to_status) for c in registered.status_changes], [("v2", None, "candidate")]
+        )
+        refused = ModelLifecycleDecision.model_validate(
+            model_lifecycle("v1", {"kind": "registered", "requested_status": "released", "released_version": "v0"})
+        )
+        self.assertFalse(refused.allowed)
+        self.assertEqual(refused.refusal, "already_released")
+        self.assertEqual(refused.status_changes, [])
+
+
+class SiteRecordSourcePortTests(unittest.TestCase):
+    """The ports an LMA reads a site's records through, and records its jobs in."""
+
+    def test_the_toy_source_satisfies_the_site_record_source_port(self) -> None:
+        from agents.common.application.ports import JobLog, SiteRecordSource
+        from agents.tests.fixtures.toy_extension import toy_site_source
+
+        source: SiteRecordSource = toy_site_source(None, "role", "site-a")
+        for member in ("records", "count", "version", "location", "close"):
+            self.assertTrue(callable(getattr(source, member)))
+        self.assertTrue(hasattr(JobLog, "append") and hasattr(JobLog, "recent"))
 
 
 if __name__ == "__main__":

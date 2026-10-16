@@ -198,6 +198,28 @@ Declare the requests in `examples/<service>.requests.json`:
   characters. The stored response lists each cut, and the page says so.
 - `env` sets environment variables before the app is imported, for example to
   turn off a rate limit.
+- `apps` declares other apps of the same service, for examples the service's
+  own app cannot show, such as an LMA started for a site. An example names one
+  with `"app": "<name>"`; an example without `app` runs against the service's
+  own app. Each app is built once, the first time an example names it, and
+  keeps its state for the later examples that name it.
+
+  ```json
+  "apps": {
+    "store-north": {
+      "app": "api_example_agents:store_north_lma",
+      "pythonpath": ["examples/getting-started", "scripts"],
+      "description": "What the app is, in one or two sentences."
+    }
+  }
+  ```
+
+  `app` is `module:attribute`: an ASGI app, or a function without arguments
+  that returns one. `pythonpath` lists directories, relative to the repository
+  root, added to the path of the interpreter that captures the examples. The
+  LMA and GMA request files use the apps in `scripts/api_example_agents.py`,
+  which build configured agents from the getting-started example. The stored
+  example keeps its `app`, and the replay check fails when it changes.
 - An example of an error is as useful as a success. Capture one for each error
   status an endpoint can return.
 - Set `"show": false` on a request that only prepares state for a later one.

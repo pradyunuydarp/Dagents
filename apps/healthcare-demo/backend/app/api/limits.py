@@ -1,6 +1,6 @@
 """Limits that keep the public demo usable for everyone.
 
-The demo has no accounts. Four limits protect it:
+The demo has no accounts. Five limits protect it:
 
 - :class:`RateLimiter`: a token bucket per client and per group of POST
   endpoints. A client may send ``per_minute`` requests at once, then one more
@@ -16,6 +16,11 @@ The demo has no accounts. Four limits protect it:
   ``Content-Length`` and ``Transfer-Encoding`` with 400.
 - :class:`SingleFlight`: one pilot at a time. A second request while one runs
   gets 409 instead of waiting.
+- :class:`InFlightCap`: ASGI middleware that lets a set number of requests run
+  at once. A request waits up to a set time for a slot, then gets the app's 503
+  "busy" answer. The Dagents agents run in this process and share one pool of
+  threads, and a request that makes nested agent calls holds several of them,
+  so the cap keeps the pool from running out.
 
 The limits live in this process. With several processes each keeps its own
 count, which is enough for a demo on one instance.
@@ -23,6 +28,7 @@ count, which is enough for a demo on one instance.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import math
 import threading
@@ -313,6 +319,107 @@ class BodySizeLimit:
                 "type": "http.response.start",
                 "status": status,
                 "headers": [(b"content-type", b"application/json"), (b"content-length", str(len(payload)).encode())],
+            }
+        )
+        await send({"type": "http.response.body", "body": payload})
+
+
+#: What a visitor sees when every slot stays taken for the whole wait.
+BUSY_MESSAGE = "The demo server is busy. Try again in a minute."
+
+#: Paths the in-flight cap lets through without a slot: the health check reads
+#: no store and calls no agent, and the platform must reach it under load.
+UNCAPPED_PATHS = frozenset({"/health", "/api/v1/health"})
+
+
+class InFlightCap:
+    """Lets at most ``max_in_flight`` requests run at once; the others wait for a slot.
+
+    A request waits up to ``wait_seconds`` for a slot, then gets 503 with
+    :data:`BUSY_MESSAGE` and ``Retry-After: 60``. The health paths
+    (:data:`UNCAPPED_PATHS`) and non-HTTP traffic pass without a slot.
+
+    The count is shared by every event loop in the process, so it holds under a
+    server and in tests alike. A waiting request checks for a free slot after
+    5 ms, then waits twice as long each time up to 100 ms; it holds no thread
+    while it waits.
+
+    Params:
+    - `max_in_flight`: the number of slots, at least 1.
+    - `wait_seconds`: how long a request waits for a slot.
+    - `clock`: seconds, for tests. Defaults to ``time.monotonic``.
+    """
+
+    #: Seconds between checks for a free slot: the first wait, and the longest.
+    FIRST_POLL_SECONDS = 0.005
+    LONGEST_POLL_SECONDS = 0.1
+
+    def __init__(
+        self,
+        app: ASGIApp,
+        max_in_flight: int,
+        wait_seconds: float = 20.0,
+        *,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
+        if isinstance(max_in_flight, bool) or not isinstance(max_in_flight, int) or max_in_flight < 1:
+            raise ValueError(f"max_in_flight must be a whole number of 1 or more, got {max_in_flight!r}")
+        self.app = app
+        self.max_in_flight = max_in_flight
+        self.wait_seconds = float(wait_seconds)
+        self._clock = clock
+        self._lock = threading.Lock()
+        self._active = 0
+        self.refused = 0
+
+    @property
+    def active(self) -> int:
+        """How many requests hold a slot now."""
+        with self._lock:
+            return self._active
+
+    def _try_take(self) -> bool:
+        with self._lock:
+            if self._active < self.max_in_flight:
+                self._active += 1
+                return True
+            return False
+
+    def _give_back(self) -> None:
+        with self._lock:
+            self._active -= 1
+
+    async def __call__(self, scope: dict, receive: Callable[[], Awaitable[dict]], send: Any) -> None:
+        if scope["type"] != "http" or scope.get("path") in UNCAPPED_PATHS:
+            await self.app(scope, receive, send)
+            return
+        deadline = self._clock() + self.wait_seconds
+        pause = self.FIRST_POLL_SECONDS
+        while not self._try_take():
+            if self._clock() >= deadline:
+                with self._lock:
+                    self.refused += 1
+                await self._busy(send)
+                return
+            await asyncio.sleep(pause)
+            pause = min(pause * 2, self.LONGEST_POLL_SECONDS)
+        try:
+            await self.app(scope, receive, send)
+        finally:
+            self._give_back()
+
+    @staticmethod
+    async def _busy(send: Any) -> None:
+        payload = json.dumps({"detail": BUSY_MESSAGE}).encode()
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 503,
+                "headers": [
+                    (b"content-type", b"application/json"),
+                    (b"content-length", str(len(payload)).encode()),
+                    (b"retry-after", b"60"),
+                ],
             }
         )
         await send({"type": "http.response.body", "body": payload})

@@ -65,6 +65,8 @@ PLANNER_COMMAND = ["manifest", "compile", "--input", "-", "--output", "json"]
 LMA_REQUEST: dict[str, typing.Any] = {
     "placement": "merge",
     "existing_services": [
+        "postgres",
+        "setup",
         "gma",
         "lma-uk-134",
         "lma-it-002",
@@ -76,12 +78,12 @@ LMA_REQUEST: dict[str, typing.Any] = {
         {
             "name": "lma-hospital-d",
             "image": "dagents/healthcare-demo-backend:local",
-            "args": ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8085"],
-            "env_files": ["../../env/.env.shared", "env/.env.healthcare-demo"],
+            "args": ["uvicorn", "agents.lma.main:app", "--host", "0.0.0.0", "--port", "8085"],
+            "env_files": ["../../env/.env.shared", "lma-hospital-d.env"],
             "env": [
-                {"name": "HEALTHCARE_DEMO_ROLE", "value": "lma"},
-                {"name": "HEALTHCARE_DEMO_SITE_ID", "value": "hospital-d"},
-                {"name": "HEALTHCARE_DEMO_API_PORT", "value": "8085"},
+                {"name": "LMA_SITE_ID", "value": "hospital-d"},
+                {"name": "LMA_SITE_SOURCE", "value": "healthcare_site_store"},
+                {"name": "LMA_API_PORT", "value": "8085"},
             ],
             "ports": [{"container_port": 8085, "host_port": 8085}],
             "health_check": {

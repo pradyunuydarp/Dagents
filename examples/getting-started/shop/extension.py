@@ -9,6 +9,7 @@ from agents.common.extensions import (
     ConditionPack,
     ExtensionRegistry,
     FeatureContract,
+    ModelKind,
     default_registry,
 )
 
@@ -37,6 +38,10 @@ class ReturnsExtension:
     def model_adapters(self) -> dict[str, Callable[..., Any]]:
         # A round or a model job can select the rule by this name.
         return {rule.RULE_VERSION: rule.flag}
+
+    def model_kinds(self) -> list[ModelKind]:
+        # An LMA runs the rule in a round through this kind (step 5).
+        return [rule.RuleKind()]
 
 
 def install(registry: ExtensionRegistry | None = None) -> ReturnsExtension:

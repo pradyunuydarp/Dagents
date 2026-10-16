@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
+from dataclasses import dataclass
 import os
 import pathlib
 import shutil
+from typing import Any, Iterator
+from unittest import mock
 import warnings
 
 from agents.common.infrastructure.dagents_runner import dagentsc_binary
@@ -63,6 +67,67 @@ def tiny_site(count: int = 5, site_id: str = "tiny-001"):
         copy["source_row"] = number
         records.append(copy)
     return site, MemorySiteStore(site, records)
+
+
+@dataclass
+class BuiltAgent:
+    """One agent app the app built in process: its settings, what the app handed it, and the app."""
+
+    settings: Any
+    deps: Any
+    app: Any
+
+    @property
+    def state(self) -> Any:
+        """What the agent serves from: ``app.state.lma`` (an LMA runtime) or ``app.state.gma`` (the GMA state)."""
+        return getattr(self.app.state, "lma", None) or self.app.state.gma
+
+
+@contextmanager
+def recorded_agents() -> Iterator[dict[str, BuiltAgent]]:
+    """Record the agent apps ``app.services.agents`` builds while the block runs.
+
+    Yields a dict that fills as the agents are built: ``"gma"`` and
+    ``"lma:<site_id>"`` map to a :class:`BuiltAgent`. Tests use it to look at
+    what each agent was given, and to change one agent's behaviour, without the
+    app exposing its agents.
+    """
+    import app.services.agents as wiring
+
+    built: dict[str, BuiltAgent] = {}
+    real_lma, real_gma = wiring.create_lma_app, wiring.create_gma_app
+
+    def lma(settings: Any, deps: Any) -> Any:
+        app = real_lma(settings, deps)
+        built[f"lma:{settings.site_id}"] = BuiltAgent(settings, deps, app)
+        return app
+
+    def gma(settings: Any, deps: Any) -> Any:
+        app = real_gma(settings, deps)
+        built["gma"] = BuiltAgent(settings, deps, app)
+        return app
+
+    with mock.patch.object(wiring, "create_lma_app", lma), mock.patch.object(wiring, "create_gma_app", gma):
+        yield built
+
+
+def built_demo(demo: Any) -> dict[str, BuiltAgent]:
+    """Build ``demo``'s services now and return the agents it built (see :func:`recorded_agents`)."""
+    with recorded_agents() as built:
+        demo.ready()
+    return built
+
+
+def gated_extension(gates: list[Any]) -> Any:
+    """The app's extension with these release gates on its condition pack, for tests that need a known decision."""
+    from app.domain.conditions import STROKE_CONDITION
+    from app.extension import HealthcareStrokeExtension
+
+    class GatedExtension(HealthcareStrokeExtension):
+        def condition_packs(self) -> list[Any]:
+            return [STROKE_CONDITION.model_copy(update={"release_gates": list(gates)})]
+
+    return GatedExtension()
 
 
 #: A record the seed rule scores near 1: over 90, unconscious, every deficit,

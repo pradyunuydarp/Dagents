@@ -1,21 +1,23 @@
 """Data entry over HTTP: the form, the entry, the outcome and the limits.
 
-None of this needs the planner. The record is written to the hospital's own
-store, its running profile is updated, and the hospital's next worklist and
-the coordinator's overview count it.
+The record is written to the hospital's own store, and the hospital's LMA is
+asked to read the store again, so its running profile, the hospital's next
+worklist and the coordinator's overview count it. The form needs no planner.
+An entry is answered with its assessment by the model in use, and the GMA
+checks every model version with the planner, so the entry tests need it.
 """
 
 from __future__ import annotations
 
 import unittest
 
-from tests.api_support import ApiTestCase
-from tests.support import HIGH_RISK_ENTRY
+from tests.api_support import ApiTestCase, without_calls
+from tests.support import HIGH_RISK_ENTRY, dagentsc_available
 
 from app.domain.conditions import STROKE_ENTRY_FIELDS, STROKE_FIELD_DOMAINS
 from app.domain.dataset import load_site_records
 from app.models import ENTRY_REQUIRED_FIELDS
-from app.services.consortium import Consortium
+from app.services.agents import HealthcareDemo
 
 FORM_KEYS = {"name", "label", "type", "required", "options", "min", "max", "unit", "help"}
 
@@ -55,6 +57,7 @@ class EntryFormTests(ApiTestCase):
         self.assertEqual("Hospital 134", payload["display_name"])
 
 
+@unittest.skipUnless(dagentsc_available(), "dagentsc binary is not available")
 class EntryTests(ApiTestCase):
     def enter(self, site_id: str = "it-002", body: dict | None = None, key: str | None = None):
         headers = {"Idempotency-Key": key} if key else {}
@@ -67,7 +70,12 @@ class EntryTests(ApiTestCase):
     def test_an_entry_is_stored_at_its_hospital_and_flows_through(self) -> None:
         before = {site: self.counts(site) for site in ("uk-134", "it-002", "ch-245")}
         payload = self.ok(self.enter(), 201)
-        self.assertEqual({"record", "assessment", "counts", "profile"}, set(payload))
+        self.assertEqual({"record", "assessment", "counts", "profile"}, set(without_calls(payload)))
+        # The write finished first; then the hospital's LMA read the store again and sent the new profile.
+        lma_calls = [(c["site_id"], c["method"], c["path"]) for c in payload["framework_calls"] if c["service"] == "lma"]
+        self.assertIn(("it-002", "POST", "/api/v1/site/source:refresh"), lma_calls)
+        self.assertIn(("it-002", "GET", "/api/v1/site/profile"), lma_calls)
+        self.assertEqual({"it-002"}, {site_id for site_id, _, _ in lma_calls})
         record = payload["record"]
         self.assertRegex(record["encounter_id"], r"^it-002-e[0-9]+$")
         self.assertEqual("entered", record["origin"])
@@ -133,6 +141,7 @@ class EntryTests(ApiTestCase):
         first = self.ok(self.enter("uk-134", key="retry-1"), 201)
         again = self.ok(self.enter("uk-134", key="retry-1"), 201)
         self.assertEqual(first["record"]["encounter_id"], again["record"]["encounter_id"])
+        self.assertEqual(first["profile"]["record_count"], again["profile"]["record_count"])
         self.assertEqual(first["counts"], again["counts"])
 
         other = self.enter("uk-134", body={**HIGH_RISK_ENTRY, "age": 51}, key="retry-1")
@@ -151,7 +160,9 @@ class EntryTests(ApiTestCase):
         before = self.counts("ch-245")
         path = f"/api/v1/hospitals/ch-245/encounters/{record['encounter_id']}/outcome"
         payload = self.ok(self.client.post(path, json={"poor_outcome_6m": True}))
-        self.assertEqual({"record", "counts", "profile"}, set(payload))
+        self.assertEqual({"record", "counts", "profile"}, set(without_calls(payload)))
+        self.assertIn(("lma", "ch-245", "/api/v1/site/source:refresh"),
+                      {(c["service"], c["site_id"], c["path"]) for c in payload["framework_calls"]})
         self.assertTrue(payload["record"]["poor_outcome_6m"])
         self.assertIn("outcome_recorded_at", payload["record"])
         self.assertEqual(before["labelled"] + 1, payload["counts"]["labelled"])
@@ -165,6 +176,7 @@ class EntryTests(ApiTestCase):
         # The same value again is a retry and changes nothing.
         again = self.ok(self.client.post(path, json={"poor_outcome_6m": False}))
         self.assertEqual(first["record"], again["record"])
+        self.assertEqual(first["counts"], again["counts"])
         response = self.client.post(path, json={"poor_outcome_6m": True})
         self.assertEqual(409, response.status_code)
         self.assertEqual({"detail": "This record already has an outcome. It cannot be changed."}, response.json())
@@ -200,10 +212,11 @@ class EntryTests(ApiTestCase):
         self.assertEqual({"body": "is not valid JSON"}, response.json()["errors"])
 
 
+@unittest.skipUnless(dagentsc_available(), "dagentsc binary is not available")
 class EntryLimitTests(ApiTestCase):
     @classmethod
-    def make_consortium(cls) -> Consortium:
-        return Consortium(max_entered_per_site=2)
+    def make_demo(cls) -> HealthcareDemo:
+        return HealthcareDemo(max_entered_per_site=2)
 
     def test_the_entry_cap_is_a_409_with_a_plain_message(self) -> None:
         for _ in range(2):

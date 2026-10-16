@@ -11,11 +11,19 @@ that, because the Guard fails closed and denies every request. These tests
 build such captures on purpose and assert that the checker refuses them. They
 also compare the GET paths the healthcare UI sends with the paths the capture
 records and the checker requires, because the replay matches a path exactly.
+
+The healthcare demo calls a Dagents LMA per hospital and a GMA, and each JSON
+answer lists those calls in ``framework_calls``. A capture whose answers list
+no agent calls would publish a demo that hides the framework, so the checker
+and the capture both refuse it.
 """
 
 from __future__ import annotations
 
+import contextlib
+import io
 import json
+import os
 from pathlib import Path
 import sys
 import unittest
@@ -30,6 +38,57 @@ import sync_design_system  # noqa: E402
 
 
 SITE = "uk-134"
+
+ROUNDS = "/api/v1/federation/rounds"
+OFFER = "/api/v1/federation/jobs:offer"
+EXECUTE = "/api/v1/federation/jobs:execute"
+RUN = "/api/v1/federation/jobs:run"
+
+
+def call(service: str, site_id: str | None, method: str, path: str, via: str = "app", status: int = 200) -> dict:
+    """One ``framework_calls`` entry, shaped as the backend writes it."""
+    return {"service": service, "site_id": site_id, "method": method, "path": path,
+            "status": status, "ms": 1.5, "via": via}
+
+
+def lma_dashboard_calls(site_id: str = SITE) -> list[dict]:
+    """The calls behind one hospital dashboard: all to that hospital's LMA."""
+    return [call("lma", site_id, "GET", "/api/v1/site/summary"),
+            call("lma", site_id, "POST", "/api/v1/site/model:evaluate")]
+
+
+def pilot_calls(site_ids: tuple[str, ...] = (SITE,), *, two_calls: bool = False) -> list[dict]:
+    """The calls behind one pilot: the app calls the GMA, and the GMA calls each LMA.
+
+    The GMA's HTTP engine sends each LMA one ``jobs:run`` call per round;
+    ``two_calls`` gives the ``jobs:offer`` then ``jobs:execute`` pair another
+    engine may send.
+    """
+    calls = [call("gma", None, "POST", "/api/v1/federation/sites:refresh"), call("gma", None, "POST", ROUNDS)]
+    for site_id in site_ids:
+        if two_calls:
+            calls += [call("lma", site_id, "POST", OFFER, via="gma"), call("lma", site_id, "POST", EXECUTE, via="gma")]
+        else:
+            calls += [call("lma", site_id, "POST", RUN, via="gma")]
+    return calls + [call("gma", None, "POST", "/api/v1/federation/rounds/{round_id}:aggregate")]
+
+
+def dispatch_rows(site_ids: tuple[str, ...] = (SITE,), *, two_calls: bool = False) -> list[dict]:
+    """The GMA's calls to each LMA in one round, as a round report lists them in ``dispatch``."""
+    rows: list[dict] = []
+    for site_id in site_ids:
+        if two_calls:
+            rows += [{"site_id": site_id, "step": "offer", "status_code": 200, "ms": 2.0, "outcome": "accepted"},
+                     {"site_id": site_id, "step": "execute", "status_code": 200, "ms": 9.0, "outcome": "completed"}]
+        else:
+            rows += [{"site_id": site_id, "step": "run", "status_code": 200, "ms": 11.0, "outcome": "completed"}]
+    return rows
+
+
+def pilot_rounds(site_ids: tuple[str, ...] = (SITE,)) -> dict:
+    """The pilot's round reports, shaped as the backend returns them: one per phase, a list for training."""
+    return {"evaluation": {"round_id": "ui-evaluation", "dispatch": dispatch_rows(site_ids)},
+            "training": [{"round_id": "ui-training-1", "dispatch": dispatch_rows(site_ids)}]}
 
 
 def probe(*, permitted: bool, strategy: str, cohort: int, granularity: str = "row", site_id: str = SITE) -> dict:
@@ -55,6 +114,7 @@ def probe(*, permitted: bool, strategy: str, cohort: int, granularity: str = "ro
             "released_fields": ["systolic_bp"] if permitted else [],
             "withheld_fields": [] if permitted else ["systolic_bp"],
             "transformed_fields": [],
+            "framework_calls": [call("lma", site_id, "POST", "/api/v1/governance/restrictions:probe")],
         },
     }
 
@@ -107,10 +167,18 @@ def healthy_healthcare_capture() -> dict:
             json_entry(
                 "/api/v1/framework/status",
                 {"cohort_source": "in-memory", "ready": True,
-                 "hospitals": [{"site_id": SITE, "record_count": 524, "labelled_count": 524}]},
+                 "hospitals": [{"site_id": SITE, "record_count": 524, "labelled_count": 524}],
+                 "agents": {"mode": "in-process", "engine": "http",
+                            "lmas": [{"site_id": SITE, "reachable": True, "source_kind": "in-memory"}]},
+                 "framework_calls": [call("gma", None, "GET", "/api/v1/health"),
+                                     call("lma", SITE, "GET", "/api/v1/health")]},
             ),
-            json_entry("/api/v1/overview", {"hospitals": [{"site_id": SITE}]}),
-            json_entry(base, {"site_id": SITE}),
+            json_entry(
+                "/api/v1/overview",
+                {"hospitals": [{"site_id": SITE}],
+                 "framework_calls": [call("gma", None, "GET", "/api/v1/federation/sites/summaries")]},
+            ),
+            json_entry(base, {"site_id": SITE, "framework_calls": lma_dashboard_calls()}),
             json_entry(WORKLIST, {"worklist": []}),
             json_entry(AUDIT, {"records": []}),
             json_entry(ENTERED, {"encounters": []}),
@@ -128,12 +196,14 @@ def healthy_healthcare_capture() -> dict:
                 "request": {"round_prefix": "ui"},
                 "status": 200,
                 "response": {
-                    "release": {"gates": {"gate_results": [{"gate_id": "fairness"}]}}
+                    "release": {"gates": {"gate_results": [{"gate_id": "fairness"}]}},
+                    "rounds": pilot_rounds(),
+                    "framework_calls": pilot_calls(),
                 },
             },
             json_entry("/api/v1/charts", chart_listing(CONSORTIUM_CHARTS), phase="after_pilot"),
             *[svg_entry(path, theme, "after_pilot") for path in CONSORTIUM_CHARTS for theme in ("light", "dark")],
-            json_entry(base, {"site_id": SITE}, phase="after_pilot"),
+            json_entry(base, {"site_id": SITE, "framework_calls": lma_dashboard_calls()}, phase="after_pilot"),
             json_entry(AUDIT, {"records": [{"boundary": "before_send"}]}, phase="after_pilot"),
         ],
     }
@@ -373,6 +443,324 @@ class HealthcareCaptureTests(unittest.TestCase):
         capture["entries"][0]["response"]["ready"] = False
         problems = guard.check_healthcare(capture)
         self.assertTrue(any("not ready" in p for p in problems), problems)
+
+
+def without_agent_calls(capture: dict) -> dict:
+    """``capture`` with no agent call in it: a demo that hides the agents.
+
+    ``framework_calls`` is removed from every answer, and ``dispatch`` from
+    every round report of the pilot.
+    """
+    for entry in capture["entries"]:
+        if isinstance(entry.get("response"), dict):
+            entry["response"].pop("framework_calls", None)
+            for report in all_round_reports(entry["response"]):
+                report.pop("dispatch", None)
+    return capture
+
+
+def all_round_reports(response: dict) -> list[dict]:
+    """Every round report in a pilot answer; empty for any other answer."""
+    reports: list[dict] = []
+    for value in (response.get("rounds") or {}).values():
+        reports += value if isinstance(value, list) else [value]
+    return reports
+
+
+def entry_at(capture: dict, method: str, path: str, phase: str | None = None) -> dict:
+    """The first entry for one request, optionally in one phase."""
+    return next(
+        entry for entry in capture["entries"]
+        if entry["method"] == method and entry["path"] == path and (phase is None or entry.get("phase") == phase)
+    )
+
+
+class AgentCallTests(unittest.TestCase):
+    """A capture must show the Dagents agent calls behind the demo's answers.
+
+    Each hospital is served by an LMA and the study by a GMA. The page lists
+    the calls behind each panel from ``framework_calls``, and the "Who does
+    what" table says where the agents run from the status's ``agents.mode``.
+    A capture without them would publish a demo that looks like it runs
+    without the framework.
+    """
+
+    def test_a_capture_without_agent_calls_is_refused(self) -> None:
+        problems = guard.check_healthcare(without_agent_calls(healthy_healthcare_capture()))
+        for expected in (
+            "guard probe answers do not list the call to their hospital's LMA",
+            f"the dashboard for {SITE} recorded before the pilot lists no call to its LMA",
+            f"the dashboard for {SITE} recorded after the pilot lists no call to its LMA",
+            "the captured pilot lists no call to POST /api/v1/federation/rounds at the GMA",
+            f"the captured pilot lists no call from the GMA to POST {RUN} or {EXECUTE} at {SITE}",
+            f"the captured pilot's round reports have no run or execute row in dispatch for {SITE}",
+            "the captured overview lists no agent call",
+            "the captured framework status lists no agent call",
+        ):
+            with self.subTest(expected=expected):
+                self.assertTrue(any(expected in problem for problem in problems), problems)
+
+    def test_main_refuses_a_capture_without_agent_calls(self) -> None:
+        """The deploy stops: the checker exits 1, not 0 with a warning."""
+        with mock.patch.object(guard, "load", return_value=without_agent_calls(healthy_healthcare_capture())):
+            self.assertEqual(1, guard.main(["healthcare"]))
+
+    def test_a_probe_answer_without_its_lma_call_is_refused(self) -> None:
+        """The guard panel's strip shows the call to the probed hospital's LMA, and only that one."""
+        for calls in ([], [call("lma", "it-002", "POST", "/api/v1/governance/restrictions:probe")],
+                      [call("gma", None, "GET", "/api/v1/health")]):
+            with self.subTest(calls=calls):
+                capture = healthy_healthcare_capture()
+                entry_at(capture, "POST", "/api/v1/governance:probe")["response"]["framework_calls"] = calls
+                problems = guard.check_healthcare(capture)
+                self.assertTrue(
+                    any("1 guard probe answers do not list the call to their hospital's LMA" in p for p in problems),
+                    problems,
+                )
+
+    def test_a_dashboard_without_its_lma_call_is_refused(self) -> None:
+        for phase, words in (("before_pilot", "before the pilot"), ("after_pilot", "after the pilot")):
+            for calls in ([], [call("lma", "it-002", "GET", "/api/v1/site/summary")]):
+                with self.subTest(phase=phase, calls=calls):
+                    capture = healthy_healthcare_capture()
+                    entry_at(capture, "GET", BASE, phase)["response"]["framework_calls"] = calls
+                    self.assertIn(
+                        f"the dashboard for {SITE} recorded {words} lists no call to its LMA in framework_calls",
+                        guard.check_healthcare(capture),
+                    )
+
+    def test_a_pilot_without_a_round_dispatched_by_the_gma_is_refused(self) -> None:
+        for calls in (
+            [entry for entry in pilot_calls() if entry["path"] != ROUNDS],
+            [call("gma", None, "GET", ROUNDS)] + [entry for entry in pilot_calls() if entry["path"] != ROUNDS],
+        ):
+            with self.subTest(calls=[entry["path"] for entry in calls]):
+                capture = healthy_healthcare_capture()
+                entry_at(capture, "POST", "/api/v1/pilot:run")["response"]["framework_calls"] = calls
+                problems = guard.check_healthcare(capture)
+                self.assertTrue(
+                    any("the captured pilot lists no call to POST /api/v1/federation/rounds at the GMA" in p
+                        for p in problems),
+                    problems,
+                )
+
+    def test_a_pilot_without_a_job_call_at_every_hospital_is_refused(self) -> None:
+        """Each hospital runs its jobs; the GMA's run (or execute) call to its LMA is the evidence."""
+        job_paths = (RUN, EXECUTE)
+        cases = {
+            "no run call": [entry for entry in pilot_calls() if entry["path"] != RUN],
+            "an offer only": [entry for entry in pilot_calls(two_calls=True) if entry["path"] != EXECUTE],
+            "the app, not the GMA, made it": [
+                {**entry, "via": "app"} if entry["path"] in job_paths else entry for entry in pilot_calls()
+            ],
+            "another hospital's LMA": [
+                {**entry, "site_id": "it-002"} if entry["path"] in job_paths else entry for entry in pilot_calls()
+            ],
+        }
+        for name, calls in cases.items():
+            with self.subTest(name):
+                capture = healthy_healthcare_capture()
+                entry_at(capture, "POST", "/api/v1/pilot:run")["response"]["framework_calls"] = calls
+                self.assertIn(
+                    f"the captured pilot lists no call from the GMA to POST {RUN} or {EXECUTE} at {SITE}, "
+                    "so the page would not show those hospitals running a job",
+                    guard.check_healthcare(capture),
+                )
+
+    def test_an_offer_then_an_execute_call_is_also_evidence(self) -> None:
+        """Another engine may send the two steps as two calls; the page shows those as well."""
+        capture = healthy_healthcare_capture()
+        pilot = entry_at(capture, "POST", "/api/v1/pilot:run")["response"]
+        pilot["framework_calls"] = pilot_calls(two_calls=True)
+        for report in all_round_reports(pilot):
+            report["dispatch"] = dispatch_rows(two_calls=True)
+        self.assertEqual([], guard.check_healthcare(capture))
+
+    def test_every_hospital_needs_its_job_call(self) -> None:
+        capture = healthy_healthcare_capture()
+        capture["entries"][1]["response"]["hospitals"].append({"site_id": "it-002"})
+        problems = guard.check_healthcare(capture)
+        self.assertTrue(any(f"POST {RUN} or {EXECUTE} at it-002," in problem for problem in problems), problems)
+        self.assertFalse(any(f"{EXECUTE} at {SITE}" in problem for problem in problems), problems)
+        self.assertTrue(any("run or execute row in dispatch for it-002," in problem for problem in problems), problems)
+        self.assertFalse(any(f"execute row in dispatch for {SITE}" in problem for problem in problems), problems)
+
+    def test_a_pilot_whose_round_reports_show_no_job_run_is_refused(self) -> None:
+        """The pilot panel's dispatch table reads each round report's ``dispatch`` rows, not ``framework_calls``."""
+        offers_only = [row for row in dispatch_rows(two_calls=True) if row["step"] == "offer"]
+        refused_run = [{**dispatch_rows()[0], "outcome": "refused"}]
+        failed_run = [{**dispatch_rows()[0], "status_code": 503, "outcome": "failed"}]
+        cases = {
+            "no dispatch rows": None,
+            "offers only": offers_only,
+            "a run the hospital refused": refused_run,
+            "a run call that failed": failed_run,
+            "another hospital's job run": offers_only + [{**dispatch_rows()[0], "site_id": "it-002"}],
+        }
+        for name, rows in cases.items():
+            with self.subTest(name):
+                capture = healthy_healthcare_capture()
+                for report in all_round_reports(entry_at(capture, "POST", "/api/v1/pilot:run")["response"]):
+                    if rows is None:
+                        del report["dispatch"]
+                    else:
+                        report["dispatch"] = rows
+                self.assertIn(
+                    f"the captured pilot's round reports have no run or execute row in dispatch for {SITE}, "
+                    "so the pilot panel's dispatch table would not show those hospitals running a job",
+                    guard.check_healthcare(capture),
+                )
+
+    def test_one_job_run_per_hospital_is_enough(self) -> None:
+        """A hospital may refuse a round's job; the table then shows the refusal, which is worth publishing."""
+        capture = healthy_healthcare_capture()
+        rounds = entry_at(capture, "POST", "/api/v1/pilot:run")["response"]["rounds"]
+        rounds["training"][0]["dispatch"] = [
+            {"site_id": SITE, "step": "run", "status_code": 200, "ms": 2.0, "outcome": "refused"}
+        ]
+        self.assertEqual([], guard.check_healthcare(capture))
+
+    def test_a_status_that_does_not_say_where_the_agents_run_is_refused(self) -> None:
+        for agents in (None, {}, {"mode": ""}, {"mode": "somewhere"}):
+            with self.subTest(agents=agents):
+                capture = healthy_healthcare_capture()
+                status = entry_at(capture, "GET", "/api/v1/framework/status")["response"]
+                if agents is None:
+                    del status["agents"]
+                else:
+                    status["agents"] = agents
+                problems = guard.check_healthcare(capture)
+                self.assertTrue(
+                    any("the captured framework status does not say where the agents run" in p for p in problems),
+                    problems,
+                )
+
+    def test_both_agent_modes_are_accepted(self) -> None:
+        for mode in ("in-process", "network"):
+            with self.subTest(mode=mode):
+                capture = healthy_healthcare_capture()
+                entry_at(capture, "GET", "/api/v1/framework/status")["response"]["agents"]["mode"] = mode
+                self.assertEqual([], guard.check_healthcare(capture))
+
+    def test_a_call_that_shows_an_address_or_a_secret_is_refused(self) -> None:
+        """The recording is a public file: a call names its agent, method and route, nothing more."""
+        cases = {
+            "an address in the path": {"path": "http://127.0.0.1:8082/api/v1/site/summary"},
+            "an internal host in the path": {"path": "//lma-uk-134.internal/api/v1/site/summary"},
+            "a path that is not a route": {"path": "site/summary"},
+            "a token": {"authorization": "Bearer abc"},
+            "a request body": {"body": {"records": []}},
+            "an address in another field": {"site_id": "uk-134@https://lma.example.com"},
+        }
+        for name, change in cases.items():
+            with self.subTest(name):
+                capture = healthy_healthcare_capture()
+                charts = entry_at(capture, "GET", "/api/v1/charts")["response"]
+                charts["framework_calls"] = [{**call("gma", None, "GET", "/api/v1/health"), **change}]
+                problems = guard.check_healthcare(capture)
+                self.assertTrue(
+                    any("1 framework_calls entries show more than an agent, a method and a route" in p
+                        for p in problems),
+                    problems,
+                )
+
+    def test_a_response_without_agent_calls_is_fine_where_the_app_calls_no_agent(self) -> None:
+        """The entry form is the app's own: it lists no call, and that is correct."""
+        capture = healthy_healthcare_capture()
+        entry_at(capture, "GET", f"{BASE}/entry-form")["response"]["framework_calls"] = []
+        self.assertEqual([], guard.check_healthcare(capture))
+
+
+class CaptureRequiresAgentCallsTests(unittest.TestCase):
+    """The capture itself refuses to write a healthcare recording without the agent calls."""
+
+    def run_capture(
+        self, entries: list[dict], write: mock.Mock | None = None, **options: object
+    ) -> tuple[mock.Mock, mock.Mock]:
+        """Run ``capture`` with no processes: the walk records ``entries``. Returns the stack and writer mocks."""
+        live = mock.Mock()
+        live.missing = []
+        write = write or mock.Mock()
+
+        def walk(recorder) -> None:
+            recorder.entries.extend(entries)
+
+        with mock.patch.object(capture_script, "running_stack", return_value=live) as stack, \
+                mock.patch.object(capture_script, "capture_healthcare", side_effect=walk), \
+                mock.patch.object(capture_script, "write_recording", write), \
+                contextlib.redirect_stdout(io.StringIO()):
+            capture_script.capture("healthcare", "python", "dagentsc", **options)
+        return stack, write
+
+    def test_a_recording_without_agent_calls_is_not_written(self) -> None:
+        entries = without_agent_calls(healthy_healthcare_capture())["entries"]
+        write = mock.Mock()
+        with self.assertRaises(SystemExit) as stopped:
+            self.run_capture(entries, write)
+        write.assert_not_called()
+        self.assertIn("does not show the Dagents agent calls", str(stopped.exception))
+        self.assertIn("POST /api/v1/federation/rounds", str(stopped.exception))
+
+    def test_a_recording_with_agent_calls_is_written(self) -> None:
+        _, write = self.run_capture(healthy_healthcare_capture()["entries"])
+        write.assert_called_once()
+
+    def test_require_agent_calls_names_every_problem(self) -> None:
+        capture = without_agent_calls(healthy_healthcare_capture())
+        del entry_at(capture, "GET", "/api/v1/framework/status")["response"]["agents"]
+        with self.assertRaises(SystemExit) as stopped:
+            capture_script.require_agent_calls(capture["entries"])
+        message = str(stopped.exception)
+        self.assertEqual(len(guard.agent_call_problems(capture, [SITE])), message.count("\n  - "))
+        self.assertIn("guard probe answers do not list the call to their hospital's LMA", message)
+        self.assertIn("agents.mode", message)
+
+    def test_require_agent_calls_accepts_a_good_capture(self) -> None:
+        capture_script.require_agent_calls(healthy_healthcare_capture()["entries"])
+
+    def test_the_capture_runs_the_agents_inside_the_demo_server(self) -> None:
+        """As the published demo does. Network mode would also need a database, which the capture does not use."""
+        self.assertEqual("in-process", capture_script.HEALTHCARE_CAPTURE_ENV["HEALTHCARE_DEMO_AGENTS"])
+        service = capture_script.HEALTHCARE_SERVICES[-1]
+        self.assertEqual("in-process", service.env["HEALTHCARE_DEMO_AGENTS"])
+
+    def test_the_backend_port_can_be_chosen(self) -> None:
+        """So a capture can run next to other servers. The recorder calls the port the backend was started on."""
+        stack, write = self.run_capture(healthy_healthcare_capture()["entries"], port=9850)
+        services = stack.call_args.args[0]
+        self.assertEqual(9850, services[-1].port)
+        self.assertEqual("http://127.0.0.1:9850", write.call_args.args[1].base_url)
+
+    def test_the_usual_port_is_the_default(self) -> None:
+        stack, write = self.run_capture(healthy_healthcare_capture()["entries"])
+        default = capture_script.HEALTHCARE_SERVICES[-1].port
+        self.assertEqual(default, stack.call_args.args[0][-1].port)
+        self.assertEqual(f"http://127.0.0.1:{default}", write.call_args.args[1].base_url)
+
+    def test_main_passes_the_port_on(self) -> None:
+        with mock.patch.object(capture_script, "planner_path", return_value="dagentsc"), \
+                mock.patch.object(capture_script, "capture") as run, \
+                contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(0, capture_script.main(["--demo", "healthcare", "--port", "9851"]))
+        run.assert_called_once_with("healthcare", sys.executable, "dagentsc", port=9851)
+
+    def test_a_relative_interpreter_path_is_made_absolute(self) -> None:
+        """Each backend starts in its own directory, where a relative path would name no file.
+
+        A virtual environment's interpreter is a symlink, so the path is made
+        absolute without following it; following it would leave the venv.
+        """
+        for given, expected in (
+            (".venv/bin/python", os.path.abspath(".venv/bin/python")),
+            ("python3", "python3"),
+            ("/usr/bin/python3", "/usr/bin/python3"),
+        ):
+            with self.subTest(given=given), \
+                    mock.patch.object(capture_script, "planner_path", return_value="dagentsc"), \
+                    mock.patch.object(capture_script, "capture") as run, \
+                    contextlib.redirect_stdout(io.StringIO()):
+                capture_script.main(["--demo", "healthcare", "--python", given])
+                run.assert_called_once_with("healthcare", expected, "dagentsc", port=None)
 
 
 def ui_get_paths(site_id: str) -> dict[str, str]:

@@ -11,15 +11,19 @@ code and calls the framework for planning, governance and federation.
 
 How each app uses the framework:
 
-- **The healthcare demo runs the framework's classes in its own process.** Each
-  hospital has a `GovernanceService`, whose Ethical Guard (the Guard) applies the
-  planner's decisions to that hospital's records and writes an audit chain. The
-  coordinator runs `FederatedRoundController` for the rounds. Every decision is
-  made by the planner, `dagentsc`. The app contributes an extension
-  (`apps/healthcare-demo/backend/app/extension.py`): the stroke feature contract,
-  the data classification, the condition pack, two pipeline steps and two model
-  adapters. It calls no other Dagents service to do its work; it only checks
-  whether they answer ([framework status](#healthcare-demo-backend-get-api-v1-framework-status)).
+- **The healthcare demo calls the Dagents agents through their HTTP APIs.**
+  Each hospital is served by an LMA (local monitoring agent), and the study by a
+  GMA (global monitoring agent). The app calls them with the framework's agent
+  client (`agents/common/infrastructure/agent_client.py`). By default the four
+  agents run inside the demo's own process and are called through
+  `httpx.ASGITransport`: each call goes through the agent's real routes, request
+  checks and token checks, without a socket. With `HEALTHCARE_DEMO_AGENTS=network`
+  they run as separate processes, and the same client calls them over HTTP. The
+  agents ask the planner, `dagentsc`, for every decision; the app runs no
+  planner command itself. The app contributes an extension
+  (`apps/healthcare-demo/backend/app/extension.py`): the stroke feature
+  contract, the data classification, the condition pack, two model kinds, a
+  site source and two pipeline steps.
 - **The NL2SQL backend calls the planner and the services.** It runs six planner
   commands on the schema of each question, then calls the core service, the
   pipeline service, the model service, the LMA and the GMA over HTTP
@@ -29,13 +33,18 @@ How each app uses the framework:
 ```mermaid
 flowchart LR
     HUI["Healthcare UI :5174"] --> HC["healthcare-demo-backend :8080"]
+    HC -->|"hospital views, site token"| HLMA["LMA, one per hospital"]
+    HC -->|"study operator, admin token"| HGMA["GMA"]
+    HGMA -->|"job runs"| HLMA
+    HLMA -->|"clipped update"| HGMA
     HC --> Stores[("one store per hospital")]
-    HC --> Coord[("coordinator store")]
-    HC -->|"governance, federation, dataset, pipeline, model commands"| Planner["dagentsc"]
-    HC -.->|"health checks only"| Services["core, pipeline, model, LMA, GMA"]
+    HLMA --> Stores
+    HGMA --> Coord[("coordinator store")]
+    HLMA --> Planner["dagentsc"]
+    HGMA --> Planner
     NUI["NL2SQL UI :5173"] --> NL["nl2sql-demo-backend :8070"]
     NL -->|"dataset, pipeline, model commands"| Planner
-    NL -->|"catalog, workloads, pipelines, profiles, model jobs"| Services
+    NL -->|"catalog, workloads, pipelines, profiles, model jobs"| Services["core, pipeline, model, LMA, GMA services"]
 ```
 
 **Run them locally.** Both need the planner. Build it and set `DAGENTSC_BIN`
@@ -43,13 +52,19 @@ as the [overview](overview.md#run-a-service-to-try-the-examples) shows, then:
 
 | App | Command | Data |
 |---|---|---|
-| healthcare-demo-backend | `apps/healthcare-demo/scripts/run_local_demo.sh` | In memory, loaded from `apps/healthcare-demo/data/ist/`, unless `HEALTHCARE_DEMO_DATABASE_URL` is set |
+| healthcare-demo-backend | `apps/healthcare-demo/scripts/run_local_demo.sh`. The LMAs and the GMA run in the API's process. Add `--agents network` to start them as separate processes, on the ports in `apps/healthcare-demo/env/.env.healthcare-demo` | In memory, loaded from `apps/healthcare-demo/data/ist/`, unless `HEALTHCARE_DEMO_DATABASE_URL` is set. `--agents network` needs it |
 | nl2sql-demo-backend | `services/nl2sql-demo/scripts/run_local_demo.sh`, or `PYTHONPATH=.:services/nl2sql-demo/backend .venv/bin/uvicorn app.main:app --port 8070` | None. Model zip files go in `NL2SQL_MODELS_DIR` |
 
 The healthcare demo is public in its deployed form, so it has limits that the
 other services do not: per-client rate limits, hourly caps, a 64 KB body limit,
-an `Idempotency-Key` header for data entry and an `X-Dagents-App` header on
-every response. The [overview](overview.md#rate-limits) describes them. The
+a cap on requests in progress, an `Idempotency-Key` header for data entry and an
+`X-Dagents-App` header on every response. The [overview](overview.md#rate-limits)
+describes them. The cap on requests in progress lets 12 public requests run at
+once (`HEALTHCARE_DEMO_MAX_IN_FLIGHT`). A request beyond it waits up to 20
+seconds for a slot, then gets `503` with `Retry-After: 60` and "The demo server
+is busy. Try again in a minute." The health routes are never held back. A
+request takes its slot only after its whole body has arrived, so a slow upload
+holds no slot. The
 records carry the IST licence notice in `apps/healthcare-demo/data/ist/NOTICE.md`:
 they contain information from the International Stroke Trial database
 (version 2), made available under the ODC Attribution License, and were
@@ -59,7 +74,8 @@ clinical advice.
 ## The healthcare demo
 
 The healthcare backend is one FastAPI app, `apps/healthcare-demo/backend/app/main.py`,
-with 27 endpoints. Three hospitals take part:
+with 26 endpoints. It serves no LMA or GMA route: the agents are separate apps
+that only the backend calls. Three hospitals take part:
 
 | `site_id` | Name | Country | Records from the IST |
 |---|---|---|---|
@@ -72,10 +88,17 @@ Terms used in this part:
 - **Site store.** Where one hospital keeps its records: its own Postgres schema,
   read and written only as that hospital's database role, or, without a
   database, its own in-memory store (`MemorySiteStore`). Both pass the same
-  tests.
-- **Coordinator.** The `Consortium` class. It plans rounds, stores model
-  versions and release decisions in the coordinator store, and never reads a
-  hospital's records. It sees what each hospital reports.
+  tests. The hospital's LMA reads the same store through `StoreSiteSource`
+  (`app/services/site_source.py`), as the hospital's role.
+- **LMA.** The hospital's Dagents local monitoring agent. It holds the
+  hospital's Guard and audit chain, its running profile, its outcome-rate
+  decision, the model in use and its job log. The app's hospital views call it
+  with the LMA's `site` token.
+- **GMA.** The study's Dagents global monitoring agent. It enrols the LMAs,
+  sends each round's jobs to them, keeps their clipped updates until it combines
+  them, keeps the model registry, and runs the release Guard and the release
+  gates. The app's study operator calls it with the GMA's `admin` token. It
+  never reads a hospital's records.
 - **Seed rule.** `stroke-outcome-rule-v1`, a points score chosen by hand
   (`app/domain/stroke_rule.py`). It is the model in use until a federated
   candidate is approved. It is not a validated clinical model.
@@ -84,28 +107,77 @@ Terms used in this part:
   hospital.
 - **Minimum cohort.** 20. The planner denies a column, table or model-update
   request that describes fewer patients.
+- **`framework_calls`.** Every `2xx` answer whose body is a JSON object lists
+  the agent calls behind it, in the order they finished. Each entry has
+  `service` (`lma` or `gma`), `site_id`, `method`, `path` (the route template),
+  `status`, `ms` and `via`. `via` is `app` for a call the app made and `gma` for
+  a call the GMA made to an LMA while it dispatched a round. No entry holds a
+  host, a token or a body. A JSON list (the hospital list), an error, an SVG and
+  a `304` carry none. See [the FrameworkCall object](#the-frameworkcall-object).
 
 ```mermaid
 flowchart TB
-    Routes["main.py: 27 routes"] --> Limits["RateLimiter, HourlyCap, SingleFlight, BodySizeLimit"]
-    Routes --> Consortium["Consortium: the coordinator"]
+    Routes["main.py: 26 routes"] --> Limits["InFlightCap, RateLimiter, HourlyCap, SingleFlight, BodySizeLimit"]
+    Routes --> Views["HospitalView x 3: the app at each hospital"]
+    Routes --> Overview["StudyOverview: overview, models, approval, status"]
+    Routes --> Pilot["PilotService: the study operator"]
     Routes --> Charts["ChartService"]
-    Routes --> Framework["FrameworkClient"]
     Routes --> Rule["stroke_rule, fhir: no store"]
-    Consortium --> Hospitals["Hospital x 3"]
-    Hospitals --> SiteStores[("MemorySiteStore or PostgresSiteStore, one per hospital")]
-    Hospitals --> Guard["GovernanceService: the Guard and its audit chain"]
-    Consortium --> Controller["FederatedRoundController"]
-    Controller --> Runtime["ParameterAveragingRuntime"]
-    Runtime --> Registry["ModelRegistry"]
-    Registry --> CoordStore[("coordinator store")]
-    Consortium --> ReleaseGuard["release Guard"]
-    Guard -->|"governance restrict"| Planner["dagentsc"]
-    ReleaseGuard -->|"governance restrict"| Planner
-    Controller -->|"federation round plan, digest, aggregate readiness, release evaluate"| Planner
-    Framework -->|"dataset, pipeline, model, governance commands"| Planner
-    Framework -.->|"GET health"| Services["framework services"]
+    Views --> SiteStores[("MemorySiteStore or PostgresSiteStore, one per hospital")]
+    Views -->|"site token"| LMA["LMA x 3"]
+    Overview -->|"admin token"| GMA["GMA"]
+    Pilot -->|"admin token"| GMA
+    Pilot --> CoordStore[("coordinator store: pilot reports")]
+    LMA -->|"StoreSiteSource, as the hospital's role"| SiteStores
+    GMA -->|"job runs"| LMA
+    LMA -->|"clipped update"| GMA
+    GMA --> Registry[("coordinator store: model registry, release audit chain")]
+    LMA -->|"governance restrict, federation round digest"| Planner["dagentsc"]
+    GMA -->|"round plan, aggregate readiness, release evaluate, model lifecycle"| Planner
 ```
+
+### Which agent calls each endpoint makes
+
+| Demo endpoint | Agent calls |
+|---|---|
+| `GET /api/v1/health`, `GET /api/v1/conditions`, the three scoring endpoints, `GET .../entry-form` | none |
+| `GET /api/v1/overview` | GMA `GET /api/v1/federation/sites/summaries` and `GET /api/v1/model-versions`. The first time, also `GET /api/v1/health` for the engine's name, which the app then keeps |
+| `GET /api/v1/extension` | GMA `GET /api/v1/extensions` |
+| `GET /api/v1/hospitals`, `GET /api/v1/charts` | GMA `GET /api/v1/federation/sites/summaries`, which asks each LMA for `GET /api/v1/site/summary` |
+| `GET /api/v1/hospitals/{site_id}` | that hospital's LMA: `GET /api/v1/site/summary`, `GET /api/v1/site/profile`, `POST /api/v1/site/model:evaluate`, `GET /api/v1/site/model`, `GET /api/v1/federation/jobs` |
+| worklist, thresholds, the entered list, the hospital's charts | that hospital's LMA: `GET /api/v1/site/model` |
+| `GET .../audit` | that hospital's LMA: `GET /api/v1/governance/audit` |
+| `POST .../encounters` | that hospital's LMA: `POST /api/v1/site/source:refresh`, `GET /api/v1/site/profile`, `GET /api/v1/site/model` |
+| `POST .../outcome` | that hospital's LMA: `POST /api/v1/site/source:refresh`, `GET /api/v1/site/profile` |
+| `POST /api/v1/governance:probe` | that hospital's LMA: `POST /api/v1/governance/restrictions:probe` |
+| `POST /api/v1/pilot:run` | the GMA only, as [the pilot](#the-federated-pilot-and-model-releases) lists; the GMA's calls to each LMA follow with `via: gma` |
+| `GET /api/v1/models` | GMA `GET /api/v1/model-versions` |
+| `POST /api/v1/models/{version}:approve` | GMA `POST /api/v1/model-versions/{version}:approve` |
+| `GET /api/v1/framework/status` | GMA `GET /api/v1/federation/sites/summaries`, and each agent's `GET /api/v1/health`, whose results the app reuses for 15 seconds |
+
+**Model versions are registered on first use.** The first request that needs a
+model version (the overview, a hospital's view, worklist, thresholds, entered
+list, charts or entry, the models, an approval or a pilot) first registers the
+seed rule and the all-zero logistic regression with the GMA:
+`PUT /api/v1/model-versions/{version}`, once for each. The GMA stores a version
+sent again with the same content once. The status report, the hospital list,
+the consortium charts, the audit chain and the Guard probe need no model
+version, so they answer while the planner or the GMA's store is down.
+
+**In process or over the network.** `GET /api/v1/framework/status` reports
+which (`agents.mode`). In process, the app makes every token with
+`secrets.token_urlsafe` when it first builds the agents (on the first request
+that needs them) and logs none. Over the network, the addresses and
+tokens come from the environment: `HEALTHCARE_DEMO_GMA_URL` and
+`HEALTHCARE_DEMO_GMA_TOKEN`, and `HEALTHCARE_DEMO_LMA_<SITE>_URL` and
+`HEALTHCARE_DEMO_LMA_<SITE>_TOKEN` for each hospital, where `<SITE>` is the
+site id in upper case with `_` for `-` (`UK_134`). An agent's server error
+(`5xx`), or an error the route does not expect, reaches the browser as the
+app's own message, never the agent's: `503` for a planner, store or agent that
+is not available, and `500` for anything else. Two refusals keep the GMA's
+reason: a refused approval (`409`, "The model cannot be approved: ..."), and
+a refused aggregation, which ends the pilot with the reason in `stop_reason`
+and in the training round's `aggregation_error`.
 
 ## Healthcare health and descriptions
 
@@ -115,7 +187,8 @@ status: complete
 code: apps/healthcare-demo/backend/app/main.py
 classes:
 - Settings (apps/healthcare-demo/backend/app/core/config.py)
-- Consortium (apps/healthcare-demo/backend/app/services/consortium.py)
+- HealthcareDemo (apps/healthcare-demo/backend/app/services/agents.py)
+- StudyOverview (apps/healthcare-demo/backend/app/services/overview.py)
 - ExtensionRegistry (agents/common/extensions/registry.py)
 endpoints:
 - GET /health
@@ -128,8 +201,9 @@ endpoints:
 Liveness, the consortium overview, the condition the app implements, and what
 its extension contributes. `Settings` reads `env/.env.shared`, then
 `env/.env.healthcare-demo`, then `apps/healthcare-demo/env/.env.healthcare-demo`;
-a variable already set in the environment wins. None of these endpoints writes
-anything.
+a variable already set in the environment wins. `HealthcareDemo` builds the
+stores and the agents on first use, so starting the app reads no record, opens
+no database connection and starts no agent.
 
 ### Check the app's health
 
@@ -139,9 +213,10 @@ GET /api/v1/health
 
 Returns `ok` with the app's name, its environment and `data`, which names the
 dataset (`ist-1-deidentified`). It reads no store, opens no database
-connection and calls no planner, so it answers while the database is down. Use
-it as the liveness check. `GET /health` runs the same code. To learn where the
-records are stored and whether the stores can be read, call
+connection and calls no agent, so it answers while the database is down. Use
+it as the liveness check. `GET /health` runs the same code. The cap on requests
+in progress never holds it back. To learn where the records are stored and
+whether the stores can be read, call
 [framework status](#healthcare-demo-backend-get-api-v1-framework-status).
 
 **Errors.** None of its own.
@@ -155,11 +230,15 @@ GET /api/v1/overview
 ```
 
 Returns everything the coordinator's page shows about the study, built from
-what each hospital reports. It reads each hospital's counts from its store and
-asks each hospital's planner whether its outcome rate may leave the hospital
+what each hospital reports through the GMA. The app asks the GMA for the site
+summaries. The GMA asks each hospital's LMA for its summary, and each LMA asks
+its planner whether its outcome rate may leave the hospital
 (`dagentsc governance restrict`, a `before_send` table request at the number of
 labelled records). That question only plans: it writes no audit record, and
-the answer is kept per count. Nothing is stored.
+the LMA keeps the answer per labelled count. Each hospital's entered count
+comes from its store, counted by the app at the hospital. The model in use
+comes from the GMA's model registry. Nothing is stored, apart from the model
+versions a first request registers.
 
 | Field | What it holds |
 |---|---|
@@ -168,17 +247,21 @@ the answer is kept per count. Nothing is stored.
 | `dataset` | The IST citation, licence, source address, notice and credit |
 | `feature_contract` | The contract's id, version and its 9 required fields |
 | `field_labels` | Each record field's label, as the entry form shows it |
-| `engine` | The federation engine: `in-process-parameter-averaging` |
+| `engine` | The GMA's round engine, from its health route: `http` |
 | `secure_aggregation_threshold` | 3. It raises the number of hospitals a round needs to 3 |
 | `minimum_cohort` | 20 |
-| `current_model` | The version and kind of the model in use |
+| `current_model` | The version and kind of the model the GMA has released |
 | `hospitals` | Each hospital's summary, as [the hospital list](#healthcare-demo-backend-get-api-v1-hospitals) returns it |
 | `release_gates` | The five release gates a candidate must pass |
+| `framework_calls` | The GMA calls behind the answer |
 
-**Errors.** `503` only with a database, when a store cannot be read.
+**Errors.** `503` when the planner cannot be run (the GMA checks each model
+version with it), when an agent does not answer, or, with a database, when a
+store cannot be read.
 
 **Related.** [The hospital list](#healthcare-demo-backend-get-api-v1-hospitals),
-[the condition](#healthcare-demo-backend-get-api-v1-conditions).
+[the condition](#healthcare-demo-backend-get-api-v1-conditions),
+[the GMA's site summaries](agents.md#gma-get-api-v1-federation-sites-summaries).
 
 ### Read the condition, its contract and its classification
 
@@ -189,8 +272,11 @@ GET /api/v1/conditions
 Returns the condition the app implements (`suspected_stroke`), the four
 conditions it lists as planned but does not implement, the feature contract and
 the data classification. All four come from `app/domain/conditions.py`; nothing
-is read from a store and no planner command runs.
+is read from a store, no agent is called and no planner command runs.
 
+- The **condition** names its label field (`poor_outcome_6m`), its approved
+  purposes and its release gates. The LMAs and the GMA read the same condition
+  pack from the extension.
 - The **feature contract** (`stroke-triage-features`, version
   `stroke-triage-features-v3`) lists the 14 fields every hospital produces, with
   their types and units.
@@ -215,19 +301,22 @@ is read from a store and no planner command runs.
 GET /api/v1/extension
 ```
 
-Returns what the app registered with the framework's extension registry
-(`default_registry.describe()`): the extension id and version, the feature
-contract, the classification, the condition pack, two named pipeline steps
-(`evaluate_stroke_rule`, `score_stroke_worklist`) and two named model adapters
-(`stroke_outcome_logreg_v1`, `stroke_outcome_rule_v1`). `boundary` lists in
-words what the framework owns and what the app owns. Nothing is stored and no
-planner command runs. The registry is filled once, when the app starts, unless
-`HEALTHCARE_DEMO_REGISTER_EXTENSION` is false.
+Returns what the agents' extension registry holds, as the GMA describes it
+(`GET /api/v1/extensions`): the extension id and version, the feature contract,
+the classification, the condition pack, two model kinds (`points_rule` and
+`logistic_regression`), the site source (`healthcare_site_store`) and two
+named pipeline steps (`evaluate_stroke_rule`, `score_stroke_worklist`).
+`boundary` lists in words what the framework owns and what the app owns.
+Nothing is stored and no planner command runs.
 
-**Errors.** None of its own.
+In process, the app registers its extension in one registry that the three
+LMAs and the GMA share. Started as separate processes, each agent loads it from
+`LMA_EXTENSIONS` or `GMA_EXTENSIONS` (`app.extension:HealthcareStrokeExtension`).
 
-**Related.** [LMA extensions](agents.md#lma-extensions), which describe the same
-registry from an agent.
+**Errors.** `503` when the GMA does not answer.
+
+**Related.** [GMA extensions](agents.md#gma-extensions), which this endpoint
+reads, and [contribute a model kind](../../guide/02-describe-your-data.md#5-contribute-a-model-kind).
 
 ## Scoring without a store
 
@@ -248,9 +337,9 @@ endpoints:
 ```
 
 These three endpoints work only on the records sent in the request. They read
-no store, store nothing, call no planner and pass no Guard boundary. They score
-with the seed rule, not with the model in use; the hospital endpoints score
-with the model in use.
+no store, store nothing, call no agent and no planner, and pass no Guard
+boundary. They score with the seed rule, not with the model in use; the
+hospital endpoints score with the model in use.
 
 **How the seed rule scores a record.** It adds points: 0 to 5 for the age band
 (one per decade from 50), 2 for `drowsy` and 4 for `unconscious`, 1 for each
@@ -345,10 +434,11 @@ service: healthcare-demo-backend
 status: complete
 code: apps/healthcare-demo/backend/app/main.py
 classes:
-- Hospital (apps/healthcare-demo/backend/app/services/hospital.py)
+- HospitalView (apps/healthcare-demo/backend/app/services/hospital_views.py)
+- StudyOverview (apps/healthcare-demo/backend/app/services/overview.py)
 - MemorySiteStore (apps/healthcare-demo/backend/app/services/site_store.py)
 - PostgresSiteStore (apps/healthcare-demo/backend/app/services/site_store.py)
-- RunningProfile (agents/common/application/running_profile.py)
+- LmaClient (agents/common/infrastructure/agent_client.py)
 endpoints:
 - GET /api/v1/hospitals
 - GET /api/v1/hospitals/{site_id}
@@ -357,17 +447,24 @@ endpoints:
 - GET /api/v1/hospitals/{site_id}/audit
 ```
 
-What each hospital reports, and one hospital's own view. A `Hospital` reads its
-records only through its site store, and with Postgres every read runs in one
-transaction that starts with `SET LOCAL ROLE` to the hospital's role. It keeps a
-cached copy of its records, cleared on every write, and a running profile: the
-count, missing values and value counts or mean and variance of each field,
-updated one record at a time as records are entered.
+What each hospital reports, and one hospital's own view. Each hospital has two
+parts:
 
-The hospital list is what the coordinator may see. The other four endpoints
-are the hospital's own view, for its staff: the demo shows them on a hospital's
-page, and the records they return stay at that hospital in a real deployment.
-None of them writes anything.
+- **Its LMA** holds the Guard and the audit chain, the running profile (the
+  count, missing values and value counts or mean and variance of each field),
+  the outcome-rate decision, the model in use and the job log. The LMA rebuilds
+  the profile when the store's version changes.
+- **The app at the hospital** (`HospitalView`) reads the hospital's records
+  only through its site store, as the hospital's role, and scores them with the
+  model the hospital's LMA reports in use. With Postgres every read runs in one
+  transaction that starts with `SET LOCAL ROLE` to the hospital's role.
+
+A hospital view calls only its own hospital's LMA, with that LMA's `site`
+token, and holds no lock or store connection while it waits for the answer.
+The hospital list is what the coordinator may see, and the app reads it through
+the GMA. The other four endpoints are the hospital's own view, for its staff:
+the demo shows them on a hospital's page, and the records they return stay at
+that hospital in a real deployment. None of them writes anything.
 
 ### List what each hospital reports
 
@@ -376,8 +473,11 @@ GET /api/v1/hospitals
 ```
 
 Returns one summary per hospital, in the order `uk-134`, `it-002`, `ch-245`.
-Each summary has the hospital's id, name and country, its record counts
-(`record_count`, `entered_count`, `labelled_count`), its store's kind and
+The app asks the GMA for its site summaries
+(`GET /api/v1/federation/sites/summaries`), and the GMA reads each LMA's
+`GET /api/v1/site/summary`. Each summary has the hospital's id, name and
+country, its record counts (`record_count` and `labelled_count` from the LMA,
+`entered_count` counted by the app in the store), its store's kind and
 `minimum_cohort`.
 
 `outcome_rate` is the share of labelled records with a poor outcome, and it is
@@ -388,19 +488,23 @@ says why:
 |---|---|
 | `released` | The planner permits a table request for the outcome at this many labelled records |
 | `below_minimum_cohort` | The planner denies it because fewer than 20 records have an outcome |
-| `no_outcomes` | No record has an outcome, so there is no rate |
+| `no_outcomes` | No record has an outcome, so there is no rate. The LMA calls this `no_labels` |
 | `denied` | The planner denies it for another reason |
 | `withheld` | The planner could not be run, so the Guard withholds the rate |
 
-The question is `dagentsc governance restrict`, asked once per labelled count
-and not written to the audit chain. The example ran after
+The question is `dagentsc governance restrict`, which each LMA asks once per
+labelled count and does not write to the audit chain. The example ran after
 [the overview](#healthcare-demo-backend-get-api-v1-overview) had asked it for
-the same counts, so the example itself ran no planner command.
+the same counts, so the example itself ran no planner command. The answer is a
+JSON list, so it carries no `framework_calls`.
 
-**Errors.** `503` only with a database, when a store cannot be read.
+**Errors.** `503` when the GMA does not answer, when a hospital's LMA does not
+answer the GMA or sends no summary, or, with a database, when a store cannot
+be read.
 
 **Related.** [One hospital's view](#healthcare-demo-backend-get-api-v1-hospitals-site-id),
-[the overview](#healthcare-demo-backend-get-api-v1-overview).
+[the overview](#healthcare-demo-backend-get-api-v1-overview),
+[the LMA's summary](agents.md#lma-get-api-v1-site-summary).
 
 ### Read one hospital's view
 
@@ -408,19 +512,25 @@ the same counts, so the example itself ran no planner command.
 GET /api/v1/hospitals/{site_id}
 ```
 
-Returns what the hospital's page shows: its counts and outcome rate as in the
-list, `max_entered` (300), the running profile of its records, the model in use
-measured on its own labelled records (`local_metrics`: AUC, sensitivity,
-specificity, alerts per 1,000 and the AUC gap between women and men), the model
-in use (`current_model`), and `contributions`: what the hospital sent in its 20
-most recent round jobs, newest first. Before any pilot, `contributions` is
-empty. Nothing is stored.
+Returns what the hospital's page shows. From the hospital's LMA: the outcome
+rate and its status (`GET /api/v1/site/summary`), the running profile
+(`GET /api/v1/site/profile`), the model in use measured on the hospital's
+labelled records (`POST /api/v1/site/model:evaluate`; `local_metrics`: AUC,
+sensitivity, specificity, alerts per 1,000 and the AUC gap between women and
+men), the model in use (`GET /api/v1/site/model`; `current_model`) and
+`contributions`, the 20 newest entries of the LMA's job log
+(`GET /api/v1/federation/jobs`), newest first. From the hospital's store: the
+counts, where the records are, and `max_entered` (300). Before any pilot,
+`contributions` is empty. Nothing is stored. The example's `framework_calls`
+is trimmed to the first three of the five calls.
 
-**Errors.** `404` when no hospital has this id. `503` only with a database.
+**Errors.** `404` when no hospital has this id. `503` when the planner cannot
+be run, the LMA does not answer, or, with a database, the store cannot be read.
 
 **Related.** [The hospital's worklist](#healthcare-demo-backend-get-api-v1-hospitals-site-id-worklist),
 [its charts](#healthcare-demo-backend-get-api-v1-hospitals-site-id-charts),
-[the DatasetProfile object](agents.md#the-datasetprofile-object).
+[the DatasetProfile object](agents.md#the-datasetprofile-object),
+[the LMA site endpoints](agents.md#lma-site).
 
 ### Read a hospital's worklist
 
@@ -429,15 +539,17 @@ GET /api/v1/hospitals/{site_id}/worklist
 ```
 
 Returns the hospital's records ranked by the model in use, highest risk first,
-`limit` of them (default 12). Each record has its fields and an `assessment` as
-in [scoring one record](#healthcare-demo-backend-post-api-v1-triage-assess),
-plus `model_kind`. Records the model cannot score go to the end. The model in
-use is the seed rule until a candidate is approved; after that, the assessment
-of a logistic regression lists the largest terms on the log-odds scale in
-`basis`. Nothing is stored.
+`limit` of them (default 12). The app reads the records in the hospital's store
+and asks the LMA for the model in use (`GET /api/v1/site/model`). Each record
+has its fields and an `assessment` as in
+[scoring one record](#healthcare-demo-backend-post-api-v1-triage-assess), plus
+`model_kind`. Records the model cannot score go to the end. The model in use is
+the seed rule until a candidate is approved; after that, the assessment of a
+logistic regression lists the largest terms on the log-odds scale in `basis`.
+Nothing is stored.
 
 **Errors.** `404` when no hospital has this id. `422` when `limit` is outside 1
-to 200.
+to 200. `503` when the planner cannot be run or the LMA does not answer.
 
 **Related.** [Rank records sent in the request](#healthcare-demo-backend-post-api-v1-triage-worklist).
 
@@ -452,9 +564,11 @@ thresholds, from 0.05 to 0.95 in steps of 0.05. Each row has `threshold`,
 `alerts_per_1000`, `sensitivity` (the share of patients with a poor outcome who
 get an alert) and `specificity` (the share of the others who do not). The alert
 threshold the app uses is 0.5. A hospital with no labelled records returns an
-empty `sweep`. Nothing is stored.
+empty `sweep`. The app reads the records in the store and the model from the
+LMA. Nothing is stored.
 
-**Errors.** `404` when no hospital has this id.
+**Errors.** `404` when no hospital has this id. `503` when the planner cannot be
+run or the LMA does not answer.
 
 **Related.** [One hospital's view](#healthcare-demo-backend-get-api-v1-hospitals-site-id).
 
@@ -466,15 +580,16 @@ GET /api/v1/hospitals/{site_id}/audit
 
 Returns the hospital's Guard decisions, newest first, `limit` of them (default
 50), and `chain_intact`: whether every record's `previous_digest` equals the
-digest of the record before it. A record is written for every Guard decision at
-the hospital: each [Guard probe](#healthcare-demo-backend-post-api-v1-governance-probe),
+digest of the record before it. The app reads them from the hospital's LMA
+(`GET /api/v1/governance/audit`). The LMA writes a record for every Guard
+decision at the hospital: each [Guard probe](#healthcare-demo-backend-post-api-v1-governance-probe),
 and three per round job in a pilot (`before_train`, `before_read`,
 `before_send`), so one pilot adds 24 records per hospital. Planning questions,
 such as the outcome-rate check, write nothing. Reading the chain stores
 nothing.
 
 **Errors.** `404` when no hospital has this id. `422` when `limit` is outside 1
-to 500.
+to 500. `503` when the LMA does not answer.
 
 **Related.** [The AuditRecord object](agents.md#the-auditrecord-object),
 [the Guard probe](#healthcare-demo-backend-post-api-v1-governance-probe).
@@ -486,7 +601,8 @@ service: healthcare-demo-backend
 status: complete
 code: apps/healthcare-demo/backend/app/main.py
 classes:
-- Hospital (apps/healthcare-demo/backend/app/services/hospital.py)
+- HospitalView (apps/healthcare-demo/backend/app/services/hospital_views.py)
+- StoreSiteSource (apps/healthcare-demo/backend/app/services/site_source.py)
 - EncounterEntry (apps/healthcare-demo/backend/app/models.py)
 - OutcomeRequest (apps/healthcare-demo/backend/app/models.py)
 - RateLimiter (apps/healthcare-demo/backend/app/api/limits.py)
@@ -508,25 +624,30 @@ cannot disagree.
 Each hospital accepts at most 300 entered records
 (`HEALTHCARE_DEMO_MAX_ENTERED_PER_SITE`). Entering and recording outcomes share
 a limit of 30 requests per minute per client. No planner command runs and no
-Guard boundary is passed: the hospital writes to its own store, as itself. The
-next worklist, chart, probe and pilot at that hospital include the record.
+Guard boundary is passed: the app writes to the hospital's store, as the
+hospital. When the write has finished, the app asks the hospital's LMA to read
+the store again (`POST /api/v1/site/source:refresh`), so the LMA's profile and
+summary, the next probe and the next pilot include the record. No lock or store
+connection is held during that call.
 
 ```mermaid
 sequenceDiagram
     participant Page as Hospital page
     participant API as healthcare-demo-backend
-    participant Hospital
     participant Store as site store
+    participant LMA as the hospital's LMA
     Page->>API: GET /api/v1/hospitals/ch-245/entry-form
     API-->>Page: 13 fields with their choices and ranges
     Page->>API: POST /api/v1/hospitals/ch-245/encounters, Idempotency-Key
-    API->>Hospital: enter(fields, key)
-    Hospital->>Store: append, as the hospital's role
-    Store-->>Hospital: record ch-245-e1
-    Hospital->>Hospital: add the record to the running profile
+    API->>Store: append, as the hospital's role
+    Store-->>API: record ch-245-e1
+    API->>LMA: POST /api/v1/site/source:refresh
+    LMA->>Store: read the records again, rebuild the running profile
+    API->>LMA: GET /api/v1/site/profile, GET /api/v1/site/model
     API-->>Page: 201 with the record, its assessment, counts and profile
     Page->>API: POST .../encounters/ch-245-e1/outcome
     API->>Store: set the outcome once
+    API->>LMA: POST /api/v1/site/source:refresh, GET /api/v1/site/profile
     API-->>Page: 200 with the labelled record
 ```
 
@@ -541,9 +662,11 @@ Returns the form the hospital's page renders: the 13 fields in order, each with
 `required`, `options`, `min`, `max`, `unit` and `help`. It also returns how many
 records the hospital may still accept (`remaining`), the `Idempotency-Key`
 rules, and a notice that every visitor can read what is entered. The page draws
-the form from this answer and owns none of its rules. Nothing is stored.
+the form from this answer and owns none of its rules. It calls no agent, and
+nothing is stored.
 
-**Errors.** `404` when no hospital has this id.
+**Errors.** `404` when no hospital has this id. `503` only with a database,
+when the store cannot be read.
 
 **Related.** [Enter a record](#healthcare-demo-backend-post-api-v1-hospitals-site-id-encounters),
 [the EncounterEntry object](#the-encounterentry-object).
@@ -558,30 +681,38 @@ Stores a new record in the hospital's store, as the hospital, and answers
 `201`. The store gives it the id `<site_id>-e<n>` (the first is `ch-245-e1`),
 sets `origin` to `entered`, derives `age_band` from `age` and records
 `recorded_at`. The exact age stays at the hospital; only the age band is a
-contract field. The record has no outcome yet. The answer holds:
+contract field. The record has no outcome yet. Then the app asks the LMA to
+read the store again, and the answer holds:
 
 | Field | What it holds |
 |---|---|
 | `record` | The stored record. Missing values are left out |
-| `assessment` | The record scored by the model in use |
+| `assessment` | The record scored by the model in use, which the LMA reports |
 | `counts` | The hospital's `total`, `entered` and `labelled` counts after the entry |
-| `profile` | The hospital's running profile after the entry |
+| `profile` | The hospital's running profile after the entry, from its LMA |
+| `framework_calls` | The three calls to the hospital's LMA |
 
 **Retries.** Send an `Idempotency-Key` with each new record. The same key with
 the same fields returns `201` and the record stored the first time; nothing new
 is stored. The same key with different fields returns `409`. A retry is
-refused with `409` too once the hospital holds 300 entered records.
+refused with `409` too once the hospital holds 300 entered records. If the LMA
+does not answer after the write, the answer is `503` but the record is stored;
+sending it again with the same key returns it.
 
 **Errors.** `404` when no hospital has this id. `409` for a reused key or a full
 hospital. `422` when a field is missing, out of its range, not one of its
 choices, or not a field of the record, or when the `Idempotency-Key` has
 characters other than letters, digits and `. _ : -`; `errors` names each one.
 `429` beyond 30 requests per minute from one client. `413` for a body larger
-than 64 KB. `503` only with a database.
+than 64 KB. `503` when the planner cannot be run, the LMA does not answer, or,
+with a database, the store cannot be reached. The app registers its model
+versions with the GMA before the write, so a `503` from a missing planner
+stores nothing.
 
 **Related.** [The EncounterEntry object](#the-encounterentry-object),
 [record the outcome](#healthcare-demo-backend-post-api-v1-hospitals-site-id-encounters-encounter-id-outcome),
-[idempotency](overview.md#idempotency).
+[idempotency](overview.md#idempotency),
+[the LMA's refresh](agents.md#lma-post-api-v1-site-source-refresh).
 
 ### List the records entered at a hospital
 
@@ -593,10 +724,12 @@ Returns the records entered through the form at this hospital, newest first,
 `limit` of them (default 20), each with `recorded_at`, `outcome_recorded_at`
 once an outcome is set, and its assessment by the model in use. It also returns
 the hospital's `counts` and `max_entered`. Records from the IST are not listed:
-`origin` takes only `entered`. Nothing is stored.
+`origin` takes only `entered`. The app reads the records in the store and the
+model from the LMA. Nothing is stored.
 
 **Errors.** `404` when no hospital has this id. `422` when `limit` is outside 1
-to 300, or `origin` is not `entered`.
+to 300, or `origin` is not `entered`. `503` when the planner cannot be run or
+the LMA does not answer.
 
 **Related.** [Enter a record](#healthcare-demo-backend-post-api-v1-hospitals-site-id-encounters).
 
@@ -607,18 +740,19 @@ POST /api/v1/hospitals/{site_id}/encounters/{encounter_id}/outcome
 ```
 
 Sets `poor_outcome_6m` on a record entered at this hospital and records
-`outcome_recorded_at`. It returns the record, the hospital's counts and its
-running profile. An outcome is recorded once: the same value again returns
-`200` with the record unchanged, and a different value returns `409`. The demo
-has no accounts, so allowing a change would let any visitor change another
-visitor's training label. The next pilot trains and evaluates on the labelled
-record.
+`outcome_recorded_at`. Then the app asks the LMA to read the store again, and
+returns the record, the hospital's counts and its running profile from the
+LMA. An outcome is recorded once: the same value again returns `200` with the
+record unchanged, and a different value returns `409`. The demo has no
+accounts, so allowing a change would let any visitor change another visitor's
+training label. The next pilot trains and evaluates on the labelled record.
 
 **Errors.** `404` when no hospital or no record has this id. `409` when the
 record already has a different outcome. `422` when the record came from the
 IST (only entered records take an outcome), or the body is not
 `{"poor_outcome_6m": true|false}`. `429` beyond 30 requests per minute from one
-client, counted together with entries.
+client, counted together with entries. `503` when the LMA does not answer or,
+with a database, the store cannot be reached.
 
 **Related.** [Enter a record](#healthcare-demo-backend-post-api-v1-hospitals-site-id-encounters),
 [run the pilot](#healthcare-demo-backend-post-api-v1-pilot-run).
@@ -650,20 +784,22 @@ numbers. Each chart has a list entry and a drawing:
 | `table` | The chart's numbers as `columns` and `rows` |
 | `notice` | The IST licence notice |
 | `svg_path` | Where to fetch the drawing |
-| `version` | A digest of the whole entry, including the table |
+| `drawn_by` | Who drew the chart: the app, with the Dagents chart renderer |
+| `data_from` | Where its numbers come from, in words |
+| `version` | A digest of the entry, including the table. `drawn_by` and `data_from` are not part of it |
 
 There are two sets:
 
 | Set | Charts | Data |
 |---|---|---|
-| Consortium | `hospital-records`, `hospital-outcome-rates`, `site-auc`, `training-curve`, `release-gates` | What hospitals report, and the last pilot. The last three need a pilot. |
-| Hospital | `outcome-by-age-band`, `presentation`, `systolic-bp`, `risk-scores` | That hospital's own records |
+| Consortium | `hospital-records`, `hospital-outcome-rates`, `site-auc`, `training-curve`, `release-gates` | What each hospital's LMA reports through the GMA, and the last pilot's report. The last three need a pilot. |
+| Hospital | `outcome-by-age-band`, `presentation`, `systolic-bp`, `risk-scores` | That hospital's own records, read in its store as its role. The risk chart scores them with the model the hospital's LMA reports in use. |
 
 Drawing uses the framework's chart renderer
-(`agents/common/infrastructure/charts.py`, matplotlib). A drawing has no date
-or random ids, so the same data gives the same bytes, and up to 256 drawings
-are kept in memory. The colours mark which hospital a series belongs to and
-never a decision.
+(`agents/common/infrastructure/charts.py`, matplotlib) as a library call in the
+app's process. A drawing has no date or random ids, so the same data gives the
+same bytes, and up to 256 drawings are kept in memory. The colours mark which
+hospital a series belongs to and never a decision.
 
 **Conditional requests.** An SVG answer carries `ETag: "<version>-<theme>"` and
 `Cache-Control: no-cache`. Send the ETag back in `If-None-Match`, and the answer
@@ -677,15 +813,17 @@ GET /api/v1/charts
 ```
 
 Returns the five consortium charts in display order. The two record charts are
-built from the hospitals' summaries, so a hospital whose planner withholds its
-outcome rate shows a gap, and the table gives the reason. The three pilot
-charts read the last pilot's report, which the coordinator store keeps across
-restarts. Before any pilot they are listed with `available: false`. It never
-answers `4xx`. Building the summaries runs `dagentsc governance restrict`, as
+built from the site summaries the GMA collects from the LMAs, so a hospital
+whose planner withholds its outcome rate shows a gap, and the table gives the
+reason. The three pilot charts read the last pilot's report, which the
+coordinator store keeps across restarts. Before any pilot they are listed with
+`available: false`. It never answers `4xx`. Building the summaries can make
+each LMA run `dagentsc governance restrict`, as
 [the hospital list](#healthcare-demo-backend-get-api-v1-hospitals) does.
 Nothing is stored.
 
-**Errors.** `503` only with a database.
+**Errors.** `503` when the GMA or an LMA does not answer, or, with a database,
+when a store cannot be read.
 
 **Related.** [Draw a consortium chart](#healthcare-demo-backend-get-api-v1-charts-chart-id-svg).
 
@@ -700,12 +838,13 @@ Returns one consortium chart as an SVG document (`image/svg+xml`), in the
 `Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'` and
 `X-Content-Type-Options: nosniff`, so the SVG cannot run a script or load
 anything. The examples are trimmed to the first 400 characters of the
-document. Nothing is stored.
+document. An SVG carries no `framework_calls`. Nothing is stored.
 
 **Errors.** `304` (not an error) when `If-None-Match` holds the current ETag.
 `404` when no chart has this id, or when the chart needs a pilot that has not
 run; the body gives the reason. `422` when `theme` is not `light` or `dark`.
-`503` when matplotlib is not installed on the server.
+`503` when matplotlib is not installed on the server, or an agent does not
+answer.
 
 **Related.** [List the consortium charts](#healthcare-demo-backend-get-api-v1-charts).
 
@@ -721,7 +860,9 @@ systolic blood pressure in 20 mmHg bands from 60 to 300, and the model in use's
 scores by recorded outcome. Over an empty store each chart is listed with
 `available: false`. Nothing is stored.
 
-**Errors.** `404` when no hospital has this id. `503` only with a database.
+**Errors.** `404` when no hospital has this id. `503` when the planner cannot
+be run, the LMA does not answer, or, with a database, the store cannot be
+read.
 
 **Related.** [Draw a hospital chart](#healthcare-demo-backend-get-api-v1-hospitals-site-id-charts-chart-id-svg).
 
@@ -737,7 +878,8 @@ same as on the consortium charts. Nothing is stored.
 
 **Errors.** `404` when no hospital or no chart has this id, or the hospital's
 store holds no records. `422` for a `theme` other than `light` or `dark`.
-`503` when matplotlib is not installed.
+`503` when matplotlib is not installed, or the planner or the LMA is not
+available.
 
 **Related.** [List a hospital's charts](#healthcare-demo-backend-get-api-v1-hospitals-site-id-charts).
 
@@ -748,8 +890,8 @@ service: healthcare-demo-backend
 status: complete
 code: apps/healthcare-demo/backend/app/main.py
 classes:
-- Hospital (apps/healthcare-demo/backend/app/services/hospital.py)
-- GovernanceService (agents/common/application/governance_service.py)
+- HospitalView (apps/healthcare-demo/backend/app/services/hospital_views.py)
+- ProbeRequest (agents/common/domain/site.py)
 - GuardProbeRequest (apps/healthcare-demo/backend/app/models.py)
 - GuardProbeResponse (apps/healthcare-demo/backend/app/models.py)
 - HourlyCap (apps/healthcare-demo/backend/app/api/limits.py)
@@ -759,8 +901,10 @@ endpoints:
 
 A probe asks one hospital's Guard what it would release for a request, so a
 reader can change the requester's trust, the boundary or the granularity and
-see the decision change. The Guard runs at the hospital, over the hospital's
-records, and writes the decision to the hospital's audit chain.
+see the decision change. The hospital's LMA runs the Guard
+(`POST /api/v1/governance/restrictions:probe`) over the hospital's records,
+with the hospital's classification and the condition pack's approved
+purposes, and writes the decision to the hospital's audit chain.
 
 The audit chain is shown to every visitor and cannot be edited without breaking
 it, so the request takes no free text: the requester (`demo-operator`), its
@@ -772,19 +916,19 @@ records and names their fields; it holds no record.
 sequenceDiagram
     participant Page as Coordinator page
     participant API as healthcare-demo-backend
-    participant Hospital
-    participant Guard as Guard at the hospital
+    participant LMA as the hospital's LMA
     participant Planner as dagentsc
     participant Chain as hospital audit chain
     Page->>API: POST /api/v1/governance:probe
     API->>API: check the hourly cap for this hospital
-    API->>Hospital: guard_probe(request, record_limit)
-    Hospital->>Guard: enforce(request, first records)
-    Guard->>Planner: governance restrict
-    Planner-->>Guard: restriction plan
-    Guard->>Guard: apply the plan, drop fields not asked for
-    Guard->>Chain: append the decision with the previous digest
-    API-->>Page: 200 with the plan, counts and field names, no records
+    API->>LMA: POST /api/v1/governance/restrictions:probe, site token
+    LMA->>LMA: read the first records, add the classification and purposes
+    LMA->>Planner: governance restrict
+    Planner-->>LMA: restriction plan
+    LMA->>LMA: apply the plan, drop fields not asked for
+    LMA->>Chain: append the decision with the previous digest
+    LMA-->>API: the plan, counts and field names, no records
+    API-->>Page: 200 with the same and framework_calls
 ```
 
 ### Ask a hospital's Guard about a request
@@ -793,13 +937,13 @@ sequenceDiagram
 POST /api/v1/governance:probe
 ```
 
-Builds a [RestrictionRequest](agents.md#the-restrictionrequest-object) from the
-body, with the request id `probe:<site_id>:<boundary>:<granularity>`. The
-requester has two attributes, `verified_identity` and `signed_dua`, both
-verified or both not as `verified` says. The Guard reads the hospital's first
-`record_limit` records (default 5), asks the planner for a plan
-(`dagentsc governance restrict`), applies it and writes one audit record. When
-`cohort_size` is not sent, it is the number of records read.
+Builds a [ProbeRequest](agents.md#the-proberequest-object) from the body and
+sends it to the hospital's LMA. The requester has two attributes,
+`verified_identity` and `signed_dua`, both verified or both not as `verified`
+says. The LMA gives the request the id `probe:<site_id>:<random hex>`. Its Guard
+reads the hospital's first `record_limit` records (default 5), asks the planner
+for a plan (`dagentsc governance restrict`), applies it and writes one audit
+record. When `cohort_size` is not sent, it is the number of records read.
 
 The answer is a [GuardProbeResponse](#the-guardproberesponse-object). In the
 first example, the default levers give trust `high`, and the plan generalizes
@@ -809,17 +953,20 @@ requester asks for a table about 12 patients; the plan denies it because 12 is
 below the minimum cohort of 20, and nothing is released.
 
 The Guard fails closed. When the planner cannot be run, the answer is `200` with
-`permitted: false`, a `deny` plan and the reason, and the denial is recorded.
+`permitted: false`, a `deny` plan and the reason, and the LMA records the
+denial.
 
 **Errors.** `404` when `site_id` names no hospital. `422` for an unknown key, a
 value outside its choices or range, or a requested field that is not a contract
 field, such as the outcome `poor_outcome_6m`. `429` beyond 60 probes per minute
 from one client, or 600 probes in any hour at one hospital from all clients
-together; `Retry-After` gives the seconds to wait.
+together; `Retry-After` gives the seconds to wait. `503` when the LMA does not
+answer.
 
 **Related.** [The GuardProbeRequest object](#the-guardproberequest-object),
 [the RestrictionPlan object](agents.md#the-restrictionplan-object),
 [the hospital's audit chain](#healthcare-demo-backend-get-api-v1-hospitals-site-id-audit),
+[the LMA's probe](agents.md#lma-post-api-v1-governance-restrictions-probe),
 [`dagentsc governance restrict`](dagentsc.md#dagentsc-governance-restrict).
 
 ## The federated pilot and model releases
@@ -827,12 +974,12 @@ together; `Retry-After` gives the seconds to wait.
 ```api-interface
 service: healthcare-demo-backend
 status: complete
-code: apps/healthcare-demo/backend/app/main.py, apps/healthcare-demo/backend/app/services/consortium.py
+code: apps/healthcare-demo/backend/app/main.py, apps/healthcare-demo/backend/app/services/pilot.py
 classes:
-- Consortium (apps/healthcare-demo/backend/app/services/consortium.py)
-- FederatedRoundController (agents/common/application/federation.py)
-- ParameterAveragingRuntime (apps/healthcare-demo/backend/app/services/runtime.py)
-- ModelRegistry (apps/healthcare-demo/backend/app/services/runtime.py)
+- PilotService (apps/healthcare-demo/backend/app/services/pilot.py)
+- StudyOverview (apps/healthcare-demo/backend/app/services/overview.py)
+- GmaClient (agents/common/infrastructure/agent_client.py)
+- LogisticRegressionKind (apps/healthcare-demo/backend/app/domain/model_kinds.py)
 - SingleFlight (apps/healthcare-demo/backend/app/api/limits.py)
 endpoints:
 - POST /api/v1/pilot:run
@@ -840,29 +987,61 @@ endpoints:
 - POST /api/v1/models/{version}:approve
 ```
 
-A **pilot** is one run of the study across the three hospitals. The coordinator
-plans each round with the planner, each hospital decides for itself whether to
-take part, and the coordinator combines what the hospitals send. No record
-leaves a hospital: a hospital sends metrics, counts and, in a training round, a
-parameter update clipped by its `before_send` Guard. The runtime keeps only the
-weighted sum of the updates.
+A **pilot** is one run of the study across the three hospitals. The app's study
+operator (`PilotService`) runs it as calls to the GMA, with the GMA's `admin`
+token. The GMA plans each round with the planner and sends the round's job to
+each hospital's LMA over HTTP, in one `jobs:run` call: the LMA checks the job
+and may refuse it, and runs it when it accepts. Each LMA decides for itself
+whether to take part.
+
+No record leaves a hospital. An LMA sends metrics, counts and, in a training
+round, a parameter update clipped by its `before_send` Guard. The update goes
+to the GMA's update store (`PUT /api/v1/federation/rounds/{round_id}/updates/{site_id}`),
+never into the result. The GMA combines the updates with the app's model kind
+(`LogisticRegressionKind.combine`) and deletes them.
 
 The rounds, in order:
 
-| Round | Each hospital | The coordinator |
+| Round | Each hospital's LMA | The GMA |
 |---|---|---|
 | analytics | Profiles its records: count, completeness, label coverage, and the outcome rate when its planner permits it | Plans the round and checks readiness |
 | evaluation | Measures the model in use on its labelled records | Averages the metrics by size: the baseline a candidate must beat |
-| training, 5 rounds | Trains the logistic regression from the last version for 30 epochs (learning rate 0.5, L2 0.01) and sends the clipped update | Applies the planner's weights and stores the next version as a candidate |
+| training, 5 rounds | Trains the logistic regression from the last version for 30 epochs (learning rate 0.5, L2 0.01) and uploads the clipped update | Combines the updates with the planner's weights, using the app's model kind, and stores the next version as a candidate |
 | candidate validation | Measures the final version | Averages the metrics |
-| release | | Runs the release Guard (`before_release`), then the planner's release gates |
+| release | | Runs the release Guard (`before_release`), the planner's release gates and its model lifecycle rule |
 
-Before it accepts a job, each hospital checks the round: the model version must
-be in the registry, its parameters must match the digest the manifest names,
-and the code digest must be the code it runs for that kind of model. Each job
-passes the hospital's Guard three times (`before_train`, `before_read`,
-`before_send`), so a pilot adds 24 records to each hospital's audit chain and 1
-to the coordinator's.
+Before it accepts a job, each LMA checks the round: the round digest
+(`dagentsc federation round digest`), the model version from the GMA, that its
+parameters match the digest the manifest names, and that the code digest is
+the code its model kind runs. Each job passes the hospital's Guard three times
+(`before_train`, `before_read`, `before_send`), so a pilot adds 24 records to
+each hospital's audit chain and 1 to the GMA's.
+
+The pilot as GMA calls:
+
+1. `POST /api/v1/federation/sites:refresh`. The GMA reads each LMA's
+   registration and enrols the hospitals with their current cohort sizes, once
+   per pilot.
+2. `GET /api/v1/model-versions:released` for the model in use, and
+   `GET /api/v1/health` for the GMA's engine.
+3. For each round, `POST /api/v1/federation/rounds` with the round manifest.
+   The GMA dispatches the jobs and answers with the results, each LMA's
+   acceptance, the dispatch rows and the planner's readiness. When the planner
+   permits it, `POST .../rounds/{round_id}:aggregate` follows; the GMA asks the
+   planner again before it aggregates. Before the first training round,
+   `GET /api/v1/model-versions/{version}` reads the all-zero starting model.
+   Aggregating a training round deletes its updates. A training round that is
+   not aggregated ends with `POST .../rounds/{round_id}:discard`, so no update
+   stays stored.
+4. `POST .../rounds/{last training round}:evaluate-release`, with the
+   validation round's metrics (`metrics_from_round`), the evaluation round as
+   the baseline (`baseline_from_round`), the release committee as the requester
+   and the condition id. The GMA runs the release Guard, the gates and the
+   lifecycle rule, and stores the decision with the model version.
+5. `GET /api/v1/federation/sites/summaries?include=audit` for each hospital's
+   audit chain state, and `GET /api/v1/governance/audit:summary` for the GMA's.
+
+Then the app puts the report together and stores it in the coordinator store.
 
 **A candidate is never released by the pilot.** When the gates and the release
 Guard allow it, it stays a `candidate` until a person approves it with
@@ -872,26 +1051,33 @@ A gate whose metric is missing blocks the release.
 ```mermaid
 sequenceDiagram
     participant Client
-    participant Coord as Consortium
+    participant App as PilotService
+    participant GMA
+    participant LMA as LMA x 3, in parallel
     participant Planner as dagentsc
-    participant Sites as 3 hospitals and their Guards
-    participant Runtime as ParameterAveragingRuntime
-    participant Registry as coordinator store
-    Client->>Coord: POST /api/v1/pilot:run
+    Client->>App: POST /api/v1/pilot:run
+    App->>GMA: POST /api/v1/federation/sites:refresh
+    GMA->>LMA: GET /api/v1/federation/registration
     loop analytics, evaluation, 5 training rounds, candidate validation
-        Coord->>Planner: federation round digest, federation round plan
-        Coord->>Sites: offer the job with the manifest digest
-        Sites->>Sites: verify the model and code digests, Guard before_train, before_read
-        Sites-->>Runtime: training only: update clipped by the before_send Guard
-        Sites-->>Coord: result: metrics, counts, update norm and digest
-        Coord->>Planner: federation aggregate readiness
-        Coord->>Runtime: aggregate with the planner's weights
-        Runtime->>Registry: training only: store the next version as a candidate
+        App->>GMA: POST /api/v1/federation/rounds with the manifest
+        GMA->>Planner: federation round plan
+        GMA->>LMA: POST /api/v1/federation/jobs:run
+        LMA->>Planner: federation round digest, Guard before_train
+        LMA->>Planner: when it accepts: Guard before_read, then before_send
+        LMA->>GMA: training only: PUT the clipped update
+        LMA-->>GMA: result: metrics, counts, update norm and digest
+        GMA->>Planner: federation aggregate readiness
+        GMA-->>App: the round with its results, acceptances, dispatch rows and readiness
+        App->>GMA: POST aggregate, when the planner permits it
+        GMA->>Planner: federation aggregate readiness, again
+        GMA->>GMA: training only: combine with the app's model kind, store a candidate, delete the updates
+        App->>GMA: training only, when not aggregated: POST discard
     end
-    Coord->>Planner: governance restrict, release Guard before_release
-    Coord->>Planner: federation release evaluate
-    Coord->>Registry: store the release decision and the pilot report
-    Coord-->>Client: 200 with the pilot report
+    App->>GMA: POST evaluate-release on the last training round
+    GMA->>Planner: release Guard, federation release evaluate, federation model lifecycle
+    App->>GMA: GET site summaries with audit, GET audit summary
+    App->>App: store the pilot report
+    App-->>Client: 200 with the report and framework_calls
 ```
 
 ### Run the federated pilot
@@ -902,52 +1088,57 @@ POST /api/v1/pilot:run
 
 Runs every round above and returns the evidence. The pilot id is
 `<round_prefix>-<UTC timestamp>-<6 random hex characters>`, so two pilots never
-share a round id, and every round id starts with it. The request runs these
-planner commands: `federation round digest`, `federation round plan`,
-`governance restrict`, `federation aggregate readiness` and
-`federation release evaluate`.
+share a round id, and every round id starts with it. The app runs no planner
+command itself. The agents run `federation round digest`,
+`federation round plan`, `governance restrict`,
+`federation aggregate readiness`, `federation release evaluate` and
+`federation model lifecycle`.
 
 It stores:
 
-- the model versions: the initial logistic regression the first time, then one
-  candidate per training round. Each round's starting version becomes
-  `superseded`;
-- the release decision, with the final candidate;
-- each hospital's contributions and audit records;
-- the report itself, so the pilot charts survive a restart.
+- at the GMA: one candidate model version per training round, each round's
+  starting version marked `superseded`, the release decision with the final
+  candidate, and one record in the GMA's audit chain;
+- at each LMA: its job log entries and its audit records;
+- in the coordinator store: the report itself, so the pilot charts survive a
+  restart.
 
-A candidate that the gates or the release Guard refuse becomes `rejected`. In
-memory, the example pilot took under a second. With a database, every store
-operation is a round trip, so a pilot takes longer.
+A candidate that the gates or the release Guard refuse becomes `rejected`. With
+a database, every store operation is a round trip, so a pilot takes longer.
 
 | Report field | What it holds |
 |---|---|
-| `pilot_id`, `study_id`, `condition`, `engine` | Which pilot, which study, and how it ran |
-| `model_in_use` | The model the hospitals used when the pilot started |
-| `rounds` | `analytics`, `evaluation`, `training` (a list) and `candidate_validation`. Each has the round id, the model version and digests, the [round plan](agents.md#the-roundplan-object), each hospital's [result](agents.md#the-siteresult-object), the [readiness](agents.md#the-aggregationreadiness-object) and a status |
+| `pilot_id`, `study_id`, `condition`, `engine` | Which pilot, which study, and the GMA engine that ran it (`http`) |
+| `model_in_use` | The model the GMA had released when the pilot started |
+| `rounds` | `analytics`, `evaluation`, `training` (a list) and `candidate_validation`. Each has the round id, the model version and digests, the [round plan](agents.md#the-roundplan-object), each hospital's [result](agents.md#the-siteresult-object), the [readiness](agents.md#the-aggregationreadiness-object), a status, each LMA's [acceptance](agents.md#the-jobacceptance-object) and the [dispatch rows](agents.md#the-dispatchcall-object): the `jobs:run` call the GMA sent each LMA, with its status code and outcome. An analytics result reports the share of poor outcomes as `outcome_rate`, which the LMA calls `label_rate` |
 | `training_curve` | Per training round: the loss before and after, each hospital's update norm, and the version it produced |
 | `training_settings` | 5 rounds, 30 epochs, learning rate 0.5, L2 0.01, the initial version |
 | `candidate` | The final [candidate](agents.md#the-candidatemodel-object), its validated metrics and its status |
-| `release` | `guard`: the release Guard's decision. `gates`: the [release decision](agents.md#the-releasedecision-object) |
+| `release` | `guard`: the release Guard's decision. `gates`: the [release decision](agents.md#the-releasedecision-object). `metrics_source`: `rounds`, because the GMA collected the results itself. `baseline_version`: the model the gates compared against |
 | `baseline_metrics` | The model in use, measured at every hospital and averaged by size |
 | `stop_reason` | Why training stopped early, or `null` |
-| `site_audits`, `coordinator_audit` | Whether each audit chain verifies and how many records it holds. No audit record is in the report |
+| `site_audits`, `coordinator_audit` | Whether each audit chain verifies and how many records it holds, as each LMA reports it through the GMA and as the GMA reports its own. No audit record is in the report |
 | `notice`, `dataset_notice` | What the records are, and the IST licence notice |
+| `framework_calls` | Every GMA call the app made, each followed by the GMA's calls to the LMAs for that round (`via: gma`) |
 
-In the example, the candidate's AUC of 0.786 passes the AUC floor of 0.70 but
-not `improves_on_current_release`, which needs the baseline's 0.777 plus 0.02.
-The action is `reject`, so the candidate's status is `rejected`. The example is
-trimmed to 3 items per list and 200 characters per string.
+In the example, the candidate passes the AUC floor of 0.70 but not
+`improves_on_current_release`, which needs the baseline's AUC plus 0.02. The
+action is `reject`, so the candidate's status is `rejected`. The example is
+trimmed to 3 items per list and 200 characters per string. The GMA calls the
+hospitals in parallel, so the order and times of the dispatch rows change from
+run to run.
 
 **Errors.** `409` when a pilot is already running; one runs at a time. `422`
 for a `round_prefix` other than `ui` or `api`, or any other key. `429` beyond 3
 pilots per minute from one client, or 20 pilots in any hour from all clients
-together. `503` when the planner cannot be run.
+together. `503` when the planner cannot be run, an agent does not answer, or,
+with a database, a store cannot be reached. When the GMA refuses to aggregate a
+training round, the pilot stops training and says why in `stop_reason`.
 
 **Related.** [List the model versions](#healthcare-demo-backend-get-api-v1-models),
 [the consortium charts](#healthcare-demo-backend-get-api-v1-charts),
-[Federated rounds on the GMA](agents.md#federated-rounds), which run the same
-controller over HTTP.
+[Federated rounds on the GMA](agents.md#federated-rounds) and
+[the GMA update store](agents.md#gma-update-store), which the pilot uses.
 
 ### List the model versions
 
@@ -955,18 +1146,21 @@ controller over HTTP.
 GET /api/v1/models
 ```
 
-Returns `model_in_use` and `models`: the 20 newest registered versions, oldest
-first. Each version has `version`, `kind` (`points_rule` or
-`logistic_regression`), `digest` (a SHA-256 of its parameters), `status`
-(`released`, `candidate`, `superseded` or `rejected`), `parent_version`,
-`created_at` and `release_decision`. A version's parameters are not returned.
-Before any pilot, only the seed rule is listed; each pilot adds up to 6
-versions. Nothing is stored.
+Returns `model_in_use` and `models`: the 20 newest versions in the GMA's model
+registry (`GET /api/v1/model-versions`), oldest first. Each version has
+`version`, `kind` (`points_rule` or `logistic_regression`), `digest` (a SHA-256
+of its parameters), `status` (`released`, `candidate`, `superseded` or
+`rejected`), `parent_version`, `created_at` and `release_decision`. A version's
+parameters are not returned. Before any pilot, the seed rule and the all-zero
+logistic regression are listed; each pilot adds up to 5 versions, one per
+training round. Nothing is stored.
 
-**Errors.** `503` only with a database.
+**Errors.** `503` when the planner cannot be run, the GMA does not answer, or,
+with a database, the GMA's store cannot be read.
 
 **Related.** [Run the pilot](#healthcare-demo-backend-post-api-v1-pilot-run),
-[approve a candidate](#healthcare-demo-backend-post-api-v1-models-version-approve).
+[approve a candidate](#healthcare-demo-backend-post-api-v1-models-version-approve),
+[the GMA's model versions](agents.md#model-versions).
 
 ### Approve a candidate for release
 
@@ -974,47 +1168,53 @@ versions. Nothing is stored.
 POST /api/v1/models/{version}:approve
 ```
 
-Releases a candidate, as the person who approves releases. It is allowed only
-when the version's last release decision was `release`, its release Guard check
-was permitted, it is still a `candidate`, and the model its gates compared it
-with is still the model in use. The decision is read from the coordinator
-store, so an approval works after a restart. On success the version becomes
-`released`, the previous model becomes `superseded`, and the hospitals score
-with the new model. The answer is `{"released": <the version's summary>,
-"previous": "<the previous version>"}`. No planner command runs.
+Releases a candidate through the GMA
+(`POST /api/v1/model-versions/{version}:approve`), as the person who approves
+releases. The GMA's model lifecycle rule
+([`dagentsc federation model lifecycle`](dagentsc.md#dagentsc-federation-model-lifecycle))
+decides: the version's last release decision must be `release`, its release
+Guard check permitted, its metrics taken from the rounds, the version still a
+`candidate`, and the model its gates compared it with still the model in use.
+The decision is read from the GMA's model registry, which a database keeps
+across restarts. On success the version becomes `released`, the previous model
+becomes `superseded`, and the hospital views score with the new model, which
+each LMA reads from the GMA the next time it is asked for the model in use.
+The answer is `{"released": <the version's summary>, "previous": "<the
+previous version>"}`.
 
 A candidate's version is `stroke-outcome-logreg+<round id>`, and a round id
 holds a timestamp and a random suffix. So the examples cannot name a real
 candidate, and show the errors only.
 
 **Errors.** `404` when no version has this name. `409` when the version cannot
-be approved; the body says which condition failed. `429` beyond 10 approvals
-per minute from one client. The examples ran with a limit of 2, so the third
-request was refused with `Retry-After: 30`.
+be approved; the body gives the GMA's reason. `429` beyond 10 approvals per
+minute from one client. The examples ran with a limit of 2, so the third
+request was refused with `Retry-After: 30`. `503` when the planner cannot be
+run or the GMA does not answer.
 
 **Related.** [List the model versions](#healthcare-demo-backend-get-api-v1-models),
-[run the pilot](#healthcare-demo-backend-post-api-v1-pilot-run).
+[run the pilot](#healthcare-demo-backend-post-api-v1-pilot-run),
+[approve a candidate at the GMA](agents.md#gma-post-api-v1-model-versions-version-approve).
 
 ## The framework
 
 ```api-interface
 service: healthcare-demo-backend
 status: complete
-code: apps/healthcare-demo/backend/app/main.py, apps/healthcare-demo/backend/app/services/framework_client.py
+code: apps/healthcare-demo/backend/app/main.py, apps/healthcare-demo/backend/app/services/overview.py
 classes:
-- FrameworkClient (apps/healthcare-demo/backend/app/services/framework_client.py)
-- Consortium (apps/healthcare-demo/backend/app/services/consortium.py)
+- StudyOverview (apps/healthcare-demo/backend/app/services/overview.py)
+- Agents (apps/healthcare-demo/backend/app/services/agents.py)
+- AgentsStatus (apps/healthcare-demo/backend/app/models.py)
 endpoints:
 - GET /api/v1/framework/status
-- GET /api/v1/framework/trace
 ```
 
-Where the records are stored and which framework services answer, and a trace
-of one hospital's records through the planners. The demo page reads the status
-to show where its data comes from: it shows the storage the backend reports,
-never one guessed from an address.
+Where the records are stored and how the Dagents agents run. The demo page
+reads the status to show where its data comes from: it shows the storage the
+hospitals' LMAs report, never one guessed from an address.
 
-### Read where the records are and which services answer
+### Read where the records are and how the agents run
 
 ```api-endpoint
 GET /api/v1/framework/status
@@ -1024,54 +1224,31 @@ Returns:
 
 | Field | What it holds |
 |---|---|
-| `cohort_source` | `postgres` or `in-memory`: where the hospitals' records are |
-| `store_layout` | `schema-per-site` or `in-memory-per-site` |
+| `cohort_source` | `postgres` or `in-memory`: the kind of store each hospital's LMA reports it reads. For an LMA that does not answer, the kind of the app's store for that hospital. A list when they differ |
+| `store_layout` | `schema-per-site`, `in-memory-per-site`, or `mixed` |
 | `dataset` | The IST citation, licence and notice |
-| `ready` | True when every store could be read and holds at least one record |
-| `hospitals` | Each hospital's `record_count` and `labelled_count`, or `null` when a store cannot be read |
-| `services` | Each framework service's `name`, `status` (`ok` or `unavailable`) and `detail`. The addresses are not returned |
+| `ready` | True when every hospital's LMA reported its counts and each store holds at least one record |
+| `hospitals` | Each hospital's `record_count` and `labelled_count`, as its LMA counts them, or `null` when one could not be read |
+| `agents` | How the agents run: `mode` (`in-process` or `network`), the GMA's `engine`, and `lmas`, which says for each hospital whether its LMA answered the GMA and which kind of store it reads. `engine` and `lmas` are `null` when the GMA does not answer. See [the AgentsStatus object](#the-agentsstatus-object) |
+| `services` | Each agent's health check: `name` (`gma` or `lma-<site_id>`), `status` (`ok` or `unavailable`) and `detail`. The addresses are not returned |
 | `allowed_origins` | The CORS origins, after cleaning (`*` when none are set) |
 | `rate_limit_client` | How the rate limits identify a client: the TCP peer, or an entry of `X-Forwarded-For` |
 
-It never fails because a store cannot be read; it reports `ready: false`
-instead. The service checks call each service's health path at the same time,
-wait at most `HEALTHCARE_DEMO_REQUEST_TIMEOUT_SECONDS` (2 seconds), and are
-reused for 15 seconds. No planner command runs and nothing is stored. In the
-example no framework service was running.
+It never fails because a store or an agent does not answer; it reports
+`ready: false` instead. The health checks run at the same time, each waits at
+most `HEALTHCARE_DEMO_REQUEST_TIMEOUT_SECONDS` (2 seconds), and their results
+are reused for 15 seconds. It registers no model version, so it answers while
+the planner or the GMA's store is down. Reading the site summaries can make
+each LMA run `dagentsc governance restrict` for a new labelled count, as
+[the hospital list](#healthcare-demo-backend-get-api-v1-hospitals) does.
+Nothing is stored. The health checks finish in any order, so the example's
+calls after the first change order from run to run.
 
 **Errors.** None of its own.
 
 **Related.** [Health](#healthcare-demo-backend-get-api-v1-health),
-[CORS and the X-Dagents-App header](overview.md#browsers-cors-and-the-x-dagents-app-header).
-
-### Trace a hospital's records through the planners
-
-```api-endpoint
-GET /api/v1/framework/trace
-```
-
-Runs the hospital's first `limit` records (default 50) through six framework
-steps, at the hospital, and reports each one with `name`, `status` (`ok` or
-`warning`), `detail` and the planner's answer in `payload`. A step that fails
-is a `warning`, not an error. None of the steps knows what a stroke is; they
-work from the contract and classification the extension declared.
-
-| Step | Planner command |
-|---|---|
-| Source spec validation | `dataset source validate` |
-| Feature contract validation | `dataset schema validate` |
-| Clinical data-quality rules | `dataset quality evaluate`, with a presence rule per required field and a range rule per number |
-| Pipeline DAG planning | `pipeline compile` |
-| Model route planning | `model route --task classification` |
-| Ethical-Restriction Rails (egress) | `governance restrict`, a `before_send` model-update request |
-
-The governance step only plans: it applies nothing and writes no audit record.
-Nothing is stored.
-
-**Errors.** `404` when `site_id` names no hospital. `422` when `limit` is
-outside 1 to 1,000 or `site_id` is longer than 64 characters.
-
-**Related.** [dagentsc](dagentsc.md).
+[CORS and the X-Dagents-App header](overview.md#browsers-cors-and-the-x-dagents-app-header),
+[tokens and calls between agents](agents.md#tokens-errors-and-calls-between-agents).
 
 ## NL2SQL status and catalog
 
@@ -1255,14 +1432,19 @@ shared column name, and adds a `WHERE` for words such as `paid`, `open`,
 The request and response models of the two apps, from
 `apps/healthcare-demo/backend/app/models.py` and
 `services/nl2sql-demo/backend/app/models.py`. The framework objects the
-healthcare demo returns are on the agents page:
+healthcare demo returns come from its LMAs and its GMA, and are on the agents
+page:
 [RestrictionPlan](agents.md#the-restrictionplan-object),
 [AuditRecord](agents.md#the-auditrecord-object),
 [RoundPlan](agents.md#the-roundplan-object),
 [SiteResult](agents.md#the-siteresult-object),
+[JobAcceptance](agents.md#the-jobacceptance-object),
+[DispatchCall](agents.md#the-dispatchcall-object),
 [AggregationReadiness](agents.md#the-aggregationreadiness-object),
-[CandidateModel](agents.md#the-candidatemodel-object) and
-[ReleaseDecision](agents.md#the-releasedecision-object).
+[CandidateModel](agents.md#the-candidatemodel-object),
+[ReleaseDecision](agents.md#the-releasedecision-object),
+[ReleaseGuardCheck](agents.md#the-releaseguardcheck-object) and
+[ModelVersion](agents.md#the-modelversion-object).
 
 ### The EncounterEntry object
 
@@ -1300,8 +1482,36 @@ example: healthcare-demo-backend probe /response/body
 ```
 
 What a hospital's Guard would release for a probe, without the records. The
-coordinator's page calls the probe, so the answer counts the released records
-and names their fields; the values stay at the hospital.
+hospital's LMA computes it. The coordinator's page calls the probe, so the
+answer counts the released records and names their fields; the values stay at
+the hospital.
+
+### The FrameworkCall object
+
+```api-object
+class: app.models.FrameworkCall
+service: healthcare-demo-backend
+example: healthcare-demo-backend probe /response/body/framework_calls/0
+```
+
+One call to a Dagents agent behind an answer. Every `2xx` answer whose body is
+a JSON object lists them in `framework_calls`, in the order they finished. A
+call the GMA made to an LMA while it dispatched a round has `via: gma` and
+follows the GMA call that made it. An entry names the route template, never a
+host, a token or a body. `ms` changes on every call, so the API examples'
+replay check ignores it.
+
+### The AgentsStatus object
+
+```api-object
+class: app.models.AgentsStatus
+service: healthcare-demo-backend
+example: healthcare-demo-backend status /response/body/agents
+```
+
+How the Dagents agents run behind the demo, as
+[framework status](#healthcare-demo-backend-get-api-v1-framework-status)
+reports it. The page's "Who does what" panel shows it.
 
 ### The PilotRequest object
 

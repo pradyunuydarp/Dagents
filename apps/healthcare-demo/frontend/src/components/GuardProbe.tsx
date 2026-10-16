@@ -4,6 +4,7 @@ import { NotRecordedError, isRecorded, postJson, type Recording } from "../api";
 import { fixed, guardTone, plannerReason, strategyText } from "../format";
 import { useFieldLabel } from "../labels";
 import type { GuardProbe as Probe, Overview } from "../types";
+import { ApiCalls } from "./ApiCalls";
 import { ErrorNote, Panel } from "./Basics";
 
 /** The granularities a request can ask for, with what each means. */
@@ -89,10 +90,10 @@ export function GuardProbe({ overview, recording }: { overview: Overview; record
   return (
     <Panel hook="guard" className="guard" eyebrow="Before data leaves a hospital" title="Ethical Guard">
       <p className="note ds-note">
-        Every request for a hospital&rsquo;s data goes through that hospital&rsquo;s Guard. The Guard
-        asks the planner how to protect each field, applies the answer, and writes the decision to
-        the hospital&rsquo;s audit log. Choose who is asking and how much they ask for, then select{" "}
-        <em>Ask the guard</em>.
+        Every request for a hospital&rsquo;s data goes through that hospital&rsquo;s Guard, which runs in
+        the hospital&rsquo;s LMA. The Guard asks the planner how to protect each field, applies the
+        answer, and writes the decision to the hospital&rsquo;s audit log. Choose who is asking and how
+        much they ask for, then select <em>Ask the guard</em>.
       </p>
       <p className="note ds-note">
         The planner follows{" "}
@@ -268,6 +269,7 @@ export function GuardProbe({ overview, recording }: { overview: Overview; record
                   ))}
                 </ul>
               </details>
+              <ApiCalls key={probe.audit_id ?? probe.site_id} calls={probe.framework_calls} />
             </>
           ) : (
             !notRecorded &&

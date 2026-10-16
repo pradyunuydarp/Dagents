@@ -1,6 +1,16 @@
 {
   "service": "gma",
-  "note": "Captured in process with the planner available. The requests run in this order against one new GMA, so later requests see what earlier ones stored. The round digest in the site results was computed by dagentsc from the round 1 manifest: fnv1a:767d1ad0c4595843.",
+  "note": "Captured in process with the planner available. The requests run in this order against one new GMA started with nothing configured, so later requests see what earlier ones stored. The round digest in the site results was computed by dagentsc from the round 1 manifest: fnv1a:767d1ad0c4595843. Examples that name the app study run, in order, against the study's GMA, with an LMA for each store (scripts/api_example_agents.py).",
+  "apps": {
+    "study": {
+      "app": "api_example_agents:study_gma",
+      "pythonpath": [
+        "examples/getting-started",
+        "scripts"
+      ],
+      "description": "The GMA of the getting-started example's study, with the HTTP engine, the example's extension and an LMA for store north and store south on the same in-process agent network. Its source reads are off. Built by scripts/api_example_agents.py, which adds a small logistic regression model kind (return_score) so a training round can run; the tokens are example values."
+    }
+  },
   "examples": [
     {
       "id": "health",
@@ -1663,6 +1673,50 @@
       "status": 422
     },
     {
+      "id": "dispatch-round-2",
+      "endpoint": "POST /api/v1/federation/rounds",
+      "title": "Dispatch round 2",
+      "description": "A second round of the same study, used below to show a gate whose metric the candidate does not report.",
+      "request": {
+        "path": "/api/v1/federation/rounds",
+        "json": {
+          "round_id": "returns-round-2",
+          "study_id": "returns-pilot",
+          "condition_id": "order_returns",
+          "phase": "evaluation",
+          "model_version": "returns-rule-1.0",
+          "model_artifact_digest": "sha256:4f1c0e9a",
+          "training_code_digest": "sha256:9b27d3e1",
+          "feature_contract_version": "retail-orders-v1",
+          "privacy_profile": "guarded-rows",
+          "aggregation": {
+            "kind": "fedavg"
+          },
+          "minimum_participants": 2,
+          "minimum_cohort_per_site": 20,
+          "required_capabilities": [
+            "evaluate"
+          ],
+          "stop_conditions": [
+            "schema_failure",
+            "quorum_not_met"
+          ],
+          "invited_sites": [
+            "store-central",
+            "store-east",
+            "store-north",
+            "store-south",
+            "store-west"
+          ]
+        }
+      },
+      "status": 202,
+      "volatile": [
+        "/created_at",
+        "/updated_at"
+      ]
+    },
+    {
       "id": "submit-north",
       "endpoint": "POST /api/v1/federation/rounds/{round_id}/results",
       "title": "Store north sends its result",
@@ -1881,7 +1935,7 @@
       "title": "A blocking gate on a metric the candidate does not report",
       "description": "A gate whose metric is missing is not evaluated, and a blocking gate that is not evaluated rejects the candidate.",
       "request": {
-        "path": "/federation/rounds/returns-round-1:evaluate-release",
+        "path": "/federation/rounds/returns-round-2:evaluate-release",
         "json": {
           "gates": [
             {
@@ -1912,7 +1966,7 @@
               "blocking": true
             }
           ],
-          "candidate_version": "returns-rule-1.0+returns-round-1",
+          "candidate_version": "returns-rule-1.0+returns-round-2",
           "candidate_metrics": {
             "accuracy": 0.844,
             "recall": 0.728
@@ -1968,6 +2022,48 @@
       "status": 200
     },
     {
+      "id": "evaluate-release-again",
+      "endpoint": "POST /api/v1/federation/rounds/{round_id}:evaluate-release",
+      "title": "Evaluate round 1 a second time",
+      "description": "A round takes one release decision, so a second evaluation is refused and the first decision stays on the round.",
+      "request": {
+        "path": "/api/v1/federation/rounds/returns-round-1:evaluate-release",
+        "json": {
+          "gates": [
+            {
+              "gate_id": "accuracy-floor",
+              "metric": "accuracy",
+              "comparison": {
+                "kind": "at_least",
+                "value": 0.8
+              },
+              "blocking": true
+            },
+            {
+              "gate_id": "recall-gain",
+              "metric": "recall",
+              "comparison": {
+                "kind": "improves_on_baseline",
+                "margin": 0.02
+              },
+              "blocking": false
+            }
+          ],
+          "candidate_version": "returns-rule-1.0+returns-round-1",
+          "candidate_metrics": {
+            "accuracy": 0.844,
+            "recall": 0.728
+          },
+          "baseline_metrics": {
+            "accuracy": 0.81,
+            "recall": 0.7
+          },
+          "rollback_version": "returns-rule-1.0"
+        }
+      },
+      "status": 409
+    },
+    {
       "id": "evaluate-release-404",
       "endpoint": "POST /api/v1/federation/rounds/{round_id}:evaluate-release",
       "title": "A round that was never dispatched",
@@ -2002,30 +2098,27 @@
     {
       "id": "evaluate-release-422",
       "endpoint": "POST /api/v1/federation/rounds/{round_id}:evaluate-release",
-      "title": "A request without a candidate version",
+      "title": "A round-flow request without a release requester",
       "request": {
         "path": "/api/v1/federation/rounds/returns-round-1:evaluate-release",
         "json": {
-          "gates": [
-            {
-              "gate_id": "accuracy-floor",
-              "metric": "accuracy",
-              "comparison": {
-                "kind": "at_least",
-                "value": 0.8
-              },
-              "blocking": true
-            },
-            {
-              "gate_id": "recall-gain",
-              "metric": "recall",
-              "comparison": {
-                "kind": "improves_on_baseline",
-                "margin": 0.02
-              },
-              "blocking": false
-            }
-          ]
+          "candidate_version": "returns-rule-1.0+returns-round-1",
+          "condition_id": "order_returns"
+        }
+      },
+      "status": 422,
+      "description": "A request that names a condition_id asks for the round flow, which runs the release Guard and so needs the requester."
+    },
+    {
+      "id": "evaluate-release-422-body",
+      "endpoint": "POST /api/v1/federation/rounds/{round_id}:evaluate-release",
+      "title": "A body that does not match the request model",
+      "description": "FastAPI checks the body before the handler runs. Its 422 has no code; `detail` lists each field that failed.",
+      "request": {
+        "path": "/api/v1/federation/rounds/returns-round-1:evaluate-release",
+        "json": {
+          "candidate_version": 5,
+          "gates": "nope"
         }
       },
       "status": 422
@@ -2040,7 +2133,8 @@
       "status": 200,
       "volatile": [
         "/created_at",
-        "/updated_at"
+        "/updated_at",
+        "/candidate/produced_at"
       ]
     },
     {
@@ -2065,7 +2159,8 @@
       "status": 200,
       "volatile": [
         "/*/created_at",
-        "/*/updated_at"
+        "/*/updated_at",
+        "/*/candidate/produced_at"
       ],
       "trim": {
         "items": 3,
@@ -2093,6 +2188,1095 @@
         "path": "/api/v1/extensions"
       },
       "status": 200
+    },
+    {
+      "id": "study-health",
+      "endpoint": "GET /health",
+      "title": "A GMA that runs its rounds over the LMAs' HTTP API",
+      "description": "Captured from the GMA of the getting-started study, which runs its rounds with the HTTP engine.",
+      "app": "study",
+      "request": {
+        "path": "/health"
+      },
+      "status": 200
+    },
+    {
+      "id": "register-rule",
+      "endpoint": "PUT /api/v1/model-versions/{version}",
+      "title": "Register the rule as the model in use",
+      "description": "Nothing is released yet, so the planner's lifecycle rule lets the first version be released.",
+      "app": "study",
+      "request": {
+        "path": "/api/v1/model-versions/return-check-rule-v2",
+        "headers": {
+          "Authorization": "Bearer example-study-admin-token"
+        },
+        "json": {
+          "kind": "return_check_rule",
+          "params": {
+            "risky_categories": [
+              "clothing",
+              "shoes"
+            ],
+            "min_items": 3,
+            "high_value": 150
+          },
+          "requested_status": "released"
+        }
+      },
+      "status": 201,
+      "volatile": [
+        "/created_at"
+      ]
+    },
+    {
+      "id": "register-rule-again",
+      "endpoint": "PUT /model-versions/{version}",
+      "title": "Register the same content again",
+      "app": "study",
+      "request": {
+        "path": "/model-versions/return-check-rule-v2",
+        "headers": {
+          "Authorization": "Bearer example-study-admin-token"
+        },
+        "json": {
+          "kind": "return_check_rule",
+          "params": {
+            "risky_categories": [
+              "clothing",
+              "shoes"
+            ],
+            "min_items": 3,
+            "high_value": 150
+          },
+          "requested_status": "released"
+        }
+      },
+      "status": 200,
+      "volatile": [
+        "/created_at"
+      ]
+    },
+    {
+      "id": "register-start",
+      "endpoint": "PUT /api/v1/model-versions/{version}",
+      "title": "Register the starting score as a candidate",
+      "app": "study",
+      "request": {
+        "path": "/api/v1/model-versions/return-score-v0",
+        "headers": {
+          "Authorization": "Bearer example-study-admin-token"
+        },
+        "json": {
+          "kind": "return_score",
+          "params": {
+            "bias": -1.0,
+            "w.clothing_or_shoes_items": 1.0,
+            "w.value_without_loyalty": 0.5
+          }
+        }
+      },
+      "status": 201,
+      "volatile": [
+        "/created_at"
+      ]
+    },
+    {
+      "id": "register-second-release",
+      "endpoint": "PUT /api/v1/model-versions/{version}",
+      "title": "Ask to release a version while another is released",
+      "app": "study",
+      "request": {
+        "path": "/api/v1/model-versions/return-score-v1",
+        "headers": {
+          "Authorization": "Bearer example-study-admin-token"
+        },
+        "json": {
+          "kind": "return_score",
+          "params": {
+            "bias": -1.0,
+            "w.clothing_or_shoes_items": 1.0,
+            "w.value_without_loyalty": 0.5
+          },
+          "requested_status": "released"
+        }
+      },
+      "status": 409
+    },
+    {
+      "id": "register-changed-content",
+      "endpoint": "PUT /api/v1/model-versions/{version}",
+      "title": "A name that holds other contents",
+      "app": "study",
+      "request": {
+        "path": "/api/v1/model-versions/return-score-v0",
+        "headers": {
+          "Authorization": "Bearer example-study-admin-token"
+        },
+        "json": {
+          "kind": "return_score",
+          "params": {
+            "bias": 0.0,
+            "w.clothing_or_shoes_items": 0.0,
+            "w.value_without_loyalty": 0.0
+          }
+        }
+      },
+      "status": 409
+    },
+    {
+      "id": "register-unknown-kind",
+      "endpoint": "PUT /api/v1/model-versions/{version}",
+      "title": "A model kind no extension contributes",
+      "app": "study",
+      "request": {
+        "path": "/api/v1/model-versions/forest-v1",
+        "headers": {
+          "Authorization": "Bearer example-study-admin-token"
+        },
+        "json": {
+          "kind": "random_forest",
+          "params": {
+            "trees": 100
+          }
+        }
+      },
+      "status": 404
+    },
+    {
+      "id": "model-versions-no-token",
+      "endpoint": "GET /api/v1/model-versions",
+      "title": "A request without a token",
+      "app": "study",
+      "request": {
+        "path": "/api/v1/model-versions"
+      },
+      "status": 401
+    },
+    {
+      "id": "model-versions-site-token",
+      "endpoint": "GET /api/v1/model-versions",
+      "title": "A store's token may not list the versions",
+      "app": "study",
+      "request": {
+        "path": "/api/v1/model-versions",
+        "headers": {
+          "Authorization": "Bearer example-store-north-upload-token"
+        }
+      },
+      "status": 403
+    },
+    {
+      "id": "sites-refresh",
+      "endpoint": "POST /api/v1/federation/sites:refresh",
+      "title": "Enrol each store from its own LMA",
+      "app": "study",
+      "request": {
+        "path": "/api/v1/federation/sites:refresh",
+        "headers": {
+          "Authorization": "Bearer example-study-admin-token"
+        }
+      },
+      "status": 200
+    },
+    {
+      "id": "site-summaries",
+      "endpoint": "GET /api/v1/federation/sites/summaries",
+      "title": "What each store reports, with its audit chain",
+      "app": "study",
+      "request": {
+        "path": "/api/v1/federation/sites/summaries",
+        "query": {
+          "include": "audit"
+        },
+        "headers": {
+          "Authorization": "Bearer example-study-admin-token"
+        }
+      },
+      "status": 200
+    },
+    {
+      "id": "dispatch-http",
+      "endpoint": "POST /api/v1/federation/rounds",
+      "title": "Dispatch an evaluation round to the stores' LMAs",
+      "description": "The GMA offers each selected store its job, then runs it. `dispatch` lists every call it made.",
+      "app": "study",
+      "request": {
+        "path": "/api/v1/federation/rounds",
+        "headers": {
+          "Authorization": "Bearer example-study-admin-token"
+        },
+        "json": {
+          "round_id": "returns-eval-1",
+          "study_id": "returns-pilot",
+          "condition_id": "order_returns",
+          "phase": "evaluation",
+          "model_version": "return-check-rule-v2",
+          "model_artifact_digest": "sha256:6367ac6596e4db525b87ac86bc6b9d0aa6138948a230cc3ea2d5308b6174e937",
+          "training_code_digest": "sha256:6367ac6596e4db525b87ac86bc6b9d0aa6138948a230cc3ea2d5308b6174e937",
+          "feature_contract_version": "retail-orders-v1",
+          "privacy_profile": "guarded-rows",
+          "aggregation": {
+            "kind": "fedavg"
+          },
+          "minimum_participants": 2,
+          "minimum_cohort_per_site": 20,
+          "required_capabilities": [
+            "evaluate"
+          ],
+          "stop_conditions": [
+            "schema_failure",
+            "quorum_not_met"
+          ],
+          "invited_sites": [
+            "store-north",
+            "store-south"
+          ]
+        }
+      },
+      "status": 202,
+      "volatile": [
+        "/created_at",
+        "/updated_at",
+        "/dispatch/*/ms",
+        "/candidate/produced_at"
+      ],
+      "trim": {
+        "items": 6
+      }
+    },
+    {
+      "id": "dispatch-reused-id",
+      "endpoint": "POST /api/v1/federation/rounds",
+      "title": "A round id that is already stored",
+      "app": "study",
+      "request": {
+        "path": "/api/v1/federation/rounds",
+        "headers": {
+          "Authorization": "Bearer example-study-admin-token"
+        },
+        "json": {
+          "round_id": "returns-eval-1",
+          "study_id": "returns-pilot",
+          "condition_id": "order_returns",
+          "phase": "evaluation",
+          "model_version": "return-check-rule-v2",
+          "model_artifact_digest": "sha256:6367ac6596e4db525b87ac86bc6b9d0aa6138948a230cc3ea2d5308b6174e937",
+          "training_code_digest": "sha256:6367ac6596e4db525b87ac86bc6b9d0aa6138948a230cc3ea2d5308b6174e937",
+          "feature_contract_version": "retail-orders-v1",
+          "privacy_profile": "guarded-rows",
+          "aggregation": {
+            "kind": "fedavg"
+          },
+          "minimum_participants": 2,
+          "minimum_cohort_per_site": 20,
+          "required_capabilities": [
+            "evaluate"
+          ],
+          "stop_conditions": [
+            "schema_failure",
+            "quorum_not_met"
+          ],
+          "invited_sites": [
+            "store-north",
+            "store-south"
+          ]
+        }
+      },
+      "status": 409
+    },
+    {
+      "id": "aggregate-evaluation",
+      "endpoint": "POST /api/v1/federation/rounds/{round_id}:aggregate",
+      "title": "Combine the evaluation results; the candidate is stored on the round",
+      "app": "study",
+      "request": {
+        "path": "/api/v1/federation/rounds/returns-eval-1:aggregate",
+        "headers": {
+          "Authorization": "Bearer example-study-admin-token"
+        }
+      },
+      "status": 200,
+      "volatile": [
+        "/produced_at"
+      ]
+    },
+    {
+      "id": "submit-late",
+      "endpoint": "POST /api/v1/federation/rounds/{round_id}/results",
+      "title": "A result for a round that was aggregated",
+      "app": "study",
+      "request": {
+        "path": "/api/v1/federation/rounds/returns-eval-1/results",
+        "headers": {
+          "Authorization": "Bearer example-study-admin-token"
+        },
+        "json": {
+          "round_id": "returns-eval-1",
+          "site_id": "store-north",
+          "job_digest": "fnv1a:45279496fde370c7",
+          "participation": "completed",
+          "code_verified": true,
+          "privacy_checks_passed": true,
+          "contributed_examples": 60,
+          "metrics": {
+            "precision": 0.75,
+            "recall": 0.69,
+            "flag_rate": 0.4
+          }
+        }
+      },
+      "status": 409
+    },
+    {
+      "id": "enrol-east-by-hand",
+      "endpoint": "PUT /api/v1/federation/sites/{site_id}",
+      "title": "Enrol store east by hand; its LMA is not in this GMA's network",
+      "app": "study",
+      "request": {
+        "path": "/api/v1/federation/sites/store-east",
+        "headers": {
+          "Authorization": "Bearer example-study-admin-token"
+        },
+        "json": {
+          "site_id": "store-east",
+          "capabilities": [
+            "evaluate",
+            "train"
+          ],
+          "feature_contract_version": "retail-orders-v1",
+          "approved_conditions": [
+            "order_returns"
+          ],
+          "cohort_size": 60,
+          "enrolled": true
+        }
+      },
+      "status": 200
+    },
+    {
+      "id": "dispatch-training",
+      "endpoint": "POST /api/v1/federation/rounds",
+      "title": "Dispatch a training round; store east cannot be reached",
+      "description": "Store north's and store south's LMAs train on their own orders and send their clipped updates to the GMA's update store. Store east's job fails, with the reason.",
+      "app": "study",
+      "request": {
+        "path": "/api/v1/federation/rounds",
+        "headers": {
+          "Authorization": "Bearer example-study-admin-token"
+        },
+        "json": {
+          "round_id": "returns-train-1",
+          "study_id": "returns-pilot",
+          "condition_id": "order_returns",
+          "phase": "training",
+          "model_version": "return-score-v0",
+          "model_artifact_digest": "sha256:7d78761e6f99535bde22505bff849b704310f66c782610a67fa3a29e8e44238e",
+          "training_code_digest": "sha256:07c4ebcd3dbec49813389aa30bfd91a8deec376694341a3a0e10df9ea9148c71",
+          "feature_contract_version": "retail-orders-v1",
+          "privacy_profile": "guarded-rows",
+          "aggregation": {
+            "kind": "fedavg"
+          },
+          "minimum_participants": 2,
+          "minimum_cohort_per_site": 20,
+          "required_capabilities": [
+            "train"
+          ],
+          "stop_conditions": [
+            "schema_failure",
+            "quorum_not_met"
+          ],
+          "invited_sites": [
+            "store-east",
+            "store-north",
+            "store-south"
+          ]
+        }
+      },
+      "status": 202,
+      "volatile": [
+        "/created_at",
+        "/updated_at",
+        "/dispatch/*/ms",
+        "/candidate/produced_at"
+      ],
+      "trim": {
+        "items": 6
+      }
+    },
+    {
+      "id": "upload-update",
+      "endpoint": "PUT /api/v1/federation/rounds/{round_id}/updates/{site_id}",
+      "title": "Store an update, as a store's LMA does during its job",
+      "description": "Store east's job failed during dispatch, so no update from it is stored yet. `job_digest` is the round digest of returns-train-1, fnv1a:31e3238b1eaf41ed.",
+      "app": "study",
+      "request": {
+        "path": "/api/v1/federation/rounds/returns-train-1/updates/store-east",
+        "headers": {
+          "Authorization": "Bearer example-store-east-upload-token"
+        },
+        "json": {
+          "job_digest": "fnv1a:31e3238b1eaf41ed",
+          "update": {
+            "bias": -0.1,
+            "w.clothing_or_shoes_items": 0.2,
+            "w.value_without_loyalty": 0.1
+          }
+        }
+      },
+      "status": 200
+    },
+    {
+      "id": "upload-update-again",
+      "endpoint": "PUT /federation/rounds/{round_id}/updates/{site_id}",
+      "title": "A second update from the same store",
+      "app": "study",
+      "request": {
+        "path": "/federation/rounds/returns-train-1/updates/store-east",
+        "headers": {
+          "Authorization": "Bearer example-store-east-upload-token"
+        },
+        "json": {
+          "job_digest": "fnv1a:31e3238b1eaf41ed",
+          "update": {
+            "bias": -0.1,
+            "w.clothing_or_shoes_items": 0.2,
+            "w.value_without_loyalty": 0.1
+          }
+        }
+      },
+      "status": 409
+    },
+    {
+      "id": "upload-update-other-site",
+      "endpoint": "PUT /api/v1/federation/rounds/{round_id}/updates/{site_id}",
+      "title": "A store's token used for another store",
+      "app": "study",
+      "request": {
+        "path": "/api/v1/federation/rounds/returns-train-1/updates/store-north",
+        "headers": {
+          "Authorization": "Bearer example-store-east-upload-token"
+        },
+        "json": {
+          "job_digest": "fnv1a:31e3238b1eaf41ed",
+          "update": {
+            "bias": 0.0,
+            "w.clothing_or_shoes_items": 0.0,
+            "w.value_without_loyalty": 0.0
+          }
+        }
+      },
+      "status": 403
+    },
+    {
+      "id": "upload-update-evaluation-round",
+      "endpoint": "PUT /api/v1/federation/rounds/{round_id}/updates/{site_id}",
+      "title": "An update for a round that trains nothing",
+      "app": "study",
+      "request": {
+        "path": "/api/v1/federation/rounds/returns-eval-1/updates/store-north",
+        "headers": {
+          "Authorization": "Bearer example-store-north-upload-token"
+        },
+        "json": {
+          "job_digest": "fnv1a:45279496fde370c7",
+          "update": {
+            "bias": 0.0,
+            "w.clothing_or_shoes_items": 0.0,
+            "w.value_without_loyalty": 0.0
+          }
+        }
+      },
+      "status": 409
+    },
+    {
+      "id": "upload-update-unknown-round",
+      "endpoint": "PUT /api/v1/federation/rounds/{round_id}/updates/{site_id}",
+      "title": "An update for a round the GMA does not hold",
+      "app": "study",
+      "request": {
+        "path": "/api/v1/federation/rounds/returns-train-9/updates/store-north",
+        "headers": {
+          "Authorization": "Bearer example-store-north-upload-token"
+        },
+        "json": {
+          "job_digest": "fnv1a:31e3238b1eaf41ed",
+          "update": {
+            "bias": 0.0,
+            "w.clothing_or_shoes_items": 0.0,
+            "w.value_without_loyalty": 0.0
+          }
+        }
+      },
+      "status": 404
+    },
+    {
+      "id": "readiness-training",
+      "endpoint": "GET /api/v1/federation/rounds/{round_id}/readiness",
+      "title": "Which training results count",
+      "app": "study",
+      "request": {
+        "path": "/api/v1/federation/rounds/returns-train-1/readiness",
+        "headers": {
+          "Authorization": "Bearer example-study-admin-token"
+        }
+      },
+      "status": 200
+    },
+    {
+      "id": "aggregate-training",
+      "endpoint": "POST /api/v1/federation/rounds/{round_id}:aggregate",
+      "title": "Combine the stores' updates into a candidate",
+      "description": "The model kind combines the stored updates of the counted stores with the planner's weights. The candidate is registered, and the round's updates are deleted.",
+      "app": "study",
+      "request": {
+        "path": "/api/v1/federation/rounds/returns-train-1:aggregate",
+        "headers": {
+          "Authorization": "Bearer example-study-admin-token"
+        }
+      },
+      "status": 200,
+      "volatile": [
+        "/produced_at"
+      ]
+    },
+    {
+      "id": "discard-training",
+      "endpoint": "POST /api/v1/federation/rounds/{round_id}:discard",
+      "title": "End the training round",
+      "app": "study",
+      "request": {
+        "path": "/api/v1/federation/rounds/returns-train-1:discard",
+        "headers": {
+          "Authorization": "Bearer example-study-admin-token"
+        },
+        "json": {
+          "reason": "the round is over; its updates are no longer needed"
+        }
+      },
+      "status": 204
+    },
+    {
+      "id": "discard-unknown",
+      "endpoint": "POST /federation/rounds/{round_id}:discard",
+      "title": "Discard a round the GMA does not hold",
+      "app": "study",
+      "request": {
+        "path": "/federation/rounds/returns-train-9:discard",
+        "headers": {
+          "Authorization": "Bearer example-study-admin-token"
+        },
+        "json": {
+          "reason": "the round is over; its updates are no longer needed"
+        }
+      },
+      "status": 404
+    },
+    {
+      "id": "get-training-round",
+      "endpoint": "GET /api/v1/federation/rounds/{round_id}",
+      "title": "The training round, with its dispatch calls and its candidate",
+      "app": "study",
+      "request": {
+        "path": "/api/v1/federation/rounds/returns-train-1",
+        "headers": {
+          "Authorization": "Bearer example-study-admin-token"
+        }
+      },
+      "status": 200,
+      "volatile": [
+        "/created_at",
+        "/updated_at",
+        "/dispatch/*/ms",
+        "/candidate/produced_at"
+      ],
+      "trim": {
+        "items": 6
+      }
+    },
+    {
+      "id": "dispatch-validation",
+      "endpoint": "POST /api/v1/federation/rounds",
+      "title": "Measure the candidate at each store",
+      "description": "The round measures the candidate. Its `model_artifact_digest` is the candidate's digest, the `artifact_digest` the training round's aggregation returned.",
+      "app": "study",
+      "request": {
+        "path": "/api/v1/federation/rounds",
+        "headers": {
+          "Authorization": "Bearer example-study-admin-token"
+        },
+        "json": {
+          "round_id": "returns-validate-1",
+          "study_id": "returns-pilot",
+          "condition_id": "order_returns",
+          "phase": "evaluation",
+          "model_version": "return-score+returns-train-1",
+          "model_artifact_digest": "sha256:ace560c113fd36382984429ab289315d1da6df1bf51ec446ef9e86f33330fc95",
+          "training_code_digest": "sha256:07c4ebcd3dbec49813389aa30bfd91a8deec376694341a3a0e10df9ea9148c71",
+          "feature_contract_version": "retail-orders-v1",
+          "privacy_profile": "guarded-rows",
+          "aggregation": {
+            "kind": "fedavg"
+          },
+          "minimum_participants": 2,
+          "minimum_cohort_per_site": 20,
+          "required_capabilities": [
+            "evaluate"
+          ],
+          "stop_conditions": [
+            "schema_failure",
+            "quorum_not_met"
+          ],
+          "invited_sites": [
+            "store-north",
+            "store-south"
+          ]
+        }
+      },
+      "status": 202,
+      "volatile": [
+        "/created_at",
+        "/updated_at",
+        "/dispatch/*/ms",
+        "/candidate/produced_at"
+      ],
+      "trim": {
+        "items": 6
+      }
+    },
+    {
+      "id": "submit-unselected",
+      "endpoint": "POST /api/v1/federation/rounds/{round_id}/results",
+      "title": "A result from a store the round did not select",
+      "app": "study",
+      "request": {
+        "path": "/api/v1/federation/rounds/returns-validate-1/results",
+        "headers": {
+          "Authorization": "Bearer example-study-admin-token"
+        },
+        "json": {
+          "round_id": "returns-validate-1",
+          "site_id": "store-east",
+          "job_digest": "fnv1a:0000000000000000",
+          "participation": "completed",
+          "code_verified": true,
+          "privacy_checks_passed": true,
+          "contributed_examples": 60,
+          "metrics": {
+            "precision": 1.0,
+            "recall": 1.0,
+            "flag_rate": 0.1
+          }
+        }
+      },
+      "status": 403
+    },
+    {
+      "id": "submit-to-http-engine",
+      "endpoint": "POST /api/v1/federation/rounds/{round_id}/results",
+      "title": "A result posted to a round the HTTP engine collects",
+      "app": "study",
+      "request": {
+        "path": "/api/v1/federation/rounds/returns-validate-1/results",
+        "headers": {
+          "Authorization": "Bearer example-study-admin-token"
+        },
+        "json": {
+          "round_id": "returns-validate-1",
+          "site_id": "store-north",
+          "job_digest": "fnv1a:0000000000000000",
+          "participation": "completed",
+          "code_verified": true,
+          "privacy_checks_passed": true,
+          "contributed_examples": 60,
+          "metrics": {
+            "precision": 1.0,
+            "recall": 1.0,
+            "flag_rate": 0.1
+          }
+        }
+      },
+      "status": 409,
+      "description": "With the HTTP engine every result comes from the store's LMA, so a posted result is refused, even for a store the round selected."
+    },
+    {
+      "id": "aggregate-validation",
+      "endpoint": "POST /api/v1/federation/rounds/{round_id}:aggregate",
+      "title": "Combine the candidate's measurements",
+      "app": "study",
+      "request": {
+        "path": "/api/v1/federation/rounds/returns-validate-1:aggregate",
+        "headers": {
+          "Authorization": "Bearer example-study-admin-token"
+        }
+      },
+      "status": 200,
+      "volatile": [
+        "/produced_at"
+      ]
+    },
+    {
+      "id": "evaluate-release-round-flow",
+      "endpoint": "POST /api/v1/federation/rounds/{round_id}:evaluate-release",
+      "title": "Evaluate the candidate's release from the study's own rounds",
+      "description": "The gates come from the condition pack, the metrics from round returns-validate-1 and the baseline from round returns-eval-1. The release Guard's decision joins the GMA's audit chain.",
+      "app": "study",
+      "request": {
+        "path": "/api/v1/federation/rounds/returns-train-1:evaluate-release",
+        "headers": {
+          "Authorization": "Bearer example-study-admin-token"
+        },
+        "json": {
+          "candidate_version": "return-score+returns-train-1",
+          "condition_id": "order_returns",
+          "metrics_from_round": "returns-validate-1",
+          "baseline_from_round": "returns-eval-1",
+          "change_from_version": "return-score-v0",
+          "rollback_version": "return-check-rule-v2",
+          "release_requester": {
+            "requester_id": "returns-release-committee",
+            "requester_kind": "human",
+            "affiliation": "returns-team",
+            "stated_purpose": "order_returns",
+            "attributes": [
+              {
+                "attribute_id": "verified_identity",
+                "verified": true
+              },
+              {
+                "attribute_id": "signed_study_protocol",
+                "verified": true
+              }
+            ],
+            "compliance_history": 0.9
+          },
+          "declared_purpose": "order_returns"
+        }
+      },
+      "status": 200,
+      "volatile": [
+        "/guard/audit_id",
+        "/guard/plan/obligations"
+      ],
+      "trim": {
+        "items": 6
+      }
+    },
+    {
+      "id": "evaluate-release-gates-in-body",
+      "endpoint": "POST /api/v1/federation/rounds/{round_id}:evaluate-release",
+      "title": "The round flow takes no gates or metrics in the body",
+      "app": "study",
+      "request": {
+        "path": "/api/v1/federation/rounds/returns-train-1:evaluate-release",
+        "headers": {
+          "Authorization": "Bearer example-study-admin-token"
+        },
+        "json": {
+          "candidate_version": "return-score+returns-train-1",
+          "condition_id": "order_returns",
+          "candidate_metrics": {
+            "precision": 0.99,
+            "recall": 0.99
+          },
+          "release_requester": {
+            "requester_id": "returns-release-committee",
+            "requester_kind": "human",
+            "affiliation": "returns-team",
+            "stated_purpose": "order_returns",
+            "attributes": [
+              {
+                "attribute_id": "verified_identity",
+                "verified": true
+              },
+              {
+                "attribute_id": "signed_study_protocol",
+                "verified": true
+              }
+            ],
+            "compliance_history": 0.9
+          },
+          "declared_purpose": "order_returns"
+        }
+      },
+      "status": 422
+    },
+    {
+      "id": "evaluate-release-not-the-candidate",
+      "endpoint": "POST /api/v1/federation/rounds/{round_id}:evaluate-release",
+      "title": "A version the round did not produce",
+      "app": "study",
+      "request": {
+        "path": "/api/v1/federation/rounds/returns-train-1:evaluate-release",
+        "headers": {
+          "Authorization": "Bearer example-study-admin-token"
+        },
+        "json": {
+          "candidate_version": "return-score-v0",
+          "condition_id": "order_returns",
+          "release_requester": {
+            "requester_id": "returns-release-committee",
+            "requester_kind": "human",
+            "affiliation": "returns-team",
+            "stated_purpose": "order_returns",
+            "attributes": [
+              {
+                "attribute_id": "verified_identity",
+                "verified": true
+              },
+              {
+                "attribute_id": "signed_study_protocol",
+                "verified": true
+              }
+            ],
+            "compliance_history": 0.9
+          },
+          "declared_purpose": "order_returns"
+        }
+      },
+      "status": 409
+    },
+    {
+      "id": "list-model-versions",
+      "endpoint": "GET /api/v1/model-versions",
+      "title": "The model in use and the newest versions",
+      "app": "study",
+      "request": {
+        "path": "/api/v1/model-versions",
+        "headers": {
+          "Authorization": "Bearer example-study-admin-token"
+        }
+      },
+      "status": 200,
+      "volatile": [
+        "/model_in_use/created_at",
+        "/model_in_use/release_decision/decided_at",
+        "/versions/*/created_at",
+        "/versions/*/release_decision/decided_at"
+      ],
+      "trim": {
+        "items": 6
+      }
+    },
+    {
+      "id": "get-model-version",
+      "endpoint": "GET /api/v1/model-versions/{version}",
+      "title": "The candidate, with its stored release decision",
+      "app": "study",
+      "request": {
+        "path": "/api/v1/model-versions/return-score+returns-train-1",
+        "headers": {
+          "Authorization": "Bearer example-study-admin-token"
+        }
+      },
+      "status": 200,
+      "volatile": [
+        "/created_at",
+        "/release_decision/decided_at"
+      ],
+      "trim": {
+        "items": 6
+      }
+    },
+    {
+      "id": "get-model-version-unknown",
+      "endpoint": "GET /model-versions/{version}",
+      "title": "A version the registry does not hold",
+      "app": "study",
+      "request": {
+        "path": "/model-versions/return-score-v9",
+        "headers": {
+          "Authorization": "Bearer example-study-admin-token"
+        }
+      },
+      "status": 404
+    },
+    {
+      "id": "approve-start",
+      "endpoint": "POST /api/v1/model-versions/{version}:approve",
+      "title": "Approve a version that has no release decision",
+      "app": "study",
+      "request": {
+        "path": "/api/v1/model-versions/return-score-v0:approve",
+        "headers": {
+          "Authorization": "Bearer example-study-admin-token"
+        }
+      },
+      "status": 409
+    },
+    {
+      "id": "approve",
+      "endpoint": "POST /api/v1/model-versions/{version}:approve",
+      "title": "Release the candidate",
+      "description": "The planner's lifecycle rule checks the stored decision first. The rule that was in use becomes superseded in the same step.",
+      "app": "study",
+      "request": {
+        "path": "/api/v1/model-versions/return-score+returns-train-1:approve",
+        "headers": {
+          "Authorization": "Bearer example-study-admin-token"
+        }
+      },
+      "status": 200,
+      "volatile": [
+        "/released/created_at",
+        "/released/release_decision/decided_at",
+        "/previous/created_at",
+        "/previous/release_decision/decided_at"
+      ],
+      "trim": {
+        "items": 6
+      }
+    },
+    {
+      "id": "approve-again",
+      "endpoint": "POST /model-versions/{version}:approve",
+      "title": "Approve a version that is already released",
+      "app": "study",
+      "request": {
+        "path": "/model-versions/return-score+returns-train-1:approve",
+        "headers": {
+          "Authorization": "Bearer example-study-admin-token"
+        }
+      },
+      "status": 409
+    },
+    {
+      "id": "approve-unknown",
+      "endpoint": "POST /api/v1/model-versions/{version}:approve",
+      "title": "Approve a version the registry does not hold",
+      "app": "study",
+      "request": {
+        "path": "/api/v1/model-versions/return-score-v9:approve",
+        "headers": {
+          "Authorization": "Bearer example-study-admin-token"
+        }
+      },
+      "status": 404
+    },
+    {
+      "id": "released-model",
+      "endpoint": "GET /api/v1/model-versions:released",
+      "title": "The released version, with its parameters",
+      "app": "study",
+      "request": {
+        "path": "/api/v1/model-versions:released",
+        "headers": {
+          "Authorization": "Bearer example-study-admin-token"
+        }
+      },
+      "status": 200,
+      "volatile": [
+        "/created_at",
+        "/release_decision/decided_at"
+      ],
+      "trim": {
+        "items": 6
+      }
+    },
+    {
+      "id": "released-model-unchanged",
+      "endpoint": "GET /model-versions:released",
+      "title": "Store north's LMA asks whether the released version changed",
+      "app": "study",
+      "request": {
+        "path": "/model-versions:released",
+        "headers": {
+          "Authorization": "Bearer example-store-north-upload-token",
+          "If-None-Match": "\"sha256:ace560c113fd36382984429ab289315d1da6df1bf51ec446ef9e86f33330fc95\""
+        }
+      },
+      "status": 304
+    },
+    {
+      "id": "audit-summary",
+      "endpoint": "GET /api/v1/governance/audit:summary",
+      "title": "The GMA's audit chain: the release Guard's decision",
+      "app": "study",
+      "request": {
+        "path": "/api/v1/governance/audit:summary",
+        "headers": {
+          "Authorization": "Bearer example-study-admin-token"
+        }
+      },
+      "status": 200
+    },
+    {
+      "id": "study-profile-source-reads-off",
+      "endpoint": "POST /api/v1/datasets:profile",
+      "title": "A GMA started with its source reads off",
+      "app": "study",
+      "request": {
+        "path": "/api/v1/datasets:profile",
+        "headers": {
+          "Authorization": "Bearer example-study-admin-token"
+        },
+        "json": {
+          "scope_id": "orders",
+          "dataset": {
+            "inline_records": [
+              {
+                "items": 2,
+                "category": "shoes"
+              }
+            ]
+          }
+        }
+      },
+      "status": 403
+    },
+    {
+      "id": "study-strict-classification",
+      "endpoint": "POST /api/v1/governance/restrictions:plan",
+      "title": "A request that brings its own policy under the pack's classification id",
+      "app": "study",
+      "request": {
+        "path": "/api/v1/governance/restrictions:plan",
+        "headers": {
+          "Authorization": "Bearer example-study-admin-token"
+        },
+        "json": {
+          "request_id": "own-policy-2",
+          "boundary": "before_release",
+          "requester": {
+            "requester_id": "returns-release-committee",
+            "requester_kind": "human",
+            "affiliation": "returns-team",
+            "stated_purpose": "order_returns",
+            "attributes": [
+              {
+                "attribute_id": "verified_identity",
+                "verified": true
+              },
+              {
+                "attribute_id": "signed_study_protocol",
+                "verified": true
+              }
+            ],
+            "compliance_history": 0.9
+          },
+          "classification": {
+            "classification_id": "retail-orders",
+            "field_sensitivity": {
+              "order_value": "low",
+              "customer_postcode": "low",
+              "returned": "low"
+            },
+            "default_sensitivity": "low",
+            "minimum_cohort": 0
+          },
+          "requested_fields": [
+            "model_update"
+          ],
+          "granularity": "model_update",
+          "cohort_size": 105,
+          "declared_purpose": "order_returns",
+          "approved_purposes": [
+            "order_returns"
+          ]
+        }
+      },
+      "status": 409
     }
   ]
 }

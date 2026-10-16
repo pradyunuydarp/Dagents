@@ -1,8 +1,10 @@
 """Each Postgres store reuses one connection, and no role carries over between operations.
 
-The stores keep one autocommit connection each and run every operation in its
-own transaction that starts with ``SET LOCAL ROLE``. These tests check what
-that reuse must not change:
+The stores run on the framework's kept connection
+(``agents.common.infrastructure.postgres_lease.KeptConnection``). Each store
+keeps one autocommit connection and runs every operation in its own
+transaction that starts with ``SET LOCAL ROLE``. These tests check what that
+reuse must not change:
 
 - after every operation, including one that failed inside its transaction,
   the connection is idle and ``current_user`` is the login role again;
@@ -10,26 +12,43 @@ that reuse must not change:
 - a reused connection acting as one hospital still cannot read another;
 - a dead connection is replaced, and ``close()`` releases it.
 
-They also check that a pilot opens one connection per store, not one per
-operation. They need ``HEALTHCARE_DEMO_TEST_DATABASE_URL`` (see
-``test_site_isolation.py``); the pilot test also needs the planner.
+They also check that the app keeps four connections in all: one per hospital
+store and one for the coordinator store. The framework's job log, model
+store and audit chains run on those same connections, and a pilot run
+through the public API opens no more. They need
+``HEALTHCARE_DEMO_TEST_DATABASE_URL`` (see ``test_site_isolation.py``); the
+pilot test also needs the planner.
 """
 
 from __future__ import annotations
 
+import json
+import os
 from pathlib import Path
+import subprocess
 import sys
 import threading
 import time
 import unittest
+from unittest import mock
 
 APP_ROOT = Path(__file__).resolve().parents[1]
+# The framework is two directories up in the Dagents tree, and at DAGENTS_HOME
+# after scripts/extract_repo.sh moved the app out of it.
+FRAMEWORK_ROOT = Path(os.environ.get("DAGENTS_HOME") or APP_ROOT.parents[1])
 sys.path.insert(0, str(APP_ROOT / "backend"))
-sys.path.insert(0, str(APP_ROOT.parents[1]))
+sys.path.insert(0, str(FRAMEWORK_ROOT))
 
+from agents.common.domain.federation import ModelStatusChange, ModelVersion  # noqa: E402
+from agents.common.domain.site import JobLogEntry  # noqa: E402
+from agents.gma.infrastructure.postgres_models import PostgresModelStore  # noqa: E402
+from agents.lma.infrastructure.job_log import PostgresJobLog  # noqa: E402
 from app.domain.dataset import SITES, load_site_records, site_for  # noqa: E402
-from app.services.consortium import Consortium  # noqa: E402
+from app.services.site_source import StoreSiteSource  # noqa: E402
 from app.services.site_store import (  # noqa: E402
+    COORDINATOR_MODELS_TABLE,
+    COORDINATOR_ROLE,
+    SITE_JOB_LOG_TABLE,
     MemoryCoordinatorStore,
     MemorySiteStore,
     PostgresCoordinatorStore,
@@ -51,6 +70,9 @@ except ModuleNotFoundError:  # pragma: no cover - psycopg is in the app's requir
 UK = site_for("uk-134")
 IT = site_for("it-002")
 
+#: Connections the app keeps: one per hospital store and one for the coordinator store.
+KEPT_CONNECTIONS = len(SITES) + 1
+
 
 def _seeded_database() -> SupabaseLikeDatabase:
     db = SupabaseLikeDatabase(admin_dsn_or_skip())
@@ -68,7 +90,7 @@ def _seeded_database() -> SupabaseLikeDatabase:
 
 def _session_state(store) -> tuple[str, str, str, str]:
     """``(current_user, session_user, role setting, statement_timeout)`` outside any transaction."""
-    with store._lease() as conn:
+    with store.lease.lease() as conn:
         assert conn.info.transaction_status == TransactionStatus.IDLE
         row = conn.execute(
             "SELECT current_user AS cu, session_user AS su, current_setting('role') AS r, "
@@ -78,8 +100,23 @@ def _session_state(store) -> tuple[str, str, str, str]:
 
 
 def _backend_pid(store) -> int:
-    with store._lease() as conn:
+    with store.lease.lease() as conn:
         return int(conn.execute("SELECT pg_backend_pid() AS pid").fetchone()["pid"])
+
+
+def _job_entry(round_id: str) -> JobLogEntry:
+    return JobLogEntry(
+        round_id=round_id,
+        phase="analytics",
+        participation="completed",
+        contributed_examples=24,
+        metrics={"record_count": 24.0},
+    )
+
+
+def _new_model(version: str, status: str) -> tuple[list[ModelStatusChange], ModelVersion]:
+    new = ModelVersion(version=version, kind="points_rule", digest=f"digest-{version}", status=status, params={})
+    return [ModelStatusChange(version=version, from_status=None, to_status=status)], new
 
 
 class PostgresConnectionReuseTests(unittest.TestCase):
@@ -102,12 +139,33 @@ class PostgresConnectionReuseTests(unittest.TestCase):
         self.addCleanup(store.close)
         return store
 
+    def coordinator(self) -> PostgresCoordinatorStore:
+        coordinator = PostgresCoordinatorStore(self.db.dsn)
+        self.addCleanup(coordinator.close)
+        return coordinator
+
     def assert_clean_session(self, store) -> None:
         self.assertEqual(
             (self.login, self.login, "none", self.default_timeout),
             _session_state(store),
             "a role or setting from the last operation is still on the session",
         )
+
+    def open_connections(self) -> int:
+        with self.db.admin() as admin:
+            return admin.execute(
+                "SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() "
+                "AND usename = %s AND pid <> pg_backend_pid()",
+                (self.login,),
+            ).fetchone()[0]
+
+    def wait_for_open_connections(self, expected: int) -> int:
+        for _ in range(50):
+            count = self.open_connections()
+            if count == expected:
+                return count
+            time.sleep(0.05)
+        return count
 
     def terminate(self, pid: int) -> None:
         with self.db.admin() as admin:
@@ -145,7 +203,7 @@ class PostgresConnectionReuseTests(unittest.TestCase):
             store.set_outcome(dataset_row, True)
         self.assert_clean_session(store)
         # The next operation runs as the hospital again, on the same connection.
-        with store._acting_as(UK.role) as conn:
+        with store.lease.acting_as(UK.role) as conn:
             self.assertEqual(UK.role, conn.execute("SELECT current_user AS u").fetchone()["u"])
         self.assertGreater(store.count()["total"], 0)
         self.assertEqual(1, store.connections_opened)
@@ -156,13 +214,13 @@ class PostgresConnectionReuseTests(unittest.TestCase):
         # The store reports a refused grant as a database that is not set up
         # for this version; the database's own error is the cause.
         with self.assertRaises(StoreNotSetUpError) as caught:
-            with store._acting_as(UK.role) as conn:
+            with store.lease.acting_as(UK.role) as conn:
                 conn.execute("SELECT count(*) FROM site_it_002.encounters")
         self.assertIsInstance(caught.exception.__cause__, errors.InsufficientPrivilege)
         self.assert_clean_session(store)
         # Outside an operation the login role holds no site privileges either.
         with self.assertRaises(StoreNotSetUpError) as caught:
-            with store._lease() as conn:
+            with store.lease.lease() as conn:
                 conn.execute("SELECT count(*) FROM site_uk_134.encounters")
         self.assertIsInstance(caught.exception.__cause__, errors.InsufficientPrivilege)
         self.assert_clean_session(store)
@@ -172,7 +230,7 @@ class PostgresConnectionReuseTests(unittest.TestCase):
         store = self.store()
         store.count()
         with self.assertRaises(StoreNotSetUpError) as caught:
-            with store._acting_as(UK.role) as conn:
+            with store.lease.acting_as(UK.role) as conn:
                 conn.execute("SELECT count(*) FROM site_uk_134.no_such_table")
         self.assertIsInstance(caught.exception.__cause__, errors.UndefinedTable)
         self.assertIn("hospital uk-134", str(caught.exception))
@@ -180,20 +238,98 @@ class PostgresConnectionReuseTests(unittest.TestCase):
         self.assertGreater(store.count()["total"], 0)
         self.assertEqual(1, store.connections_opened)
 
-    def test_the_coordinator_store_switches_roles_per_operation(self) -> None:
-        coordinator = PostgresCoordinatorStore(self.db.dsn, SITES)
-        self.addCleanup(coordinator.close)
-        round_id = "reuse-round"
-        coordinator.add_contribution(UK, round_id, "analytics", {"n": 1})
-        coordinator.list_models()
-        coordinator.add_contribution(IT, round_id, "analytics", {"n": 2})
-        shown = coordinator.contributions(round_id)
-        self.assertEqual(["uk-134", "it-002"], [row["site_id"] for row in shown])
-        # Read as the hospital: row level security shows only its own rows.
-        own = [row for row in coordinator.site_contributions(UK) if row["round_id"] == round_id]
-        self.assertEqual(["uk-134"], [row["site_id"] for row in own])
+    def test_a_hospital_lease_also_serves_its_audit_chain_job_log_and_source(self) -> None:
+        """The hospital's LMA writes its job log and audit chain on the store's own connection."""
+        store = self.store()
+        source = StoreSiteSource(store)
+        job_log = PostgresJobLog(store.lease, UK.role, SITE_JOB_LOG_TABLE)
+        source.version()
+        source.records()
+        job_log.append(_job_entry("reuse-round"))
+        store.audit_sink().verify_chain()
+        store.append(HIGH_RISK_ENTRY, "reuse-job-log")
+        self.assertEqual(["reuse-round"], [entry.round_id for entry in job_log.recent(5)])
+        self.assertEqual(1, store.connections_opened)
+        self.assert_clean_session(store)
+
+    def test_the_coordinator_lease_also_serves_the_model_store(self) -> None:
+        """The GMA keeps its model versions and audit chain on the coordinator store's connection."""
+        coordinator = self.coordinator()
+        models = PostgresModelStore(coordinator.lease, COORDINATOR_ROLE, COORDINATOR_MODELS_TABLE)
+        coordinator.save_pilot_report("reuse-pilot", {"pilot_id": "reuse-pilot"})
+        changes, new = _new_model("reuse-model-v1", "candidate")
+        models.apply(changes, new=new)
+        coordinator.audit_sink().count()
+        self.assertEqual("reuse-model-v1", models.get("reuse-model-v1").version)
+        self.assertEqual({"pilot_id": "reuse-pilot"}, coordinator.latest_pilot_report())
         self.assertEqual(1, coordinator.connections_opened)
         self.assert_clean_session(coordinator)
+
+    def test_the_coordinator_role_cannot_read_a_hospital_schema(self) -> None:
+        """The GMA's lease acts as the coordinator, which has no grant on any hospital schema."""
+        coordinator = self.coordinator()
+        with self.assertRaises(StoreNotSetUpError) as caught:
+            with coordinator.lease.acting_as(COORDINATOR_ROLE) as conn:
+                conn.execute("SELECT count(*) FROM site_uk_134.encounters")
+        self.assertIsInstance(caught.exception.__cause__, errors.InsufficientPrivilege)
+        self.assert_clean_session(coordinator)
+
+    def test_entries_and_lma_reads_at_once_take_turns_and_change_the_version(self) -> None:
+        """The app writes entries while the hospital's LMA reads and logs jobs; one connection serves both."""
+        store = self.store(IT)
+        source = StoreSiteSource(store)
+        job_log = PostgresJobLog(store.lease, IT.role, SITE_JOB_LOG_TABLE)
+        start = source.version()
+        failures: list[BaseException] = []
+
+        def enter(number: int) -> None:
+            try:
+                store.append(HIGH_RISK_ENTRY, f"mixed-{number}")
+            except BaseException as error:  # noqa: BLE001 - reported below
+                failures.append(error)
+
+        def read(number: int) -> None:
+            try:
+                source.version()
+                source.records()
+                job_log.append(_job_entry(f"mixed-{number}"))
+            except BaseException as error:  # noqa: BLE001 - reported below
+                failures.append(error)
+
+        threads = [threading.Thread(target=enter, args=(number,)) for number in range(6)]
+        threads += [threading.Thread(target=read, args=(number,)) for number in range(6)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=60)
+        self.assertFalse(any(thread.is_alive() for thread in threads), "an operation never finished")
+        self.assertEqual([], failures)
+        self.assertNotEqual(start, source.version())
+        self.assertEqual(1, store.connections_opened)
+        self.assert_clean_session(store)
+
+    def test_four_connections_serve_three_hospitals_and_the_coordinator(self) -> None:
+        opened = {"count": 0}
+        real = psycopg.connect
+
+        def counting(*args, **kwargs):
+            opened["count"] += 1
+            return real(*args, **kwargs)
+
+        with mock.patch.object(psycopg, "connect", counting):
+            stores = [self.store(site) for site in SITES]
+            coordinator = self.coordinator()
+            for store in stores:
+                source = StoreSiteSource(store)
+                source.version()
+                source.records()
+                PostgresJobLog(store.lease, store.role, SITE_JOB_LOG_TABLE).append(_job_entry("four-round"))
+                store.audit_sink().verify_chain()
+                store.list_entered(5)
+            PostgresModelStore(coordinator.lease, COORDINATOR_ROLE, COORDINATOR_MODELS_TABLE).list(5)
+            coordinator.audit_sink().verify_chain()
+            coordinator.latest_pilot_report()
+        self.assertEqual(KEPT_CONNECTIONS, opened["count"])
 
     def test_concurrent_operations_take_turns_on_one_connection(self) -> None:
         store = self.store(IT)
@@ -222,7 +358,7 @@ class PostgresConnectionReuseTests(unittest.TestCase):
     def test_a_nested_operation_gets_its_own_connection(self) -> None:
         store = self.store()
         store.count()
-        with store._acting_as(UK.role) as conn:
+        with store.lease.acting_as(UK.role) as conn:
             nested = store.count()
             self.assertEqual(UK.role, conn.execute("SELECT current_user AS u").fetchone()["u"])
         self.assertGreater(nested["total"], 0)
@@ -244,13 +380,14 @@ class PostgresConnectionReuseTests(unittest.TestCase):
         with self.assertRaises(StoreUnavailableError) as raised:
             store.count()
         self.assertIn("hospital uk-134", str(raised.exception))
+        self.assertNotIn(self.db.dsn, str(raised.exception))
         self.assertGreater(store.count()["total"], 0)
         self.assertEqual(2, store.connections_opened)
 
     def test_a_statement_timeout_is_reported_and_does_not_stay(self) -> None:
         store = self.store(statement_timeout_ms=50)
         with self.assertRaises(StoreUnavailableError):
-            with store._acting_as(UK.role) as conn:
+            with store.lease.acting_as(UK.role) as conn:
                 conn.execute("SELECT pg_sleep(1)")
         self.assertGreater(store.count()["total"], 0)
         self.assert_clean_session(store)
@@ -270,33 +407,61 @@ class PostgresConnectionReuseTests(unittest.TestCase):
         self.assertGreater(store.count()["total"], 0)
         self.assertEqual(2, store.connections_opened)
 
-    def test_closing_the_consortium_closes_every_store(self) -> None:
-        consortium = Consortium(database_url=self.db.dsn, environ={})
-        consortium.overview()
-        with self.db.admin() as admin:
-            def open_connections() -> int:
-                return admin.execute(
-                    "SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() "
-                    "AND usename = %s AND pid <> pg_backend_pid()",
-                    (self.login,),
-                ).fetchone()[0]
+    def test_closing_the_stores_releases_every_connection(self) -> None:
+        # Other tests' stores are closed by their cleanups.
+        self.assertEqual(0, self.wait_for_open_connections(0))
+        stores = [PostgresSiteStore(site, self.db.dsn) for site in SITES]
+        coordinator = PostgresCoordinatorStore(self.db.dsn)
+        try:
+            for store in stores:
+                store.count()
+                store.audit_sink().count()
+            coordinator.latest_pilot_report()
+            self.assertEqual(KEPT_CONNECTIONS, self.open_connections())
+        finally:
+            for store in [*stores, coordinator]:
+                store.close()
+        self.assertEqual(0, self.wait_for_open_connections(0))
 
-            self.assertGreaterEqual(open_connections(), len(SITES))
-            # Other tests' stores are closed by their cleanups; this test's
-            # consortium holds the rest.
-            consortium.close()
-            for _ in range(50):
-                if open_connections() == 0:
-                    break
-                time.sleep(0.05)
-            self.assertEqual(0, open_connections())
-        self.assertEqual(3, len(consortium.overview()["hospitals"]))
-        consortium.close()
+    def test_a_store_on_a_borrowed_lease_leaves_the_lease_open(self) -> None:
+        """An LMA started on its own owns the lease; the store it builds on it must not close it."""
+        owner = self.store()
+        owner.count()
+        borrower = PostgresSiteStore(UK, lease=owner.lease)
+        self.assertIs(owner.lease, borrower.lease)
+        self.assertEqual(owner.count(), borrower.count())
+        borrower.close()
+        pid = _backend_pid(owner)
+        self.assertEqual(1, owner.connections_opened, "closing the borrower closed the owner's connection")
+        self.assertEqual(pid, _backend_pid(owner))
 
 
 @unittest.skipUnless(dagentsc_available(), "dagentsc binary is not available")
 class PostgresPilotConnectionTests(unittest.TestCase):
-    """A pilot opens one connection per store, however many operations it runs."""
+    """A pilot run through the public API keeps one connection per store, however many operations it runs.
+
+    The app runs in its own process, configured only through the environment,
+    as it is deployed, so the test counts every connection it opens: the
+    stores', and any the agents open.
+    """
+
+    SCRIPT = (
+        "import json, psycopg\n"
+        "opened = []\n"
+        "real = psycopg.connect\n"
+        "def counting(*args, **kwargs):\n"
+        "    opened.append(1)\n"
+        "    return real(*args, **kwargs)\n"
+        "psycopg.connect = counting\n"
+        "from fastapi.testclient import TestClient\n"
+        "from app.main import app\n"
+        "with TestClient(app) as client:\n"
+        "    status = client.get('/api/v1/framework/status').json()\n"
+        "    pilot = client.post('/api/v1/pilot:run', json={'round_prefix': 'api'})\n"
+        "    body = pilot.json()\n"
+        "print(json.dumps({'pilot_status': pilot.status_code, 'has_release': bool(body.get('release')),\n"
+        "                  'cohort_source': status.get('cohort_source'), 'connections': len(opened)}))\n"
+    )
 
     @classmethod
     def setUpClass(cls) -> None:
@@ -307,23 +472,28 @@ class PostgresPilotConnectionTests(unittest.TestCase):
         cls.db.stop()
 
     def test_a_pilot_opens_one_connection_per_store(self) -> None:
-        opened = {"count": 0}
-        real = psycopg.connect
-
-        def counting(*args, **kwargs):
-            opened["count"] += 1
-            return real(*args, **kwargs)
-
-        consortium = Consortium(database_url=self.db.dsn, environ={})
-        self.addCleanup(consortium.close)
-        psycopg.connect = counting
-        try:
-            report = consortium.run_pilot("connections", training_rounds=2)
-        finally:
-            psycopg.connect = real
-        self.assertIsNotNone(report["release"])
+        env = {
+            key: value
+            for key, value in os.environ.items()
+            if not (key.startswith("HEALTHCARE_DEMO_") or key == "PYTHONPATH")
+        }
+        env["HEALTHCARE_DEMO_DATABASE_URL"] = self.db.dsn
+        env["PYTHONPATH"] = os.pathsep.join([str(FRAMEWORK_ROOT), str(APP_ROOT / "backend")])
+        result = subprocess.run(
+            [sys.executable, "-c", self.SCRIPT],
+            cwd=APP_ROOT,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=600,
+        )
+        self.assertEqual(0, result.returncode, result.stderr[-3000:])
+        report = json.loads(result.stdout.strip().splitlines()[-1])
+        self.assertEqual("postgres", report["cohort_source"])
+        self.assertEqual(200, report["pilot_status"], result.stderr[-3000:])
+        self.assertTrue(report["has_release"])
         # Three hospital stores and the coordinator store.
-        self.assertLessEqual(opened["count"], len(SITES) + 1)
+        self.assertLessEqual(report["connections"], KEPT_CONNECTIONS)
 
 
 class MemoryStoreCloseTests(unittest.TestCase):
@@ -332,8 +502,9 @@ class MemoryStoreCloseTests(unittest.TestCase):
         store.close()
         self.assertEqual(3, store.count()["total"])
         coordinator = MemoryCoordinatorStore()
+        coordinator.save_pilot_report("ui-1", {"n": 1})
         coordinator.close()
-        self.assertEqual([], coordinator.list_models())
+        self.assertEqual({"n": 1}, coordinator.latest_pilot_report())
 
 
 if __name__ == "__main__":

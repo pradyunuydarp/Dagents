@@ -13,7 +13,8 @@ rule or model, thresholds, clinician workflow, owner and safety evidence. Each
 stroke is built; the others are listed as planned.
 
 Nothing here is clinically validated. The seed rule in ``stroke_rule`` and the
-federated model in ``stroke_model`` show where a condition's model plugs in.
+federated model in ``stroke_model`` show where a condition's model plugs in;
+``model_kinds`` hands both to the Dagents agents.
 """
 
 from __future__ import annotations
@@ -333,6 +334,11 @@ STROKE_CONDITION = ConditionPack(
     ),
     feature_contract_id="stroke-triage-features",
     classification_id="stroke-triage-phi",
+    # The LMA and the GMA read the label and the purposes from the pack. The
+    # LMA trains and measures on the label, and each agent's Guard refuses a
+    # purpose that is not in the list.
+    label_field=STROKE_LABEL_FIELD,
+    approved_purposes=list(STROKE_APPROVED_PURPOSES),
     cohort_description=(
         "Adults with a suspected acute stroke, assessed within 48 hours of symptom onset. The demo's "
         "records come from three hospitals in the International Stroke Trial."

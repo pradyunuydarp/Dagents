@@ -23,7 +23,24 @@ So the deploy checks the capture's content, not only that a file was written:
   `capture_demo_recordings.hospital_view_paths`);
 - every hospital has charts as SVG in both themes;
 - the dashboard and the audit log were recorded again after the pilot;
-- the consortium charts were recorded after the pilot, in both themes.
+- the consortium charts were recorded after the pilot, in both themes;
+- the answers show the Dagents agent calls behind them. Each hospital is
+  served by an LMA and the study by a GMA, and every successful answer whose
+  body is a JSON object lists the calls it made in ``framework_calls``. The
+  overview, the framework status, every guard probe and every hospital
+  dashboard list calls (a probe and a dashboard to their own hospital's LMA). The pilot lists the app's
+  ``POST /api/v1/federation/rounds`` call to the GMA and, for every hospital,
+  the GMA's ``POST /api/v1/federation/jobs:run`` call to its LMA (or
+  ``jobs:execute``, after a separate offer). For every hospital, the pilot's
+  round reports also hold a ``run`` row the hospital accepted, or an
+  ``execute`` row, in ``dispatch``, which the pilot panel's dispatch table
+  shows. The framework status says where the agents run (``agents.mode``);
+- no ``framework_calls`` entry holds more than an agent, a method and a route
+  template: no address, query string, token or body, because the recording
+  is a public file.
+
+``capture_demo_recordings.py`` runs the agent-call checks
+(:func:`agent_call_problems`) itself and writes no recording that fails them.
 
 The NL2SQL capture has to contain real SQL and a trace.
 
@@ -51,6 +68,22 @@ RECORDINGS = {
     "healthcare": REPO_ROOT / "apps/healthcare-demo/frontend/public/recording.json",
     "nl2sql": REPO_ROOT / "services/nl2sql-demo/frontend/public/recording.json",
 }
+
+#: Where the healthcare demo's agents can run, as ``GET /api/v1/framework/status``
+#: reports it in ``agents.mode``. The page says which one in its "Who does what" table.
+AGENT_MODES = ("in-process", "network")
+#: The GMA route the app calls to run a federated round.
+ROUNDS_ROUTE = "/api/v1/federation/rounds"
+#: The LMA routes the GMA calls to run a hospital's job in a round: one
+#: ``jobs:run`` call (the HTTP engine), or ``jobs:execute`` after a separate offer.
+RUN_ROUTE = "/api/v1/federation/jobs:run"
+EXECUTE_ROUTE = "/api/v1/federation/jobs:execute"
+JOB_ROUTES = (RUN_ROUTE, EXECUTE_ROUTE)
+#: The outcomes of a ``run`` dispatch row in which the hospital did not run the job.
+NOT_RUN_OUTCOMES = frozenset({"refused", "failed"})
+#: The fields of one ``framework_calls`` entry. Any other field could carry an
+#: address, a token or a body.
+CALL_FIELDS = frozenset({"service", "site_id", "method", "path", "status", "ms", "via"})
 
 
 def load(path: Path) -> dict[str, Any]:
@@ -187,6 +220,166 @@ def check_healthcare(document: dict[str, Any]) -> list[str]:
                 if not any(entry["path"] == wanted and entry.get("phase") == "after_pilot"
                            for entry in _svgs(document, chart["svg_path"], theme)):
                     problems.append(f"the consortium chart {chart['chart_id']} was not captured in the {theme} theme")
+
+    problems.extend(agent_call_problems(document, site_ids))
+    return problems
+
+
+def site_ids_in(document: dict[str, Any]) -> list[str]:
+    """The hospitals the captured overview lists, in its order; empty without an overview."""
+    for entry in entries_for(document, "GET", "/api/v1/overview"):
+        response = entry.get("response")
+        if isinstance(response, dict) and isinstance(response.get("hospitals"), list):
+            return [hospital["site_id"] for hospital in response["hospitals"] if isinstance(hospital, dict)]
+    return []
+
+
+def framework_calls(response: Any) -> list[dict[str, Any]]:
+    """The agent calls an answer lists in ``framework_calls``; empty when it lists none."""
+    calls = response.get("framework_calls") if isinstance(response, dict) else None
+    return [call for call in calls if isinstance(call, dict)] if isinstance(calls, list) else []
+
+
+def round_reports(response: Any) -> list[dict[str, Any]]:
+    """Every round report in a pilot answer: ``rounds`` holds one per phase, and a list for the training rounds."""
+    rounds = response.get("rounds") if isinstance(response, dict) else None
+    if not isinstance(rounds, dict):
+        return []
+    reports: list[dict[str, Any]] = []
+    for value in rounds.values():
+        reports.extend(report for report in (value if isinstance(value, list) else [value]) if isinstance(report, dict))
+    return reports
+
+
+def calls_to_lma(response: Any, site_id: str | None) -> list[dict[str, Any]]:
+    """The calls an answer lists to one hospital's LMA."""
+    return [
+        call for call in framework_calls(response) if call.get("service") == "lma" and call.get("site_id") == site_id
+    ]
+
+
+def call_shows_too_much(call: Any) -> bool:
+    """Whether one ``framework_calls`` entry holds more than an agent, a method and a route template.
+
+    A field outside :data:`CALL_FIELDS`, a path that is not a route template
+    (it must start with one ``/`` and hold no query string), or any text
+    holding ``://`` could put an address, a token or a body in the public file.
+    """
+    if not isinstance(call, dict) or set(call) - CALL_FIELDS:
+        return True
+    path = call.get("path")
+    if not isinstance(path, str) or not path.startswith("/") or path.startswith("//") or "?" in path or "#" in path:
+        return True
+    return any(isinstance(value, str) and "://" in value for value in call.values())
+
+
+def agent_call_problems(document: dict[str, Any], site_ids: list[str]) -> list[str]:
+    """Where the capture fails to show the Dagents agent calls behind the demo's answers.
+
+    Params:
+    - `document`: the capture, ``{"entries": [...]}``.
+    - `site_ids`: the hospitals the overview lists.
+
+    Returns:
+    - A list of problems; empty when every answer the page explains lists its
+      agent calls and no call shows more than its agent, method and route.
+      An answer that is missing altogether is reported by
+      :func:`check_healthcare`, not here.
+    """
+    problems: list[str] = []
+
+    status = entries_for(document, "GET", "/api/v1/framework/status")
+    status_response = status[0].get("response") if status else None
+    agents = status_response.get("agents") if isinstance(status_response, dict) else None
+    mode = agents.get("mode") if isinstance(agents, dict) else None
+    if mode not in AGENT_MODES:
+        problems.append(
+            f"the captured framework status does not say where the agents run (agents.mode is {mode!r}, "
+            f"expected one of {', '.join(AGENT_MODES)}), so the 'Who does what' table could not say where they run"
+        )
+
+    for path, what in (("/api/v1/framework/status", "framework status"), ("/api/v1/overview", "overview")):
+        if any(not framework_calls(entry.get("response")) for entry in _answered(document, path)):
+            problems.append(
+                f"the captured {what} lists no agent call in framework_calls, so the page would not show "
+                "the agent calls behind it"
+            )
+
+    probes = entries_for(document, "POST", "/api/v1/governance:probe")
+    silent = [
+        probe for probe in probes
+        if not calls_to_lma(probe.get("response"), (probe.get("request") or {}).get("site_id"))
+    ]
+    if silent:
+        problems.append(
+            f"{len(silent)} guard probe answers do not list the call to their hospital's LMA in framework_calls, "
+            "so the guard panel would not show which agent decided"
+        )
+
+    for site_id in site_ids:
+        dashboard = hospital_view_paths(site_id)[0]
+        for phase, words in (("before_pilot", "before the pilot"), ("after_pilot", "after the pilot")):
+            recorded = _answered(document, dashboard, phase=phase)
+            if any(not calls_to_lma(entry.get("response"), site_id) for entry in recorded):
+                problems.append(
+                    f"the dashboard for {site_id} recorded {words} lists no call to its LMA in framework_calls"
+                )
+
+    pilots = entries_for(document, "POST", "/api/v1/pilot:run")
+    if pilots:
+        calls = framework_calls(pilots[0].get("response"))
+        if not any(
+            call.get("service") == "gma" and call.get("via") == "app"
+            and call.get("method") == "POST" and call.get("path") == ROUNDS_ROUTE
+            for call in calls
+        ):
+            problems.append(
+                f"the captured pilot lists no call to POST {ROUNDS_ROUTE} at the GMA, so the page would not "
+                "show the GMA running the rounds"
+            )
+        executed = {
+            call.get("site_id")
+            for call in calls
+            if call.get("service") == "lma" and call.get("via") == "gma"
+            and call.get("method") == "POST" and call.get("path") in JOB_ROUTES
+        }
+        missing = [site_id for site_id in site_ids if site_id not in executed]
+        if missing:
+            problems.append(
+                f"the captured pilot lists no call from the GMA to POST {RUN_ROUTE} or {EXECUTE_ROUTE} at "
+                f"{', '.join(missing)}, so the page would not show those hospitals running a job"
+            )
+        # The pilot panel's dispatch table reads the round reports, not framework_calls.
+        ran = {
+            row.get("site_id")
+            for report in round_reports(pilots[0].get("response"))
+            for row in report.get("dispatch") or []
+            if isinstance(row, dict)
+            and (
+                row.get("step") == "execute"
+                or (row.get("step") == "run" and row.get("outcome") not in NOT_RUN_OUTCOMES)
+            )
+        }
+        not_run = [site_id for site_id in site_ids if site_id not in ran]
+        if not_run:
+            problems.append(
+                f"the captured pilot's round reports have no run or execute row in dispatch for {', '.join(not_run)}, "
+                "so the pilot panel's dispatch table would not show those hospitals running a job"
+            )
+
+    too_much = 0
+    for entry in document["entries"]:
+        response = entry.get("response")
+        if not isinstance(response, dict) or "framework_calls" not in response:
+            continue
+        listed = response["framework_calls"]
+        too_much += sum(1 for call in listed if call_shows_too_much(call)) if isinstance(listed, list) else 1
+    if too_much:
+        problems.append(
+            f"{too_much} framework_calls entries show more than an agent, a method and a route "
+            f"(only {', '.join(sorted(CALL_FIELDS))}, and no address, query string, token or body); "
+            "the recording is a public file"
+        )
 
     return problems
 

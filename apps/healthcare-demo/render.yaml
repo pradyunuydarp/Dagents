@@ -116,13 +116,33 @@ services:
       - key: HEALTHCARE_DEMO_MAX_BODY_BYTES
         value: "65536"
 
-      # Seconds to wait for a framework service's health check.
+      # Seconds to wait for an agent's health check in
+      # /api/v1/framework/status.
       - key: HEALTHCARE_DEMO_REQUEST_TIMEOUT_SECONDS
         value: "2.0"
-      # Register the app's Dagents extension (its feature contract,
-      # classification and condition pack) on startup.
-      - key: HEALTHCARE_DEMO_REGISTER_EXTENSION
-        value: "true"
+
+      # The three LMAs (one per hospital) and the GMA run inside this one
+      # service. The API builds them on the first request that needs them and
+      # calls their HTTP routes without a socket, with tokens it makes then and
+      # never logs. So the agents need no service, address or secret of their
+      # own on Render.
+      - key: HEALTHCARE_DEMO_AGENTS
+        value: in-process
+
+      # Most public requests the API works on at once. A request waits up to
+      # HEALTHCARE_DEMO_IN_FLIGHT_WAIT_SECONDS for a slot, then gets 503. The
+      # health check is never held back.
+      - key: HEALTHCARE_DEMO_MAX_IN_FLIGHT
+        value: "12"
+      - key: HEALTHCARE_DEMO_IN_FLIGHT_WAIT_SECONDS
+        value: "20"
+      # How many agent handlers may run at once. The API refuses to start with
+      # fewer than 4 x HEALTHCARE_DEMO_MAX_IN_FLIGHT + 8.
+      - key: HEALTHCARE_DEMO_AGENT_THREAD_TOKENS
+        value: "64"
+      # How many hospitals the GMA sends a round's jobs to at once.
+      - key: HEALTHCARE_DEMO_DISPATCH_CONCURRENCY
+        value: "3"
 
       # Not set here:
       #
@@ -133,8 +153,8 @@ services:
       # nothing: the app bound 8080, Render routed to its own port, and every
       # request timed out with no response.
       #
-      # CORE_SERVICE_PUBLIC_URL, PIPELINE_SERVICE_PUBLIC_URL,
-      # MODEL_SERVICE_PUBLIC_URL, LMA_PUBLIC_URL, GMA_PUBLIC_URL. The framework
-      # services do not run on Render. The image reads local defaults from
-      # env/.env.shared, and /api/v1/framework/status reports those services
-      # as unavailable. The pilot runs in process and needs none of them.
+      # HEALTHCARE_DEMO_GMA_URL, HEALTHCARE_DEMO_GMA_TOKEN and each hospital's
+      # HEALTHCARE_DEMO_LMA_<SITE>_URL and HEALTHCARE_DEMO_LMA_<SITE>_TOKEN.
+      # Only network mode reads them, when the agents run as their own
+      # processes (docker-compose.yml, scripts/run_local_demo.sh --agents
+      # network). This service runs them in process.
