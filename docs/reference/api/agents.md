@@ -119,10 +119,6 @@ The LMA keeps everything in memory, so a restart clears it.
   record count and the model family.
 - The monitoring runner is a stub. It does not fetch or run the bundle. It
   publishes two counts.
-- The LMA's container image (`agents/lma/Dockerfile`) does not install
-  `dagentsc`. Under Docker Compose the Guard therefore denies every request,
-  and planning returns `500`. Run the LMA from the repository, with
-  `DAGENTSC_BIN` set, to try the governance examples.
 
 ## LMA health
 
@@ -915,11 +911,6 @@ while it runs.
 
 ### Limits of the GMA in this version
 
-- The GMA's container image (`agents/gma/Dockerfile`) does not install
-  `dagentsc`. Under Docker Compose the Guard therefore denies every request,
-  and governance planning and the round endpoints that call the planner return
-  `500`. Run the GMA from the repository, with `DAGENTSC_BIN` set, to try the
-  examples.
 - No endpoint checks who calls it ([Authentication](overview.md#authentication)).
   A result is accepted from any caller, and the GMA does not check that its
   `site_id` was selected for the round: a completed result from any site counts

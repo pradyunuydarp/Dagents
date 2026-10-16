@@ -368,7 +368,7 @@ same contracts, in `agents/common/infrastructure/federation_http.py`:
 | Class | Runs at | What it does |
 |---|---|---|
 | `HttpSiteWorker` | the coordinator | A worker that sends the job to `POST {source}/api/v1/federation/jobs:offer` and then `POST {source}/api/v1/federation/jobs:execute`, and returns the source's `JobAcceptance` and `SiteResult`. A source that does not answer the offer is recorded as a refusal, a `rejected` result. A source that accepts and then does not answer the execution gets a `failed` result. |
-| `HttpFederationEngine` | the coordinator | `InProcessFederationEngine` with one `HttpSiteWorker` per source, built from a map of source ids to addresses. The GMA uses it when `GMA_FEDERATION_SITES` is set. |
+| `HttpFederationEngine` | the coordinator | `InProcessFederationEngine` with one `HttpSiteWorker` per source, built from a map of source ids to addresses. It can also take a map of sources that may join while it runs: `attach_site` adds one of them when its address matches exactly. The GMA uses it when `GMA_FEDERATION_SITES` or `GMA_FEDERATION_JOINABLE_SITES` is set, and `PUT /api/v1/federation/sites/{site_id}/address` calls `attach_site`. |
 | `HttpUpdateChannel` | the source | An update channel (section 6) that sends the bounded update to `POST {coordinator}/api/v1/federation/rounds/{round_id}/updates` and returns the digest the coordinator stored. |
 
 The source's service answers the two job paths by calling its worker's `offer`
