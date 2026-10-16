@@ -452,7 +452,7 @@ class DockerComposeApplierTests(unittest.TestCase):
         self.assertEqual(project_file.read_text(), self.text)
         commands = [args for args, _ in runner.calls]
         self.assertEqual(commands[0][:3], ["docker", "compose", "--file"])
-        self.assertEqual(commands[1], ["docker", "ps", "--all", *self.filters(), "--format", "{{.State}}"])
+        self.assertEqual(commands[1], ["docker", "ps", "--quiet", "--filter", "status=running", *self.filters()])
         self.assertEqual(
             runner.calls[2],
             (
@@ -464,20 +464,49 @@ class DockerComposeApplierTests(unittest.TestCase):
                 72.5,
             ),
         )
-        self.assertEqual(len(runner.calls), 3)
+        self.assertEqual(commands[3], commands[1])
+        self.assertEqual(len(runner.calls), 4)
         self.assertEqual(
             applied,
             AppliedService(SERVICE, "compose", False, f"started container for {SERVICE} in project {self.PROJECT}", None),
         )
 
-    def test_a_running_container_is_adopted(self) -> None:
+    def test_a_running_container_compose_keeps_is_adopted(self) -> None:
+        # `up` runs anyway: Compose keeps a container whose file and image are unchanged.
         def answer(args):
-            return CommandResult(0, "running\n", "") if args[1] == "ps" else CommandResult(0, "", "")
+            return CommandResult(0, "abc123\n", "") if args[1] == "ps" else CommandResult(0, "", "")
 
         applier, runner = self.applier(answer)
         applied = applier.apply(self.text, SERVICE, project=self.PROJECT, wait_seconds=10)
         self.assertEqual(applied, AppliedService(SERVICE, "compose", True, "already running", None))
-        self.assertNotIn("up", [word for args, _ in runner.calls for word in args])
+        self.assertIn("up", [word for args, _ in runner.calls for word in args])
+
+    def test_a_running_container_compose_recreates_is_not_adopted(self) -> None:
+        # A container started from an older file or image is recreated by `up`,
+        # so the applier reports a new start, not the old container kept.
+        ids = iter(["old111\n", "new222\n"])
+
+        def answer(args):
+            return CommandResult(0, next(ids), "") if args[1] == "ps" else CommandResult(0, "", "")
+
+        applier, _ = self.applier(answer)
+        applied = applier.apply(self.text, SERVICE, project=self.PROJECT, wait_seconds=10)
+        self.assertFalse(applied.adopted)
+        self.assertEqual(
+            applied.detail,
+            f"recreated the container for {SERVICE} in project {self.PROJECT}, because its file or image changed",
+        )
+
+    def test_a_failed_up_leaves_a_container_that_ran_before(self) -> None:
+        def answer(args):
+            if "up" in args:
+                return CommandResult(1, "", "image not found")
+            return CommandResult(0, "abc123\n", "") if args[1] == "ps" else CommandResult(0, "", "")
+
+        applier, runner = self.applier(answer)
+        with self.assertRaises(ComposeApplyError):
+            applier.apply(self.text, SERVICE, project=self.PROJECT, wait_seconds=10)
+        self.assertNotIn("rm", [word for args, _ in runner.calls for word in args])
 
     def test_a_failed_start_removes_the_container_and_raises(self) -> None:
         def answer(args):

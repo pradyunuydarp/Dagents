@@ -261,9 +261,12 @@ on the demo does not remove the new container. Remove it with:
 docker rm -f $(docker ps -aq --filter label=com.docker.compose.project=healthcare-demo-lma-pl-290)
 ```
 
-A container outlives the backend. A restarted backend keeps a running
-`lma-pl-290` when Hospital 290 is added again (the `start` step says "Already
-running; kept."), but it does not add the hospital by itself.
+A container outlives the backend, but a restarted backend does not add the
+hospital by itself. When Hospital 290 is added again, the app runs `docker
+compose up` on the new file. Compose keeps a running `lma-pl-290` whose file
+and image are unchanged (the `start` step says "Already running; kept."), and
+recreates one started from an older file or image, for example after `up
+--build` with new code or a changed `HEALTHCARE_DEMO_COORDINATOR_URL`.
 
 Docker is not in CI. `tests/test_compose_override.py` checks the merged file
 that `docker compose config` prints, without a daemon. Check a running stack by

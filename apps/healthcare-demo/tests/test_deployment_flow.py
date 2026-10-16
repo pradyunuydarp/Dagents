@@ -79,6 +79,9 @@ class FakeApplier:
         self.attach = attach
         self.fail = fail
         self.state = "not_started"
+        #: False: a running service is recreated, as docker compose does for one
+        #: started from an older file or image, instead of kept.
+        self.keep = True
         self.checked: list[str] = []
         self.applied: list[tuple[str, str, str, float]] = []
         self.stopped: list[tuple[str, str]] = []
@@ -95,6 +98,8 @@ class FakeApplier:
     def apply(self, compose_yaml: str, service: str, *, project: str, wait_seconds: float) -> AppliedService:
         self.applied.append((compose_yaml, service, project, wait_seconds))
         if self.state == "running":
+            if not self.keep:
+                return AppliedService(service, self.name, False, "recreated the container", self.log_path)
             return AppliedService(service, self.name, True, "already running as process 4242", self.log_path)
         if self.fail is not None:
             raise self.fail
@@ -477,6 +482,16 @@ class DeploymentFlowTests(unittest.TestCase):
         self.assertTrue(deployment["adopted"])
         self.assertEqual("Already running; kept.", self.detail(deployment, "start"))
         self.assertEqual([], self.applier.stopped)
+
+    def test_a_running_service_the_applier_recreates_is_not_kept(self) -> None:
+        self.assertEqual("joined", self.deploy()["status"])
+        consortium = self.app.consortium
+        consortium.hospitals = {key: value for key, value in consortium.hospitals.items() if key != SITE_ID}
+        self.applier.keep = False
+        deployment = self.deploy()
+        self.assertEqual("joined", deployment["status"], deployment)
+        self.assertFalse(deployment["adopted"])
+        self.assertEqual("Recreated the container.", self.detail(deployment, "start"))
 
     def test_a_refused_address_stops_the_service(self) -> None:
         # The GMA lists pl-290 as joinable, at another address.

@@ -150,7 +150,9 @@ text exactly as core-service returned it, so your program never writes Compose:
 | `LocalProcessApplier` | The service's `command`, with its `environment`, as a local process in a new process group; output goes to `<service>.log`, and the process id to `<service>.pid` while it runs | The program in its allowlist. No Docker. |
 
 `--no-deps` starts the new service alone, so the services it needs must already
-run. Give it its own project and the running project's network
+run. The Docker applier runs `up` even when the service runs already: Compose
+keeps a container whose file and image are unchanged, which the applier
+reports as adopted, and recreates one started from an older file or image. Give it its own project and the running project's network
 (`"placement": "own"`, `"network"` set to that network and
 `"external_network": true`), so `docker compose down` on the project does not
 remove it. When a start fails, the Docker applier removes the container it

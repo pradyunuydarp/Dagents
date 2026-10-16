@@ -730,15 +730,20 @@ class _Attempt:
         replaced = ""
         if self.applier.status(self.service, project=self.project) == "running":
             if self.d._lma_answers(self.url, RUNNING_CHECK_SECONDS):
+                # The applier keeps it, or, with docker compose, recreates it
+                # when it was started from an older file or image.
                 try:
                     applied = self.applier.apply(
                         self.compose_yaml, self.service, project=self.project, wait_seconds=wait
                     )
                 except ComposeApplyError as error:
-                    raise _StepFailed(f"{error.message}.") from None
-                self.adopted = True
+                    raise _StepFailed(f"{error.message[:1].upper()}{error.message[1:]}.") from None
+                self.adopted = applied.adopted
+                self.started_service = not applied.adopted
                 self.log_path = applied.log_path
-                return "done", "Already running; kept."
+                if applied.adopted:
+                    return "done", "Already running; kept."
+                return "done", f"{applied.detail[:1].upper()}{applied.detail[1:]}."
             # It runs but does not answer, for example because it hangs. Kept,
             # it would fail the answer step after the whole timeout, and a
             # rollback leaves a kept service alone, so it would never be

@@ -380,7 +380,10 @@ class DockerComposeApplier:
 
     The service starts in its own Compose project, without its dependencies
     and without building or pulling an image. A container outlives the
-    applier, so ``close`` leaves it running and a later applier adopts it.
+    applier, so ``close`` leaves it running. ``apply`` always runs ``docker
+    compose up``: Compose keeps a running container whose settings and image
+    are unchanged, which the applier reports as adopted, and recreates one
+    started from an older file or image.
 
     It applies only what the manifest compiler renders: a service key the
     compiler never writes, such as ``privileged`` or ``volumes``, and a
@@ -447,11 +450,19 @@ class DockerComposeApplier:
         if result.returncode != 0:
             raise ComposeApplyError("docker compose refused the file", result.stderr)
 
+    def _running_ids(self, service: str, project: str) -> list[str]:
+        """The ids of the service's running containers. Empty when Docker cannot list them."""
+        result = self._run(
+            ["ps", "--quiet", "--filter", "status=running", *self._filters(service, project)], self._timeout
+        )
+        if result.returncode != 0:
+            return []
+        return sorted(line.strip() for line in result.stdout.splitlines() if line.strip())
+
     def apply(self, compose_yaml: str, service: str, *, project: str, wait_seconds: float) -> AppliedService:
         self.check(compose_yaml, service)
         path = self._write(f"{project}.yml", compose_yaml)
-        if self.status(service, project=project) == "running":
-            return AppliedService(service, self.name, True, "already running", None)
+        before = self._running_ids(service, project)
         base = ["compose", "--project-name", project, "--file", str(path)]
         result = self._run(
             [
@@ -470,11 +481,20 @@ class DockerComposeApplier:
             wait_seconds + 30,
         )
         if result.returncode != 0:
-            try:
-                self._run([*base, "rm", "--stop", "--force", service], self._timeout)
-            except ComposeApplyError:
-                pass
+            # Remove only a container this call created. One that ran before
+            # was not started here, so it is left as Compose left it.
+            if not before:
+                try:
+                    self._run([*base, "rm", "--stop", "--force", service], self._timeout)
+                except ComposeApplyError:
+                    pass
             raise ComposeApplyError(f"docker compose could not start {service}", result.stderr)
+        after = self._running_ids(service, project)
+        if before and after == before:
+            return AppliedService(service, self.name, True, "already running", None)
+        if before:
+            detail = f"recreated the container for {service} in project {project}, because its file or image changed"
+            return AppliedService(service, self.name, False, detail, None)
         return AppliedService(
             service, self.name, False, f"started container for {service} in project {project}", None
         )
