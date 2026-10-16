@@ -24,7 +24,8 @@ pip install "dagents[lma,gma]"     # adds FastAPI, uvicorn and httpx, to serve a
 ```
 
 The other extras are `postgres` (the Postgres audit chain, job log, model
-registry and source adapter), `charts` (the SVG chart renderer) and `all`.
+registry and source adapter), `charts` (the SVG chart renderer), `compose`
+(PyYAML, for the appliers that start a service from a Compose file) and `all`.
 While every release is a pre-release, `pip install dagents` installs the
 newest one. After 1.0.0, a pre-release needs `pip install --pre dagents` or an
 exact version.

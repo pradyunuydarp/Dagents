@@ -917,9 +917,9 @@ jobs:
         # The agents job pins FastAPI 0.115.0 and uvicorn 0.30.6, the lowest
         # versions the lma and gma extras accept. pip gives a user the newest
         # versions instead, so this step installs the wheel with all its
-        # extras (the agents job's requirements include psycopg too) on the
-        # newest Python the classifiers list, removes the package itself, and
-        # runs the suite from the checkout against those versions.
+        # extras (the agents job installs psycopg, matplotlib and PyYAML too)
+        # on the newest Python the classifiers list, removes the package
+        # itself, and runs the suite from the checkout against those versions.
         env:
           DAGENTSC_BIN: ${{ env.PLANNER_DIR }}/dagentsc-linux-x86_64
         run: |

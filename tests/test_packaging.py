@@ -250,6 +250,25 @@ class ProjectMetadataTests(unittest.TestCase):
             self.assertEqual({"fastapi", "uvicorn", "httpx"}, names, extra)
         self.assertEqual(["pydantic>=2.11,<3"], PYPROJECT["project"]["dependencies"])
 
+    def test_the_compose_extra_holds_what_the_appliers_import(self) -> None:
+        """compose_apply.py imports PyYAML when it parses a Compose file, so the ``compose`` extra installs it.
+
+        The range is the one the healthcare demo lists and the agents job
+        installs (tests/test_ci_guards.py ties those two together).
+        """
+        source = (REPO_ROOT / "dagents" / "common" / "infrastructure" / "compose_apply.py").read_text(encoding="utf-8")
+        self.assertIn("import yaml", source)
+        demo = (REPO_ROOT / "apps" / "healthcare-demo" / "requirements.txt").read_text(encoding="utf-8")
+        pyyaml = re.search(r"^pyyaml[^\s#]*", demo, re.M | re.I).group(0)
+        self.assertEqual([pyyaml], PYPROJECT["project"]["optional-dependencies"].get("compose"))
+
+    def test_the_all_extra_installs_every_other_extra(self) -> None:
+        """The packaging job installs ``[all]`` to run the agent suite, so a missing extra fails its tests there."""
+        extras = PYPROJECT["project"]["optional-dependencies"]
+        self.assertEqual(1, len(extras["all"]), extras["all"])
+        listed = re.fullmatch(r"dagents\[([a-z,]+)\]", extras["all"][0]).group(1).split(",")
+        self.assertEqual(sorted(name for name in extras if name != "all"), sorted(listed))
+
     def test_ci_tests_the_lowest_version_each_agent_extra_allows(self) -> None:
         """The agents job pins FastAPI and uvicorn; the extras start at those pins and stop below 1.0.
 

@@ -76,7 +76,10 @@ gma = [
 postgres = ["psycopg[binary]>=3.2,<3.4"]
 # The SVG chart renderer.
 charts = ["matplotlib>=3.9,<4"]
-all = ["dagents[lma,gma,postgres,charts]"]
+# The appliers that start the one service of a Compose file core-service
+# renders (dagents/common/infrastructure/compose_apply.py) parse it with PyYAML.
+compose = ["pyyaml>=6.0,<7"]
+all = ["dagents[lma,gma,postgres,charts,compose]"]
 
 [project.scripts]
 dagents-lma = "dagents.lma.__main__:main"

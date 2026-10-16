@@ -382,6 +382,13 @@ extras on Python 3.13, removes the package, and runs
 and chart skips forbidden. The release workflow runs the build and smoke
 checks on each platform before it publishes.
 
+The same step caught a missing extra. `compose_apply.py` imports PyYAML only
+when it parses a Compose file, and the agents job installs PyYAML by hand, so
+every suite in the checkout passed while the `[all]` install had no PyYAML and
+the appliers' tests failed with `ModuleNotFoundError`. The `compose` extra now
+installs it, and `tests/test_packaging.py` checks that `all` names every other
+extra.
+
 ## 3. The test loop
 
 CI runs the same commands a contributor runs. Write the failing test first,
