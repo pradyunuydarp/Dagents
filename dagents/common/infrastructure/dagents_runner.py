@@ -1,10 +1,16 @@
-"""Subprocess wrapper for the OCaml dagentsc compiler."""
+"""Subprocess wrapper for the OCaml dagentsc compiler.
+
+:func:`dagentsc_binary` says which planner executable is started.
+"""
 
 import json
+import logging
 import os
+import shutil
 import subprocess
 import tempfile
 from collections.abc import Sequence
+from pathlib import Path
 from typing import Any
 
 # Keys whose VALUES are caller data and must be passed through untouched.
@@ -86,9 +92,100 @@ def convert_keys(obj: Any, convert_func) -> Any:
     else:
         return obj
 
+#: Where a platform wheel of the ``dagents`` package puts the planner. A source
+#: checkout and a wheel built from the sdist have no file here.
+BUNDLED_PLANNER = Path(__file__).resolve().parents[2] / "_bin" / "dagentsc"
+
+#: The name the runner starts when no other planner is found. The operating
+#: system looks it up on PATH; containers install the planner there.
+PLANNER_ON_PATH = "dagentsc"
+
+
+def bundled_planner() -> Path | None:
+    """The planner bundled with this installation, or None when there is none."""
+    if BUNDLED_PLANNER.is_file() and os.access(BUNDLED_PLANNER, os.X_OK):
+        return BUNDLED_PLANNER
+    return None
+
+
+def find_planner() -> tuple[str | None, str]:
+    """Where the planner is, and which rule found it.
+
+    Returns ``(path, source)``. ``source`` is ``DAGENTSC_BIN``, ``bundled``,
+    ``PATH`` or ``none``; ``path`` is None only with ``none``. The rules are
+    the ones :func:`dagentsc_binary` follows. A ``DAGENTSC_BIN`` that names a
+    missing file is still returned, because the runner uses it as it is.
+    """
+    configured = os.environ.get("DAGENTSC_BIN")
+    if configured:
+        return configured, "DAGENTSC_BIN"
+    bundled = bundled_planner()
+    if bundled is not None:
+        return str(bundled), "bundled"
+    found = shutil.which(PLANNER_ON_PATH)
+    if found:
+        return found, "PATH"
+    return None, "none"
+
+
+def planner_problem(found: tuple[str | None, str] | None = None) -> str | None:
+    """Why the runner cannot start a planner, or None when it can.
+
+    Params:
+    - `found`: the result of :func:`find_planner`; ``None`` looks it up now.
+
+    It checks that the file exists and may be run, and does not start it. The
+    bundled planner and ``dagentsc`` on PATH are checked by the lookup itself,
+    so only a ``DAGENTSC_BIN`` setting can name a file that cannot run.
+    """
+    path, source = find_planner() if found is None else found
+    if path is None:
+        return "no planner was found: DAGENTSC_BIN is not set, this installation bundles none, and dagentsc is not on PATH"
+    if source == "DAGENTSC_BIN" and not (os.path.isfile(path) and os.access(path, os.X_OK)):
+        return f"DAGENTSC_BIN names {path}, which is not a file this process can run"
+    return None
+
+
+def warn_if_no_planner(log: logging.Logger, agent_name: str) -> str | None:
+    """Log one warning when the runner cannot start a planner, and return the reason.
+
+    An agent starts and answers ``/health`` without a planner, and pip hides
+    the build's notice when a wheel without one is installed. This warning is
+    the one place that tells the operator why every governed request is
+    denied. Returns None, and logs nothing, when a planner can be started.
+    """
+    problem = planner_problem()
+    if problem is not None:
+        log.warning(
+            "%s has no planner: %s. The Ethical Guard denies every request until DAGENTSC_BIN names a "
+            "dagentsc binary or dagentsc is on PATH. Run python -m dagents to see which planner the runner finds.",
+            agent_name,
+            problem,
+        )
+    return problem
+
+
 def dagentsc_binary() -> str:
-    """Resolve the dagentsc executable used by Python service adapters."""
-    return os.getenv("DAGENTSC_BIN", "dagentsc")
+    """The planner executable the runner starts.
+
+    In this order:
+
+    1. ``DAGENTSC_BIN``, when it is set and not empty. It is used even when it
+       names a missing file, so a wrong setting fails instead of quietly
+       running a different planner.
+    2. The planner a platform wheel bundles at ``dagents/_bin/dagentsc``.
+    3. ``dagentsc`` on PATH.
+
+    When none of them exists, starting the name ``dagentsc`` fails, the runner
+    raises :class:`PlannerUnavailableError`, and the Guard denies the request.
+    """
+    configured = os.environ.get("DAGENTSC_BIN")
+    if configured:
+        return configured
+    bundled = bundled_planner()
+    if bundled is not None:
+        return str(bundled)
+    return PLANNER_ON_PATH
 
 def _execute(full_cmd: list[str], input_str: str | None = None) -> Any:
     """Run the planner once and return its output with snake_case keys.
@@ -125,7 +222,7 @@ def run_dagentsc(command: list[str], payload: dict[str, Any]) -> Any:
     camel_payload = convert_keys(payload, to_camel_case)
     input_str = json.dumps(camel_payload)
     # Base command is something like ['manifest', 'compile', '--input', '-', '--output', 'json'].
-    # Containers place dagentsc on PATH; local demos can set DAGENTSC_BIN to the dune-built binary.
+    # dagentsc_binary() says which planner runs: DAGENTSC_BIN, the bundled one, or PATH.
     full_cmd = [dagentsc_binary()] + command
     return _execute(full_cmd, input_str)
 

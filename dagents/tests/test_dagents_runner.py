@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 import json
+import logging
+import os
+import pathlib
 import subprocess
+import tempfile
 import unittest
 from unittest.mock import patch
 
@@ -107,6 +111,130 @@ class PlannerUnavailableTests(unittest.TestCase):
             dagents_runner.round_digest({"round_id": "r"})
         with self.assertRaises(dagents_runner.PlannerUnavailableError):
             dagents_runner.evaluate_dataset_quality([{"id": "a"}], [])
+
+
+class PlannerLookupOrderTests(unittest.TestCase):
+    """The runner looks for the planner in DAGENTSC_BIN, then the bundled binary, then PATH.
+
+    A platform wheel bundles the planner at ``dagents/_bin/dagentsc``. These
+    tests put a stand-in at a temporary path instead, so they never depend on
+    how this checkout was installed.
+    """
+
+    def setUp(self) -> None:
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        self.root = pathlib.Path(folder.name)
+        self.bundled = self.root / "_bin" / "dagentsc"
+        self.empty_path = self.root / "empty-path"
+        self.empty_path.mkdir()
+        environ = {key: value for key, value in os.environ.items() if key != "DAGENTSC_BIN"}
+        environ["PATH"] = str(self.empty_path)
+        patcher = patch.dict(os.environ, environ, clear=True)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        bundled = patch.object(dagents_runner, "BUNDLED_PLANNER", self.bundled)
+        bundled.start()
+        self.addCleanup(bundled.stop)
+
+    def executable(self, path: pathlib.Path) -> pathlib.Path:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        path.chmod(0o755)
+        return path
+
+    def test_the_setting_comes_first(self) -> None:
+        self.executable(self.bundled)
+        os.environ["DAGENTSC_BIN"] = "/opt/planner/dagentsc"
+        self.assertEqual("/opt/planner/dagentsc", dagents_runner.dagentsc_binary())
+        self.assertEqual(("/opt/planner/dagentsc", "DAGENTSC_BIN"), dagents_runner.find_planner())
+
+    def test_a_setting_that_names_a_missing_file_is_still_used(self) -> None:
+        """A wrong setting fails closed instead of quietly running another planner."""
+        self.executable(self.bundled)
+        os.environ["DAGENTSC_BIN"] = str(self.root / "missing" / "dagentsc")
+        self.assertEqual(str(self.root / "missing" / "dagentsc"), dagents_runner.dagentsc_binary())
+        with self.assertRaises(dagents_runner.PlannerUnavailableError):
+            dagents_runner.round_digest({"round_id": "r"})
+
+    def test_the_bundled_planner_comes_second(self) -> None:
+        self.executable(self.bundled)
+        self.executable(self.empty_path / "dagentsc")
+        self.assertEqual(str(self.bundled), dagents_runner.dagentsc_binary())
+        self.assertEqual((str(self.bundled), "bundled"), dagents_runner.find_planner())
+
+    def test_an_empty_setting_counts_as_unset(self) -> None:
+        self.executable(self.bundled)
+        os.environ["DAGENTSC_BIN"] = ""
+        self.assertEqual(str(self.bundled), dagents_runner.dagentsc_binary())
+
+    def test_a_bundled_file_that_cannot_run_is_skipped(self) -> None:
+        self.executable(self.bundled).chmod(0o644)
+        self.assertIsNone(dagents_runner.bundled_planner())
+        self.assertEqual("dagentsc", dagents_runner.dagentsc_binary())
+
+    def test_path_comes_last(self) -> None:
+        on_path = self.executable(self.empty_path / "dagentsc")
+        self.assertEqual("dagentsc", dagents_runner.dagentsc_binary())
+        self.assertEqual((str(on_path), "PATH"), dagents_runner.find_planner())
+
+    def test_without_a_planner_the_runner_raises_and_reports_none(self) -> None:
+        self.assertEqual((None, "none"), dagents_runner.find_planner())
+        with self.assertRaises(dagents_runner.PlannerUnavailableError):
+            dagents_runner.round_digest({"round_id": "r"})
+
+    def test_a_planner_the_runner_can_start_has_no_problem(self) -> None:
+        self.executable(self.bundled)
+        self.assertIsNone(dagents_runner.planner_problem())
+        os.environ["DAGENTSC_BIN"] = str(self.executable(self.root / "opt" / "dagentsc"))
+        self.assertIsNone(dagents_runner.planner_problem())
+
+    def test_the_problem_names_a_setting_that_cannot_run(self) -> None:
+        missing = self.root / "missing" / "dagentsc"
+        os.environ["DAGENTSC_BIN"] = str(missing)
+        self.assertEqual(f"DAGENTSC_BIN names {missing}, which is not a file this process can run", dagents_runner.planner_problem())
+        plain = self.executable(self.root / "plain" / "dagentsc")
+        plain.chmod(0o644)
+        os.environ["DAGENTSC_BIN"] = str(plain)
+        self.assertIn(f"DAGENTSC_BIN names {plain}", dagents_runner.planner_problem())
+
+    def test_the_problem_says_when_no_planner_was_found(self) -> None:
+        self.assertIn("no planner was found", dagents_runner.planner_problem())
+
+    def test_a_missing_planner_is_logged_once_with_the_remedy(self) -> None:
+        """An install without a planner starts without an error, so the agents say why the Guard will deny."""
+        log = logging.getLogger("dagents.tests.missing-planner")
+        with self.assertLogs(log, level="WARNING") as captured:
+            self.assertIsNotNone(dagents_runner.warn_if_no_planner(log, "dagents-lma"))
+        self.assertEqual(1, len(captured.records))
+        message = captured.records[0].getMessage()
+        for words in ("dagents-lma has no planner", "no planner was found", "denies every request", "DAGENTSC_BIN", "python -m dagents"):
+            self.assertIn(words, message)
+        self.executable(self.bundled)
+        with self.assertNoLogs(log, level="WARNING"):
+            self.assertIsNone(dagents_runner.warn_if_no_planner(log, "dagents-lma"))
+
+    def test_without_a_planner_the_guard_denies(self) -> None:
+        """No setting, no bundled binary and nothing on PATH: the Guard fails closed."""
+        from dagents.common.application.ethical_guard import DagentscRestrictionPlanner, EthicalGuard, InMemoryAuditLog
+        from dagents.tests.test_governance import RECORDS, request_for
+
+        guard = EthicalGuard(DagentscRestrictionPlanner(), InMemoryAuditLog())
+        with self.assertLogs("dagents.common.application.ethical_guard", level="ERROR"):
+            decision = guard.enforce(request_for(), RECORDS)
+        self.assertFalse(decision.permitted)
+        self.assertEqual([], decision.payload)
+        self.assertEqual("The planner could not be reached, so the Guard denied the request.", decision.message)
+        self.assertEqual(1, len(guard.audit.list_recent()), "the denial must still be audited")
+
+
+
+class BundledPlannerPathTests(unittest.TestCase):
+    def test_the_bundled_path_is_inside_the_package(self) -> None:
+        """The build hook writes the binary to dagents/_bin/dagentsc; the runner must look there."""
+        package = pathlib.Path(dagents_runner.__file__).resolve().parents[2]
+        self.assertEqual("dagents", package.name)
+        self.assertEqual(package / "_bin" / "dagentsc", dagents_runner.BUNDLED_PLANNER)
 
 
 #: A round manifest in the snake_case form services send to the runner.

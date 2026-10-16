@@ -64,7 +64,7 @@ from dagents.common.infrastructure.agent_client import (
     lma_agent,
     normalize_base_url,
 )
-from dagents.common.infrastructure.dagents_runner import PlannerUnavailableError
+from dagents.common.infrastructure.dagents_runner import PlannerUnavailableError, warn_if_no_planner
 from dagents.common.infrastructure.postgres_roles import RoleScopeError
 from dagents.gma.adapters.http_federation_engine import HttpFederationEngine
 from dagents.gma.application.aggregation_service import AggregationService
@@ -381,6 +381,7 @@ def create_app(settings: Settings | None = None, deps: GmaDeps | None = None) ->
     from dagents.gma.routes import router
 
     app.include_router(router)
+    warn_if_no_planner(logger, AGENT_NAME)
     return app
 
 

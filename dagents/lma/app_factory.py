@@ -26,6 +26,7 @@ No ``detail`` holds a host, a token or a connection string.
 
 from __future__ import annotations
 
+import logging
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
@@ -34,11 +35,13 @@ from fastapi.responses import JSONResponse
 
 from dagents.common.domain.errors import DagentsError
 from dagents.common.infrastructure.agent_auth import agent_error_response, install_agent_access
-from dagents.common.infrastructure.dagents_runner import PlannerUnavailableError
+from dagents.common.infrastructure.dagents_runner import PlannerUnavailableError, warn_if_no_planner
 from dagents.common.infrastructure.postgres_roles import RoleScopeError
 from dagents.lma.config import Settings
 from dagents.lma.di import LmaDeps, LmaRuntime, build_runtime
 from dagents.lma.routes import router
+
+logger = logging.getLogger(__name__)
 
 __all__ = ["LmaDeps", "create_app"]
 
@@ -98,6 +101,7 @@ def create_app(settings: Settings | None = None, deps: LmaDeps | None = None) ->
         )
         install_error_handlers(app)
         app.include_router(router)
+        warn_if_no_planner(logger, settings.app_name)
     except BaseException:
         runtime.close()
         raise
