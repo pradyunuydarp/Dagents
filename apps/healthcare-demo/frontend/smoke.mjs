@@ -248,6 +248,18 @@ try {
       `${deployButtons} buttons; ${deployReason || "no reason shown"}`
     );
   }
+  //    The panel is shown to every visitor, so it defines LMA and GMA where it
+  //    first uses them.
+  const deployText = (await deployPanel.innerText()) ?? "";
+  const definedAtFirstUse = (abbreviation) => {
+    const first = deployText.indexOf(abbreviation);
+    return first > 0 && deployText[first - 1] === "(" && deployText[first + abbreviation.length] === ")";
+  };
+  check(
+    "deploy panel defines LMA and GMA where it first uses them",
+    definedAtFirstUse("LMA") && definedAtFirstUse("GMA"),
+    deployText.split("\n").find((line) => /LMA|GMA/.test(line))?.slice(0, 160) ?? "no LMA or GMA in the panel"
+  );
   if (shotDir) {
     await staticHeader();
     await page.screenshot({

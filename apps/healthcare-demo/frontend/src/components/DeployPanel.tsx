@@ -145,8 +145,11 @@ export function DeployPanel({ onJoined }: { onJoined: () => void }) {
     <Panel hook="deploy" eyebrow="While the demo runs" title="Add a hospital">
       <p className="note ds-note">
         A split run on your own machine can add a hospital that is not in the consortium at start. The app
-        asks the Dagents core service for the hospital&rsquo;s Compose file, starts its LMA, and asks the GMA to
-        accept and enrol it. The GMA&rsquo;s planner then decides whether the next round selects it.
+        asks the Dagents core service for the hospital&rsquo;s Compose file and starts the hospital&rsquo;s local
+        monitoring agent (LMA), the Dagents process that keeps the hospital&rsquo;s records and runs its part of each
+        round. It then asks the global monitoring
+        agent (GMA), the Dagents coordinator that runs the rounds, to accept and enrol it. The GMA&rsquo;s planner
+        then decides whether the next round selects it.
       </p>
       {reason && (
         <p className="note ds-note" data-role="reason">
