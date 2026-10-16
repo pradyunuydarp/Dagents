@@ -396,6 +396,24 @@ def _issue_text(issue: Mapping[str, Any]) -> str:
     return text + (f" for {service}" if service else " for the request")
 
 
+#: Characters of a tool's last output line a step's detail shows.
+CAUSE_CHARACTERS = 300
+
+
+def _apply_error_detail(error: ComposeApplyError, lead: str = "") -> str:
+    """A step's detail for an applier error: ``lead``, its message, the last line
+    of the tool's output, which usually names the cause, and the process's log file."""
+    text = lead + (error.message if lead else f"{error.message[:1].upper()}{error.message[1:]}")
+    cause = next((line.strip() for line in reversed(error.output_tail.splitlines()) if line.strip()), "")
+    if cause:
+        text += f": {cause[:CAUSE_CHARACTERS]}"
+    if not text.endswith("."):
+        text += "."
+    if error.log_path:
+        text += f" Its log is {error.log_path}."
+    return text
+
+
 def _service_environment(environ: Mapping[str, str]) -> dict[str, str]:
     """The environment a new hospital's process starts from.
 
@@ -720,7 +738,8 @@ class _Attempt:
         try:
             self.applier.check(compose_yaml, self.service)
         except ComposeApplyError as error:
-            raise _StepFailed(f"The {self.applier.name} applier cannot apply the file: {error.message}.") from None
+            lead = f"The {self.applier.name} applier cannot apply the file: "
+            raise _StepFailed(_apply_error_detail(error, lead)) from None
         return "done", f"core-service rendered the Compose file for {self.service}."
 
     def _start(self) -> tuple[str, str]:
@@ -737,7 +756,7 @@ class _Attempt:
                         self.compose_yaml, self.service, project=self.project, wait_seconds=wait
                     )
                 except ComposeApplyError as error:
-                    raise _StepFailed(f"{error.message[:1].upper()}{error.message[1:]}.") from None
+                    raise _StepFailed(_apply_error_detail(error)) from None
                 self.adopted = applied.adopted
                 self.started_service = not applied.adopted
                 self.log_path = applied.log_path
@@ -767,7 +786,7 @@ class _Attempt:
         except ComposeApplyError as error:
             if error.output_tail:
                 logger.warning("%s did not start: %s\n%s", self.service, error.message, error.output_tail)
-            raise _StepFailed(f"{error.message[:1].upper()}{error.message[1:]}.") from None
+            raise _StepFailed(_apply_error_detail(error)) from None
         self.adopted = applied.adopted
         self.started_service = not applied.adopted
         self.log_path = applied.log_path

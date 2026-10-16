@@ -164,7 +164,9 @@ that runs Docker. The process applier refuses `depends_on`, any key it cannot
 apply, such as `volumes`, a program that is not in its allowlist, and a `$`
 that is not written `$$`, because it does not read variables from the
 environment.
-Neither applier checks the service's health: ask the service. A process in a
+A failure raises `ComposeApplyError` with a plain message, the last 20 lines of
+the tool's output (`output_tail`) and, for a process that exited, its log file
+(`log_path`). Neither applier checks the service's health: ask the service. A process in a
 new process group outlives a parent that dies without calling `close`, so
 whatever supervises your program can stop it with the pid in `<service>.pid`.
 The tests run the Docker applier with a fake runner, because CI has no Docker.

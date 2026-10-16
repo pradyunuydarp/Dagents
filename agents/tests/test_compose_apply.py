@@ -190,6 +190,7 @@ class LocalProcessApplierTests(unittest.TestCase):
             self.start(code)
         self.assertEqual(raised.exception.message, "the process exited with status 3")
         self.assertEqual(raised.exception.output_tail.splitlines(), [f"line {n}" for n in range(10, 30)])
+        self.assertEqual(raised.exception.log_path, str(self.applier.log_path(SERVICE)))
         self.assertEqual(self.applier.status(SERVICE, project=""), "not_started")
 
     def test_status_is_running_then_stopped_and_unknown_services_are_not_started(self) -> None:

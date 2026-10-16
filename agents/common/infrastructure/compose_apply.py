@@ -80,12 +80,14 @@ class ComposeApplyError(RuntimeError):
 
     ``message`` is one plain sentence for a person. ``output_tail`` holds at
     most the last 20 lines of the tool's output, or of the process's log.
+    ``log_path`` is the process's log file, when there is one.
     """
 
-    def __init__(self, message: str, output_tail: str = "") -> None:
+    def __init__(self, message: str, output_tail: str = "", log_path: str | None = None) -> None:
         super().__init__(message)
         self.message = message
         self.output_tail = _tail(output_tail)
+        self.log_path = log_path
 
 
 @dataclass(frozen=True)
@@ -293,7 +295,9 @@ class LocalProcessApplier:
             if self._children.get(service) is child:
                 del self._children[service]
                 self.pid_path(service).unlink(missing_ok=True)
-        raise ComposeApplyError(f"the process exited with status {code}", self._read_log(log_path))
+        raise ComposeApplyError(
+            f"the process exited with status {code}", self._read_log(log_path), log_path=str(log_path)
+        )
 
     @staticmethod
     def _read_log(path: Path) -> str:

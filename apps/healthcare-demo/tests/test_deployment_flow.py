@@ -405,17 +405,41 @@ class DeploymentFlowTests(unittest.TestCase):
         self.assertEqual("The core service did not answer.", self.detail(deployment, "plan"))
 
     def test_a_service_that_does_not_start(self) -> None:
-        self.applier.fail = ComposeApplyError("the process exited with status 1", "Traceback ...")
+        # The page shows the last line of the output, which names the cause,
+        # and in process mode the log file.
+        self.applier.fail = ComposeApplyError(
+            "the process exited with status 1",
+            "Traceback (most recent call last):\n  ...\nModuleNotFoundError: No module named 'app'\n",
+            log_path="/tmp/deploy/lma-pl-290.log",
+        )
         with self.assertLogs("app.services.deployment", "WARNING") as logs:
             deployment = self.deploy()
-        self.assertIn("Traceback ...", logs.output[0])
+        self.assertIn("Traceback (most recent call last)", logs.output[0])
         self.assert_failed_at(
             deployment,
             "start",
             {"plan": "done", "start": "failed", **{step: "not_run" for step in DEPLOYMENT_STEPS[2:]}},
         )
-        self.assertEqual("The process exited with status 1.", self.detail(deployment, "start"))
+        self.assertEqual(
+            "The process exited with status 1: ModuleNotFoundError: No module named 'app'. "
+            "Its log is /tmp/deploy/lma-pl-290.log.",
+            self.detail(deployment, "start"),
+        )
         self.assertEqual([], self.applier.stopped)
+
+    def test_a_container_that_does_not_start_shows_dockers_reason(self) -> None:
+        self.applier.fail = ComposeApplyError(
+            "docker compose could not start lma-pl-290",
+            " Network healthcare-demo_default  Error\n"
+            "network healthcare-demo_default declared as external, but could not be found\n",
+        )
+        with self.assertLogs("app.services.deployment", "WARNING"):
+            deployment = self.deploy()
+        self.assertEqual(
+            "Docker compose could not start lma-pl-290: network healthcare-demo_default declared as external, "
+            "but could not be found.",
+            self.detail(deployment, "start"),
+        )
 
     def test_a_port_that_answers_for_another_service(self) -> None:
         import socket
