@@ -451,6 +451,33 @@ class DeploymentFlowTests(unittest.TestCase):
         self.assertEqual("Stopped the service this deployment started.", self.detail(deployment, "start"))
         self.assertEqual([(SERVICE, "healthcare-demo-lma-pl-290")], self.applier.stopped)
 
+    def test_a_running_service_that_does_not_answer_is_replaced(self) -> None:
+        # The applier still runs the hospital's process, but it does not answer,
+        # for example because it hangs. Adopting it would wait the whole timeout
+        # and then keep it, because a rollback leaves an adopted service alone.
+        self.applier.state = "running"
+        self.use_deployer(deploy_timeout_seconds=3.0)
+        deployment = self.deploy()
+        self.assertEqual("joined", deployment["status"], deployment)
+        self.assertFalse(deployment["adopted"])
+        self.assertEqual([(SERVICE, "healthcare-demo-lma-pl-290")], self.applier.stopped)
+        self.assertEqual(
+            "The service ran but did not answer, so the app stopped it. Started process 4242.",
+            self.detail(deployment, "start"),
+        )
+
+    def test_a_running_service_that_answers_is_kept(self) -> None:
+        self.assertEqual("joined", self.deploy()["status"])
+        # The hospital leaves the consortium in the app only, as after a failed
+        # join, while its LMA keeps running and answering.
+        consortium = self.app.consortium
+        consortium.hospitals = {key: value for key, value in consortium.hospitals.items() if key != SITE_ID}
+        deployment = self.deploy()
+        self.assertEqual("joined", deployment["status"], deployment)
+        self.assertTrue(deployment["adopted"])
+        self.assertEqual("Already running; kept.", self.detail(deployment, "start"))
+        self.assertEqual([], self.applier.stopped)
+
     def test_a_refused_address_stops_the_service(self) -> None:
         # The GMA lists pl-290 as joinable, at another address.
         self.use_gma(f"http://127.0.0.1:{free_port()}")

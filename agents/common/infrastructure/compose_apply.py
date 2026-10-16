@@ -319,6 +319,9 @@ class LocalProcessApplier:
         # process it started.
         try:
             os.killpg(child.pid, signal.SIGTERM)
+            # A stopped process (SIGSTOP) that handles SIGTERM acts on it only
+            # when it continues.
+            os.killpg(child.pid, signal.SIGCONT)
         except ProcessLookupError:
             pass
         try:

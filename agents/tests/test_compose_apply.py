@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import signal
 import subprocess
 import sys
 import tempfile
@@ -253,6 +254,27 @@ class LocalProcessApplierTests(unittest.TestCase):
         applier.stop(SERVICE, project="")
         self.assertLess(time.monotonic() - started, 5)
         self.assertFalse(alive(int(applied.detail.rsplit(" ", 1)[1])))
+
+    def test_stop_ends_a_stopped_process_without_waiting_for_sigkill(self) -> None:
+        # A hung service may be stopped with SIGSTOP. uvicorn handles SIGTERM,
+        # and a stopped process acts on a handled signal only when it continues.
+        applier = LocalProcessApplier(self.workdir, cwd=self.cwd, programs={PYTHON}, base_env={}, stop_seconds=10)
+        self.addCleanup(applier.close)
+        ready = self.workdir / "ready-stopped"
+        code = (
+            "import signal, sys, time\n"
+            "signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))\n"
+            "open(sys.argv[1], 'w').write('ready')\n"
+            "time.sleep(60)\n"
+        )
+        applied = applier.apply(rendered(command=[PYTHON, "-c", code, str(ready)]), SERVICE, project="", wait_seconds=5)
+        self.assertTrue(wait_until(ready.exists))
+        pid = int(applied.detail.rsplit(" ", 1)[1])
+        os.kill(pid, signal.SIGSTOP)
+        started = time.monotonic()
+        applier.stop(SERVICE, project="")
+        self.assertLess(time.monotonic() - started, 5, "stop waited for SIGKILL")
+        self.assertFalse(alive(pid))
 
     def test_close_stops_every_child(self) -> None:
         pids = [
