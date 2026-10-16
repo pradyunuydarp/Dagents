@@ -94,8 +94,8 @@ class JavaService:
 
 
 PYTHON_SERVICES: tuple[PythonService, ...] = (
-    PythonService(name="lma", role="agent", port=8010, module="agents.lma.main"),
-    PythonService(name="gma", role="agent", port=8020, module="agents.gma.main"),
+    PythonService(name="lma", role="agent", port=8010, module="dagents.lma.main"),
+    PythonService(name="gma", role="agent", port=8020, module="dagents.gma.main"),
     PythonService(
         name="model-service",
         role="framework-service",

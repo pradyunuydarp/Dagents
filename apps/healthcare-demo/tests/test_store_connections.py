@@ -1,7 +1,7 @@
 """Each Postgres store reuses one connection, and no role carries over between operations.
 
 The stores run on the framework's kept connection
-(``agents.common.infrastructure.postgres_lease.KeptConnection``). Each store
+(``dagents.common.infrastructure.postgres_lease.KeptConnection``). Each store
 keeps one autocommit connection and runs every operation in its own
 transaction that starts with ``SET LOCAL ROLE``. These tests check what that
 reuse must not change:
@@ -39,10 +39,10 @@ FRAMEWORK_ROOT = Path(os.environ.get("DAGENTS_HOME") or APP_ROOT.parents[1])
 sys.path.insert(0, str(APP_ROOT / "backend"))
 sys.path.insert(0, str(FRAMEWORK_ROOT))
 
-from agents.common.domain.federation import ModelStatusChange, ModelVersion  # noqa: E402
-from agents.common.domain.site import JobLogEntry  # noqa: E402
-from agents.gma.infrastructure.postgres_models import PostgresModelStore  # noqa: E402
-from agents.lma.infrastructure.job_log import PostgresJobLog  # noqa: E402
+from dagents.common.domain.federation import ModelStatusChange, ModelVersion  # noqa: E402
+from dagents.common.domain.site import JobLogEntry  # noqa: E402
+from dagents.gma.infrastructure.postgres_models import PostgresModelStore  # noqa: E402
+from dagents.lma.infrastructure.job_log import PostgresJobLog  # noqa: E402
 from app.domain.dataset import SITES, load_site_records, site_for  # noqa: E402
 from app.services.site_source import StoreSiteSource  # noqa: E402
 from app.services.site_store import (  # noqa: E402

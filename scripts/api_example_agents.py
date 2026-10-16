@@ -32,18 +32,18 @@ from typing import Any, Iterable, Mapping
 
 from fastapi import FastAPI
 
-from agents.common.domain.errors import ModelVerificationError
-from agents.common.domain.federation import ModelVersionRegistration
-from agents.common.extensions import ExtensionRegistry, TrainingOutcome
-from agents.common.infrastructure.agent_client import GMA_AGENT, AgentNetwork, lma_agent
-from agents.common.infrastructure.site_sources import StaticSiteSource
-from agents.gma.app_factory import GmaDeps
-from agents.gma.app_factory import create_app as create_gma
-from agents.gma.config import Settings as GmaSettings
-from agents.lma.app_factory import LmaDeps
-from agents.lma.app_factory import create_app as create_lma
-from agents.lma.config import Settings as LmaSettings
-from agents.lma.domain.site_config import SiteConfig
+from dagents.common.domain.errors import ModelVerificationError
+from dagents.common.domain.federation import ModelVersionRegistration
+from dagents.common.extensions import ExtensionRegistry, TrainingOutcome
+from dagents.common.infrastructure.agent_client import GMA_AGENT, AgentNetwork, lma_agent
+from dagents.common.infrastructure.site_sources import StaticSiteSource
+from dagents.gma.app_factory import GmaDeps
+from dagents.gma.app_factory import create_app as create_gma
+from dagents.gma.config import Settings as GmaSettings
+from dagents.lma.app_factory import LmaDeps
+from dagents.lma.app_factory import create_app as create_lma
+from dagents.lma.config import Settings as LmaSettings
+from dagents.lma.domain.site_config import SiteConfig
 
 # The getting-started example. Its folder name has a hyphen, so the request
 # files put `examples/getting-started` on the path and import `shop`.

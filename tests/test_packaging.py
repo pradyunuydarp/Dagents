@@ -1,0 +1,563 @@
+"""The PyPI package: its metadata, the build hook, the release version check and the distribution checker.
+
+None of these tests builds a wheel, because a build downloads hatchling. The
+``packaging`` job in ``.github/workflows/ci.yml`` builds the sdist and a Linux
+wheel with the planner, runs ``scripts/check_dist.py`` on them and installs the
+wheel into a clean virtual environment (``scripts/smoke_installed_package.py``).
+These tests check the pieces those steps rely on, with synthetic inputs.
+"""
+
+from __future__ import annotations
+
+import base64
+import hashlib
+import http.server
+import io
+import json
+import threading
+import os
+import re
+import struct
+import subprocess
+import sys
+import tarfile
+import tempfile
+import tomllib
+import unittest
+import zipfile
+from email.parser import Parser
+from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO_ROOT / "scripts"))
+sys.path.insert(0, str(REPO_ROOT))
+
+import check_dist  # noqa: E402
+import check_published_files  # noqa: E402
+import hatch_build  # noqa: E402
+import release_version  # noqa: E402
+
+import dagents  # noqa: E402
+from dagents.common.infrastructure import dagents_runner  # noqa: E402
+
+PYPROJECT = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+VERSION = dagents.__version__
+
+
+def elf(machine: int = 0x3E, *, interpreter: bool = False) -> bytes:
+    """A minimal little-endian ELF64 header with one or two program headers."""
+    phoff, phentsize = 64, 56
+    kinds = [1] + ([3] if interpreter else [])  # PT_LOAD, then PT_INTERP for a dynamic binary
+    header = bytearray(64)
+    header[:4] = b"\x7fELF"
+    header[4], header[5], header[6] = 2, 1, 1
+    struct.pack_into("<HHI", header, 16, 2, machine, 1)
+    struct.pack_into("<Q", header, 32, phoff)
+    struct.pack_into("<HH", header, 54, phentsize, len(kinds))
+    tables = b"".join(struct.pack("<I", kind) + bytes(phentsize - 4) for kind in kinds)
+    return bytes(header) + tables
+
+
+def macho(cpu: int = 0x0100000C, minimum: tuple[int, int] | None = (11, 0)) -> bytes:
+    """A minimal 64-bit Mach-O header, with an LC_BUILD_VERSION command when ``minimum`` is given."""
+    commands = b""
+    if minimum is not None:
+        packed = (minimum[0] << 16) | (minimum[1] << 8)
+        commands = struct.pack("<IIIIII", 0x32, 24, 1, packed, packed, 0)
+    header = b"\xcf\xfa\xed\xfe" + struct.pack("<IIIIIII", cpu, 0, 2, 1 if commands else 0, len(commands), 0, 0)
+    return header + commands
+
+
+LINUX_X86 = "manylinux_2_17_x86_64.manylinux2014_x86_64.musllinux_1_1_x86_64"
+
+
+class BuildHookTests(unittest.TestCase):
+    """``hatch_build.py`` puts only a matching planner into a wheel."""
+
+    def test_a_static_x86_64_binary_fits_the_linux_tags(self) -> None:
+        self.assertEqual(LINUX_X86, hatch_build.check_platform(LINUX_X86, elf()))
+
+    def test_an_aarch64_binary_fits_the_aarch64_tag_only(self) -> None:
+        hatch_build.check_platform("manylinux_2_17_aarch64", elf(0xB7))
+        with self.assertRaisesRegex(hatch_build.PlannerBinaryError, "aarch64"):
+            hatch_build.check_platform("manylinux_2_17_x86_64", elf(0xB7))
+
+    def test_a_dynamic_linux_binary_is_refused(self) -> None:
+        """A manylinux tag promises the binary runs on any distribution, which a dynamic one may not."""
+        with self.assertRaisesRegex(hatch_build.PlannerBinaryError, "statically linked"):
+            hatch_build.check_platform("manylinux_2_17_x86_64", elf(interpreter=True))
+
+    def test_a_macos_binary_needs_a_macos_tag(self) -> None:
+        hatch_build.check_platform("macosx_11_0_arm64", macho())
+        with self.assertRaisesRegex(hatch_build.PlannerBinaryError, "macos arm64"):
+            hatch_build.check_platform("manylinux_2_17_aarch64", macho())
+        with self.assertRaisesRegex(hatch_build.PlannerBinaryError, "linux x86_64"):
+            hatch_build.check_platform("macosx_11_0_arm64", elf())
+
+    def test_a_macos_tag_may_not_be_older_than_the_binary(self) -> None:
+        hatch_build.check_platform("macosx_11_0_arm64", macho(minimum=(11, 0)))
+        hatch_build.check_platform("macosx_14_0_arm64", macho(minimum=(11, 0)))
+        hatch_build.check_platform("macosx_11_0_arm64", macho(minimum=None))
+        with self.assertRaisesRegex(hatch_build.PlannerBinaryError, "needs macOS 15.0 or later"):
+            hatch_build.check_platform("macosx_11_0_arm64", macho(minimum=(15, 0)))
+
+    def test_unknown_tags_and_files_are_refused(self) -> None:
+        for tag in ("any", "win_amd64", "linux_x86_64", ""):
+            with self.subTest(tag=tag), self.assertRaises(hatch_build.PlannerBinaryError):
+                hatch_build.check_platform(tag, elf())
+        with self.assertRaisesRegex(hatch_build.PlannerBinaryError, "neither"):
+            hatch_build.check_platform(LINUX_X86, b"#!/bin/sh\n")
+
+    def test_the_variables_must_be_set_together(self) -> None:
+        self.assertIsNone(hatch_build.planner_build({}))
+        with self.assertRaisesRegex(hatch_build.PlannerBinaryError, "set both or neither"):
+            hatch_build.planner_build({hatch_build.PLATFORM_VARIABLE: LINUX_X86})
+        with self.assertRaisesRegex(hatch_build.PlannerBinaryError, "names no file"):
+            hatch_build.planner_build({hatch_build.BINARY_VARIABLE: "/nonexistent/dagentsc", hatch_build.PLATFORM_VARIABLE: LINUX_X86})
+
+    def test_the_binary_must_be_executable(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            binary = Path(folder) / "dagentsc"
+            binary.write_bytes(elf())
+            binary.chmod(0o644)
+            environ = {hatch_build.BINARY_VARIABLE: str(binary), hatch_build.PLATFORM_VARIABLE: LINUX_X86}
+            with self.assertRaisesRegex(hatch_build.PlannerBinaryError, "not executable"):
+                hatch_build.planner_build(environ)
+            binary.chmod(0o755)
+            self.assertEqual((binary, LINUX_X86), hatch_build.planner_build(environ))
+
+    def test_the_hook_writes_where_the_runner_looks(self) -> None:
+        package = Path(dagents_runner.__file__).resolve().parents[2]
+        self.assertEqual(package.parent / hatch_build.BUNDLED_PATH, dagents_runner.BUNDLED_PLANNER)
+
+
+class ReleaseVersionTests(unittest.TestCase):
+    """``scripts/release_version.py`` stops a tag that differs from the version."""
+
+    def test_the_repository_version_is_read_without_importing(self) -> None:
+        self.assertEqual(VERSION, release_version.read_version())
+
+    def test_pre_releases_and_releases(self) -> None:
+        for version, prerelease in (("0.1.0a1", True), ("0.2.0b3", True), ("1.0.0rc1", True), ("1.0.0", False)):
+            with self.subTest(version=version):
+                self.assertEqual(prerelease, release_version.is_prerelease(version))
+
+    def test_versions_this_project_does_not_publish_are_refused(self) -> None:
+        for version in ("1.0", "1.0.0.dev1", "1.0.0.post1", "1.0.0+local", "01.0.0", "1.0.0-alpha", "v1.0.0", "1.0.0a"):
+            with self.subTest(version=version), self.assertRaises(release_version.ReleaseError):
+                release_version.is_prerelease(version)
+
+    def test_the_tag_must_be_v_and_the_version(self) -> None:
+        release_version.check_tag("v0.1.0a1", "0.1.0a1")
+        for tag in ("0.1.0a1", "v0.1.0a2", "v0.1.0", "refs/tags/v0.1.0a1", "v0.1.0a1 "):
+            with self.subTest(tag=tag), self.assertRaises(release_version.ReleaseError):
+                release_version.check_tag(tag, "0.1.0a1")
+
+    def test_each_stage_has_one_status_classifier(self) -> None:
+        expected = {
+            "0.1.0a1": "Development Status :: 3 - Alpha",
+            "0.3.0b2": "Development Status :: 4 - Beta",
+            "1.0.0rc1": "Development Status :: 4 - Beta",
+            "1.0.0": "Development Status :: 5 - Production/Stable",
+            "2.1.0": "Development Status :: 5 - Production/Stable",
+        }
+        for version, classifier in expected.items():
+            with self.subTest(version=version):
+                self.assertEqual(classifier, release_version.status_classifier(version))
+        with self.assertRaisesRegex(release_version.ReleaseError, "before 1.0.0"):
+            release_version.status_classifier("0.2.0")
+
+    def test_a_release_must_be_a_commit_on_main(self) -> None:
+        """A tag on a branch that was never merged must not publish."""
+        with tempfile.TemporaryDirectory() as folder:
+            repo = Path(folder)
+
+            def git(*args: str) -> str:
+                command = ["git", "-c", "user.name=test", "-c", "user.email=test@example.com", "-c", "commit.gpgsign=false", *args]
+                return subprocess.run(command, cwd=repo, check=True, capture_output=True, text=True).stdout.strip()
+
+            git("init", "--quiet", "--initial-branch=main")
+            git("commit", "--quiet", "--allow-empty", "--message", "on main")
+            on_main = git("rev-parse", "HEAD")
+            git("checkout", "--quiet", "-b", "feature")
+            git("commit", "--quiet", "--allow-empty", "--message", "not merged")
+            off_main = git("rev-parse", "HEAD")
+            release_version.check_on_branch("main", on_main, cwd=repo)
+            with self.assertRaisesRegex(release_version.ReleaseError, "is not on main"):
+                release_version.check_on_branch("main", off_main, cwd=repo)
+            with self.assertRaisesRegex(release_version.ReleaseError, "no-such-branch"):
+                release_version.check_on_branch("no-such-branch", on_main, cwd=repo)
+
+    def test_the_command_writes_the_outputs_and_fails_on_a_mismatch(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            output = Path(folder) / "github-output"
+            script = str(REPO_ROOT / "scripts" / "release_version.py")
+            ok = subprocess.run([sys.executable, script, "--tag", f"v{VERSION}", "--github-output", str(output)], capture_output=True, text=True)
+            self.assertEqual(0, ok.returncode, ok.stderr)
+            prerelease = "true" if release_version.is_prerelease(VERSION) else "false"
+            self.assertEqual(f"version={VERSION}\nprerelease={prerelease}\n", output.read_text(encoding="utf-8"))
+            bad = subprocess.run([sys.executable, script, "--tag", "v9.9.9"], capture_output=True, text=True)
+            self.assertEqual(1, bad.returncode)
+            self.assertIn("does not match the package version", bad.stderr)
+
+
+class ProjectMetadataTests(unittest.TestCase):
+    """``pyproject.toml`` describes the package the code is."""
+
+    def test_one_distribution_name_and_one_version_source(self) -> None:
+        project = PYPROJECT["project"]
+        self.assertEqual("dagents", project["name"])
+        self.assertIn("version", project["dynamic"])
+        self.assertNotIn("version", project)
+        self.assertEqual("dagents/__init__.py", PYPROJECT["tool"]["hatch"]["version"]["path"])
+
+    def test_the_status_classifier_matches_the_version(self) -> None:
+        classifiers = PYPROJECT["project"]["classifiers"]
+        statuses = [c for c in classifiers if c.startswith("Development Status ::")]
+        self.assertEqual(1, len(statuses), statuses)
+        self.assertEqual(release_version.status_classifier(VERSION), statuses[0])
+
+    def test_the_licence_is_an_spdx_expression_with_its_file(self) -> None:
+        self.assertEqual("MIT", PYPROJECT["project"]["license"])
+        self.assertEqual(["LICENSE"], PYPROJECT["project"]["license-files"])
+        self.assertFalse([c for c in PYPROJECT["project"]["classifiers"] if c.startswith("License ::")])
+
+    def test_requires_python_is_the_version_ci_tests(self) -> None:
+        workflow = (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+        ci_version = re.search(r'PYTHON_VERSION: "(\d+\.\d+)"', workflow).group(1)
+        self.assertEqual(f">={ci_version}", PYPROJECT["project"]["requires-python"])
+        listed = sorted(c.rsplit(" ", 1)[1] for c in PYPROJECT["project"]["classifiers"] if re.match(r"Programming Language :: Python :: 3\.\d+$", c))
+        self.assertEqual(ci_version, listed[0])
+
+    def test_only_the_dagents_package_goes_into_a_wheel(self) -> None:
+        wheel = PYPROJECT["tool"]["hatch"]["build"]["targets"]["wheel"]
+        self.assertEqual(["dagents"], wheel["packages"])
+        self.assertIn("dagents/tests", wheel["exclude"])
+        self.assertEqual("hatch_build.py", wheel["hooks"]["custom"]["path"])
+
+    def test_the_commands_point_at_functions_that_exist(self) -> None:
+        import importlib
+
+        for command, target in PYPROJECT["project"]["scripts"].items():
+            module, function = target.split(":")
+            with self.subTest(command=command):
+                self.assertTrue(callable(getattr(importlib.import_module(module), function)))
+
+    def test_the_agent_extras_hold_what_the_agents_import(self) -> None:
+        extras = PYPROJECT["project"]["optional-dependencies"]
+        for extra in ("lma", "gma"):
+            names = {re.split(r"[<>=\[ ]", requirement)[0] for requirement in extras[extra]}
+            self.assertEqual({"fastapi", "uvicorn", "httpx"}, names, extra)
+        self.assertEqual(["pydantic>=2.11,<3"], PYPROJECT["project"]["dependencies"])
+
+    def test_ci_tests_the_lowest_version_each_agent_extra_allows(self) -> None:
+        """The agents job pins FastAPI and uvicorn; the extras start at those pins and stop below 1.0.
+
+        The packaging job runs the agent suite again on the newest versions
+        the extras allow (tests/test_release_workflow.py checks that step).
+        """
+        pins = {}
+        for line in (REPO_ROOT / "dagents" / "lma" / "requirements.txt").read_text(encoding="utf-8").splitlines():
+            name, separator, version = line.partition("==")
+            if separator:
+                pins[name.strip()] = version.strip()
+        self.assertLessEqual({"fastapi", "uvicorn"}, set(pins))
+        for extra in ("lma", "gma"):
+            for requirement in PYPROJECT["project"]["optional-dependencies"][extra]:
+                name = re.split(r"[<>=\[ ]", requirement)[0]
+                with self.subTest(extra=extra, requirement=requirement):
+                    self.assertIn(",<1", requirement)
+                    if name in pins:
+                        self.assertTrue(requirement.startswith(f"{name}>={pins[name]},"), requirement)
+
+    def test_the_build_backend_is_pinned_for_every_build(self) -> None:
+        """Every build-system requirement has an exact pin that meets its lower bound."""
+        pins = {}
+        for line in (REPO_ROOT / ".github" / "build-constraints.txt").read_text(encoding="utf-8").splitlines():
+            line = line.split("#", 1)[0].strip()
+            if line:
+                name, separator, version = line.partition("==")
+                self.assertEqual("==", separator, f"{line!r} is not an exact pin")
+                pins[name.strip().lower()] = version.strip()
+        for requirement in PYPROJECT["build-system"]["requires"]:
+            name, lower = re.fullmatch(r"([A-Za-z0-9_.-]+)>=([\d.]+)", requirement).groups()
+            with self.subTest(requirement=requirement):
+                self.assertIn(name.lower(), pins)
+                pinned = tuple(int(part) for part in pins[name.lower()].split("."))
+                self.assertGreaterEqual(pinned, tuple(int(part) for part in lower.split(".")))
+
+    def test_the_readme_tells_a_pypi_reader_how_to_install(self) -> None:
+        """The README is the PyPI description, which PyPI never lets a release change after upload."""
+        readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+        for words in ("**Status: alpha.**", "pip install dagents", 'pip install "dagents[lma,gma]"', "DAGENTSC_BIN", "python -m dagents"):
+            with self.subTest(words=words):
+                self.assertIn(words, readme)
+        self.assertNotIn("being prepared", readme)
+
+    def test_no_code_imports_the_old_package_name(self) -> None:
+        """The package was called ``agents``; that name belongs to another project on PyPI."""
+        tracked = subprocess.run(["git", "ls-files", "*.py"], cwd=REPO_ROOT, capture_output=True, text=True, check=True).stdout.split()
+        pattern = re.compile(r"^\s*(from agents(\.| import)|import agents(\.|\s|$))", re.M)
+        offenders = [path for path in tracked if pattern.search((REPO_ROOT / path).read_text(encoding="utf-8", errors="replace"))]
+        self.assertEqual([], offenders)
+        self.assertFalse((REPO_ROOT / "agents").exists(), "the old agents/ folder is back")
+
+
+#: The description every synthetic distribution carries; check_dist requires the install command in it.
+DESCRIPTION = "# Dagents\n\npip install dagents\n"
+
+BACKEND = "hatchling 1.32.4"
+
+
+def write_wheel(
+    folder: Path,
+    platform: str = "any",
+    files: dict[str, bytes] | None = None,
+    *,
+    executable: bool = True,
+    record_files: dict[str, bytes] | None = None,
+    generator: str = BACKEND,
+) -> Path:
+    """A wheel with the required modules, the given extra files and a correct RECORD."""
+    dist_info = f"dagents-{VERSION}.dist-info"
+    contents = {name: b"" for name in check_dist.REQUIRED_MODULES}
+    contents.update(files or {})
+    stage = release_version.status_classifier(VERSION)
+    contents[f"{dist_info}/METADATA"] = (
+        f"Metadata-Version: 2.4\nName: dagents\nVersion: {VERSION}\nLicense-Expression: MIT\n"
+        f"Requires-Python: >=3.11\nClassifier: {stage}\n\n{DESCRIPTION}"
+    ).encode()
+    tags = "".join(f"Tag: py3-none-{tag}\n" for tag in platform.split("."))
+    contents[f"{dist_info}/WHEEL"] = (
+        f"Wheel-Version: 1.0\nGenerator: {generator}\nRoot-Is-Purelib: {'true' if platform == 'any' else 'false'}\n{tags}"
+    ).encode()
+    record_source = dict(contents)
+    record_source.update(record_files or {})
+    record = "".join(
+        f"{name},sha256={base64.urlsafe_b64encode(hashlib.sha256(data).digest()).rstrip(b'=').decode()},{len(data)}\n"
+        for name, data in record_source.items()
+    ) + f"{dist_info}/RECORD,,\n"
+    contents[f"{dist_info}/RECORD"] = record.encode()
+    path = folder / f"dagents-{VERSION}-py3-none-{platform}.whl"
+    with zipfile.ZipFile(path, "w") as archive:
+        for name, data in contents.items():
+            info = zipfile.ZipInfo(name)
+            mode = 0o755 if (name == hatch_build.BUNDLED_PATH and executable) else 0o644
+            info.external_attr = mode << 16
+            archive.writestr(info, data)
+    return path
+
+
+class CheckDistTests(unittest.TestCase):
+    """``scripts/check_dist.py`` fails on each kind of bad distribution."""
+
+    def check(self, path: Path, **kwargs) -> list[str]:
+        report = check_dist.Report()
+        if path.suffix == ".whl":
+            check_dist.check_wheel(path, VERSION, report, **kwargs)
+        else:
+            check_dist.check_sdist(path, VERSION, report)
+        return report.errors
+
+    def setUp(self) -> None:
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        self.folder = Path(folder.name)
+
+    def test_a_pure_wheel_passes(self) -> None:
+        self.assertEqual([], self.check(write_wheel(self.folder)))
+
+    def test_a_platform_wheel_with_its_planner_passes(self) -> None:
+        wheel = write_wheel(self.folder, LINUX_X86, {hatch_build.BUNDLED_PATH: elf()})
+        self.assertEqual([], self.check(wheel))
+
+    def test_a_top_level_agents_module_fails(self) -> None:
+        errors = self.check(write_wheel(self.folder, files={"agents/__init__.py": b""}))
+        self.assertTrue(any("agents/__init__.py is outside" in error for error in errors), errors)
+
+    def test_tests_markdown_and_dockerfiles_fail(self) -> None:
+        for name in ("dagents/tests/test_x.py", "dagents/lma/README.md", "dagents/lma/Dockerfile", "dagents/lma/requirements.txt"):
+            with self.subTest(name=name):
+                folder = self.folder / name.replace("/", "_")
+                folder.mkdir()
+                errors = self.check(write_wheel(folder, files={name: b"x"}))
+                self.assertTrue(any("must not be in a wheel" in error for error in errors), errors)
+
+    def test_a_platform_wheel_without_its_planner_fails(self) -> None:
+        errors = self.check(write_wheel(self.folder, LINUX_X86))
+        self.assertTrue(any("must hold the planner" in error for error in errors), errors)
+
+    def test_a_planner_that_is_not_executable_or_does_not_match_fails(self) -> None:
+        errors = self.check(write_wheel(self.folder, LINUX_X86, {hatch_build.BUNDLED_PATH: elf()}, executable=False))
+        self.assertTrue(any("not marked executable" in error for error in errors), errors)
+        other = self.folder / "other"
+        other.mkdir()
+        errors = self.check(write_wheel(other, LINUX_X86, {hatch_build.BUNDLED_PATH: elf(0xB7)}))
+        self.assertTrue(any("aarch64" in error for error in errors), errors)
+
+    def test_a_pure_wheel_with_a_planner_fails(self) -> None:
+        errors = self.check(write_wheel(self.folder, files={hatch_build.BUNDLED_PATH: elf()}))
+        self.assertTrue(any("must not hold" in error for error in errors), errors)
+
+    def test_a_wrong_record_hash_fails(self) -> None:
+        wheel = write_wheel(self.folder, files={"dagents/extra.py": b"a = 1\n"}, record_files={"dagents/extra.py": b"a = 2\n"})
+        errors = self.check(wheel)
+        self.assertTrue(any("RECORD hash of dagents/extra.py" in error for error in errors), errors)
+
+    def test_an_sdist_with_anything_else_fails(self) -> None:
+        root = f"dagents-{VERSION}"
+        good = {f"{root}/{name}": b"" for name in ("pyproject.toml", "hatch_build.py", "README.md", "LICENSE", *check_dist.REQUIRED_MODULES)}
+        good[f"{root}/PKG-INFO"] = (
+            f"Metadata-Version: 2.4\nName: dagents\nVersion: {VERSION}\nLicense-Expression: MIT\nRequires-Python: >=3.11\n"
+            f"Classifier: {release_version.status_classifier(VERSION)}\n\n{DESCRIPTION}"
+        ).encode()
+        for extra, expected in ((None, None), (f"{root}/services/core-service/app/main.py", "must not be in the sdist"), (f"{root}/dagents/tests/test_x.py", "must not be in the sdist")):
+            with self.subTest(extra=extra):
+                path = self.folder / f"{root}.tar.gz"
+                members = dict(good)
+                if extra:
+                    members[extra] = b"x"
+                with tarfile.open(path, "w:gz") as archive:
+                    for name, data in members.items():
+                        info = tarfile.TarInfo(name)
+                        info.size = len(data)
+                        archive.addfile(info, io.BytesIO(data))
+                errors = self.check(path)
+                if expected is None:
+                    self.assertEqual([], errors)
+                else:
+                    self.assertTrue(any(expected in error for error in errors), errors)
+
+    def metadata_problems(self, version: str, *classifiers: str, description: str = DESCRIPTION) -> list[str]:
+        lines = "".join(f"Classifier: {classifier}\n" for classifier in classifiers)
+        metadata = Parser().parsestr(
+            f"Name: dagents\nVersion: {version}\nLicense-Expression: MIT\nRequires-Python: >=3.11\n{lines}\n{description}"
+        )
+        report = check_dist.Report()
+        check_dist._check_metadata("METADATA", metadata, version, report)
+        return report.errors
+
+    def test_the_status_classifier_must_match_the_stage(self) -> None:
+        alpha, beta, stable = (f"Development Status :: {stage}" for stage in ("3 - Alpha", "4 - Beta", "5 - Production/Stable"))
+        self.assertEqual([], self.metadata_problems("0.1.0a1", alpha))
+        self.assertEqual([], self.metadata_problems("1.0.0rc1", beta))
+        self.assertEqual([], self.metadata_problems("1.0.0", stable))
+        for version, classifiers in (
+            ("1.0.0", (alpha,)),
+            ("1.0.0rc1", (alpha,)),
+            ("0.1.0a1", (alpha, beta)),
+            ("0.1.0a1", ()),
+            ("0.2.0", (beta,)),
+        ):
+            with self.subTest(version=version, classifiers=classifiers):
+                errors = self.metadata_problems(version, *classifiers)
+                self.assertTrue(any("Development Status" in error or "before 1.0.0" in error for error in errors), errors)
+
+    def test_the_description_must_show_how_to_install(self) -> None:
+        stage = release_version.status_classifier(VERSION)
+        errors = self.metadata_problems(VERSION, stage, description="# Dagents\n\nA package is being prepared.\n")
+        self.assertTrue(any("pip install dagents" in error for error in errors), errors)
+
+    def test_a_wheel_built_by_another_backend_version_fails(self) -> None:
+        errors = self.check(write_wheel(self.folder, generator="hatchling 1.27.0"), backend=BACKEND)
+        self.assertTrue(any("hatchling 1.27.0" in error and BACKEND in error for error in errors), errors)
+        other = self.folder / "other"
+        other.mkdir()
+        self.assertEqual([], self.check(write_wheel(other), backend=BACKEND))
+
+    def test_the_backend_comes_from_the_constraints_file(self) -> None:
+        constraints = (REPO_ROOT / ".github" / "build-constraints.txt").read_text(encoding="utf-8")
+        version = re.search(r"^hatchling==(\S+)$", constraints, re.M).group(1)
+        self.assertEqual(f"hatchling {version}", check_dist.pinned_backend(REPO_ROOT / ".github" / "build-constraints.txt"))
+        broken = self.folder / "constraints.txt"
+        broken.write_text("hatchling>=1.27\n", encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "hatchling=="):
+            check_dist.pinned_backend(broken)
+
+    def test_the_command_requires_the_named_platform(self) -> None:
+        write_wheel(self.folder)
+        script = str(REPO_ROOT / "scripts" / "check_dist.py")
+        missing = subprocess.run([sys.executable, script, str(self.folder), "--require-platform", "manylinux_2_17_x86_64"], capture_output=True, text=True)
+        self.assertEqual(1, missing.returncode)
+        self.assertIn("no wheel for the platform manylinux_2_17_x86_64", missing.stderr)
+        passing = subprocess.run([sys.executable, script, str(self.folder)], capture_output=True, text=True)
+        self.assertEqual(0, passing.returncode, passing.stderr)
+
+
+class _Index(http.server.BaseHTTPRequestHandler):
+    """A stand-in for a package index: the JSON API and the files it lists."""
+
+    listing: dict[str, tuple[str, bytes]] = {}
+
+    def do_GET(self) -> None:  # noqa: N802 - the handler's API
+        if self.path == f"/pypi/dagents/{VERSION}/json":
+            port = self.server.server_address[1]
+            urls = [
+                {"filename": name, "digests": {"sha256": digest}, "url": f"http://127.0.0.1:{port}/files/{name}"}
+                for name, (digest, _) in self.listing.items()
+            ]
+            body = json.dumps({"urls": urls}).encode()
+        elif self.path.startswith("/files/") and self.path[7:] in self.listing:
+            body = self.listing[self.path[7:]][1]
+        else:
+            self.send_error(404)
+            return
+        self.send_response(200)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, *args) -> None:  # noqa: ANN002 - keep the test output clean
+        pass
+
+
+class CheckPublishedFilesTests(unittest.TestCase):
+    """``scripts/check_published_files.py`` fails unless the index serves the built bytes."""
+
+    def setUp(self) -> None:
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        self.dist = Path(folder.name)
+        self.files = {f"dagents-{VERSION}.tar.gz": b"sdist", f"dagents-{VERSION}-py3-none-any.whl": b"wheel"}
+        for name, data in self.files.items():
+            (self.dist / name).write_bytes(data)
+        self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _Index)
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.addCleanup(self.server.server_close)
+        self.addCleanup(self.server.shutdown)
+        self.index = f"http://127.0.0.1:{self.server.server_address[1]}"
+
+    def serve(self, listing: dict[str, bytes], digests: dict[str, str] | None = None) -> None:
+        _Index.listing = {
+            name: ((digests or {}).get(name) or hashlib.sha256(data).hexdigest(), data) for name, data in listing.items()
+        }
+
+    def problems(self) -> list[str]:
+        return check_published_files.check(self.index, VERSION, self.dist, wait_seconds=0, poll_seconds=0)
+
+    def test_the_same_files_pass(self) -> None:
+        self.serve(self.files)
+        self.assertEqual([], self.problems())
+
+    def test_a_missing_file_fails(self) -> None:
+        self.serve({f"dagents-{VERSION}.tar.gz": b"sdist"})
+        self.assertEqual([f"{self.index} does not list dagents-{VERSION}-py3-none-any.whl"], self.problems())
+
+    def test_a_file_this_run_did_not_build_fails(self) -> None:
+        self.serve({**self.files, f"dagents-{VERSION}-py3-none-macosx_11_0_arm64.whl": b"old"})
+        self.assertTrue(any("which this run did not build" in problem for problem in self.problems()))
+
+    def test_a_different_digest_or_download_fails(self) -> None:
+        self.serve(self.files, digests={f"dagents-{VERSION}.tar.gz": "0" * 64})
+        self.assertTrue(any("the index reports sha256" in problem for problem in self.problems()))
+        _Index.listing[f"dagents-{VERSION}-py3-none-any.whl"] = (hashlib.sha256(b"wheel").hexdigest(), b"tampered")
+        self.assertTrue(any("downloaded from the index differs" in problem for problem in self.problems()))
+
+    def test_an_index_without_the_version_lists_every_file_as_missing(self) -> None:
+        self.serve(self.files)
+        problems = check_published_files.check(self.index, "9.9.9", self.dist, wait_seconds=0, poll_seconds=0)
+        self.assertEqual(2, len(problems), problems)
+
+
+if __name__ == "__main__":
+    unittest.main()

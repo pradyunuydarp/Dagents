@@ -18,7 +18,7 @@ keeps its audit chain (:meth:`PostgresSiteStore.audit_sink`) and its job log
 :data:`SITE_JOB_LOG_TABLE`) on the store's connection.
 
 Each Postgres store runs on the framework's kept connection
-(:class:`agents.common.infrastructure.postgres_lease.KeptConnection`): one
+(:class:`dagents.common.infrastructure.postgres_lease.KeptConnection`): one
 autocommit connection, lent to one operation at a time. Opening a connection
 through a pooler takes much longer than a query. The role and the statement
 timeout are set with ``SET LOCAL``, so both end with each operation's
@@ -76,10 +76,10 @@ import re
 import threading
 from typing import Any, Iterable, Mapping, Protocol
 
-from agents.common.application.ethical_guard import AuditSink, InMemoryAuditLog
-from agents.common.domain.errors import StoreNotSetUpError, StoreUnavailableError
-from agents.common.infrastructure.postgres_audit import PostgresAuditSink
-from agents.common.infrastructure.postgres_lease import (
+from dagents.common.application.ethical_guard import AuditSink, InMemoryAuditLog
+from dagents.common.domain.errors import StoreNotSetUpError, StoreUnavailableError
+from dagents.common.infrastructure.postgres_audit import PostgresAuditSink
+from dagents.common.infrastructure.postgres_lease import (
     DEFAULT_LIVENESS_IDLE_SECONDS,
     DEFAULT_STATEMENT_TIMEOUT_MS,
     KeptConnection,

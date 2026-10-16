@@ -1,7 +1,7 @@
 """Step 1: register the extension, then check each store's orders against the contract."""
 
-from agents.common.extensions import default_registry
-from agents.common.infrastructure.dagents_runner import validate_dataset_schema
+from dagents.common.extensions import default_registry
+from dagents.common.infrastructure.dagents_runner import validate_dataset_schema
 
 from shop.contract import FEATURE_CONTRACT
 from shop.extension import install

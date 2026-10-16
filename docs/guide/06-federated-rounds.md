@@ -196,7 +196,7 @@ import hashlib
 import json
 from typing import Any, Mapping
 
-from agents.common.domain.errors import ModelVerificationError
+from dagents.common.domain.errors import ModelVerificationError
 
 #: The rule the stores evaluate in this example.
 RULE_VERSION = "return-check-rule-v2"
@@ -347,7 +347,7 @@ class Coordinator:
 The engine is the part that moves jobs and results between machines. Dagents
 defines it as an interface:
 
-<!-- source: agents/common/application/federation.py -->
+<!-- source: dagents/common/application/federation.py -->
 ```python
 class FederationEngine(Protocol):
     """The federated runtime, as the control plane sees it.
@@ -391,8 +391,8 @@ Dagents has two engines:
 
 | Engine | Where | What it does |
 |---|---|---|
-| `InProcessFederationEngine` | `agents/common/application/federation.py` | Runs every source's worker in the same process. A simulator for tests and examples: it proves the job logic, not network behaviour, security or privacy in production |
-| `HttpFederationEngine` | `agents/gma/adapters/http_federation_engine.py` | The GMA's engine with `GMA_ENGINE=http`. It sends each selected source's job to that source's LMA over its HTTP API and holds training updates until aggregation (section 6) |
+| `InProcessFederationEngine` | `dagents/common/application/federation.py` | Runs every source's worker in the same process. A simulator for tests and examples: it proves the job logic, not network behaviour, security or privacy in production |
+| `HttpFederationEngine` | `dagents/gma/adapters/http_federation_engine.py` | The GMA's engine with `GMA_ENGINE=http`. It sends each selected source's job to that source's LMA over its HTTP API and holds training updates until aggregation (section 6) |
 
 A deployment that uses another federated learning runtime (for example NVIDIA
 FLARE or Flower) writes an adapter that implements the three methods. Nothing
@@ -572,7 +572,7 @@ sequenceDiagram
 
 An LMA reads its site's records through a **site source**: an object with
 `records()`, `count()`, `version()`, `location()` and `close()` (the
-`SiteRecordSource` protocol in `agents/common/application/ports.py`). The LMA
+`SiteRecordSource` protocol in `dagents/common/application/ports.py`). The LMA
 keeps the records it read until `version()` changes. The example wraps each
 store:
 
@@ -689,8 +689,8 @@ of section 5 under a new round id, and reads what the stores report:
 ```python
 """Step 5: run the round of step 4 again, this time through the LMA and GMA APIs."""
 
-from agents.common.domain.federation import AggregationMethod, ModelVersionRegistration, RoundManifest, SiteResult
-from agents.common.infrastructure.agent_client import AgentError, CallLog
+from dagents.common.domain.federation import AggregationMethod, ModelVersionRegistration, RoundManifest, SiteResult
+from dagents.common.infrastructure.agent_client import AgentError, CallLog
 
 from shop import rule
 from shop.agents import build_agents
@@ -854,7 +854,7 @@ How to read it:
 ### What an LMA checks before it reads an order
 
 When the GMA offers a job, the LMA checks, in this order
-(`agents/lma/application/federation_jobs.py`):
+(`dagents/lma/application/federation_jobs.py`):
 
 1. the job is for this site and for the round its manifest names, and the
    manifest is for this site's condition;
@@ -881,8 +881,8 @@ same. An LMA started from settings needs an extension that contributes a site
 source (`LMA_SITE_SOURCE`), because it cannot be handed a Python object.
 [Step 8](08-deploy.md#7-run-the-agents-in-your-process-or-as-separate-processes)
 compares the two ways, and the settings are in
-[`agents/lma/README.md`](../../agents/lma/README.md) and
-[`agents/gma/README.md`](../../agents/gma/README.md).
+[`dagents/lma/README.md`](../../dagents/lma/README.md) and
+[`dagents/gma/README.md`](../../dagents/gma/README.md).
 
 ## 7. Training rounds and model updates
 
@@ -891,7 +891,7 @@ In a training round, your runner returns a parameter update:
 worker then sends the update through the `before_send` Guard, which clips it,
 and hands the clipped vector to an **update channel**:
 
-<!-- source: agents/common/application/federation_worker.py -->
+<!-- source: dagents/common/application/federation_worker.py -->
 ```python
 class UpdateChannel(Protocol):
     """Where a site sends a model update after the Guard has bounded it.

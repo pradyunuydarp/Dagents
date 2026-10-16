@@ -256,12 +256,12 @@ class _AgentProcesses:
         cls.tokens.update({f"gma site {site_id}": value for site_id, value in gma_site.items()})
 
         cls.gma = _Process(
-            "gma", "agents.gma.main:app", {**gma_environment(database=True), **agent_settings}, log_dir, paths
+            "gma", "dagents.gma.main:app", {**gma_environment(database=True), **agent_settings}, log_dir, paths
         )
         for site in SITES:
             cls.lmas[site.site_id] = _Process(
                 f"lma-{site.site_id}",
-                "agents.lma.main:app",
+                "dagents.lma.main:app",
                 {**lma_environment(site, database=True), **agent_settings},
                 log_dir,
                 paths,
@@ -532,7 +532,7 @@ class NetworkModeTests(_AgentProcesses, unittest.TestCase):
 #: candidate passes. The test writes it to a scratch folder on the processes'
 #: ``PYTHONPATH``, so no module of the app or its tests changes.
 LENIENT_EXTENSION = """\
-from agents.common.domain.federation import GateComparison, ReleaseGate
+from dagents.common.domain.federation import GateComparison, ReleaseGate
 from app.domain.conditions import STROKE_CONDITION
 from app.extension import HealthcareStrokeExtension
 

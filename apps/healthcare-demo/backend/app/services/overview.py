@@ -19,7 +19,7 @@ import threading
 import time
 from typing import TYPE_CHECKING, Any, Callable, Mapping, Sequence
 
-from agents.common.domain.site import SiteDirectoryEntry
+from dagents.common.domain.site import SiteDirectoryEntry
 
 from app.domain.conditions import (
     STROKE_CLASSIFICATION,

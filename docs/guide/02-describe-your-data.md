@@ -21,9 +21,9 @@ or rule, so that the Dagents agents can run it in a round (section 5).
 ```python
 from __future__ import annotations
 
-from agents.common.domain.federation import GateComparison, ReleaseGate
-from agents.common.domain.governance import DataClassification
-from agents.common.extensions import ConditionPack, FeatureContract, FeatureField
+from dagents.common.domain.federation import GateComparison, ReleaseGate
+from dagents.common.domain.governance import DataClassification
+from dagents.common.extensions import ConditionPack, FeatureContract, FeatureField
 ```
 
 <!-- source: examples/getting-started/shop/contract.py -->
@@ -167,8 +167,8 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
-from agents.common.domain.governance import DataClassification
-from agents.common.extensions import (
+from dagents.common.domain.governance import DataClassification
+from dagents.common.extensions import (
     ConditionPack,
     ExtensionRegistry,
     FeatureContract,
@@ -288,7 +288,7 @@ class RuleKind:
         return evaluate(records)
 ```
 
-The members of `ModelKind` (`agents/common/extensions/registry.py`):
+The members of `ModelKind` (`dagents/common/extensions/registry.py`):
 
 | Member | Needed by | What it does |
 |---|---|---|
@@ -312,8 +312,8 @@ name are an error, as for every other contribution.
 ```python
 """Step 1: register the extension, then check each store's orders against the contract."""
 
-from agents.common.extensions import default_registry
-from agents.common.infrastructure.dagents_runner import validate_dataset_schema
+from dagents.common.extensions import default_registry
+from dagents.common.infrastructure.dagents_runner import validate_dataset_schema
 
 from shop.contract import FEATURE_CONTRACT
 from shop.extension import install
@@ -369,7 +369,7 @@ example's extension:
 
 ```bash
 LMA_EXTENSIONS=shop.extension:ReturnsExtension PYTHONPATH=.:examples/getting-started \
-  .venv/bin/uvicorn agents.lma.main:app --port 8010
+  .venv/bin/uvicorn dagents.lma.main:app --port 8010
 ```
 
 In a second terminal:

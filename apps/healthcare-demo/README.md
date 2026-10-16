@@ -373,7 +373,7 @@ flowchart TB
 ```
 
 The app calls the agents through their HTTP APIs with the framework's agent
-client (`agents/common/infrastructure/agent_client.py`). Each token has one
+client (`dagents/common/infrastructure/agent_client.py`). Each token has one
 scope:
 
 | Caller | Calls | Token |
@@ -493,7 +493,7 @@ is the only module that builds or connects to the agents.
 | Role-scoped Postgres access (`postgres_roles.py`) | a library call | FHIR mapping into the contract |
 | The SVG chart renderer | a library call | Which charts each view shows, and their text |
 
-Nothing in `agents/` knows what a stroke is, and nothing here implements a quorum
+Nothing in `dagents/` knows what a stroke is, and nothing here implements a quorum
 rule. A second condition needs another `ConditionPack`, not a framework change.
 
 `GET /api/v1/extension` returns this split from the running app, with the

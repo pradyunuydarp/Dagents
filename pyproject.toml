@@ -1,0 +1,135 @@
+# Packaging for the Dagents Python framework, released to PyPI as `dagents`.
+#
+# Only the `dagents/` package goes into a wheel. The framework services
+# (services/), the Spring services, the demos and the docs stay out.
+#
+# The build backend is hatchling. A platform wheel bundles the OCaml planner,
+# and hatchling lets a small build hook (hatch_build.py) add that binary and
+# set the wheel's platform tag without a C compiler step or a custom
+# bdist_wheel command. hatch-fancy-pypi-readme turns the README's relative
+# links into links to the repository, so they work on the PyPI page.
+#
+# How a release is made: the "Releasing" section of CLAUDE.md and
+# .github/workflows/release.yml.
+
+# CI and the release workflow build with the exact versions in
+# .github/build-constraints.txt.
+[build-system]
+requires = ["hatchling>=1.27", "hatch-fancy-pypi-readme>=24.1"]
+build-backend = "hatchling.build"
+
+[project]
+name = "dagents"
+dynamic = ["version", "readme"]
+description = "Governed analytics and federated learning across data sources that cannot be pooled: a local agent per source, a global agent, and typed OCaml planners."
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.11"
+authors = [{ name = "Pradyun Devarakonda" }]
+keywords = [
+  "federated learning",
+  "data governance",
+  "privacy",
+  "machine learning",
+  "fastapi",
+]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "Intended Audience :: Science/Research",
+  "Framework :: FastAPI",
+  "Operating System :: MacOS",
+  "Operating System :: POSIX :: Linux",
+  "Programming Language :: OCaml",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+  "Topic :: Security",
+  "Topic :: Software Development :: Libraries :: Application Frameworks",
+]
+# The domain contracts, the Ethical Guard, the federated round controller with
+# its in-process simulator, the extension registry and the planner runner need
+# only pydantic.
+dependencies = [
+  "pydantic>=2.11,<3",
+]
+
+[project.optional-dependencies]
+# Serving an LMA or a GMA, and the client agents call each other with. The
+# lower bounds are the versions the agents job pins
+# (dagents/lma/requirements.txt), and the packaging job runs the agent suite
+# again on the newest versions these ranges allow.
+lma = [
+  "fastapi>=0.115.0,<1",
+  "uvicorn>=0.30.6,<1",
+  "httpx>=0.28,<1",
+]
+gma = [
+  "fastapi>=0.115.0,<1",
+  "uvicorn>=0.30.6,<1",
+  "httpx>=0.28,<1",
+]
+# The Postgres audit chain, job log, model registry, lease and source adapter.
+postgres = ["psycopg[binary]>=3.2,<3.4"]
+# The SVG chart renderer.
+charts = ["matplotlib>=3.9,<4"]
+all = ["dagents[lma,gma,postgres,charts]"]
+
+[project.scripts]
+dagents-lma = "dagents.lma.__main__:main"
+dagents-gma = "dagents.gma.__main__:main"
+
+[project.urls]
+Homepage = "https://pradyunuydarp.github.io/Dagents/"
+Documentation = "https://pradyunuydarp.github.io/Dagents/#/guide"
+Repository = "https://github.com/pradyunuydarp/Dagents"
+Issues = "https://github.com/pradyunuydarp/Dagents/issues"
+Releases = "https://github.com/pradyunuydarp/Dagents/releases"
+
+[tool.hatch.version]
+path = "dagents/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["dagents"]
+exclude = [
+  "dagents/tests",
+  "dagents/_bin",
+  "**/__pycache__",
+  "**/*.md",
+  "**/Dockerfile",
+  "**/requirements.txt",
+]
+
+[tool.hatch.build.targets.wheel.hooks.custom]
+path = "hatch_build.py"
+
+[tool.hatch.build.targets.sdist]
+include = [
+  "/dagents",
+  "/hatch_build.py",
+  "/LICENSE",
+  "/README.md",
+  "/pyproject.toml",
+]
+exclude = [
+  "/dagents/tests",
+  "/dagents/_bin",
+  "**/__pycache__",
+  "**/Dockerfile",
+  "**/requirements.txt",
+]
+
+[tool.hatch.metadata.hooks.fancy-pypi-readme]
+content-type = "text/markdown"
+
+[[tool.hatch.metadata.hooks.fancy-pypi-readme.fragments]]
+path = "README.md"
+
+# Relative links in the README point into the repository. On PyPI there is no
+# repository around the page, so link to the files on GitHub instead.
+[[tool.hatch.metadata.hooks.fancy-pypi-readme.substitutions]]
+pattern = '\]\((?!https?://|#|mailto:)([^)\s]+)\)'
+replacement = '](https://github.com/pradyunuydarp/Dagents/blob/main/\1)'

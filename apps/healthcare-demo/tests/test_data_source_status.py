@@ -151,7 +151,7 @@ class FrozenGmaStatusTests(ApiTestCase):
     def test_a_gma_that_does_not_answer_in_time_gives_a_prompt_200(self) -> None:
         import time
 
-        from agents.gma.application.site_directory import SiteDirectory
+        from dagents.gma.application.site_directory import SiteDirectory
         import app.services.overview as overview
 
         original = SiteDirectory.summaries
@@ -183,8 +183,8 @@ class FrozenGmaStatusTests(ApiTestCase):
         import dataclasses
         import time
 
-        from agents.gma.application.aggregation_service import AggregationService
-        from agents.gma.application.site_directory import SiteDirectory
+        from dagents.gma.application.aggregation_service import AggregationService
+        from dagents.gma.application.site_directory import SiteDirectory
         import app.main as main
         import app.services.overview as overview
 

@@ -3,7 +3,7 @@
 The demo runs on four Dagents agents: one LMA (local monitoring agent) per
 hospital and one GMA (global monitoring agent) for the study. The app calls
 them only through their HTTP APIs, with the framework's agent client
-(``agents.common.infrastructure.agent_client``):
+(``dagents.common.infrastructure.agent_client``):
 
 - **In process** (``HEALTHCARE_DEMO_AGENTS=in-process``, the default): the app
   builds the four agents with their app factories and calls them through
@@ -52,9 +52,9 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Any, Callable, Mapping, Sequence
 
-from agents.common.domain.federation import DispatchCall
-from agents.common.extensions import ExtensionRegistry
-from agents.common.infrastructure.agent_client import (
+from dagents.common.domain.federation import DispatchCall
+from dagents.common.extensions import ExtensionRegistry
+from dagents.common.infrastructure.agent_client import (
     GMA_AGENT,
     AgentCall,
     AgentError,
@@ -96,20 +96,20 @@ TOKEN_BYTES = 32
 
 
 def create_lma_app(settings: Any, deps: Any) -> Any:
-    """One LMA app, from ``agents.lma.app_factory``.
+    """One LMA app, from ``dagents.lma.app_factory``.
 
     The agents' modules are imported here, when the agents are first built,
     not when the app starts: the health check answers before they are
     imported, which takes seconds at a fraction of a CPU.
     """
-    from agents.lma.app_factory import create_app
+    from dagents.lma.app_factory import create_app
 
     return create_app(settings, deps)
 
 
 def create_gma_app(settings: Any, deps: Any) -> Any:
-    """The GMA app, from ``agents.gma.app_factory``. Imported on first use, as for :func:`create_lma_app`."""
-    from agents.gma.app_factory import create_app
+    """The GMA app, from ``dagents.gma.app_factory``. Imported on first use, as for :func:`create_lma_app`."""
+    from dagents.gma.app_factory import create_app
 
     return create_app(settings, deps)
 
@@ -355,10 +355,10 @@ def build_in_process_agents(
     (:meth:`Settings.check_agent_capacity`). Nothing it built is left running
     when it raises.
     """
-    from agents.gma.app_factory import GmaDeps
-    from agents.gma.config import Settings as GmaSettings
-    from agents.lma.app_factory import LmaDeps
-    from agents.lma.config import Settings as LmaSettings
+    from dagents.gma.app_factory import GmaDeps
+    from dagents.gma.config import Settings as GmaSettings
+    from dagents.lma.app_factory import LmaDeps
+    from dagents.lma.config import Settings as LmaSettings
 
     settings.check_agent_capacity()
     site_ids = [site.site_id for site in sites]
@@ -380,7 +380,7 @@ def build_in_process_agents(
             }
             job_log = None
             if database:
-                from agents.lma.infrastructure.job_log import PostgresJobLog
+                from dagents.lma.infrastructure.job_log import PostgresJobLog
 
                 job_log = PostgresJobLog(store.lease, site.role, SITE_JOB_LOG_TABLE)
             app = create_lma_app(
@@ -654,7 +654,7 @@ class HealthcareDemo:
     def _assemble(self) -> _Built:
         # Imported here: the overview and the pilot import this module for its
         # error types and clients.
-        from agents.common.infrastructure.charts import MAX_SERIES
+        from dagents.common.infrastructure.charts import MAX_SERIES
 
         from app.services.overview import StudyOverview
         from app.services.pilot import PilotService

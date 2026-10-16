@@ -20,7 +20,7 @@ package "services/nl2sql-demo" as App #FFFFFF {
 }
 
 package "Dagents framework" as Dagents #EFE4CE {
-  rectangle "agents.common.infrastructure\ndagents_runner" as Runner #E9E1FA
+  rectangle "dagents.common.infrastructure\ndagents_runner" as Runner #E9E1FA
   rectangle "dagentsc\nOCaml planner CLI" as DCLI #E9E1FA
   package "HTTP services called by the app" as HttpServices {
     rectangle "core-service\n/workloads:compile\n/services /topology" as Core #F4E8D0

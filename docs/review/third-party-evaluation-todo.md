@@ -38,8 +38,8 @@ Covered:
   application, the architecture notes and `TODO.md`.
 - The repository layout, the CI workflows, the packaging files and the tracked
   files in the repository root.
-- Specific code: `agents/common/infrastructure/dagents_runner.py`,
-  `agents/common/application/ethical_guard.py`, the sizes of the OCaml
+- Specific code: `dagents/common/infrastructure/dagents_runner.py`,
+  `dagents/common/application/ethical_guard.py`, the sizes of the OCaml
   modules and test file, and a search of the agents and framework services for
   authentication code.
 - Published material on other federated learning and federated analysis
@@ -101,7 +101,7 @@ tells readers to clone the repository and put its root on `PYTHONPATH`.
 
 - Choose the smallest useful import surface. The Guard, the federation
   controller, the extension registry, the domain models and the planner bridge
-  are the candidates (`agents/common/`).
+  are the candidates (`dagents/common/`).
 - Add a root `pyproject.toml` that builds that surface as a package with a
   version and a declared Python range.
 - Publish to TestPyPI first, then PyPI.
@@ -111,6 +111,15 @@ tells readers to clone the repository and put its root on `PYTHONPATH`.
 **Done when.** In a clean virtual environment, `pip install` of the package
 followed by the steps of `examples/getting-started/` gives the output shown in
 `docs/guide/`. No `PYTHONPATH` setting is needed.
+
+**Status.** Prepared, not yet published. The package `agents` was renamed to
+`dagents`, because another project owns `agents` on PyPI. A root
+`pyproject.toml` builds the whole `dagents/` package (without its tests) as
+version 0.1.0a1, and `.github/workflows/release.yml` publishes to TestPyPI and
+then PyPI from a tag. `scripts/smoke_installed_package.py` checks the "done
+when" condition on every pull request (CI's `packaging` job) and in every
+release. The guide still tells readers to use a checkout until the first
+release is out.
 
 ### A2. Ship the planner as a prebuilt binary (P0, M)
 
@@ -129,7 +138,16 @@ users. Without the binary the Guard denies every request, as designed.
 - Keep the source build as the documented route for contributors.
 
 **Done when.** On a machine with no OCaml installed, a fresh install runs the
-Guard tests in `agents/tests/test_governance.py` and none of them skip.
+Guard tests in `dagents/tests/test_governance.py` and none of them skip.
+
+**Status.** Prepared, not yet published. The release workflow builds `dagentsc`
+for Linux x86-64, Linux arm64 and macOS arm64, bundles it in a platform wheel
+at `dagents/_bin/dagentsc`, and attaches each binary and `SHA256SUMS` to the
+GitHub release. The runner finds the bundled binary after `DAGENTSC_BIN` and
+before PATH. macOS x86-64 is not built yet, so that platform installs from the
+sdist without a planner. The
+Guard tests are in `dagents/tests`, which the wheel does not ship; the smoke
+test checks Guard decisions from the installed package instead.
 
 ### A3. Define the core and mark the rest optional (P1, S)
 
@@ -199,7 +217,7 @@ This also supports item G1.
 **Finding.** The in-process engine is a simulator. The healthcare demo uses its
 own parameter-averaging code that stands in for a runtime such as Flower. Until
 a real runtime runs behind `FederationEngine`
-(`agents/common/application/federation.py`), the claim that Dagents governs
+(`dagents/common/application/federation.py`), the claim that Dagents governs
 existing federated learning runtimes is untested. `TODO.md` lists an adapter
 for NVIDIA FLARE.
 
@@ -226,7 +244,7 @@ enrolments, rounds and their audit logs (the guide's limits section).
 
 **Work.** Define a store interface for rounds, contributions and the release
 audit chain. Implement it for PostgreSQL, reusing the role-scoped access in
-`agents/common/infrastructure/postgres_roles.py`.
+`dagents/common/infrastructure/postgres_roles.py`.
 
 **Done when.** A test stops the GMA in the middle of a round, restarts it and
 finishes the round. The release decision matches an uninterrupted run, and the
@@ -235,7 +253,7 @@ audit chain verifies.
 ### B3. Add privacy accounting and secure aggregation (P1, L)
 
 **Finding.** `TODO.md` lists both. The `add_noise` strategy in
-`agents/common/application/ethical_guard.py` says in its documentation that it
+`dagents/common/application/ethical_guard.py` says in its documentation that it
 is not a calibrated differential-privacy mechanism, because that needs a
 privacy accountant. The strategy name can still suggest more than it does.
 
@@ -278,7 +296,7 @@ README links to it.
 
 ### C2. Authenticate and authorize service calls (P0, L)
 
-**Finding.** A text search of the Python code in `agents/`, `services/` and
+**Finding.** A text search of the Python code in `dagents/`, `services/` and
 `apps/` (tests excluded) for authorization headers, API keys, bearer tokens,
 JWT, TLS and mTLS found only database role settings. The one request header
 the healthcare demo reads is an `Idempotency-Key`, which is not a credential.
@@ -322,7 +340,7 @@ published head.
 
 ### C4. Harden the planner call (P1, S)
 
-**Finding.** `agents/common/infrastructure/dagents_runner.py` runs `dagentsc`
+**Finding.** `dagents/common/infrastructure/dagents_runner.py` runs `dagentsc`
 with `subprocess.run` and no `timeout`. A planner that hangs blocks the caller
 with no limit. The runner already maps a missing binary, a non-zero exit and
 invalid JSON to `PlannerUnavailableError`, and
@@ -437,7 +455,7 @@ the guide's strategy and round tables names the property that covers it.
 
 **Work.** Add a `lint` job:
 
-- Ruff for Python, and a type checker (mypy or pyright) on `agents/common/`.
+- Ruff for Python, and a type checker (mypy or pyright) on `dagents/common/`.
 - `ocamlformat --check` for OCaml.
 - Optionally, a linter and formatter for the TypeScript code. Do not add a
   second type check there.

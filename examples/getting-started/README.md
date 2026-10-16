@@ -42,5 +42,5 @@ called through their HTTP APIs. The agents run inside the script's process
 | `shop/agents.py` | Builds one LMA per store and one GMA, each with its own tokens, and the source an LMA reads each store's orders from | `create_app` of the LMA and the GMA, `AgentNetwork`, `SiteRecordSource` |
 | `step1_register.py` ... `step5_agents_over_http.py` | One script for each guide step that runs code: `step1` for guide Step 2, `step2` for Step 4, `step3` for Step 5, and `step4` and `step5` for Step 6 | |
 
-Nothing in this folder is imported by the framework, and nothing in `agents/`
+Nothing in this folder is imported by the framework, and nothing in `dagents/`
 knows what an order is.

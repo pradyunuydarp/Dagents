@@ -14,7 +14,7 @@ How each app uses the framework:
 - **The healthcare demo calls the Dagents agents through their HTTP APIs.**
   Each hospital is served by an LMA (local monitoring agent), and the study by a
   GMA (global monitoring agent). The app calls them with the framework's agent
-  client (`agents/common/infrastructure/agent_client.py`). By default the four
+  client (`dagents/common/infrastructure/agent_client.py`). By default the four
   agents run inside the demo's own process and are called through
   `httpx.ASGITransport`: each call goes through the agent's real routes, request
   checks and token checks, without a socket. With `HEALTHCARE_DEMO_AGENTS=network`
@@ -189,7 +189,7 @@ classes:
 - Settings (apps/healthcare-demo/backend/app/core/config.py)
 - HealthcareDemo (apps/healthcare-demo/backend/app/services/agents.py)
 - StudyOverview (apps/healthcare-demo/backend/app/services/overview.py)
-- ExtensionRegistry (agents/common/extensions/registry.py)
+- ExtensionRegistry (dagents/common/extensions/registry.py)
 endpoints:
 - GET /health
 - GET /api/v1/health
@@ -438,7 +438,7 @@ classes:
 - StudyOverview (apps/healthcare-demo/backend/app/services/overview.py)
 - MemorySiteStore (apps/healthcare-demo/backend/app/services/site_store.py)
 - PostgresSiteStore (apps/healthcare-demo/backend/app/services/site_store.py)
-- LmaClient (agents/common/infrastructure/agent_client.py)
+- LmaClient (dagents/common/infrastructure/agent_client.py)
 endpoints:
 - GET /api/v1/hospitals
 - GET /api/v1/hospitals/{site_id}
@@ -796,7 +796,7 @@ There are two sets:
 | Hospital | `outcome-by-age-band`, `presentation`, `systolic-bp`, `risk-scores` | That hospital's own records, read in its store as its role. The risk chart scores them with the model the hospital's LMA reports in use. |
 
 Drawing uses the framework's chart renderer
-(`agents/common/infrastructure/charts.py`, matplotlib) as a library call in the
+(`dagents/common/infrastructure/charts.py`, matplotlib) as a library call in the
 app's process. A drawing has no date or random ids, so the same data gives the
 same bytes, and up to 256 drawings are kept in memory. The colours mark which
 hospital a series belongs to and never a decision.
@@ -891,7 +891,7 @@ status: complete
 code: apps/healthcare-demo/backend/app/main.py
 classes:
 - HospitalView (apps/healthcare-demo/backend/app/services/hospital_views.py)
-- ProbeRequest (agents/common/domain/site.py)
+- ProbeRequest (dagents/common/domain/site.py)
 - GuardProbeRequest (apps/healthcare-demo/backend/app/models.py)
 - GuardProbeResponse (apps/healthcare-demo/backend/app/models.py)
 - HourlyCap (apps/healthcare-demo/backend/app/api/limits.py)
@@ -978,7 +978,7 @@ code: apps/healthcare-demo/backend/app/main.py, apps/healthcare-demo/backend/app
 classes:
 - PilotService (apps/healthcare-demo/backend/app/services/pilot.py)
 - StudyOverview (apps/healthcare-demo/backend/app/services/overview.py)
-- GmaClient (agents/common/infrastructure/agent_client.py)
+- GmaClient (dagents/common/infrastructure/agent_client.py)
 - LogisticRegressionKind (apps/healthcare-demo/backend/app/domain/model_kinds.py)
 - SingleFlight (apps/healthcare-demo/backend/app/api/limits.py)
 endpoints:

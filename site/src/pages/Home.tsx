@@ -29,7 +29,7 @@ const STEPS: { title: string; art: StepArtKind; text: string }[] = [
 const PARTS = [
   {
     part: "Agents",
-    folder: "agents/",
+    folder: "dagents/",
     purpose: "The LMA and GMA services, and the client and tokens they call each other with"
   },
   { part: "Planners", folder: "bindings/ocaml/", purpose: "The OCaml decision modules and the dagentsc tool" },

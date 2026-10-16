@@ -22,7 +22,7 @@ APP_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(APP_ROOT / "backend"))
 sys.path.insert(0, str(APP_ROOT.parents[1]))
 
-from agents.common.application.running_profile import RunningProfile  # noqa: E402
+from dagents.common.application.running_profile import RunningProfile  # noqa: E402
 
 from app.domain import stroke_rule  # noqa: E402
 from app.domain.dataset import SITES, UnknownSiteError, load_site_records  # noqa: E402

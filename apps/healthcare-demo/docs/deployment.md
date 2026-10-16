@@ -110,7 +110,7 @@ How a chain is checked:
   stored check point.
 - The check does not hash an earlier record again, so it does not see an edit
   to a record it already checked. `verify_chain(full=True)` in
-  `agents/common/infrastructure/postgres_audit.py` hashes every record.
+  `dagents/common/infrastructure/postgres_audit.py` hashes every record.
 - A check that fails is repeated in full before the chain is reported broken.
   A failed check deletes the stored check point, so the next check is in full
   too.
@@ -236,7 +236,7 @@ postgresql://postgres.<project-ref>:<password>@aws-0-<region>.pooler.supabase.co
 
 Port 5432 is the session pooler and port 6543 the transaction pooler. Both
 work. Every store operation is one transaction that switches role with `SET
-LOCAL` (`acting_as` in `agents/common/infrastructure/postgres_roles.py`), and
+LOCAL` (`acting_as` in `dagents/common/infrastructure/postgres_roles.py`), and
 the connections turn off prepared statements (`prepare_threshold=None`), which a
 transaction pooler requires. The user name includes the project ref, and special
 characters in the password must be percent-encoded. When a connection to the
@@ -289,7 +289,7 @@ so a real mistake stays visible.
 3. **Deploy the API.** Render → New → Blueprint, and choose
    `apps/healthcare-demo/render.yaml`. It builds `backend/Dockerfile`, which
    compiles `dagentsc` in its first stage and copies the IST extract and the
-   framework's `agents/` package into the image; without the planner, the Guard
+   framework's `dagents/` package into the image; without the planner, the Guard
    denies every request. The blueprint is still one free web service: the
    agents run inside it and need no service or secret of their own. Set
    `HEALTHCARE_DEMO_DATABASE_URL` and `HEALTHCARE_DEMO_CORS_ORIGINS` when asked.

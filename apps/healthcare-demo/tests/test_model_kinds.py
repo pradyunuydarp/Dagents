@@ -29,9 +29,9 @@ import sys
 import unittest
 from unittest import mock
 
-from agents.common.domain.errors import ModelVerificationError
-from agents.common.domain.federation import ModelVersionRegistration
-from agents.common.extensions import ExtensionError, ExtensionRegistry, TrainingOutcome, load_extensions
+from dagents.common.domain.errors import ModelVerificationError
+from dagents.common.domain.federation import ModelVersionRegistration
+from dagents.common.extensions import ExtensionError, ExtensionRegistry, TrainingOutcome, load_extensions
 
 from app.domain import model_kinds, stroke_model, stroke_rule
 from app.domain.conditions import (
@@ -542,8 +542,8 @@ class StartupRegistrationTests(unittest.TestCase):
 
     @unittest.skipUnless(dagentsc_available(), "dagentsc binary is not available")
     def test_the_gma_registry_accepts_them_and_a_second_start_changes_nothing(self) -> None:
-        from agents.gma.application.model_registry import ModelRegistry
-        from agents.gma.infrastructure.postgres_models import InMemoryModelStore
+        from dagents.gma.application.model_registry import ModelRegistry
+        from dagents.gma.infrastructure.postgres_models import InMemoryModelStore
 
         registry = ExtensionRegistry()
         registry.register(HealthcareStrokeExtension())

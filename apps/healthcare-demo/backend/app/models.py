@@ -19,7 +19,7 @@ from typing import Annotated, Any, Literal, Optional
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, create_model, field_validator
 from pydantic_core import PydanticCustomError
 
-from agents.common.domain.governance import Granularity, GuardBoundary, RequesterKind, RestrictionPlan
+from dagents.common.domain.governance import Granularity, GuardBoundary, RequesterKind, RestrictionPlan
 
 from app.domain.conditions import (
     GUARD_PROBE_DEFAULT_FIELDS,

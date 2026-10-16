@@ -29,8 +29,8 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from agents.gma.main import app as gma_app
-from agents.lma.main import app as lma_app
+from dagents.gma.main import app as gma_app
+from dagents.lma.main import app as lma_app
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]

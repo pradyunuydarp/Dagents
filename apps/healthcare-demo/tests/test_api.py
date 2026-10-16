@@ -13,7 +13,7 @@ from __future__ import annotations
 import unittest
 from unittest import mock
 
-from agents.common.domain.federation import GateComparison, ModelVersionRegistration, ReleaseGate
+from dagents.common.domain.federation import GateComparison, ModelVersionRegistration, ReleaseGate
 
 from tests.api_support import ApiTestCase, main, without_calls
 from tests.support import HIGH_RISK_ENTRY, built_demo, dagentsc_available, gated_extension, tiny_site

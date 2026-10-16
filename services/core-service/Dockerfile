@@ -23,7 +23,7 @@ COPY services/core-service/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY services/core-service/app ./app
-COPY agents ./agents
+COPY dagents ./dagents
 
 USER appuser
 

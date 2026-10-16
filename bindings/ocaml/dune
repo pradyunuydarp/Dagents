@@ -1,0 +1,7 @@
+; `dune build --profile static` links dagentsc statically, so one Linux binary
+; runs on every distribution. The release workflow builds the planner for the
+; platform wheels this way. The default profile links as before.
+(env
+ (static
+  (link_flags
+   (:standard -ccopt -static -ccopt -s))))

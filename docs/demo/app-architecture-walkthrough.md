@@ -23,11 +23,11 @@ Core Service  ---> Kubernetes workload plans and topology
 
 ## Main Components
 
-### `agents/lma`
+### `dagents/lma`
 
 The Local Monitoring Agent runs close to a source boundary such as a tenant, service, event stream, or local environment. It profiles source-scoped data, runs local models, and emits model-run metadata. In the demo, LMA represents the “local execution” side of the framework.
 
-### `agents/gma`
+### `dagents/gma`
 
 The Global Monitoring Agent coordinates across local agents. It registers LMA capabilities, accepts heartbeat/telemetry data, profiles assimilated datasets, and runs aggregate model workflows. In the demo, GMA represents the “global coordination” side.
 

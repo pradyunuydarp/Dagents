@@ -9,7 +9,7 @@ knowledge lives here.
 coordination platform across conditions. It cannot reuse the clinical
 application: every condition needs its own cohort definition, approved fields,
 rule or model, thresholds, clinician workflow, owner and safety evidence. Each
-:class:`~agents.common.extensions.ConditionPack` carries its own. Only suspected
+:class:`~dagents.common.extensions.ConditionPack` carries its own. Only suspected
 stroke is built; the others are listed as planned.
 
 Nothing here is clinically validated. The seed rule in ``stroke_rule`` and the
@@ -21,9 +21,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from agents.common.domain.federation import GateComparison, ReleaseGate
-from agents.common.domain.governance import DataClassification
-from agents.common.extensions import ConditionPack, FeatureContract, FeatureField
+from dagents.common.domain.federation import GateComparison, ReleaseGate
+from dagents.common.domain.governance import DataClassification
+from dagents.common.extensions import ConditionPack, FeatureContract, FeatureField
 
 from app.domain.dataset import AGE_BANDS, AGE_MAX, AGE_MIN
 

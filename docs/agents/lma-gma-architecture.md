@@ -102,7 +102,7 @@ so an upload never waits for the server threads that the dispatches hold.
 
 ## Calls between agents
 
-`agents/common/infrastructure/agent_client.py` gives one client for both
+`dagents/common/infrastructure/agent_client.py` gives one client for both
 transports:
 
 | Transport | Built with | A call goes through |
@@ -175,7 +175,7 @@ survive.
 ## Repository shape
 
 ```text
-agents/
+dagents/
 ├── common/
 │   ├── domain/            federation.py, site.py, errors.py: the shared contracts
 │   ├── application/       governance, the round controller, the worker, the ports
@@ -205,7 +205,7 @@ The shared protobuf contract for profiling, model execution, deployment
 planning, workload generation and source registration is in
 `contracts/grpc/dagents/agents/v1/lma_gma.proto`. The HTTP contracts of the
 site, job, round, update and model version routes are the Pydantic models in
-`agents/common/domain/federation.py` and `agents/common/domain/site.py`, and
+`dagents/common/domain/federation.py` and `dagents/common/domain/site.py`, and
 every endpoint is in the [API reference](../reference/api/agents.md).
 
 ## Current limits

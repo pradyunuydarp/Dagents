@@ -7,9 +7,9 @@ import math
 import time
 from typing import Any
 
-from agents.common.application.ml_orchestration import build_dataset_profile, execute_model_run
-from agents.common.application.ports import SourceResolver
-from agents.common.domain.models import DatasetInput, DatasetProfileRequest, ModelExecutionRequest
+from dagents.common.application.ml_orchestration import build_dataset_profile, execute_model_run
+from dagents.common.application.ports import SourceResolver
+from dagents.common.domain.models import DatasetInput, DatasetProfileRequest, ModelExecutionRequest
 from app.models import AggregationSpec, PipelineCondition, PipelineDefinition, PipelineRunResponse, StepRunResult
 
 
@@ -275,7 +275,7 @@ class PipelineExecutionEngine:
 
     def validate(self, definition: PipelineDefinition) -> None:
         """Validate structural correctness using the OCaml binding layer and resolve dependency order."""
-        from agents.common.infrastructure.dagents_runner import run_dagentsc
+        from dagents.common.infrastructure.dagents_runner import run_dagentsc
         try:
             run_dagentsc(["pipeline", "compile", "--input", "-", "--output", "json"], definition.model_dump(by_alias=False))
         except (RuntimeError, FileNotFoundError):

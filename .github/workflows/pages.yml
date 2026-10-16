@@ -127,7 +127,7 @@ jobs:
           python-version: "3.11"
           cache: pip
           cache-dependency-path: |
-            agents/*/requirements.txt
+            dagents/*/requirements.txt
             services/*/requirements.txt
             services/nl2sql-demo/backend/requirements.txt
             apps/healthcare-demo/requirements.txt
@@ -135,8 +135,8 @@ jobs:
       - name: Install backend dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -r agents/lma/requirements.txt \
-                                -r agents/gma/requirements.txt \
+          python -m pip install -r dagents/lma/requirements.txt \
+                                -r dagents/gma/requirements.txt \
                                 -r services/core-service/requirements.txt \
                                 -r services/pipeline-service/requirements.txt \
                                 -r services/nl2sql-demo/backend/requirements.txt \

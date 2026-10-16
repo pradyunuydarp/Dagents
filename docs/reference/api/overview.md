@@ -75,8 +75,8 @@ export DAGENTSC_BIN=$PWD/bindings/ocaml/_build/default/bin/dagentsc.exe
 
 | Service | Command |
 |---|---|
-| LMA | `PYTHONPATH=. .venv/bin/uvicorn agents.lma.main:app --port 8010` |
-| GMA | `PYTHONPATH=. .venv/bin/uvicorn agents.gma.main:app --port 8020` |
+| LMA | `PYTHONPATH=. .venv/bin/uvicorn dagents.lma.main:app --port 8010` |
+| GMA | `PYTHONPATH=. .venv/bin/uvicorn dagents.gma.main:app --port 8020` |
 | core-service | `PYTHONPATH=.:services/core-service .venv/bin/uvicorn app.main:app --port 8040` |
 | pipeline-service | `PYTHONPATH=.:services/pipeline-service .venv/bin/uvicorn app.main:app --port 8030` |
 | model-service | `PYTHONPATH=.:services/model-service .venv/bin/uvicorn app.main:app --port 8000` |
@@ -120,7 +120,7 @@ requests stored. The healthcare demo reads Postgres only when
 - **Key names.** The Python services use snake_case keys (`plan_id`,
   `container_port`). The Spring services use the Java record names, which are
   camelCase (`planId`, `sourceId`). `dagentsc` reads and writes camelCase;
-  `agents/common/infrastructure/dagents_runner.py` converts between the two, so
+  `dagents/common/infrastructure/dagents_runner.py` converts between the two, so
   a Python service always shows snake_case.
 - **Unknown fields.** Request models ignore keys they do not define, with four
   exceptions in the healthcare demo: a data entry, an outcome, a Guard probe and

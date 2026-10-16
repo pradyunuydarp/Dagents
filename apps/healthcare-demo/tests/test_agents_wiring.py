@@ -27,7 +27,7 @@ from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 from starlette.routing import Mount
 
-from agents.common.infrastructure.agent_client import AgentNetwork
+from dagents.common.infrastructure.agent_client import AgentNetwork
 
 from app.core.config import settings as app_settings
 from app.domain.dataset import SITES, load_site_records
@@ -78,7 +78,7 @@ def reachable(root: Any) -> Iterator[Any]:
                     pass
         else:
             module = type(obj).__module__ or ""
-            if not (module == "agents" or module.startswith(("agents.", "app."))):
+            if not (module == "dagents" or module.startswith(("dagents.", "app."))):
                 continue
             stack.extend(getattr(obj, "__dict__", {}).values())
             for cls in type(obj).__mro__:

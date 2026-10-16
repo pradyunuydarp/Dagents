@@ -77,7 +77,7 @@ the coordinator, and combines the summaries:
 ```python
 """Step 3: describe each store's orders locally, then combine what each store may report."""
 
-from agents.common.domain.governance import KyuAttribute, Requester
+from dagents.common.domain.governance import KyuAttribute, Requester
 
 from shop.extension import install
 from shop.store import SITE_IDS, load_store
@@ -267,7 +267,7 @@ Each agent also keeps a short path for most endpoints, such as `/health` for
 
 ## 5. Draw charts from the numbers
 
-`agents/common/infrastructure/charts.py` draws SVG charts from lists of numbers,
+`dagents/common/infrastructure/charts.py` draws SVG charts from lists of numbers,
 never from records: `bar_chart`, `grouped_bar_chart`, `stacked_bar_chart`,
 `histogram`, `histogram_panels`, `line_chart` and `dot_threshold_chart`. Each
 has a twin ending in `_table` that returns the same numbers as table rows, so a

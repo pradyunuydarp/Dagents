@@ -322,7 +322,7 @@ def _fastapi_worker(module_name: str, attribute: str, document_json: str) -> lis
     for key, value in (document.get("env") or {}).items():
         os.environ[key] = str(value)
 
-    from agents.common.infrastructure import dagents_runner
+    from dagents.common.infrastructure import dagents_runner
 
     calls: list[str] = []
     original = dagents_runner._execute

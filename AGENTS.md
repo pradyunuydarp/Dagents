@@ -18,7 +18,7 @@ This repository is the generic home for:
 Top-level areas:
 
 ```text
-agents/
+dagents/
 apps/
 bindings/
 contracts/
@@ -28,8 +28,9 @@ services/
 
 Current scope by area:
 
-- `agents/`: reusable `lma` and `gma` ML-orchestration services with layered application boundaries
-- `agents/common/extensions/`: the interface consumer apps contribute domain semantics through
+- `dagents/`: reusable `lma` and `gma` ML-orchestration services with layered application boundaries; the
+  Python package `dagents` (`pyproject.toml`, built with hatchling), released to PyPI from a tag
+- `dagents/common/extensions/`: the interface consumer apps contribute domain semantics through
 - `apps/healthcare-demo/`: a self-contained consumer app, extractable into its own repository
 - `bindings/ocaml/`: the typed planning layer, including governance and federation compilers
 - `services/core-service/`: framework service catalog, topology endpoint, and Kubernetes manifest generation
@@ -75,7 +76,7 @@ Current implementation includes:
   execute, job log). A site's LMA reads records only from its configured source
   and refuses request-supplied databases, roles, credentials and SQL
 
-`agents/lma/README.md` lists the settings and routes.
+`dagents/lma/README.md` lists the settings and routes.
 
 ### GMA Responsibilities
 
@@ -107,7 +108,7 @@ Current implementation includes:
   an `ETag`, and approval, with every status change decided by the planner's
   lifecycle rule; in memory or in Postgres
 
-`agents/gma/README.md` lists the settings and routes.
+`dagents/gma/README.md` lists the settings and routes.
 
 ## Shared Run Flow
 
@@ -134,7 +135,7 @@ calls.
 
 ## Layering Conventions
 
-Agent scaffolds under `agents/` follow the same layered shape:
+Agent scaffolds under `dagents/` follow the same layered shape:
 
 - `domain/`: pure typed models
 - `application/`: orchestration and use-cases
@@ -147,7 +148,7 @@ This layout is intended to keep the framework portable across products while pre
 Repository shape for the agent layer:
 
 ```text
-agents/
+dagents/
 ├── gma/
 │   ├── domain/
 │   ├── application/
@@ -270,7 +271,7 @@ Implemented framework capabilities currently include:
 - a consumer extension registry, so an app contributes feature contracts, data classifications,
   condition packs, model kinds, site sources, pipeline steps, and model adapters without forking
   the framework
-- calls between agents through one client (`agents/common/infrastructure/agent_client.py`), in
+- calls between agents through one client (`dagents/common/infrastructure/agent_client.py`), in
   one process through `httpx.ASGITransport` or over HTTP, with bearer tokens of fixed scopes
   (`agent_auth.py`: LMA `site` and `coordinator`, GMA `admin` and a per-site `site` token) and
   typed `{detail, code}` errors that never hold a host, a token or a connection string
@@ -278,7 +279,7 @@ Implemented framework capabilities currently include:
   every image whose service calls the planner contains `dagentsc`, and
   `tests/test_planner_in_images.py` checks the Dockerfiles for it
 - top-level `docker-compose.yml` for multi-container local or cloud-like deployment
-- role-scoped Postgres access (`agents/common/infrastructure/postgres_roles.py`): every operation
+- role-scoped Postgres access (`dagents/common/infrastructure/postgres_roles.py`): every operation
   runs in one transaction that starts with `SET LOCAL ROLE` and checks `current_user`, and a
   Postgres audit sink keeps each site's digest chain in its own table
 - vector-aware contribution controls in the Ethical Guard: `clip_contribution` and `add_noise`
@@ -287,7 +288,7 @@ Implemented framework capabilities currently include:
   `UpdateChannel` and puts only its digest and norm in the `SiteResult`
 - incremental per-field statistics (`RunningProfile`), so a site updates its summary with each new
   record instead of recomputing it
-- a server-side SVG chart renderer (`agents/common/infrastructure/charts.py`, matplotlib) that
+- a server-side SVG chart renderer (`dagents/common/infrastructure/charts.py`, matplotlib) that
   uses the design system's tokens and returns a table view with every chart
 - a published site at <https://pradyunuydarp.github.io/Dagents/> carrying the documentation, the
   generated API reference, and both demos. The stroke demo calls a deployed healthcare API that
@@ -386,8 +387,8 @@ This keeps failure isolation, upgrade independence, explicit contracts, and simp
 
 - Preserve the LMA/GMA split: local execution belongs in LMA, fleet-wide assimilation and coordination belongs in GMA.
 - Keep product-specific logic out of Dagents unless it is truly reusable across consumers. The test
-  to apply: if a capability would need a domain word in `agents/`, it belongs in the consumer,
-  reached through `agents/common/extensions`.
+  to apply: if a capability would need a domain word in `dagents/`, it belongs in the consumer,
+  reached through `dagents/common/extensions`.
 - Keep deciding separate from enforcing. A deterministic rule belongs in an OCaml planner; applying
   it to real data, with an audit record, belongs in Python. Do not re-derive a planning rule in a
   service because calling out to `dagentsc` felt inconvenient.
@@ -418,6 +419,28 @@ This keeps failure isolation, upgrade independence, explicit contracts, and simp
   commands. CI's `docs-impact` job fails a change to a code area that changes none of its docs,
   unless a commit message says `Docs-Impact: none [area] (reason)` for that area.
 
+## Releasing
+
+Maintainers release the Python framework to PyPI from a tag; nobody uploads by hand. The full steps
+are in the "Releasing" section of `CLAUDE.md`. In short:
+
+- `__version__` in `dagents/__init__.py` is the only place the version is written. Versions are
+  PEP 440 pre-releases until 1.0: `0.1.0a1` (alpha), then `0.x.0bN` (beta), `1.0.0rcN` and `1.0.0`.
+  The `Development Status` classifier in `pyproject.toml` follows the stage. The README is the PyPI
+  description, which PyPI never lets a release change, so it must be right before the tag.
+- Pushing the tag `v<version>` runs `.github/workflows/release.yml`. It stops when the tag differs
+  from the version or the tagged commit is not on `main`, builds the planner on Linux x86_64, Linux aarch64 and macOS arm64, builds the
+  sdist and one wheel per platform with that planner inside, checks and smoke-tests every wheel in
+  a clean environment, publishes to TestPyPI first and then to PyPI, and creates a GitHub Release
+  (a pre-release for `a`, `b` and `rc` versions) with the planner binaries and their checksums.
+- Publishing uses Trusted Publishing: PyPI trusts the workflow through OpenID Connect, so no token
+  exists to leak. The owner registers the publisher on pypi.org and test.pypi.org once, both
+  environments accept only `v*` tags, and the `pypi` environment needs a reviewer's approval.
+- Every build uses the hatchling version pinned in `.github/build-constraints.txt`.
+- A manual run of the workflow is a dry run that builds and checks everything and publishes nothing.
+  CI's `packaging` job builds and smoke-tests a Linux wheel on every pull request, and runs the agent
+  suite on the newest FastAPI and uvicorn the `lma` and `gma` extras allow.
+
 ## Learning Guide
 
 New contributors should start with [`docs/learn/`](docs/learn/README.md). It covers federated
@@ -445,11 +468,11 @@ Two consumers in this repository show the boundary, and both are published:
   regression (contributed as a model kind, including how an update is checked and combined),
   the study sequence, the FHIR mapping and the intended-use statement. It calls one LMA per
   hospital and a GMA only through their HTTP APIs, with
-  `agents/common/infrastructure/agent_client.py`: in its own process through
+  `dagents/common/infrastructure/agent_client.py`: in its own process through
   `httpx.ASGITransport` on the published demo, or over HTTP when the agents run as separate
   processes (`scripts/run_local_demo.sh --agents network`, its compose file). Every successful
   answer whose body is a JSON object lists the agent calls behind it (`framework_calls`); errors,
-  the hospital list and the SVG charts do not. Nothing in `agents/` knows what a stroke
+  the hospital list and the SVG charts do not. Nothing in `dagents/` knows what a stroke
   is, and nothing in the app re-implements a quorum rule.
 - [`services/nl2sql-demo/`](services/nl2sql-demo/README.md) — validation, planning, service checks
   and workload compilation. Live: <https://pradyunuydarp.github.io/Dagents/nl2sql-demo/>. The app

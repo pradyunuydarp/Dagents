@@ -7,7 +7,7 @@ that existing instructions still work. It runs that guard with
 
 Usage::
 
-    python -m unittest discover -s agents/tests -t . -v 2>&1 | tee suite.log
+    python -m unittest discover -s dagents/tests -t . -v 2>&1 | tee suite.log
     python scripts/ci_no_skipped_planner_tests.py suite.log
 
 Exit codes: 0 when no planner test skipped, 1 when one did or the log cannot

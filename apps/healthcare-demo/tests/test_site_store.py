@@ -30,20 +30,20 @@ APP_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(APP_ROOT / "backend"))
 sys.path.insert(0, str(APP_ROOT.parents[1]))
 
-from agents.common.domain import errors as framework_errors  # noqa: E402
-from agents.common.domain.federation import (  # noqa: E402
+from dagents.common.domain import errors as framework_errors  # noqa: E402
+from dagents.common.domain.federation import (  # noqa: E402
     GateResult,
     ModelReleaseDecision,
     ModelStatusChange,
     ModelVersion,
 )
-from agents.common.domain.governance import AuditRecord  # noqa: E402
-from agents.common.domain.site import JobLogEntry  # noqa: E402
-from agents.common.infrastructure import postgres_lease  # noqa: E402
-from agents.common.infrastructure.postgres_lease import KeptConnection  # noqa: E402
-from agents.common.infrastructure.postgres_roles import acting_as  # noqa: E402
-from agents.gma.infrastructure.postgres_models import PostgresModelStore  # noqa: E402
-from agents.lma.infrastructure.job_log import PostgresJobLog  # noqa: E402
+from dagents.common.domain.governance import AuditRecord  # noqa: E402
+from dagents.common.domain.site import JobLogEntry  # noqa: E402
+from dagents.common.infrastructure import postgres_lease  # noqa: E402
+from dagents.common.infrastructure.postgres_lease import KeptConnection  # noqa: E402
+from dagents.common.infrastructure.postgres_roles import acting_as  # noqa: E402
+from dagents.gma.infrastructure.postgres_models import PostgresModelStore  # noqa: E402
+from dagents.lma.infrastructure.job_log import PostgresJobLog  # noqa: E402
 from app.domain.dataset import SITES, load_site_records, site_for  # noqa: E402
 from app.services import site_store  # noqa: E402
 from app.services.db_hints import connection_hint  # noqa: E402
@@ -758,7 +758,7 @@ class SiteSourceFactoryTests(unittest.TestCase):
 
     def test_the_apps_extension_contributes_this_source(self) -> None:
         """An LMA started with ``LMA_SITE_SOURCE=healthcare_site_store`` gets this source from the registry."""
-        from agents.common.extensions import ExtensionRegistry
+        from dagents.common.extensions import ExtensionRegistry
         from app.extension import install
 
         registry = ExtensionRegistry()
@@ -862,7 +862,7 @@ class CoordinatorStoreContract:
     The coordinator store keeps the pilot reports and the release Guard's audit
     chain. The model registry is the GMA's (``PostgresModelStore`` on this
     store's lease, tested at the end of this file and in
-    ``agents/tests/test_model_registry.py``).
+    ``dagents/tests/test_model_registry.py``).
     """
 
     def make_coordinator(self) -> Any:

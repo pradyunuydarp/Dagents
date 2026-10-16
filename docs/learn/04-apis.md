@@ -317,7 +317,7 @@ This uses the GMA, the framework's coordinator. Build the planner first (see
 
 ```bash
 export DAGENTSC_BIN=$PWD/bindings/ocaml/_build/default/bin/dagentsc.exe
-PYTHONPATH=. .venv/bin/uvicorn agents.gma.main:app --port 8020
+PYTHONPATH=. .venv/bin/uvicorn dagents.gma.main:app --port 8020
 ```
 
 The example request bodies are in [`docs/learn/examples/`](examples/).

@@ -50,7 +50,7 @@ Run `$DAGENTSC_BIN --help` to see the other commands.
 
 ```bash
 python3 -m venv .venv
-.venv/bin/pip install -r agents/lma/requirements.txt -r agents/gma/requirements.txt \
+.venv/bin/pip install -r dagents/lma/requirements.txt -r dagents/gma/requirements.txt \
   -r apps/healthcare-demo/requirements.txt httpx
 ```
 
@@ -89,7 +89,7 @@ explains how to set up the database.
 
 ```bash
 # Framework agents and governance
-.venv/bin/python -m unittest discover -s agents/tests -t .
+.venv/bin/python -m unittest discover -s dagents/tests -t .
 
 # The stroke demo
 cd apps/healthcare-demo && PYTHONPATH=../..:backend ../../.venv/bin/python -m unittest discover -s tests -t . && cd -

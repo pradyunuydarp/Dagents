@@ -119,9 +119,9 @@ AREAS: tuple[Area, ...] = (
     ),
     Area(
         name="agents",
-        code=("agents/**",),
+        code=("dagents/**",),
         docs=(
-            "agents/**/*.md",
+            "dagents/**/*.md",
             "docs/reference/api/agents.md",
             "docs/reference/api/examples/lma.*",
             "docs/reference/api/examples/gma.*",
@@ -243,6 +243,14 @@ AREAS: tuple[Area, ...] = (
             "docs/guide/09-test-your-integration.md",
             "docs/learn/05-hands-on.md",
             "apps/healthcare-demo/docs/deployment.md",
+            *REPO_GUIDES,
+        ),
+    ),
+    Area(
+        name="package",
+        code=("pyproject.toml", "hatch_build.py", ".github/build-constraints.txt"),
+        docs=(
+            ".claude/skills/ci/SKILL.md",
             *REPO_GUIDES,
         ),
     ),

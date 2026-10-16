@@ -8,11 +8,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from agents.common.application.federation_worker import LocalFederatedWorker, LocalRunOutcome
-from agents.common.application.governance_service import GovernanceService
-from agents.common.domain.federation import FederatedJob, JobAcceptance, RoundManifest, SiteRegistration, SiteResult
-from agents.common.domain.governance import GuardDecision, Requester, RestrictionRequest
-from agents.common.infrastructure.dagents_runner import round_digest
+from dagents.common.application.federation_worker import LocalFederatedWorker, LocalRunOutcome
+from dagents.common.application.governance_service import GovernanceService
+from dagents.common.domain.federation import FederatedJob, JobAcceptance, RoundManifest, SiteRegistration, SiteResult
+from dagents.common.domain.governance import GuardDecision, Requester, RestrictionRequest
+from dagents.common.infrastructure.dagents_runner import round_digest
 
 from shop import rule
 from shop.contract import APPROVED_PURPOSES, CLASSIFICATION, CONTRACT_VERSION, FEATURE_CONTRACT

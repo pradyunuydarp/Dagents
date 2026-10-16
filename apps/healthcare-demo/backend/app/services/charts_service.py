@@ -1,6 +1,6 @@
 """The demo's charts: which ones exist, the data behind each, and the drawn SVG.
 
-Drawing is the framework's (``agents.common.infrastructure.charts``). This
+Drawing is the framework's (``dagents.common.infrastructure.charts``). This
 module decides what each chart shows and where its numbers come from:
 
 - **Hospital charts** use one hospital's own records, through the hospital
@@ -37,7 +37,7 @@ from collections import OrderedDict
 from dataclasses import dataclass, field
 from typing import Any, Callable, Mapping, Sequence
 
-from agents.common.infrastructure import charts
+from dagents.common.infrastructure import charts
 
 from app.domain.conditions import STROKE_CLASSIFICATION, STROKE_RELEASE_GATES
 from app.domain.dataset import DATASET_NOTICE

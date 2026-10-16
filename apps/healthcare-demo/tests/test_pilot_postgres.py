@@ -30,7 +30,7 @@ APP_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(APP_ROOT / "backend"))
 sys.path.insert(0, str(APP_ROOT.parents[1]))
 
-from agents.common.infrastructure.postgres_roles import acting_as, connect  # noqa: E402
+from dagents.common.infrastructure.postgres_roles import acting_as, connect  # noqa: E402
 
 from app.domain.dataset import SITES, load_site_records  # noqa: E402
 from app.domain.model_kinds import INITIAL_VERSION, SEED_VERSION  # noqa: E402
@@ -51,7 +51,7 @@ TRAINING_ROUNDS = 2
 
 def _lenient_gates() -> list:
     """One gate the candidate clears, so the planner decides ``release``."""
-    from agents.common.domain.federation import GateComparison, ReleaseGate
+    from dagents.common.domain.federation import GateComparison, ReleaseGate
 
     return [ReleaseGate(gate_id="discrimination", metric="auc", comparison=GateComparison(kind="at_least", value=0.5))]
 

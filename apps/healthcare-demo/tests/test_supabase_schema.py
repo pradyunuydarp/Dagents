@@ -26,8 +26,8 @@ sys.path.insert(0, str(APP_ROOT / "backend"))
 sys.path.insert(0, str(APP_ROOT.parents[1]))
 sys.path.insert(0, str(APP_ROOT / "scripts"))
 
-from agents.common.infrastructure.postgres_audit import ANCHOR_COLUMNS  # noqa: E402
-from agents.common.infrastructure.postgres_audit import COLUMNS as AUDIT_COLUMNS  # noqa: E402
+from dagents.common.infrastructure.postgres_audit import ANCHOR_COLUMNS  # noqa: E402
+from dagents.common.infrastructure.postgres_audit import COLUMNS as AUDIT_COLUMNS  # noqa: E402
 from app.domain.conditions import STROKE_FEATURE_CONTRACT  # noqa: E402
 from app.domain.dataset import SITES  # noqa: E402
 from app.services import site_store  # noqa: E402

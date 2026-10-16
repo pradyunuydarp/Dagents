@@ -6,7 +6,7 @@ from concurrent.futures import ThreadPoolExecutor
 import time
 from typing import Protocol
 
-from agents.common.infrastructure.sources import DefaultSourceResolver
+from dagents.common.infrastructure.sources import DefaultSourceResolver
 from app.models import PipelineCatalogResponse, PipelineDefinition, PipelineRunRequest, PipelineRunResponse
 from app.pipeline.engine import PipelineExecutionEngine
 

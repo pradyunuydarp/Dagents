@@ -8,6 +8,41 @@ may see and whether a new model may be released.
 It started as shared code from products such as Watchdog, and is meant to be
 reused by systems such as Datalytics.
 
+**Status: alpha.** Dagents is in early development. Every version before
+1.0.0 is a pre-release, and the Python APIs, settings, routes and package
+layout can change from one release to the next.
+
+## Install
+
+The Python framework is released to PyPI as
+[`dagents`](https://pypi.org/project/dagents/), starting with 0.1.0a1. It needs
+Python 3.11 or later.
+
+```bash
+pip install dagents                # the Ethical Guard, federated rounds, extensions and the planner runner
+pip install "dagents[lma,gma]"     # adds FastAPI, uvicorn and httpx, to serve an LMA or a GMA
+```
+
+The other extras are `postgres` (the Postgres audit chain, job log, model
+registry and source adapter), `charts` (the SVG chart renderer) and `all`.
+While every release is a pre-release, `pip install dagents` installs the
+newest one. After 1.0.0, a pre-release needs `pip install --pre dagents` or an
+exact version.
+
+The wheels for Linux x86_64, Linux aarch64 and macOS arm64 include the
+planner, `dagentsc`. On other systems, such as Windows and Intel Macs, pip
+builds the package from its source distribution, which has no planner. There
+the Ethical Guard denies every request until `DAGENTSC_BIN` names a planner
+binary. Each [GitHub Release](https://github.com/pradyunuydarp/Dagents/releases)
+has the planner for the three platforms, and
+[`bindings/ocaml/`](bindings/ocaml/README.md) shows how to build it.
+`python -m dagents` prints the installed version and the planner it found.
+
+`dagents-lma` and `dagents-gma` start an agent. An installed package reads its
+settings only from the process environment; the [LMA](dagents/lma/README.md)
+and [GMA](dagents/gma/README.md) READMEs list them. The services in
+`services/`, the Spring services and the demos are not in the package.
+
 ## Links
 
 | | |
@@ -72,8 +107,8 @@ test checks that the two match.
 
 | Folder | Contents |
 |---|---|
-| `agents/` | The LMA (one per data source) and GMA (coordinator) services |
-| `agents/common/extensions/` | The interface applications use to extend the framework |
+| `dagents/` | The Python framework, packaged as `dagents` (`pyproject.toml`): the LMA (one per data source) and GMA (coordinator) services |
+| `dagents/common/extensions/` | The interface applications use to extend the framework |
 | `bindings/ocaml/` | The planners: validation, DAG planning, model routing, Kubernetes manifests, governance, federated rounds |
 | `services/core-service/` | Service catalog, topology, workload compilation, Kubernetes manifests |
 | `services/pipeline-service/` | Pipeline registry, validation and runs |
@@ -105,7 +140,7 @@ These are the two parts an application would otherwise build itself:
   dedicated federated learning runtime behind an adapter. Aggregation produces a
   candidate model, never a release.
 
-Applications use both through `agents/common/extensions`, by registering feature
+Applications use both through `dagents/common/extensions`, by registering feature
 contracts, data classifications, condition packs, model kinds, site sources,
 pipeline steps and model adapters, and call the LMA and GMA through their APIs.
 [`apps/healthcare-demo/`](apps/healthcare-demo/README.md) is a worked example.

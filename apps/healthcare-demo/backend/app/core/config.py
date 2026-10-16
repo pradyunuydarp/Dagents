@@ -27,7 +27,7 @@ from dataclasses import dataclass, field
 from typing import Mapping
 from urllib.parse import urlparse
 
-from agents.common.env import load_env_files
+from dagents.common.env import load_env_files
 
 load_env_files("env/.env.shared", "env/.env.healthcare-demo", "apps/healthcare-demo/env/.env.healthcare-demo")
 

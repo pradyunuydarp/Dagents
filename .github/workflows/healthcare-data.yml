@@ -117,7 +117,7 @@ jobs:
 
           import psycopg
 
-          from agents.common.infrastructure.postgres_roles import connect
+          from dagents.common.infrastructure.postgres_roles import connect
 
           def fail(message):
               print(f"::error::{message}")
@@ -181,11 +181,11 @@ jobs:
         run: |
           set -o pipefail
           python -m unittest -v \
-            agents.tests.test_postgres_roles \
-            agents.tests.test_postgres_lease \
-            agents.tests.test_model_registry \
-            agents.tests.test_job_log \
-            agents.tests.test_gma_release \
+            dagents.tests.test_postgres_roles \
+            dagents.tests.test_postgres_lease \
+            dagents.tests.test_model_registry \
+            dagents.tests.test_job_log \
+            dagents.tests.test_gma_release \
             2>&1 | tee framework-database.log
 
       - name: Fail if the database tests skipped
@@ -220,18 +220,18 @@ jobs:
           python scripts/ci_no_skipped_tests.py \
             --forbid planner \
             --forbid database \
-            --require-ran agents.tests.test_postgres_roles.ActingAsTests \
-            --require-ran agents.tests.test_postgres_roles.ConnectTests \
-            --require-ran agents.tests.test_postgres_roles.AdapterRoleTests \
-            --require-ran agents.tests.test_postgres_roles.PostgresAuditSinkTests \
-            --require-ran agents.tests.test_postgres_lease.KeptConnectionPostgresTests \
-            --require-ran agents.tests.test_postgres_lease.LeaseErrorTextPostgresTests \
-            --require-ran agents.tests.test_postgres_lease.LeaseAuditSinkPostgresTests \
-            --require-ran agents.tests.test_postgres_lease.SourceAdapterPostgresTests \
-            --require-ran agents.tests.test_model_registry.PostgresModelStoreTests \
-            --require-ran agents.tests.test_model_registry.PostgresModelRegistryTests \
-            --require-ran agents.tests.test_job_log.PostgresJobLogTests \
-            --require-ran agents.tests.test_gma_release.GmaPostgresWiringTests \
+            --require-ran dagents.tests.test_postgres_roles.ActingAsTests \
+            --require-ran dagents.tests.test_postgres_roles.ConnectTests \
+            --require-ran dagents.tests.test_postgres_roles.AdapterRoleTests \
+            --require-ran dagents.tests.test_postgres_roles.PostgresAuditSinkTests \
+            --require-ran dagents.tests.test_postgres_lease.KeptConnectionPostgresTests \
+            --require-ran dagents.tests.test_postgres_lease.LeaseErrorTextPostgresTests \
+            --require-ran dagents.tests.test_postgres_lease.LeaseAuditSinkPostgresTests \
+            --require-ran dagents.tests.test_postgres_lease.SourceAdapterPostgresTests \
+            --require-ran dagents.tests.test_model_registry.PostgresModelStoreTests \
+            --require-ran dagents.tests.test_model_registry.PostgresModelRegistryTests \
+            --require-ran dagents.tests.test_job_log.PostgresJobLogTests \
+            --require-ran dagents.tests.test_gma_release.GmaPostgresWiringTests \
             framework-database.log || status=1
           exit "${status}"
 
@@ -276,7 +276,7 @@ jobs:
 
           from psycopg import errors, sql
 
-          from agents.common.infrastructure.postgres_roles import acting_as, connect
+          from dagents.common.infrastructure.postgres_roles import acting_as, connect
           from app.domain.dataset import SITES
 
           COORDINATOR = "dagents_coordinator"

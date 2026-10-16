@@ -63,7 +63,7 @@ dim() { printf '\033[2m%s\033[0m\n' "$*"; }
 
 # --- preflight -------------------------------------------------------------
 
-if [[ ! -d "${DAGENTS_HOME}/agents/common" ]]; then
+if [[ ! -d "${DAGENTS_HOME}/dagents/common" ]]; then
   echo "Could not find the Dagents framework." >&2
   echo "Set DAGENTS_HOME to your Dagents checkout, for example:" >&2
   echo "  DAGENTS_HOME=~/src/Dagents $0" >&2

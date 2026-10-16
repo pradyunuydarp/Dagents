@@ -1,6 +1,6 @@
 ---
 name: docs-sync
-description: Rules for keeping the docs that the framework site publishes in step with the code — the API reference, the guide to building an application and its worked example, the learning guide, the Resources page, the home page's status list and demo cards, the service inventory, the demo READMEs, README.md, CLAUDE.md, AGENTS.md and the planner README. Use before changing any code under agents/, services/, bindings/ocaml/, apps/, contracts/, scripts/, examples/ or env/, the compose file, a workflow, or a deck in docs/presentation/, and before calling such a change done. Also use when a docs check fails (check_docs_impact.py, test_api_reference, test_api_examples, test_service_inventory, test_getting_started_example, test_site_resources).
+description: Rules for keeping the docs that the framework site publishes in step with the code — the API reference, the guide to building an application and its worked example, the learning guide, the Resources page, the home page's status list and demo cards, the service inventory, the demo READMEs, README.md, CLAUDE.md, AGENTS.md and the planner README. Use before changing any code under dagents/, services/, bindings/ocaml/, apps/, contracts/, scripts/, examples/ or env/, the compose file, a workflow, or a deck in docs/presentation/, and before calling such a change done. Also use when a docs check fails (check_docs_impact.py, test_api_reference, test_api_examples, test_service_inventory, test_getting_started_example, test_site_resources).
 ---
 
 # Keeping the docs in step with the code
@@ -34,7 +34,7 @@ its captured examples in `docs/reference/api/examples/`, and
 | Area | Code | Docs it feeds |
 |---|---|---|
 | `planners` | `bindings/ocaml/` | `bindings/ocaml/README.md` (module map, commands, contract examples); API reference `dagentsc.md` and `examples/dagentsc.*`; the guide's tables of strategies (`docs/guide/04-govern-every-read.md`), exclusion reasons and release decisions (`docs/guide/06-federated-rounds.md`), and its output blocks; learning guide pages 02 and 03; `docs/architecture/`; `docs/demo/expected/`; the home page's `STEPS` and `STATUS` (`site/src/pages/Home.tsx`) |
-| `agents` | `agents/` | API reference `agents.md`, `examples/lma.*`, `examples/gma.*`; inventory; guide pages 02 to 06, including the blocks that quote `agents/common/application/federation.py` and `federation_worker.py`; learning guide pages 02 to 04; `docs/agents/`; `agents/lma/README.md`, `agents/gma/README.md`; the home page's `STEPS`, `PARTS` and `STATUS` (`site/src/pages/Home.tsx`) |
+| `agents` | `dagents/` | API reference `agents.md`, `examples/lma.*`, `examples/gma.*`; inventory; guide pages 02 to 06, including the blocks that quote `dagents/common/application/federation.py` and `federation_worker.py`; learning guide pages 02 to 04; `docs/agents/`; `dagents/lma/README.md`, `dagents/gma/README.md`; the home page's `STEPS`, `PARTS` and `STATUS` (`site/src/pages/Home.tsx`) |
 | `framework-services` | `services/core-service/`, `services/pipeline-service/`, `services/model-service/` | API reference `framework-services.md` and those services' examples; inventory; guide pages 07 and 08; learning guide page 04; each service's README |
 | `spring-services` | `services/spring-services/` | API reference `spring-services.md` and `examples/spring-*`; inventory |
 | `nl2sql-demo` | `services/nl2sql-demo/` | `services/nl2sql-demo/README.md`; API reference `demo-apps.md` and `examples/nl2sql-demo-backend.*`; inventory; guide page 07 (quotes `dagents_orchestrator.py`); learning guide page 03; `docs/demo/`; its card in `DEMOS` (`site/src/config.ts`) |
@@ -43,6 +43,7 @@ its captured examples in `docs/reference/api/examples/`, and
 | `scripts` | `scripts/` | the commands in `CLAUDE.md`; the skill that names the script; `docs/reference/api/README.md`; guide page 09; learning guide page 05; `docs/demo/README.md`; the files the script generates |
 | `example` | `examples/` | every block in `docs/guide/` with a `source` or `output` marker; `examples/getting-started/README.md` |
 | `config` | `env/`, `docker-compose.yml`, `.github/workflows/` | the port table and the CI section of `CLAUDE.md`; the `ci` skill; `docs/guide/01-setup.md`, `08-deploy.md` and `09-test-your-integration.md`; `docs/learn/05-hands-on.md`; `apps/healthcare-demo/docs/deployment.md` |
+| `package` | `pyproject.toml`, `hatch_build.py`, `.github/build-constraints.txt` | the "Releasing" section and the repository map of `CLAUDE.md`; `AGENTS.md`; `README.md` (the status line and the install section, which become the PyPI page); the `ci` skill (sections 2m and 5) |
 | `decks` | `docs/presentation/**/*.pptx` | the Resources page (`#/resources`): the deck's entry in `docs/presentation/resources.json` (its description, audience and note) and its PDF and preview in `docs/presentation/exports/` |
 
 Every area also feeds `README.md`, `CLAUDE.md` and `AGENTS.md` when the change
@@ -127,7 +128,7 @@ the JSON.
 | `tests/test_service_inventory.py` | the inventory differs from the routes; a framework service has an unversioned path; an LMA/GMA alias pair is missing or answers differently; Spring stops mirroring Python | prose about an endpoint |
 | `tests/test_api_reference.py` | `api-reference.json` differs from a fresh run; an endpoint is placed in no interface or in two; a listed endpoint, file or class does not exist; a `complete` interface lacks prose, an example or a field description | whether the prose is true |
 | `tests/test_api_examples.py` | a stored example no longer matches its request file or the schemas; with the planner, a replayed request answers differently | endpoints with no example; errors described only in prose |
-| `tests/test_getting_started_example.py` | a `source` block differs from its file; a Python block in the guide has no marker; an `output` block differs from what the script prints with the planner; an example file is never shown; a word of the example's domain appears in `agents/` | prose next to a block; commands and outputs the test cannot run (curl calls, Postgres tests) |
+| `tests/test_getting_started_example.py` | a `source` block differs from its file; a Python block in the guide has no marker; an `output` block differs from what the script prints with the planner; an example file is never shown; a word of the example's domain appears in `dagents/` | prose next to a block; commands and outputs the test cannot run (curl calls, Postgres tests) |
 | `tests/test_site_resources.py` | a deck, PDF or preview changed after `--write`; a PDF's page count differs from the deck's slides; a deck or note under `docs/presentation/` is neither listed nor excluded with a reason; a published file contains the API host | a description that no longer matches the deck |
 | `tests/test_publishing_guards.py` | the deployed API's host appears outside `env/` and `.github/`; the README does not link a published site | anything else in the docs |
 | `tests/test_social_previews.py` | a link preview tag is missing; a card or icon is stale, the wrong size or over 300 KB; a title, description or alt text has a digit or a number word; the stroke card's hospitals, or the hospital count in its texts, differ from `SITES`; a Pages check in `scripts/check_link_previews.py` stops failing on a broken input | whether a card's wording is still true |
@@ -224,7 +225,7 @@ search the docs for every name you changed and read every hit:
 
 ```bash
 grep -rn "OLD_NAME" docs/ README.md CLAUDE.md AGENTS.md examples/ \
-  apps/*/README.md apps/*/docs/ services/*/README.md agents/*/README.md bindings/ocaml/README.md
+  apps/*/README.md apps/*/docs/ services/*/README.md dagents/*/README.md bindings/ocaml/README.md
 ```
 
 Then check, against the code:

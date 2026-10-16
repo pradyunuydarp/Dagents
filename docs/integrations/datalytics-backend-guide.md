@@ -21,8 +21,8 @@ The target integration model is:
 
 The framework is split into:
 
-- `agents/lma`: local source-scoped execution
-- `agents/gma`: aggregate and fleet-wide coordination
+- `dagents/lma`: local source-scoped execution
+- `dagents/gma`: aggregate and fleet-wide coordination
 - `services/model-service`: training, checks, and model jobs
 - `services/pipeline-service`: reusable workflow execution
 - `services/core-service`: service catalog, topology, and Kubernetes manifest generation
@@ -137,7 +137,7 @@ Dagents is designed around replaceable ports and high-cohesion modules. Prefer i
 
 ### Primary Python ports
 
-Defined in [ports.py](/Users/pradyundevarakonda/Developer/Dagents/agents/common/application/ports.py):
+Defined in [ports.py](/Users/pradyundevarakonda/Developer/Dagents/dagents/common/application/ports.py):
 
 - `ConnectionResolver`
 - `SourceCatalog`
@@ -148,8 +148,8 @@ Defined in [ports.py](/Users/pradyundevarakonda/Developer/Dagents/agents/common/
 
 Additional repositories are defined per bounded context:
 
-- LMA state and messaging in [state.py](/Users/pradyundevarakonda/Developer/Dagents/agents/lma/infrastructure/state.py) and [messaging.py](/Users/pradyundevarakonda/Developer/Dagents/agents/lma/infrastructure/messaging.py)
-- GMA control-plane persistence in [persistence.py](/Users/pradyundevarakonda/Developer/Dagents/agents/gma/infrastructure/persistence.py)
+- LMA state and messaging in [state.py](/Users/pradyundevarakonda/Developer/Dagents/dagents/lma/infrastructure/state.py) and [messaging.py](/Users/pradyundevarakonda/Developer/Dagents/dagents/lma/infrastructure/messaging.py)
+- GMA control-plane persistence in [persistence.py](/Users/pradyundevarakonda/Developer/Dagents/dagents/gma/infrastructure/persistence.py)
 - Pipeline repositories in [pipeline_service.py](/Users/pradyundevarakonda/Developer/Dagents/services/pipeline-service/app/services/pipeline_service.py)
 - Model-job persistence in [training_service.py](/Users/pradyundevarakonda/Developer/Dagents/services/model-service/app/services/training_service.py)
 
@@ -159,7 +159,7 @@ Implement a new adapter when a new data source or storage backend is needed.
 
 Example pattern for a new source kind:
 
-1. Add a new discriminated source model under `agents/common/domain/sources.py`.
+1. Add a new discriminated source model under `dagents/common/domain/sources.py`.
 2. Implement `SourceAdapter` with `validate`, `discover`, and `scan`.
 3. Register the adapter in `DefaultSourceResolver`.
 4. Keep source credentials indirect through `ConnectionRef`.
@@ -468,7 +468,7 @@ Useful local commands:
 
 ```bash
 python -m unittest tests.test_manifest_service tests.test_manifest_api -q
-python -m unittest agents.tests.test_control_plane agents.tests.test_postgres_api agents.tests.test_agent_api -q
+python -m unittest dagents.tests.test_control_plane dagents.tests.test_postgres_api dagents.tests.test_agent_api -q
 python -m unittest discover -s services/pipeline-service/tests -q
 python -m unittest discover -s services/model-service/tests -q
 mvn -q test
@@ -479,8 +479,8 @@ For containerized startup validation:
 
 ```bash
 docker build -t dagents-test-core -f services/core-service/Dockerfile .
-docker build -t dagents-test-lma -f agents/lma/Dockerfile .
-docker build -t dagents-test-gma -f agents/gma/Dockerfile .
+docker build -t dagents-test-lma -f dagents/lma/Dockerfile .
+docker build -t dagents-test-gma -f dagents/gma/Dockerfile .
 ```
 
 This guide is the intended starting point for Datalytics backend migration. The next step after framework stabilization is to map Datalytics domain concepts onto `SourceSpec`, `DatasetInput`, pipeline definitions, and workload plans without copying product-specific logic into Dagents.

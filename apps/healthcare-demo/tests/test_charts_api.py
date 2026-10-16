@@ -106,7 +106,7 @@ class HospitalChartTests(ApiTestCase):
         """A hospital's charts use the slot it has on the consortium charts, and no other series colour."""
         import re
 
-        from agents.common.infrastructure import charts as renderer
+        from dagents.common.infrastructure import charts as renderer
 
         for slot, site in enumerate(SITES, start=1):
             for theme in ("light", "dark"):

@@ -112,7 +112,7 @@ not a row but still carries signal derived from records. `ModelUpdateGrain` is t
 granularity, and the invariant that it never resolves to `AllowFull` is enforced by test.
 
 Enforcement deliberately stays outside OCaml. The **Ethical Guard** lives in the LMA and GMA
-request paths, in `agents/common/application/ethical_guard.py`, because applying a decision needs
+request paths, in `dagents/common/application/ethical_guard.py`, because applying a decision needs
 real data, a real requester, and somewhere to write an audit record.
 
 ### `federation_compiler`
@@ -281,6 +281,13 @@ Transform operations:
 opam exec -- dune build ./bin/dagentsc.exe
 opam exec -- dune test
 ```
+
+`opam exec -- dune build --profile static ./bin/dagentsc.exe` links the
+binary statically and strips it, so one Linux build runs on any distribution,
+glibc or musl. The profile is defined in `bindings/ocaml/dune`. The release
+workflow builds the planner this way for the Linux wheels of the `dagents`
+Python package, and CI's `planners` job uploads it as `dagentsc-static`. macOS
+cannot link statically, so the macOS planner uses `--profile release`.
 
 ## Conservative Defaults in the Codecs
 

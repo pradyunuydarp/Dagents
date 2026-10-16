@@ -10,7 +10,7 @@
 --   no patient-level rows.
 -- - coordinator.guard_audit: the audit chain of the coordinator's release
 --   Guard. Its columns are the ones each hospital's guard_audit table has,
---   because agents/common/infrastructure/postgres_audit.py writes both.
+--   because dagents/common/infrastructure/postgres_audit.py writes both.
 -- - coordinator.guard_audit_anchor: where the last successful check of that
 --   chain ended (see below).
 --
