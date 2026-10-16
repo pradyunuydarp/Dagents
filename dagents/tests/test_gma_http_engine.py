@@ -46,6 +46,7 @@ from dagents.common.domain.federation import (
 from dagents.common.infrastructure.agent_client import GMA_AGENT, AgentError, AgentNetwork, lma_agent
 from dagents.gma.app_factory import GmaDeps, create_app
 from dagents.gma.config import Settings
+from dagents.tests.fastapi_routes import flat_routes
 from dagents.tests.fixtures.gma_fixtures import (
     ADMIN_TOKEN,
     CAPABILITIES,
@@ -887,7 +888,7 @@ class RouteTokenTests(unittest.TestCase):
         self.client = TestClient(self.app)
 
     def routes(self):
-        for route in self.app.routes:
+        for route in flat_routes(self.app):
             methods = getattr(route, "methods", None)
             path = getattr(route, "path", "")
             if not methods or path in ("/openapi.json", "/docs", "/docs/oauth2-redirect", "/redoc"):

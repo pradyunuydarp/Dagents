@@ -27,6 +27,7 @@ from dagents.gma.main import app as gma_app
 from dagents.lma.app_factory import create_app as create_lma
 from dagents.lma.config import Settings as LmaSettings
 from dagents.lma.main import app as lma_app
+from dagents.tests.fastapi_routes import api_routes
 from dagents.tests.fixtures.gma_fixtures import ADMIN_TOKEN, COORDINATOR_TOKENS, SITE_TOKENS
 from dagents.tests.test_agent_network_flow import STAFF_TOKENS, build_in_process, comparable, run_study
 from dagents.tests.test_governance import dagentsc_available
@@ -385,10 +386,6 @@ STUDY_PAIRS = {
 #: pairing rule, by ``(method, versioned path)``: the short form of a round
 #: dispatch answers 200 and the versioned form 202. Clients rely on both.
 LEGACY_STATUS = {("POST", "/api/v1/federation/rounds"): 202}
-
-
-def api_routes(app: Any) -> list[APIRoute]:
-    return [route for route in app.routes if isinstance(route, APIRoute)]
 
 
 def route_pairs(app: Any) -> list[tuple[APIRoute, APIRoute]]:

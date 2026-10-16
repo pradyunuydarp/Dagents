@@ -43,6 +43,7 @@ from dagents.common.infrastructure.site_sources import StaticSiteSource
 from dagents.lma.app_factory import LmaDeps, create_app
 from dagents.lma.config import Settings
 from dagents.lma.domain.site_config import SiteConfig
+from dagents.tests.fastapi_routes import flat_routes
 from dagents.tests.fixtures.toy_extension import (
     TOY_CLASSIFICATION,
     TOY_CONDITION_ID,
@@ -881,7 +882,7 @@ class RoutePairTests(unittest.TestCase):
 
     def test_inventory_pairs_each_new_route_with_its_short_form(self) -> None:
         app = create_app(Settings())
-        handlers = {getattr(route, "name", None): route.path for route in app.routes}
+        handlers = {getattr(route, "name", None): route.path for route in flat_routes(app)}
         for name in (
             "site_info",
             "site_summary",
