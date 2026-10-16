@@ -232,6 +232,86 @@ class NeutralInkChartTests(ApiTestCase):
                     self.assertEqual(set(), used & series)
 
 
+class FourHospitalConsortiumChartTests(unittest.TestCase):
+    """With four hospitals the consortium charts give no hospital a series colour.
+
+    The design system has three series colours. A chart that compares four
+    hospitals draws each in neutral ink and names it on the axis. The AUC chart
+    does not draw its two models in the first two series colours, because
+    those mark two of the hospitals. Each alt text describes the chart drawn.
+    """
+
+    @staticmethod
+    def data(count: int) -> "ConsortiumData":
+        from app.services.charts_service import ConsortiumData
+
+        summaries = [
+            {"site_id": f"site-{n}", "display_name": f"Hospital {n}", "record_count": 100 + n, "entered_count": n,
+             "labelled_count": 90, "outcome_rate": 0.5, "outcome_rate_status": "reported"}
+            for n in range(1, count + 1)
+        ]
+        results = [{"site_id": f"site-{n}", "metrics": {"auc": 0.7}} for n in range(1, count + 1)]
+        pilot = {
+            "rounds": {"evaluation": {"results": results}, "candidate_validation": {"results": results}},
+            "model_in_use": {"version": "v1"},
+            "candidate": {"candidate_version": "v2"},
+        }
+        return ConsortiumData(summaries=summaries, last_pilot=pilot, minimum_cohort=20)
+
+    @staticmethod
+    def draw(spec, theme: str) -> str:
+        from app.services.charts_service import _DRAW
+
+        return _DRAW[spec.kind](*spec.args, theme=theme, **spec.kwargs)
+
+    def test_charts_comparing_four_hospitals_use_no_series_colour(self) -> None:
+        import re
+
+        from agents.common.infrastructure import charts as renderer
+        from app.services.charts_service import _hospital_outcome_rates, _hospital_records, _site_auc
+
+        data = self.data(4)
+        for build in (_hospital_records, _hospital_outcome_rates, _site_auc):
+            spec = build(data)
+            for theme in ("light", "dark"):
+                with self.subTest(chart=spec.chart_id, theme=theme):
+                    tokens = renderer.TOKENS[theme]
+                    series = {tokens[f"--ds-series-{n}"].lower() for n in (1, 2, 3)}
+                    used = {c.lower() for c in re.findall(r"#[0-9a-fA-F]{6}\b", self.draw(spec, theme))}
+                    self.assertIn(tokens["--ds-ink-2"].lower(), used)
+                    self.assertEqual(set(), used & series)
+
+    def test_the_auc_chart_names_each_hospital_and_model(self) -> None:
+        from app.services.charts_service import _site_auc
+
+        spec = _site_auc(self.data(4))
+        self.assertEqual("bar", spec.kind)
+        self.assertEqual(8, len(spec.args[0]))
+        self.assertEqual(["Hospital 1: model in use", "Hospital 1: candidate"], spec.args[0][:2])
+        self.assertTrue(spec.alt.startswith("Horizontal bar chart"), spec.alt)
+
+    def test_each_alt_text_names_the_chart_drawn(self) -> None:
+        from app.services.charts_service import _hospital_outcome_rates, _hospital_records, _site_auc
+
+        for count in (3, 4):
+            for build in (_hospital_records, _hospital_outcome_rates, _site_auc):
+                spec = build(self.data(count))
+                with self.subTest(chart=spec.chart_id, hospitals=count):
+                    self.assertIn("bar chart", spec.alt.lower())
+                    if "grouped" in spec.alt.lower():
+                        self.assertEqual("grouped_bar", spec.kind)
+
+    def test_three_hospitals_keep_their_series_colours(self) -> None:
+        from app.services.charts_service import _hospital_outcome_rates, _hospital_records, _site_auc
+
+        expected = {"Hospital 1": 1, "Hospital 2": 2, "Hospital 3": 3}
+        for build in (_hospital_records, _hospital_outcome_rates, _site_auc):
+            spec = build(self.data(3))
+            with self.subTest(chart=spec.chart_id):
+                self.assertEqual("grouped_bar", spec.kind)
+                self.assertEqual(expected, spec.kwargs["series_slots"])
+
+
 class GateThresholdTests(unittest.TestCase):
     """The gate chart shows the threshold the planner reported, and computes none itself."""
 

@@ -352,7 +352,12 @@ class ConsortiumData:
 
     @property
     def slots(self) -> dict[str, int] | None:
-        """Each hospital's colour slot, by its place in the consortium."""
+        """Each hospital's colour slot, by its place in the consortium.
+
+        ``None`` when there are more hospitals than series colours. The charts
+        that compare hospitals then draw every hospital in neutral ink and name
+        it on the axis, because a series colour would mark one of them.
+        """
         if len(self.summaries) > charts.MAX_SERIES:
             return None
         return {name: index for index, name in enumerate(self.names, start=1)}
@@ -391,6 +396,7 @@ def _hospital_records(data: ConsortiumData) -> ChartSpec:
     if data.slots is None:
         # More hospitals than series colours: one bar per hospital in neutral
         # ink, because a series colour would mark one of them.
+        spec.alt = "Bar chart of the number of records each hospital holds. The table splits each number by source."
         spec.kind = "bar"
         spec.args = (data.names, [s["record_count"] for s in data.summaries])
         spec.kwargs = {"value_label": "Records", "category_label": "Hospital", "series_slot": None}
@@ -505,10 +511,20 @@ def _site_auc(data: ConsortiumData) -> ChartSpec:
         table=table,
     )
     if data.slots is None:
-        spec.kind = "grouped_bar"
-        spec.args = (data.names, {"Model in use": in_use, "Federated candidate": candidate})
-        spec.kwargs = {"value_label": "AUC", "value_format": "{:.3f}", "orientation": "horizontal",
-                       "value_limits": (0.0, 1.0)}
+        # More hospitals than series colours. Two series in the first two
+        # colours would mark two hospitals, so each hospital and model gets
+        # its own bar in neutral ink, named on the axis.
+        spec.alt = (
+            "Horizontal bar chart of each hospital's AUC, one bar for the model in use and one for the "
+            "federated candidate."
+        )
+        spec.kind = "bar"
+        spec.args = (
+            [f"{name}: {model}" for name in data.names for model in ("model in use", "candidate")],
+            [value for pair in zip(in_use, candidate, strict=True) for value in pair],
+        )
+        spec.kwargs = {"value_label": "AUC", "category_label": "Hospital and model", "value_format": "{:.3f}",
+                       "orientation": "horizontal", "value_limits": (0.0, 1.0), "series_slot": None}
         return spec
     spec.kind = "grouped_bar"
     spec.args = (

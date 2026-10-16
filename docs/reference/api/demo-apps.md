@@ -683,7 +683,9 @@ Drawing uses the framework's chart renderer
 (`agents/common/infrastructure/charts.py`, matplotlib). A drawing has no date
 or random ids, so the same data gives the same bytes, and up to 256 drawings
 are kept in memory. The colours mark which hospital a series belongs to and
-never a decision.
+never a decision. The design system has three series colours, so a chart that
+compares more than three hospitals draws each in neutral ink and names it on
+the axis.
 
 **Conditional requests.** An SVG answer carries `ETag: "<version>-<theme>"` and
 `Cache-Control: no-cache`. Send the ETag back in `If-None-Match`, and the answer
@@ -752,9 +754,10 @@ GET /api/v1/hospitals/{site_id}/charts/{chart_id}.svg
 ```
 
 Returns one of the hospital's charts as SVG, with the same headers and
-conditional requests as a consortium chart. The hospital's series colour is the
-same as on the consortium charts. The design system has three series colours,
-so a hospital without one, such as a fourth hospital, is drawn in neutral ink.
+conditional requests as a consortium chart. While the consortium has three
+hospitals, the hospital's series colour is the same as on the consortium
+charts. The design system has three series colours, so a hospital without one,
+such as a fourth hospital, is drawn in neutral ink.
 Nothing is stored.
 
 **Errors.** `404` when no hospital or no chart has this id, or the hospital's

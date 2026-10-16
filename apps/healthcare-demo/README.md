@@ -339,8 +339,9 @@ hospital for the next round.
 When the hospital has joined, the page reloads the overview: the header and
 the hospitals table list four hospitals, and Hospital 290's page shows its own
 records. Its charts are drawn in neutral ink, because the design system has
-three hospital colours. Run the pilot again, and its rounds include Hospital
-290.
+three hospital colours. The consortium charts that compare hospitals then draw
+all four in neutral ink and name each one on the axis. Run the pilot again,
+and its rounds include Hospital 290.
 
 ## How it works
 
@@ -536,7 +537,10 @@ Once Hospital 290 has joined, each round invites four hospitals, so the app
 waits up to (2 x 4 + 1) times the federation timeout for a round. When the GMA
 restarts, the app sends the address and the enrolment again before the next
 round. Hospital 290's charts are drawn in neutral ink, because the design
-system has three hospital colours and the first three hospitals use them.
+system has three hospital colours and the first three hospitals use them on
+their own pages. A consortium chart that compares four hospitals gives none of
+them a colour: it draws each in neutral ink and names it on the axis. The AUC
+chart then has one bar for each hospital and model.
 
 **Turning it on.** It is off by default (`HEALTHCARE_DEMO_DEPLOYER=off`).
 `scripts/run_split_demo.sh --deploy` turns it on; without `--deploy` the script
@@ -836,7 +840,8 @@ planner built, or install Dagents as a dependency.
   the controls. The app keeps a joined hospital in memory only, so a restarted
   app does not have it, and there is no way to remove one. Hospital 290 keeps
   its records in memory even when the others use Postgres. Its charts have no
-  colour of their own.
+  colour of their own, and the consortium charts that compare hospitals lose
+  their colours while it is in the consortium.
 - **Digests are not signatures.** The round digest is a content hash that
   detects changes. It does not prove who sent the round; signing is separate work.
 - **The audit chain is not an audit store.** Chaining makes tampering detectable
