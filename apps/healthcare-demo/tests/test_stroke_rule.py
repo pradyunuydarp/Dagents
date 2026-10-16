@@ -172,6 +172,15 @@ class ConditionPackTests(unittest.TestCase):
         levels = {STROKE_CLASSIFICATION.field_sensitivity[name] for name in GUARD_PROBE_DEFAULT_FIELDS}
         self.assertEqual(levels, {"high", "medium", "low"})
 
+    def test_the_pack_names_no_number_of_hospitals(self) -> None:
+        """A hospital can join while the demo runs, and the pack's text is served as it is."""
+        import re
+
+        count = re.compile(r"\b(one|two|three|four|five|\d+) hospitals?\b", re.IGNORECASE)
+        for text in [STROKE_CONDITION.cohort_description, *STROKE_CONDITION.limitations]:
+            with self.subTest(text=text):
+                self.assertIsNone(count.search(text))
+
     def test_every_gate_reads_a_metric_the_evaluation_produces(self) -> None:
         produced = set(stroke_rule.evaluate_against_labels(load_site_records("uk-134")))
         gate_ids = [gate.gate_id for gate in STROKE_RELEASE_GATES]

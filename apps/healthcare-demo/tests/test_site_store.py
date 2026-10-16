@@ -44,7 +44,7 @@ from agents.common.infrastructure.postgres_lease import KeptConnection  # noqa: 
 from agents.common.infrastructure.postgres_roles import acting_as  # noqa: E402
 from agents.gma.infrastructure.postgres_models import PostgresModelStore  # noqa: E402
 from agents.lma.infrastructure.job_log import PostgresJobLog  # noqa: E402
-from app.domain.dataset import SITES, load_site_records, site_for  # noqa: E402
+from app.domain.dataset import JOINING_SITES, SITES, load_site_records, site_for  # noqa: E402
 from app.services import site_store  # noqa: E402
 from app.services.db_hints import connection_hint  # noqa: E402
 from app.services.site_source import SITE_SOURCE_NAME, StoreSiteSource, site_store_source  # noqa: E402
@@ -551,7 +551,7 @@ class PostgresSiteStoreTests(SiteStoreContract, unittest.TestCase):
 
     def test_the_committed_extract_round_trips_for_every_site(self) -> None:
         """What the database returns is what the memory store holds, row for row."""
-        for site in SITES:
+        for site in (*SITES, *JOINING_SITES):
             with self.subTest(site=site.site_id):
                 dataset = load_site_records(site.site_id)
                 self.assertEqual(site.expected_rows, len(dataset))
@@ -568,7 +568,7 @@ class PostgresSiteStoreTests(SiteStoreContract, unittest.TestCase):
 
         self.store.append(ENTRY, None)
         counts = seed_supabase.seed(self.db.dsn, keep_entries=True)
-        expected = {site.site_id: site.expected_rows for site in SITES}
+        expected = {site.site_id: site.expected_rows for site in (*SITES, *JOINING_SITES)}
         expected["uk-134"] += 1
         self.assertEqual(expected, {site_id: count["total"] for site_id, count in counts.items()})
         self.assertEqual(1, counts["uk-134"]["entered"])
@@ -749,6 +749,22 @@ class SiteSourceFactoryTests(unittest.TestCase):
     def test_an_unknown_hospital_is_refused(self) -> None:
         with self.assertRaises(ValueError):
             site_store_source(self.lease(), "site_xx_001", "xx-001")
+
+    def test_a_joining_hospital_has_a_source_read_as_its_own_role(self) -> None:
+        """Hospital 290's LMA runs from settings, like the others, once it joins."""
+        from agents.common.extensions import ExtensionRegistry
+        from app.extension import install
+
+        joining = JOINING_SITES[0]
+        lease = self.lease()
+        source = site_store_source(lease, joining.role, joining.site_id)
+        self.assertEqual(({"schema": joining.schema, "role": joining.role}, joining.role), (source.location(), source.role))
+        with self.assertRaises(ValueError):
+            site_store_source(lease, UK.role, joining.site_id)
+        registry = ExtensionRegistry()
+        install(registry)
+        self.assertIsInstance(registry.site_source(SITE_SOURCE_NAME)(lease, joining.role, joining.site_id), StoreSiteSource)
+        self.assertEqual(0, lease.connections_opened)
 
     def test_the_factory_opens_no_connection_until_it_is_read(self) -> None:
         lease = self.lease()

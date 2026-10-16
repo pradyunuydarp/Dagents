@@ -56,8 +56,12 @@ A poor outcome is death or dependency at six months (the trial's `OCCODE`). Ever
 record in the extract has one.
 
 `data/ist/ist_three_hospitals.csv` holds the 1,014 records, mapped to the demo's
-feature contract. `scripts/extract_ist.py` regenerates it from a pinned copy of
-the source file and checks its SHA-256. The extract leaves out the trial's own
+feature contract. `data/ist/ist_joining_hospitals.csv` holds the 263 records of
+Hospital 290 (Poland), the hospital with the most patients in the country with
+the fourth most, chosen by the same rule. It is not in the consortium at start;
+a local network-mode run can add it while the demo runs. 3 of its records have
+no six-month outcome. `scripts/extract_ist.py` regenerates both files from a
+pinned copy of the source file and checks their SHA-256. The extract leaves out the trial's own
 outcome predictions, free-text fields, dates and the treatment allocation;
 [`data/ist/NOTICE.md`](data/ist/NOTICE.md) lists each dropped column and why.
 
@@ -443,8 +447,9 @@ same alert threshold (an estimated risk of 0.5).
 Every database operation runs in one transaction that starts with `SET LOCAL
 ROLE` and checks `current_user`. Row-level security is on for every table, and
 the migrations revoke all access from Supabase's data API roles
-(`supabase/migrations/0002_site_isolation.sql` and
-`0003_coordinator_records.sql`).
+(`supabase/migrations/0002_site_isolation.sql`,
+`0003_coordinator_records.sql` and `0004_joining_site.sql`, which gives
+Hospital 290 the same schema, role and grants).
 
 **One limit on Supabase.** The API connects with one credential, and on Supabase
 that role also holds `pg_read_all_data`. So the isolation binds the code paths

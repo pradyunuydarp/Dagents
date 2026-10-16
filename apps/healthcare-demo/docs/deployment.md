@@ -20,23 +20,26 @@ See the README.
 | Frontend | the Vite build, published to GitHub Pages under the framework site | `.github/workflows/pages.yml` |
 | Schema and seed | a manually started workflow that migrates, loads each hospital's records and checks the isolation | `.github/workflows/healthcare-data.yml` |
 
-The records are the 1,014 IST records in `data/ist/ist_three_hospitals.csv`
-(see [`data/ist/NOTICE.md`](../data/ist/NOTICE.md) for the source and licence).
+The records are the 1,014 IST records in `data/ist/ist_three_hospitals.csv`,
+and the 263 records of Hospital 290, the hospital a local run can add while
+the demo runs, in `data/ist/ist_joining_hospitals.csv` (see
+[`data/ist/NOTICE.md`](../data/ist/NOTICE.md) for the source and licence).
 The seed loads each hospital's rows into that hospital's schema, acting as that
-hospital's role. Records entered on the page are stored the same way, with
+hospital's role. The hosted API never adds Hospital 290, so on the hosted
+database its schema is seeded and never read. Records entered on the page are stored the same way, with
 `origin = 'entered'`.
 
 ## The database layout
 
-Migrations `supabase/migrations/0002_site_isolation.sql` and
-`0003_coordinator_records.sql` create:
+Migrations `supabase/migrations/0002_site_isolation.sql`,
+`0003_coordinator_records.sql` and `0004_joining_site.sql` create:
 
 | Schema | Owned by | Tables |
 |---|---|---|
-| `site_uk_134`, `site_it_002`, `site_ch_245` | the role with the same name | `encounters` (the records), `guard_audit` (the audit chain of that hospital's LMA) |
+| `site_uk_134`, `site_it_002`, `site_ch_245` (0002) and `site_pl_290` (0004, the hospital that can join while the demo runs) | the role with the same name | `encounters` (the records), `guard_audit` (the audit chain of that hospital's LMA) |
 | `coordinator` | `dagents_coordinator` | `models` (the GMA's model registry), `site_contributions` (each hospital's LMA job log: what it sent in each round), `pilot_reports` (the app's newest 20 pilot reports), `guard_audit` (the audit chain of the GMA's release Guard) |
 
-- The four roles are `NOLOGIN`. On PostgreSQL 16 or later the migration grants
+- The five roles are `NOLOGIN`. On PostgreSQL 16 or later the migration grants
   each one to the connecting role `WITH INHERIT FALSE, SET TRUE`: the API can
   switch to a role but does not get its privileges without switching.
 - PostgreSQL 15 has no per-grant options, so there the migration uses a plain
@@ -311,7 +314,7 @@ the new schemas are filled. Upgrade in this order:
 
 | Step | What to do | What a visitor sees |
 |---|---|---|
-| 1 | Before merging, run **Actions → Healthcare data** with **Use workflow from** set to the branch being merged and `seed` on. It tests the migrations on a scratch database, applies 0002 and 0003, loads the 1,014 IST records into the hospital schemas and proves the isolation. | The old page and the old API, unchanged. The workflow does not touch the tables the old API reads. |
+| 1 | Before merging, run **Actions → Healthcare data** with **Use workflow from** set to the branch being merged and `seed` on. It tests the migrations on a scratch database, applies 0002, 0003 and 0004, loads the 1,014 IST records and Hospital 290's 263 records into the hospital schemas and proves the isolation. | The old page and the old API, unchanged. The workflow does not touch the tables the old API reads. |
 | 2 | Merge the branch into `main`. Render builds and deploys the new API onto data that is already there. The Pages run that the merge starts publishes the new page. | Render serves the old API until the new one passes its health check. The Pages run probes the API before Render's deploy finishes, so it publishes the new page as a replay: the page says it replays a recorded run, names the commit and disables data entry. If Render switches first, the old page calls the new API for a few minutes, and its answers are not what the old page was built for. |
 | 3 | Wait until `GET /api/v1/framework/status` reports `"store_layout": "schema-per-site"` and `"ready": true`. If it still lacks those fields after the build, the service did not deploy on its own; see [Deploys are not always automatic](#deploys-are-not-always-automatic). | The replay. |
 | 4 | Run **Actions → Pages → Run workflow** on `main`. Its probe now passes. | The new page, calling the new API: each hospital's records from its own schema. |
