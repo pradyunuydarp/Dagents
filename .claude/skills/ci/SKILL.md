@@ -278,6 +278,38 @@ build `dagentsc.exe` in an earlier stage and copy it to
 stops finding the images known to call the planner, or if a Python image starts
 in a way the walk cannot read.
 
+### m. A Pages deploy that GitHub stalled, and a retry that could hide a failure
+
+Run 41 of `pages.yml` failed in **Deploy to Pages**. The deployment stayed at
+`updating_pages` until `actions/deploy-pages` reached its limit of ten minutes
+and cancelled it. The build had passed, and re-running the failed job deployed
+the same artifact in under 15 seconds. The fault was on GitHub's side, but it
+left a red check on `main`.
+
+Defence: the deploy job tries once more.
+
+- The first `actions/deploy-pages` step has `continue-on-error: true`. If it
+  fails, the job waits 30 seconds and runs the action again. The action cancels
+  a deployment it gives up on, so the second attempt starts clean.
+- The second attempt has no `continue-on-error`, so its failure fails the job.
+- A step that may fail without failing the job can turn a failure into a green
+  run. So **One deploy attempt succeeded** reads both outcomes through `env:`
+  and passes only when the first attempt succeeded, or when it failed and the
+  second succeeded. When the second attempt was needed, it writes a warning and
+  a note in the run summary.
+- The two checks of the published pages come after that step and have no
+  `if:`, so they run only after a deploy succeeded.
+
+`tests/test_social_previews.py` checks the order and the conditions of these
+steps, and runs the guard step's script on the two passing combinations of
+outcomes and on failing ones.
+
+If both attempts fail, re-run the failed jobs of that run
+(`POST /repos/{owner}/{repo}/actions/runs/{run_id}/rerun-failed-jobs`). The
+Pages artifact is kept for one day; after that, re-run the whole run. A new run
+of the same commit also publishes, but it adds a green check beside the red
+one, and the commit keeps showing the failure.
+
 ## 3. The test loop
 
 CI runs the same commands a contributor runs. Write the failing test first,
