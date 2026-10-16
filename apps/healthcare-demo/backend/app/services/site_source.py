@@ -41,7 +41,7 @@ import threading
 import time
 from typing import Any, Callable
 
-from app.domain.dataset import UnknownSiteError, site_for
+from app.domain.dataset import UnknownSiteError, any_site_for
 from app.services.site_store import PostgresSiteStore, SiteStore
 
 #: The name the app's extension contributes this source under (``site_sources()``).
@@ -129,7 +129,8 @@ def site_store_source(lease: Any, role: str, site_id: str) -> StoreSiteSource:
       (``agents.common.infrastructure.postgres_lease.KeptConnection``). The
       store runs on it and leaves it open; the LMA closes it.
     - `role`: the LMA's ``LMA_SITE_ROLE``. It must be the hospital's own role.
-    - `site_id`: the LMA's ``LMA_SITE_ID``, one of the demo hospitals.
+    - `site_id`: the LMA's ``LMA_SITE_ID``, one of the demo hospitals, or a
+      hospital that joins while the demo runs (``JOINING_SITES``).
 
     Returns a source that reads the counts every time the LMA asks for the
     version, because the demo API writes from another process.
@@ -144,7 +145,7 @@ def site_store_source(lease: Any, role: str, site_id: str) -> StoreSiteSource:
             f"the {SITE_SOURCE_NAME} source for {site_id} needs the hospital's database: set LMA_DATABASE_URL"
         )
     try:
-        site = site_for(site_id)
+        site = any_site_for(site_id)
     except UnknownSiteError:
         raise ValueError(f"{site_id!r} is not one of the demo hospitals") from None
     if role != site.role:

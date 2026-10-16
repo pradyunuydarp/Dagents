@@ -16,6 +16,11 @@ own processes. Their addresses and tokens then come from the environment:
   for each hospital (``uk-134`` becomes ``UK_134``): its LMA and that LMA's
   ``site`` token.
 
+A network-mode run started with ``--deploy`` can add a hospital while the demo
+runs. ``HEALTHCARE_DEMO_DEPLOYER`` and the ``HEALTHCARE_DEMO_DEPLOY_*``
+settings below say how; the joining hospital's address and token use the same
+two names as the others.
+
 No token or address is ever logged or returned.
 """
 
@@ -234,6 +239,36 @@ class Settings:
 
     #: In process: how many hospitals the GMA sends a round's jobs to at once.
     dispatch_concurrency: int = int(os.getenv("HEALTHCARE_DEMO_DISPATCH_CONCURRENCY", "3"))
+
+    # --- Adding a hospital while the demo runs (app.services.deployment) ---------------
+
+    #: How a hospital that joins while the demo runs is started: ``off`` (the
+    #: default), ``process`` (a local process) or ``compose`` (a container,
+    #: with ``docker compose``). Read stripped and in lower case. The app
+    #: refuses to start with it on unless the run can work and only this
+    #: machine can ask (``app.services.deployment.check_deployer``). The
+    #: joining hospital's LMA address and the app's ``site`` token for it are
+    #: ``HEALTHCARE_DEMO_LMA_<SITE>_URL`` and ``HEALTHCARE_DEMO_LMA_<SITE>_TOKEN``,
+    #: read only with this on.
+    deployer: str = field(default_factory=lambda: os.getenv("HEALTHCARE_DEMO_DEPLOYER", "off").strip().lower())
+
+    #: The Dagents core service, which renders the new LMA's Compose file.
+    core_service_url: str = os.getenv("HEALTHCARE_DEMO_CORE_SERVICE_URL", "")
+
+    #: Seconds to wait for a new LMA to answer its health check.
+    deploy_timeout_seconds: float = float(os.getenv("HEALTHCARE_DEMO_DEPLOY_TIMEOUT_SECONDS", "90"))
+
+    #: Where the deployer writes its logs and pid files (process) or the
+    #: rendered files (compose). Empty means a new temporary folder.
+    deploy_dir: str = os.getenv("HEALTHCARE_DEMO_DEPLOY_DIR", "")
+
+    #: The folder that holds each new LMA's env file, ``lma-<site>.env``, with
+    #: its tokens and its database address. Empty means ``deploy_dir``.
+    deploy_env_dir: str = os.getenv("HEALTHCARE_DEMO_DEPLOY_ENV_DIR", "")
+
+    #: Compose mode: the image a new LMA runs, and the running demo's network it joins.
+    deploy_image: str = os.getenv("HEALTHCARE_DEMO_DEPLOY_IMAGE", "dagents/healthcare-demo-backend:local")
+    deploy_network: str = os.getenv("HEALTHCARE_DEMO_DEPLOY_NETWORK", "healthcare-demo_default")
 
     def check_agent_capacity(self) -> None:
         """Refuse settings that could leave the in-process agents without threads.

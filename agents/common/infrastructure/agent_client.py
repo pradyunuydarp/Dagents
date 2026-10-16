@@ -47,6 +47,13 @@ waiting forever.
 ``ASGITransport`` sends no lifespan events, so an agent app built for in-process
 use must set itself up when it is created, not in a lifespan handler.
 
+Addresses at run time. An HTTP network can take an agent's address after it
+was built (:meth:`AgentNetwork.add_address`) and give it up again
+(:meth:`AgentNetwork.remove_address`). The map of clients is replaced, never
+changed in place, so a call that has started keeps the client it found. A GMA
+uses this for a site that joins a study while it runs; the GMA decides which
+address it accepts.
+
 Call :meth:`AgentNetwork.close` when you are done; it closes the clients and
 stops the event-loop thread, cancelling calls still waiting. The loop thread is
 a daemon thread, and the worker threads anyio starts from it are too, so a
@@ -88,6 +95,9 @@ from agents.common.domain.federation import (
     RoundManifest,
     RoundPlan,
     RoundRecord,
+    SiteAddressList,
+    SiteAddressRequest,
+    SiteAddressState,
     SiteRegistration,
     SiteResult,
     UpdateReceipt,
@@ -461,6 +471,12 @@ class _InProcessTransport:
         with self._lock:
             return sorted(self._clients)
 
+    def add_address(self, name: str, url: str) -> None:
+        raise TypeError("an in-process network takes apps, not addresses; use add_app")
+
+    def remove_address(self, name: str) -> None:
+        raise TypeError("an in-process network takes apps, not addresses")
+
     def add(self, name: str, app: Any) -> None:
         service, site_id = _parse_agent_name(name)
         with self._lock:
@@ -540,6 +556,16 @@ async def _send_async(
     return _Reply(response.status_code, response.headers, response.content)
 
 
+def normalize_base_url(name: str, url: str) -> str:
+    """``url`` without a trailing ``/``, after the checks :meth:`AgentNetwork.over_http` makes.
+
+    Raises ``ValueError`` for an address that is not http or https with a
+    host, or that holds a user name, a password, a query or a fragment. The
+    message names ``name``, never the address.
+    """
+    return _check_base_url(name, url)
+
+
 def _check_base_url(name: str, url: str) -> str:
     try:
         parts = urlsplit(url)
@@ -580,19 +606,46 @@ class _HttpTransport:
             checked[name] = _check_base_url(name, url)
         self._lock = threading.Lock()
         self._closed = False
+        self._timeout_s = timeout_s
+        self._urls: dict[str, str] = dict(checked)
+        self._clients = {name: self._client(url) for name, url in checked.items()}
+
+    def _client(self, url: str) -> httpx.Client:
         # trust_env=False: a token must never go through a proxy that an
         # environment variable happens to name.
-        self._clients = {
-            name: httpx.Client(base_url=url, timeout=httpx.Timeout(timeout_s), trust_env=False, follow_redirects=False)
-            for name, url in checked.items()
-        }
+        return httpx.Client(base_url=url, timeout=httpx.Timeout(self._timeout_s), trust_env=False, follow_redirects=False)
 
     @property
     def agents(self) -> list[str]:
         return sorted(self._clients)
 
     def add(self, name: str, app: Any) -> None:
-        raise TypeError("add_app is only for an in-process network; give over_http every address when it is created")
+        raise TypeError("add_app is only for an in-process network; use add_address for an agent served over HTTP")
+
+    def add_address(self, name: str, url: str) -> None:
+        service, site_id = _parse_agent_name(name)
+        checked = _check_base_url(name, url)
+        with self._lock:
+            if self._closed:
+                raise RuntimeError("the agent network is closed")
+            known = self._urls.get(name)
+            if known == checked:
+                return
+            if known is not None:
+                raise ValueError(f"{_label(service, site_id)} already has another address in this network")
+            # Replace the maps, so a call that is reading them keeps the old one.
+            self._clients = {**self._clients, name: self._client(checked)}
+            self._urls = {**self._urls, name: checked}
+
+    def remove_address(self, name: str) -> None:
+        _parse_agent_name(name)
+        with self._lock:
+            client = self._clients.get(name)
+            if client is None:
+                return
+            self._clients = {key: value for key, value in self._clients.items() if key != name}
+            self._urls = {key: value for key, value in self._urls.items() if key != name}
+        client.close()
 
     def send(
         self,
@@ -627,6 +680,9 @@ class _HttpTransport:
             except RuntimeError:
                 if self._closed:
                     raise _NetworkClosed() from None
+                if self._clients.get(name) is not client:
+                    # The address was removed while this call was starting.
+                    raise _UnknownAgent() from None
                 raise
             return _Reply(response.status_code, response.headers, response.content)
         raise AssertionError("unreachable")  # pragma: no cover
@@ -636,7 +692,8 @@ class _HttpTransport:
             if self._closed:
                 return
             self._closed = True
-        for client in self._clients.values():
+            clients = list(self._clients.values())
+        for client in clients:
             client.close()
 
 
@@ -729,6 +786,25 @@ class AgentNetwork:
     def add_app(self, name: str, app: Any) -> None:
         """Add an agent app to an in-process network. Raises ``TypeError`` for an HTTP network."""
         self._transport.add(name, app)
+
+    def add_address(self, name: str, url: str) -> None:
+        """Add an agent served over HTTP to this network while it runs.
+
+        The address is checked as :meth:`over_http` checks one. The same name
+        with the same address again does nothing; the same name with another
+        address raises ``ValueError``. Raises ``TypeError`` for an in-process
+        network and ``RuntimeError`` for a closed one. No message repeats the
+        address.
+        """
+        self._transport.add_address(name, url)
+
+    def remove_address(self, name: str) -> None:
+        """Remove an agent's address and close its client. An unknown name does nothing.
+
+        A later call to that agent raises :class:`AgentUnavailableError`.
+        Raises ``TypeError`` for an in-process network.
+        """
+        self._transport.remove_address(name)
 
     def has_lma(self, site_id: str) -> bool:
         return lma_agent(site_id) in self._transport.agents
@@ -945,6 +1021,8 @@ _RELEASE_EVALUATION: _Shape[ReleaseEvaluation] = _Shape(ReleaseEvaluation, "Rele
 _MODEL_VERSION: _Shape[ModelVersion] = _Shape(ModelVersion, "ModelVersion")
 _MODEL_VERSIONS: _Shape[ModelVersionList] = _Shape(ModelVersionList, "ModelVersionList")
 _APPROVAL: _Shape[ApprovalResult] = _Shape(ApprovalResult, "ApprovalResult")
+_ADDRESS_STATE: _Shape[SiteAddressState] = _Shape(SiteAddressState, "SiteAddressState")
+_ADDRESS_LIST: _Shape[SiteAddressList] = _Shape(SiteAddressList, "SiteAddressList")
 
 
 class LmaClient(AgentClient):
@@ -1064,6 +1142,30 @@ class GmaClient(AgentClient):
             path_params={"site_id": registration.site_id},
             json=_body(registration),
         )
+
+    def register_site_address(self, site_id: str, url: str) -> SiteAddressState:
+        """``PUT /api/v1/federation/sites/{site_id}/address``: give the GMA a joinable site's LMA address.
+
+        The GMA accepts only the address listed for the site in its
+        ``GMA_JOINABLE_SITE_ENDPOINTS`` (403 ``not_joinable`` or
+        ``address_differs``; 409 ``configured_elsewhere``). It does not enrol
+        the site: :meth:`refresh_sites` does.
+        """
+        return self._call(
+            "PUT",
+            "/api/v1/federation/sites/{site_id}/address",
+            _ADDRESS_STATE,
+            path_params={"site_id": site_id},
+            json=_body(SiteAddressRequest(url=url)),
+        )
+
+    def remove_site_address(self, site_id: str) -> None:
+        """``DELETE /api/v1/federation/sites/{site_id}/address``: forget a joined site's address."""
+        self.request("DELETE", "/api/v1/federation/sites/{site_id}/address", path_params={"site_id": site_id})
+
+    def site_addresses(self) -> SiteAddressList:
+        """``GET /api/v1/federation/site-addresses``: the joinable sites and where each held address came from."""
+        return self._call("GET", "/api/v1/federation/site-addresses", _ADDRESS_LIST)
 
     # Rounds
 
@@ -1193,5 +1295,6 @@ __all__ = [
     "GmaClient",
     "LmaClient",
     "lma_agent",
+    "normalize_base_url",
     "without_addresses",
 ]

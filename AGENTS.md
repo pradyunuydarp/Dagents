@@ -451,7 +451,11 @@ Two consumers in this repository show the boundary, and both are published:
   hospital and a GMA only through their HTTP APIs, with
   `agents/common/infrastructure/agent_client.py`: in its own process through
   `httpx.ASGITransport` on the published demo, or over HTTP when the agents run as separate
-  processes (`scripts/run_local_demo.sh --agents network`, its compose file). Every successful
+  processes (`scripts/run_local_demo.sh --agents network`, its compose file). A network-mode
+  run on one machine can add a fourth hospital while it runs (`--deploy`, or
+  `docker-compose.deploy.yml`): core-service renders the new LMA's Compose file, an applier
+  from `agents/common/infrastructure/compose_apply.py` starts it, and the GMA accepts only the
+  address its `GMA_JOINABLE_SITE_ENDPOINTS` lists. Every successful
   answer whose body is a JSON object lists the agent calls behind it (`framework_calls`); errors,
   the hospital list and the SVG charts do not. Nothing in `agents/` knows what a stroke
   is, and nothing in the app re-implements a quorum rule.

@@ -14,8 +14,9 @@ The demo has no accounts. Five limits protect it:
 - :class:`BodySizeLimit`: ASGI middleware that refuses a POST, PUT or PATCH
   body larger than a set number of bytes with 413, and a request that has both
   ``Content-Length`` and ``Transfer-Encoding`` with 400.
-- :class:`SingleFlight`: one pilot at a time. A second request while one runs
-  gets 409 instead of waiting.
+- :class:`SingleFlight`: one long action at a time: a pilot, or adding a
+  hospital. A second request while one runs gets 409 instead of waiting. The
+  flight names its holder, so the 409 says what is running.
 - :class:`InFlightCap`: ASGI middleware that lets a set number of requests run
   at once. A request waits up to a set time for a slot, then gets the app's 503
   "busy" answer. The Dagents agents run in this process and share one pool of
@@ -226,20 +227,42 @@ def retry_after(seconds: float) -> tuple[str, str]:
 
 
 class SingleFlight:
-    """Lets one caller in at a time and turns the others away at once."""
+    """Lets one caller in at a time and turns the others away at once.
+
+    The caller that enters names itself (``holder``), such as ``"pilot"`` or
+    ``"deployment"``, so a refused caller can say what is running. A pilot and
+    the addition of a hospital share one flight: both change which hospitals
+    take part, so they never run at the same time.
+    """
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
+        self._holder: str | None = None
 
-    def try_enter(self) -> bool:
-        return self._lock.acquire(blocking=False)
+    def try_enter(self, holder: str = "") -> bool:
+        """Enter and record ``holder``, or return ``False`` at once when the flight is held."""
+        if not self._lock.acquire(blocking=False):
+            return False
+        self._holder = holder
+        return True
 
     def leave(self) -> None:
+        """Clear the holder, then let the next caller in."""
+        self._holder = None
         self._lock.release()
 
     @property
     def busy(self) -> bool:
         return self._lock.locked()
+
+    @property
+    def holder(self) -> str | None:
+        """Who holds the flight now, or ``None`` when nobody does.
+
+        A refused caller reads it after ``try_enter`` failed. The holder may
+        have left in between, so the caller treats ``None`` as its own kind.
+        """
+        return self._holder
 
 
 ASGIApp = Callable[[dict, Callable[[], Awaitable[dict]], Callable[[dict], Awaitable[None]]], Awaitable[None]]

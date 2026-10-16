@@ -144,6 +144,12 @@ services:
       - key: HEALTHCARE_DEMO_DISPATCH_CONCURRENCY
         value: "3"
 
+      # Adding a hospital while the demo runs starts a process or a container,
+      # so it stays off on the public demo. The app also refuses to start with
+      # it on when RENDER is set or the agents run in process.
+      - key: HEALTHCARE_DEMO_DEPLOYER
+        value: "off"
+
       # Not set here:
       #
       # HEALTHCARE_DEMO_API_PORT. Render injects `PORT` and routes to it. The
@@ -158,3 +164,10 @@ services:
       # Only network mode reads them, when the agents run as their own
       # processes (docker-compose.yml, scripts/run_local_demo.sh --agents
       # network). This service runs them in process.
+      #
+      # HEALTHCARE_DEMO_CORE_SERVICE_URL, HEALTHCARE_DEMO_DEPLOY_TIMEOUT_SECONDS,
+      # HEALTHCARE_DEMO_DEPLOY_DIR, HEALTHCARE_DEMO_DEPLOY_ENV_DIR,
+      # HEALTHCARE_DEMO_DEPLOY_IMAGE, HEALTHCARE_DEMO_DEPLOY_NETWORK, and the
+      # joining hospital's HEALTHCARE_DEMO_LMA_PL_290_URL and
+      # HEALTHCARE_DEMO_LMA_PL_290_TOKEN. Only a network-mode run started with
+      # --deploy on someone's own machine reads them.

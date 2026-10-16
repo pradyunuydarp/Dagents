@@ -51,7 +51,7 @@ function StoreNote({ store }: { store: Store }) {
           coordinator&rsquo;s role and the other hospitals&rsquo; roles have no grant on this schema.
         </p>
         <p className="ds-note">
-          In this demo the three hospitals share one database server, and the server&rsquo;s single
+          In this demo the hospitals share one database server, and the server&rsquo;s single
           login can read every schema. So the isolation applies to the demo&rsquo;s code, not to that
           login. A real deployment gives each hospital its own database and login.
         </p>

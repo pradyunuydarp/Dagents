@@ -341,7 +341,7 @@ STROKE_CONDITION = ConditionPack(
     approved_purposes=list(STROKE_APPROVED_PURPOSES),
     cohort_description=(
         "Adults with a suspected acute stroke, assessed within 48 hours of symptom onset. The demo's "
-        "records come from three hospitals in the International Stroke Trial."
+        "records come from hospitals in the International Stroke Trial."
     ),
     release_gates=STROKE_RELEASE_GATES,
     limitations=[
@@ -351,8 +351,10 @@ STROKE_CONDITION = ConditionPack(
         "of onset and no clear reason for or against aspirin or heparin. That is a narrower group than "
         "everyone seen with a suspected stroke.",
         "The seed rule's points were chosen by hand as an illustration. They were not fitted or validated.",
-        "The candidate model is trained only in the demo's federated rounds, on three hospitals' records. "
-        "No model here has been validated on other patients.",
+        # No count of hospitals: a hospital can join while the demo runs, and
+        # this text is served unchanged.
+        "The candidate model is trained only in the demo's federated rounds, on the records of the "
+        "hospitals in the consortium. No model here has been validated on other patients.",
         "This is a demonstration, not a medical device. Do not use it for patient care.",
     ],
     owner="demo-stroke-pathway-lead",

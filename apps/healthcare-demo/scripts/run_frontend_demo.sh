@@ -15,8 +15,13 @@
 #   scripts/run_frontend_demo.sh --agents network       # run the GMA and each hospital's LMA
 #                                                       # as their own processes (needs
 #                                                       # HEALTHCARE_DEMO_DATABASE_URL)
+#   scripts/run_frontend_demo.sh --deploy               # network mode, and Hospital 290 can
+#                                                       # join from the consortium page
 #
-# --agents combines with the other options. The ports come from the environment
+# --agents and --deploy combine with the other options. --deploy implies
+# --agents network, starts core-service too (see run_local_demo.sh), and binds
+# the API and the UI to 127.0.0.1 only. With --check it also adds the hospital
+# from the page and checks that it joined. The ports come from the environment
 # or from env/.env.healthcare-demo (HEALTHCARE_DEMO_API_PORT,
 # HEALTHCARE_DEMO_UI_PORT and, for network mode, the agents' ports). Ctrl-C
 # stops every server the script started.
@@ -29,7 +34,8 @@ ENV_FILE="${APP_ROOT}/env/.env.healthcare-demo"
 
 MODE="run"
 SHOT_DIR=""
-AGENTS="in-process"
+AGENTS=""
+DEPLOY=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --verify) MODE="verify"; shift ;;
@@ -50,9 +56,18 @@ while [[ $# -gt 0 ]]; do
       shift 2 || { echo "--agents needs in-process or network" >&2; exit 2; }
       ;;
     --agents=*) AGENTS="${1#--agents=}"; shift ;;
+    --deploy) DEPLOY="1"; shift ;;
     *) echo "unknown option: $1" >&2; exit 2 ;;
   esac
 done
+if [[ -n "${DEPLOY}" ]]; then
+  if [[ -n "${AGENTS}" && "${AGENTS}" != "network" ]]; then
+    echo "--deploy needs --agents network: a hospital that joins runs its LMA as a process of its own." >&2
+    exit 2
+  fi
+  AGENTS="network"
+fi
+AGENTS="${AGENTS:-in-process}"
 case "${AGENTS}" in
   in-process|network) ;;
   *) echo "--agents must be in-process or network, not '${AGENTS}'" >&2; exit 2 ;;
@@ -168,7 +183,16 @@ wait_for() {
   return 1
 }
 
-if [[ "${AGENTS}" == "network" ]]; then
+BACKEND_ARGS=(--agents "${AGENTS}")
+UI_ARGS=(--port "${UI_PORT}" --strictPort)
+if [[ -n "${DEPLOY}" ]]; then
+  BACKEND_ARGS+=(--deploy)
+  # A run that can start a process serves its page to this machine only.
+  UI_ARGS+=(--host 127.0.0.1)
+fi
+if [[ -n "${DEPLOY}" ]]; then
+  bold "Starting core-service, the GMA, one LMA per hospital, and the API on :${API_PORT}"
+elif [[ "${AGENTS}" == "network" ]]; then
   bold "Starting the GMA, one LMA per hospital, and the API on :${API_PORT}"
 else
   bold "Starting the API on :${API_PORT}"
@@ -176,7 +200,7 @@ fi
 (
   cd "${APP_ROOT}/backend"
   HEALTHCARE_DEMO_API_HOST=127.0.0.1 DAGENTS_HOME="${DAGENTS_HOME}" PYTHON="${PYTHON}" exec \
-    "${HERE}/run_local_demo.sh" --agents "${AGENTS}"
+    "${HERE}/run_local_demo.sh" "${BACKEND_ARGS[@]}"
 ) >"${LOG_DIR}/backend.log" 2>&1 &
 BACKEND_PID=$!
 wait_for "http://127.0.0.1:${API_PORT}/api/v1/health" "The API" "${LOG_DIR}/backend.log"
@@ -184,7 +208,7 @@ wait_for "http://127.0.0.1:${API_PORT}/api/v1/health" "The API" "${LOG_DIR}/back
 bold "Starting the UI on :${UI_PORT}"
 (
   cd "${APP_ROOT}/frontend"
-  HEALTHCARE_DEMO_API_URL="http://127.0.0.1:${API_PORT}" npm run dev -- --port "${UI_PORT}" --strictPort
+  HEALTHCARE_DEMO_API_URL="http://127.0.0.1:${API_PORT}" npm run dev -- "${UI_ARGS[@]}"
 ) >"${LOG_DIR}/frontend.log" 2>&1 &
 FRONTEND_PID=$!
 wait_for "http://127.0.0.1:${UI_PORT}/" "The UI" "${LOG_DIR}/frontend.log"
@@ -206,6 +230,13 @@ if [[ "${MODE}" != "run" ]]; then
   bold "Running the frontend smoke test"
   SMOKE_ARGS=("http://127.0.0.1:${UI_PORT}/")
   [[ -n "${SHOT_DIR}" ]] && SMOKE_ARGS+=(--screenshots "${SHOT_DIR}")
+  if [[ -n "${DEPLOY}" ]]; then
+    # The smoke test adds the first hospital that can join, after its other
+    # checks, and prints "ok  deploy: hospital <site> joined" when it did.
+    JOIN_SITE="$(cd "${APP_ROOT}/backend" && PYTHONPATH="${DAGENTS_HOME}" "${PYTHON}" -c \
+      'from app.domain.dataset import JOINING_SITES; print(JOINING_SITES[0].site_id)')"
+    SMOKE_ARGS+=(--expect-join "${JOIN_SITE}")
+  fi
   set +e
   (cd "${APP_ROOT}/frontend" && node smoke.mjs "${SMOKE_ARGS[@]}")
   SMOKE_STATUS=$?

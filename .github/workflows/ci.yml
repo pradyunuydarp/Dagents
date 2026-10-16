@@ -116,13 +116,17 @@ jobs:
         # draws one. They are installed here so the chart rendering tests run.
         # The ranges match apps/healthcare-demo/requirements.txt;
         # tests/test_ci_guards.py checks that. httpx, which the agent client
-        # and the test client use, is in the agents' requirements.
+        # and the test client use, is in the agents' requirements. PyYAML is
+        # not in them either: only compose_apply.py reads YAML, and it imports
+        # PyYAML when it parses a file. It is installed so the appliers' tests
+        # run, in the range of apps/healthcare-demo/requirements.txt.
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r agents/lma/requirements.txt \
                                 -r agents/gma/requirements.txt \
                                 "matplotlib>=3.9,<4" \
-                                "numpy>=2,<3"
+                                "numpy>=2,<3" \
+                                "pyyaml>=6.0,<7"
 
       - name: Run the agent suite
         env:
@@ -139,8 +143,11 @@ jobs:
         # charts, the LMA's federated jobs, the GMA's HTTP engine and release,
         # the agent client over a real loopback socket, the update upload
         # while every GMA thread token is held, the refused approval on the
-        # simulator, and a whole study through the GMA and three LMAs, in
-        # process and as separate uvicorn processes.
+        # simulator, a whole study through the GMA and three LMAs, in process
+        # and as separate uvicorn processes, a site that joins the GMA while
+        # it runs (its job reaches an LMA served by uvicorn), and the appliers
+        # that start one rendered Compose service as a process or with docker
+        # compose.
         run: |
           python scripts/ci_no_skipped_tests.py \
             --forbid planner \
@@ -158,6 +165,12 @@ jobs:
             --require-ran agents.tests.test_agent_client.NetworkClientTests \
             --require-ran agents.tests.test_agent_network_flow.InProcessStudyTests \
             --require-ran agents.tests.test_agent_network_flow.OverHttpStudyTests \
+            --require-ran agents.tests.test_gma_site_addresses.SiteAddressBookTests \
+            --require-ran agents.tests.test_gma_site_addresses.SiteAddressRouteTests \
+            --require-ran agents.tests.test_gma_site_addresses.OverHttpJoinTests \
+            --require-ran agents.tests.test_compose_apply.LocalProcessApplierTests \
+            --require-ran agents.tests.test_compose_apply.LocalProcessEnvFileTests \
+            --require-ran agents.tests.test_compose_apply.DockerComposeApplierTests \
             agents-suite.log
 
       - name: Run the getting-started example and check the guide
@@ -398,6 +411,7 @@ jobs:
           cache: pip
           cache-dependency-path: |
             apps/healthcare-demo/requirements.txt
+            services/core-service/requirements.txt
             services/nl2sql-demo/backend/requirements.txt
 
       - uses: actions/download-artifact@v4
@@ -412,6 +426,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r apps/healthcare-demo/requirements.txt \
+                                -r services/core-service/requirements.txt \
                                 -r services/nl2sql-demo/backend/requirements.txt
 
       - name: healthcare-demo
@@ -420,7 +435,9 @@ jobs:
         # tests/test_network_mode.py starts the GMA, one LMA per hospital and
         # the API as separate uvicorn processes on loopback ports the system
         # picks, against the service container, and checks that their pilot
-        # equals the in-process pilot.
+        # equals the in-process pilot. tests/test_network_deploy.py also starts
+        # core-service from services/core-service and adds Hospital 290 to the
+        # running processes.
         working-directory: apps/healthcare-demo
         env:
           DAGENTSC_BIN: ${{ env.PLANNER_DIR }}/dagentsc.exe
@@ -430,8 +447,21 @@ jobs:
           set -o pipefail
           python -m unittest discover -s tests -t . -v 2>&1 | tee healthcare-suite.log
 
-      - name: Fail if the healthcare governance tests skipped
-        run: python scripts/ci_no_skipped_tests.py --forbid planner apps/healthcare-demo/healthcare-suite.log
+      - name: Fail if the healthcare governance or deployment tests skipped
+        # ComposeOverrideTests skips without the Docker command line and its
+        # compose plugin, ComposeRequestTests without the planner, and
+        # NetworkScriptDeployTests without bash and curl. The runner has all of
+        # them, so --require-ran fails the step if one of them did not run.
+        # The Docker tests only run `docker compose config`; no container
+        # starts. ComposeOverrideTests checks that only the API gets the Docker
+        # socket and that the API and the UI are published on 127.0.0.1 only.
+        run: |
+          python scripts/ci_no_skipped_tests.py \
+            --forbid planner \
+            --require-ran tests.test_compose_override.ComposeOverrideTests \
+            --require-ran tests.test_deployment_spec.ComposeRequestTests \
+            --require-ran tests.test_network_deploy.NetworkScriptDeployTests \
+            apps/healthcare-demo/healthcare-suite.log
 
       - name: Framework database tests against PostgreSQL
         # These modules also run in the agents job, which has no database, so
@@ -486,6 +516,7 @@ jobs:
             --require-ran tests.test_concurrency.PostgresPilotWhileWritingTests \
             --require-ran tests.test_network_mode.NetworkModeTests \
             --require-ran tests.test_network_mode.NetworkApprovalTests \
+            --require-ran tests.test_network_deploy.NetworkDeployTests \
             apps/healthcare-demo/healthcare-suite.log || status=1
           python scripts/ci_no_skipped_tests.py \
             --forbid database \
@@ -639,6 +670,115 @@ jobs:
           }
 
   # ---------------------------------------------------------------------------
+  # Adding a hospital while the stroke demo runs. The frontends job drives the
+  # UI with the agents inside the API, where the panel offers no button. This
+  # job runs the demo in network mode with --deploy against PostgreSQL 16, and
+  # the smoke test adds Hospital 290 from the page, opens its page and runs a
+  # pilot with it.
+  # ---------------------------------------------------------------------------
+  deploy-smoke:
+    name: Add a hospital to the running demo
+    runs-on: ubuntu-latest
+    needs: planners
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: healthcare_demo
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: apps/healthcare-demo/frontend/package-lock.json
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: |
+            apps/healthcare-demo/requirements.txt
+            services/core-service/requirements.txt
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: dagentsc
+          path: ${{ env.PLANNER_DIR }}
+
+      - name: Make the planner executable
+        run: chmod +x "${PLANNER_DIR}/dagentsc.exe"
+
+      - name: Install the demo, core-service and the frontend
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r apps/healthcare-demo/requirements.txt \
+                                -r services/core-service/requirements.txt
+          cd apps/healthcare-demo/frontend && npm ci
+
+      - name: Install a browser for the smoke test
+        working-directory: apps/healthcare-demo/frontend
+        run: npx playwright install --with-deps chromium
+
+      - name: Locate the browser
+        # As in the frontends job: a smoke test without a browser reports SKIP,
+        # which is not a pass.
+        working-directory: apps/healthcare-demo/frontend
+        run: |
+          browser="$(node -e \
+            "console.log(require('playwright-core').chromium.executablePath())" \
+            2>/dev/null || true)"
+          if [ ! -x "${browser}" ]; then
+            browser="$(find "${HOME}/.cache/ms-playwright" -type f -name 'chrome' \
+              -perm -u+x 2>/dev/null | head -1)"
+          fi
+          if [ ! -x "${browser}" ]; then
+            echo "No browser found. The smoke test would report SKIP, which is not a pass." >&2
+            exit 1
+          fi
+          echo "CHROMIUM_PATH=${browser}" >> "$GITHUB_ENV"
+
+      - name: Migrate and load the records, Hospital 290's too
+        env:
+          SUPABASE_DB_URL: postgresql://postgres:postgres@localhost:5432/healthcare_demo
+        run: |
+          python apps/healthcare-demo/scripts/apply_migrations.py
+          python apps/healthcare-demo/scripts/seed_supabase.py
+
+      - name: Add Hospital 290 from the page
+        # --deploy starts core-service, the GMA, one LMA per hospital and the
+        # API, all on 127.0.0.1. With --check the smoke test runs every check,
+        # then adds the hospital from the page.
+        env:
+          HEALTHCARE_DEMO_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/healthcare_demo
+          DAGENTSC_BIN: ${{ env.PLANNER_DIR }}/dagentsc.exe
+          PYTHON: python
+        run: |
+          set -o pipefail
+          apps/healthcare-demo/scripts/run_frontend_demo.sh --deploy --check 2>&1 | tee deploy-smoke.log
+
+      - name: Fail unless the hospital joined
+        # The script exits 0 when the smoke test skips; a skip proves nothing.
+        run: |
+          if grep -qi "smoke test skipped\|^SKIP" deploy-smoke.log; then
+            echo "The smoke test skipped instead of running." >&2
+            exit 1
+          fi
+          grep -q "ok  deploy: hospital pl-290 joined" deploy-smoke.log || {
+            echo "The smoke test did not report that Hospital 290 joined." >&2
+            exit 1
+          }
+
+  # ---------------------------------------------------------------------------
   # The framework site publishes docs/ from main, so a code change and the docs
   # it feeds land together. This fails when a change touches a code area that
   # scripts/check_docs_impact.py maps and none of that area's docs, unless a
@@ -695,6 +835,7 @@ jobs:
       - spring
       - demo-apps
       - frontends
+      - deploy-smoke
       - docs-impact
     steps:
       - name: Report the outcome
@@ -710,6 +851,7 @@ jobs:
           echo "spring:             ${{ needs.spring.result }}"
           echo "demo-apps:          ${{ needs.demo-apps.result }}"
           echo "frontends:          ${{ needs.frontends.result }}"
+          echo "deploy-smoke:       ${{ needs.deploy-smoke.result }}"
           echo "docs-impact:        ${DOCS_IMPACT}"
           if [ "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}" = "true" ]; then
             echo "::error::At least one CI job did not succeed."

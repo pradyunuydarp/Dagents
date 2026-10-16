@@ -10,7 +10,7 @@ their Spring controllers. Regenerate with:
 .venv/bin/python scripts/service_inventory.py --write
 ```
 
-**224 endpoints across 9 services.**
+**232 endpoints across 9 services.**
 
 Ports come from `env/`; never hardcode them — each service has distinct
 `*_PUBLIC_URL` (host) and `*_INTERNAL_URL` (compose network) values.
@@ -20,8 +20,8 @@ Ports come from `env/`; never hardcode them — each service has distinct
 | Service | Language | Role | Port | Endpoints |
 |---|---|---|---|---|
 | [`core-service`](#core-service) | python | framework-service | 8040 | 7 |
-| [`gma`](#gma) | python | agent | 8020 | 83 |
-| [`healthcare-demo-backend`](#healthcare-demo-backend) | python | demo-app | 8080 | 26 |
+| [`gma`](#gma) | python | agent | 8020 | 89 |
+| [`healthcare-demo-backend`](#healthcare-demo-backend) | python | demo-app | 8080 | 28 |
 | [`lma`](#lma) | python | agent | 8010 | 55 |
 | [`model-service`](#model-service) | python | framework-service | 8000 | 14 |
 | [`nl2sql-demo-backend`](#nl2sql-demo-backend) | python | demo-app | 8070 | 5 |
@@ -45,7 +45,7 @@ Ports come from `env/`; never hardcode them — each service has distinct
 
 ## gma
 
-`python` · `fastapi` · port `8020` · 83 endpoints
+`python` · `fastapi` · port `8020` · 89 endpoints
 
 | Method | Path | Handler | Notes |
 |---|---|---|---|
@@ -69,9 +69,12 @@ Ports come from `env/`; never hardcode them — each service has distinct
 | POST | `/api/v1/federation/rounds/{round_id}:discard` | `discard_round_v1` | versioned alias of `POST /federation/rounds/{round_id}:discard`; returns `204`; Versioned alias for discarding a round |
 | POST | `/api/v1/federation/rounds/{round_id}:evaluate-release` | `evaluate_release_v1` | versioned alias of `POST /federation/rounds/{round_id}:evaluate-release`; Versioned alias for release evaluation |
 | POST | `/api/v1/federation/rounds:plan` | `plan_round_v1` | versioned alias of `POST /federation/rounds:plan`; Versioned alias for round planning |
+| GET | `/api/v1/federation/site-addresses` | `list_site_addresses_v1` | versioned alias of `GET /federation/site-addresses`; Versioned alias for listing the site addresses |
 | GET | `/api/v1/federation/sites` | `list_sites_v1` | versioned alias of `GET /federation/sites`; Versioned alias for listing enrolled sites |
 | GET | `/api/v1/federation/sites/summaries` | `site_summaries_v1` | versioned alias of `GET /federation/sites/summaries`; Versioned alias for the site summaries |
 | PUT | `/api/v1/federation/sites/{site_id}` | `register_site_v1` | versioned alias of `PUT /federation/sites/{site_id}`; Versioned alias for site enrolment |
+| DELETE | `/api/v1/federation/sites/{site_id}/address` | `remove_site_address_v1` | versioned alias of `DELETE /federation/sites/{site_id}/address`; returns `204`; Versioned alias for removing a joined site's address |
+| PUT | `/api/v1/federation/sites/{site_id}/address` | `register_site_address_v1` | versioned alias of `PUT /federation/sites/{site_id}/address`; Versioned alias for giving the GMA a joinable site's address |
 | POST | `/api/v1/federation/sites:refresh` | `refresh_sites_v1` | versioned alias of `POST /federation/sites:refresh`; Versioned alias for refreshing the enrolments from the LMAs |
 | GET | `/api/v1/governance/audit` | `governance_audit_v1` | versioned alias of `GET /governance/audit`; Versioned alias for the guard audit log |
 | GET | `/api/v1/governance/audit:summary` | `governance_audit_summary_v1` | versioned alias of `GET /governance/audit:summary`; Versioned alias for the audit chain summary |
@@ -106,9 +109,12 @@ Ports come from `env/`; never hardcode them — each service has distinct
 | POST | `/federation/rounds/{round_id}:discard` | `discard_round` | returns `204`; Give up a round: delete its stored updates and record why |
 | POST | `/federation/rounds/{round_id}:evaluate-release` | `evaluate_release` | Evaluate a round's candidate against the release gates and record the verdict |
 | POST | `/federation/rounds:plan` | `plan_round` | Select the sites eligible for a round, without dispatching it |
+| GET | `/federation/site-addresses` | `list_site_addresses` | List the sites that may join while the GMA runs, and where each address the GMA holds came from |
 | GET | `/federation/sites` | `list_sites` | List enrolled sites |
 | GET | `/federation/sites/summaries` | `site_summaries` | Report what each configured site's LMA says about its records |
 | PUT | `/federation/sites/{site_id}` | `register_site` | Enrol or update one site in the consortium |
+| DELETE | `/federation/sites/{site_id}/address` | `remove_site_address` | returns `204`; Remove a joined site's address from the GMA's agent network |
+| PUT | `/federation/sites/{site_id}/address` | `register_site_address` | Give the GMA the address of a joinable site's LMA, while it runs |
 | POST | `/federation/sites:refresh` | `refresh_sites` | Enrol each configured LMA from its own registration |
 | GET | `/governance/audit` | `governance_audit` | List recent guard decisions and whether the digest chain still verifies |
 | GET | `/governance/audit:summary` | `governance_audit_summary` | Report whether the GMA's audit chain verifies and how many decisions it holds, without its records |
@@ -135,13 +141,15 @@ Ports come from `env/`; never hardcode them — each service has distinct
 
 ## healthcare-demo-backend
 
-`python` · `fastapi` · port `8080` · 26 endpoints
+`python` · `fastapi` · port `8080` · 28 endpoints
 
 | Method | Path | Handler | Notes |
 |---|---|---|---|
 | GET | `/api/v1/charts` | `consortium_charts` | The consortium charts, from what the hospitals report through the GMA and the last pilot. Never a 4xx |
 | GET | `/api/v1/charts/{chart_id}.svg` | `consortium_chart_svg` | One consortium chart as SVG. 404 for a chart that needs a pilot that has not run |
 | GET | `/api/v1/conditions` | `conditions` | The condition this app implements, the conditions it plans, its contract and classification |
+| GET | `/api/v1/deployments` | `list_deployments` | Whether this server can add a hospital now, and if not, why |
+| POST | `/api/v1/deployments` | `add_hospital` | Add a hospital to the running consortium, and report each step |
 | GET | `/api/v1/extension` | `extension` | What this app contributes to the agents, as the GMA's extension registry describes it, and what each side owns |
 | GET | `/api/v1/framework/status` | `framework_status` | Where the records are stored, how the Dagents agents run, which answer, and the allowed origins |
 | POST | `/api/v1/governance:probe` | `governance_probe` | Run one request through a hospital's Guard, at its LMA, and report what it would release |
