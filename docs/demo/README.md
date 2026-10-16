@@ -93,6 +93,7 @@ This script shows:
 - cycle rejection
 - model routing
 - Kubernetes manifest rendering
+- Docker Compose file rendering, for an LMA added to a running project
 
 ## Saved Outputs
 

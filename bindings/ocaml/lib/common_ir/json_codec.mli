@@ -10,6 +10,9 @@ open Dagents_common_ir
 
 (** Parse a JSON workload spec into typed manifest-compiler input.
 
+    Raises [Invalid_argument] for a Compose spec with a string, or an object
+    key, that is not valid UTF-8, such as an escaped lone surrogate.
+
     Example test case:
     {[
       let spec = workload_spec_of_yojson (`Assoc [ ("components", `List []) ]) in
@@ -133,3 +136,17 @@ val yojson_of_release_decision : release_decision -> Yojson.Safe.t
 val aggregation_method_of_yojson : Yojson.Safe.t -> aggregation_method
 (** Serialize an aggregation method as a parameterized object. *)
 val yojson_of_aggregation_method : aggregation_method -> Yojson.Safe.t
+
+(** Parse a deployment target: absent or [null] (Kubernetes), ["kubernetes"],
+    ["compose"], or an object with a [kind]. Raises [Invalid_argument] on an
+    unknown kind or placement.
+
+    Example test case:
+    {[
+      assert (deployment_target_of_yojson (`String "compose") = Compose default_compose_target)
+    ]} *)
+val deployment_target_of_yojson : Yojson.Safe.t -> deployment_target
+(** Serialize a deployment target in its object form, with every key. *)
+val yojson_of_deployment_target : deployment_target -> Yojson.Safe.t
+(** Serialize a Compose plan: plan id, service names, issues and the file. *)
+val yojson_of_compose_plan : compose_plan -> Yojson.Safe.t

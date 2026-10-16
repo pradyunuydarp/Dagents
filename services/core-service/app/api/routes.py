@@ -4,6 +4,8 @@ from fastapi import APIRouter, Depends, HTTPException, Path
 
 from app.core.config import Settings, settings
 from app.models import (
+    ComposeManifestRequest,
+    ComposeManifestResponse,
     ErrorResponse,
     HealthResponse,
     ServiceCatalogResponse,
@@ -77,6 +79,20 @@ def generate_workload_manifests(
 ) -> WorkloadManifestResponse:
     """Render workload manifests directly without persisting a retrievable plan."""
     return service.generate(request)
+
+
+@router.post("/manifests/compose", response_model=ComposeManifestResponse)
+def render_compose_manifest(
+    request: ComposeManifestRequest,
+    service: ManifestService = Depends(get_manifest_service),
+) -> ComposeManifestResponse:
+    """Render one Docker Compose file for a list of workloads.
+
+    The OCaml manifest compiler renders it through `dagentsc manifest compile`.
+    When the planner cannot be started, the service renders it in Python.
+    Nothing is stored.
+    """
+    return service.render_compose(request)
 
 
 @router.post("/workloads:compile", response_model=WorkloadPlanResponse)

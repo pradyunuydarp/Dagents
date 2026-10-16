@@ -1,7 +1,7 @@
 {
   "framework": "dagents",
   "generated_by": "scripts/service_inventory.py",
-  "endpoint_count": 178,
+  "endpoint_count": 179,
   "services": [
     {
       "name": "core-service",
@@ -17,6 +17,14 @@
           "handler": "health",
           "status_code": null,
           "summary": "Return service health and basic runtime metadata.",
+          "alias_of": null
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/manifests/compose",
+          "handler": "render_compose_manifest",
+          "status_code": null,
+          "summary": "Render one Docker Compose file for a list of workloads.",
           "alias_of": null
         },
         {

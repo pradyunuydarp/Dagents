@@ -38,7 +38,7 @@ const PARTS = [
 const STATUS = [
   "The framework agents keep their state in memory. Storage and messaging sit behind interfaces so they can be replaced later. With a database, the stroke demo keeps each hospital's records in its own Postgres schema; without one, in memory.",
   "The federation engine is a simulator for tests and demos. Production training would use a dedicated federated learning runtime.",
-  "Kubernetes manifests are generated and tested, but are not yet deployed to a cluster in CI.",
+  "Kubernetes manifests and Docker Compose files are generated and tested, but CI deploys neither.",
   "The stroke demo's store and isolation tests run in CI against PostgreSQL 16. The tests that need the pagila sample database are skipped in CI."
 ];
 

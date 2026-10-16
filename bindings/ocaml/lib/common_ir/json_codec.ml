@@ -53,6 +53,14 @@ let int_field_with_default name default fields =
   | None -> default
   | _ -> fail ("Expected int field: " ^ name)
 
+(** Read an optional integer field, returning [None] when absent or null. *)
+let int_option_field name fields =
+  match List.assoc_opt name fields with
+  | Some (`Int value) -> Some value
+  | Some (`Intlit value) -> Some (int_of_string value)
+  | Some `Null | None -> None
+  | _ -> fail ("Expected nullable int field: " ^ name)
+
 (** Read an optional string-list field, defaulting to an empty list. *)
 let string_list_field name fields =
   match List.assoc_opt name fields with
@@ -277,7 +285,12 @@ let env_var_of_yojson = function
 let yojson_of_env_var (env : env_var) =
   `Assoc [ ("name", `String env.name); ("value", `String env.value) ]
 
-(** Parse one Kubernetes port declaration. *)
+(** Parse one container port declaration.
+
+    A port without [hostPort], or with [hostPort: null], is not published.
+    [hostIp] is read only for a published port and defaults to the loopback
+    address, so a published port is not reachable from other machines unless
+    the caller asks for it. *)
 let port_of_yojson = function
   | `Assoc fields ->
       {
@@ -286,6 +299,12 @@ let port_of_yojson = function
           | Some (`String value) -> value
           | _ -> "http");
         container_port = int_field_with_default "containerPort" 0 fields;
+        publication =
+          (match int_option_field "hostPort" fields with
+          | None -> NotPublished
+          | Some host_port ->
+              let host_ip = Option.value (string_option_field "hostIp" fields) ~default:"127.0.0.1" in
+              PublishedOn { host_ip; host_port });
       }
   | _ -> fail "Expected port object"
 
@@ -327,6 +346,82 @@ let yojson_of_resources resources =
       ("memoryLimit", `String resources.memory_limit);
     ]
 
+(** Parse a Compose health check.
+
+    The object takes exactly one of [command] (run without a shell) and
+    [shell] (run by the container's shell); a [null] value counts as absent.
+    Absent timing keys take the values the repository's Dockerfiles use. *)
+let health_check_of_yojson = function
+  | `Assoc fields ->
+      let command =
+        match List.assoc_opt "command" fields with
+        | Some `Null | None -> None
+        | Some _ -> Some (string_list_field "command" fields)
+      in
+      let health_test =
+        match (command, string_option_field "shell" fields) with
+        | Some parts, None -> ExecTest parts
+        | None, Some line -> ShellTest line
+        | Some _, Some _ | None, None -> fail "Expected exactly one of healthCheck.command and healthCheck.shell"
+      in
+      {
+        health_test;
+        interval_seconds = int_field_with_default "intervalSeconds" 30 fields;
+        timeout_seconds = int_field_with_default "timeoutSeconds" 5 fields;
+        retries = int_field_with_default "retries" 3 fields;
+        start_period_seconds = int_field_with_default "startPeriodSeconds" 10 fields;
+      }
+  | _ -> fail "Expected health check object"
+
+(** Parse one Compose [depends_on] entry. An absent or [null] condition means
+    [service_started]. *)
+let service_dependency_of_yojson = function
+  | `Assoc fields ->
+      {
+        dependency_service = string_field "service" fields;
+        dependency_condition =
+          (match string_option_field "condition" fields with
+          | Some word -> dependency_condition_of_string word
+          | None -> ServiceStarted);
+      }
+  | _ -> fail "Expected dependency object"
+
+(** Parse a deployment target.
+
+    Absent, [null], ["kubernetes"] and [{"kind": "kubernetes"}] mean
+    Kubernetes. ["compose"] means {!default_compose_target}. The object form
+    [{"kind": "compose", ...}] reads [placement] (["own"] or ["merge"]),
+    [network], [externalNetwork] and [existingServices], each with the default
+    of {!default_compose_target}. *)
+let deployment_target_of_yojson (json : Yojson.Safe.t) =
+  let compose fields =
+    let placement =
+      match string_option_field "placement" fields with
+      | None | Some "own" -> OwnProject
+      | Some "merge" -> MergedProject
+      | Some value -> fail ("Unknown compose placement: " ^ value)
+    in
+    let network_name = Option.value (string_option_field "network" fields) ~default:"default" in
+    Compose
+      {
+        compose_placement = placement;
+        compose_network =
+          (if bool_field_with_default "externalNetwork" false fields then ExternalNetwork network_name
+           else ProjectNetwork network_name);
+        existing_services = string_list_field "existingServices" fields;
+      }
+  in
+  match json with
+  | `Null | `String "kubernetes" -> Kubernetes
+  | `String "compose" -> compose []
+  | `String value -> fail ("Unknown deployment target: " ^ value)
+  | `Assoc fields -> (
+      match string_field "kind" fields with
+      | "kubernetes" -> Kubernetes
+      | "compose" -> compose fields
+      | value -> fail ("Unknown deployment target: " ^ value))
+  | _ -> fail "Expected deployment target"
+
 (** Parse one deployable workload component. *)
 let workload_component_of_yojson = function
   | `Assoc fields ->
@@ -360,31 +455,72 @@ let workload_component_of_yojson = function
           | Some value -> value
           | None -> "ClusterIP");
         config_map_data = string_assoc_field "configMapData" fields;
+        env_files = string_list_field "envFiles" fields;
+        health_check =
+          (match List.assoc_opt "healthCheck" fields with
+          | Some `Null | None -> None
+          | Some value -> Some (health_check_of_yojson value));
+        service_dependencies =
+          (match List.assoc_opt "dependsOn" fields with
+          | Some (`List values) -> List.map service_dependency_of_yojson values
+          | Some `Null | None -> []
+          | Some _ -> fail "Expected list field: dependsOn");
       }
   | _ -> fail "Expected workload component object"
+
+(** Raise unless every string in [json], object keys included, is valid
+    UTF-8. [field] names the nearest enclosing key, for the message.
+
+    JSON text is UTF-8, but Yojson copies bytes that are not, and it reads an
+    escaped lone low surrogate such as [\udc80] as bytes that are not. A
+    Compose file written from such a string is not UTF-8, and Docker Compose
+    refuses it. *)
+let rec require_utf_8 field (json : Yojson.Safe.t) =
+  let refuse () = fail ("Expected UTF-8 text in field: " ^ field) in
+  match json with
+  | `String value -> if not (String.is_valid_utf_8 value) then refuse ()
+  | `Assoc fields ->
+      List.iter
+        (fun (key, value) ->
+          if not (String.is_valid_utf_8 key) then refuse ();
+          require_utf_8 key value)
+        fields
+  | `List values -> List.iter (require_utf_8 field) values
+  | _ -> ()
 
 (** Parse a full workload spec for manifest compilation.
 
     Missing [planId] and [namespace] receive stable defaults so demo payloads
-    can stay compact. *)
-let workload_spec_of_yojson = function
+    can stay compact. A missing [target] means Kubernetes, so specs written
+    before the Compose target keep their meaning. A Compose spec with a string
+    that is not UTF-8 is refused. *)
+let workload_spec_of_yojson json =
+  match json with
   | `Assoc fields ->
-      {
-        plan_id =
-          (match List.assoc_opt "planId" fields with
-          | Some (`String value) -> value
-          | _ -> "dagents-plan");
-        namespace =
-          (match List.assoc_opt "namespace" fields with
-          | Some (`String value) -> value
-          | _ -> "dagents");
-        components =
-          (match List.assoc_opt "components" fields with
-          | Some (`List values) -> List.map workload_component_of_yojson values
-          | _ -> []);
-        include_services = bool_field_with_default "includeServices" true fields;
-        include_config_maps = bool_field_with_default "includeConfigMaps" false fields;
-      }
+      let spec =
+        {
+          plan_id =
+            (match List.assoc_opt "planId" fields with
+            | Some (`String value) -> value
+            | _ -> "dagents-plan");
+          namespace =
+            (match List.assoc_opt "namespace" fields with
+            | Some (`String value) -> value
+            | _ -> "dagents");
+          components =
+            (match List.assoc_opt "components" fields with
+            | Some (`List values) -> List.map workload_component_of_yojson values
+            | _ -> []);
+          include_services = bool_field_with_default "includeServices" true fields;
+          include_config_maps = bool_field_with_default "includeConfigMaps" false fields;
+          target =
+            (match List.assoc_opt "target" fields with
+            | Some value -> deployment_target_of_yojson value
+            | None -> Kubernetes);
+        }
+      in
+      (match spec.target with Compose _ -> require_utf_8 "spec" json | Kubernetes -> ());
+      spec
   | _ -> fail "Expected workload spec object"
 
 (** Serialize one rendered workload manifest. *)
@@ -693,14 +829,6 @@ let float_option_field name fields =
   | Some (`Intlit value) -> Some (float_of_string value)
   | Some `Null | None -> None
   | _ -> fail ("Expected nullable float field: " ^ name)
-
-(** Read an optional integer field, returning [None] when absent or null. *)
-let int_option_field name fields =
-  match List.assoc_opt name fields with
-  | Some (`Int value) -> Some value
-  | Some (`Intlit value) -> Some (int_of_string value)
-  | Some `Null | None -> None
-  | _ -> fail ("Expected nullable int field: " ^ name)
 
 (** Read an object of numeric values, such as a metric bundle. *)
 let float_assoc_field name fields =
@@ -1093,4 +1221,45 @@ let yojson_of_release_decision decision =
       ("action", `String (string_of_release_action decision.action));
       ("blockingFailures", yojson_of_string_list decision.blocking_failures);
       ("rollbackVersion", yojson_of_string_option decision.rollback_version);
+    ]
+
+(** Serialize a deployment target in its object form, with every key, so that
+    [deployment_target_of_yojson] reads it back unchanged. *)
+let yojson_of_deployment_target = function
+  | Kubernetes -> `Assoc [ ("kind", `String "kubernetes") ]
+  | Compose target ->
+      let network_name, is_external =
+        match target.compose_network with
+        | ProjectNetwork name -> (name, false)
+        | ExternalNetwork name -> (name, true)
+      in
+      let placement = match target.compose_placement with OwnProject -> "own" | MergedProject -> "merge" in
+      `Assoc
+        [
+          ("kind", `String "compose");
+          ("placement", `String placement);
+          ("network", `String network_name);
+          ("externalNetwork", `Bool is_external);
+          ("existingServices", yojson_of_string_list target.existing_services);
+        ]
+
+(** Serialize one Compose issue as its service, code and value. *)
+let yojson_of_compose_issue (issue : compose_issue) =
+  let code, value = compose_issue_code_and_value issue.issue_reason in
+  `Assoc
+    [
+      ("service", yojson_of_string_option issue.issue_service);
+      ("code", `String code);
+      ("value", yojson_of_string_option value);
+    ]
+
+(** Serialize a Compose plan. The keys are always in this order:
+    [planId], [services], [issues], [composeYaml]. *)
+let yojson_of_compose_plan (plan : compose_plan) =
+  `Assoc
+    [
+      ("planId", `String plan.compose_plan_id);
+      ("services", yojson_of_string_list plan.compose_service_names);
+      ("issues", `List (List.map yojson_of_compose_issue plan.compose_issues));
+      ("composeYaml", yojson_of_string_option plan.compose_yaml);
     ]
