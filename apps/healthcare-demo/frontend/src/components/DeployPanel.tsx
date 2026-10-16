@@ -103,6 +103,16 @@ function Attempt({ deployment, name }: { deployment: Deployment; name: string })
 }
 
 /**
+ * Whether the panel offers to start a hospital's LMA: one not in the
+ * consortium, or one in it whose LMA has stopped. A joined hospital whose LMA
+ * stops makes the overview and the pilot fail until it runs again; the
+ * backend starts it again and skips the steps already done.
+ */
+function canStart(hospital: JoinableHospital): boolean {
+  return !hospital.in_consortium || hospital.service === "stopped" || hospital.service === "not_started";
+}
+
+/**
  * Add a hospital to the running consortium.
  *
  * Only a split run on the visitor's own machine, started with `--deploy`, can
@@ -112,7 +122,7 @@ function Attempt({ deployment, name }: { deployment: Deployment; name: string })
  * enrols the site, and the GMA's planner decides whether the next round
  * selects it. The page only shows what it reports.
  */
-export function DeployPanel({ onJoined }: { onJoined: () => void }) {
+export function DeployPanel({ onJoined, onlyToRestart = false }: { onJoined: () => void; onlyToRestart?: boolean }) {
   const view = useResource<DeploymentsView>("/api/v1/deployments");
   const [adding, setAdding] = useState<string | null>(null);
   const [result, setResult] = useState<Deployment | null>(null);
@@ -132,7 +142,10 @@ export function DeployPanel({ onJoined }: { onJoined: () => void }) {
   const notOffered = view.error instanceof ApiError && view.error.status === 404;
   const offered = Boolean(data?.available) && !isRecorded;
   const latest = result ?? data?.deployments[0] ?? null;
-  const startable = offered && data ? data.hospitals.filter((hospital) => !hospital.in_consortium) : [];
+  const startable =
+    offered && data
+      ? data.hospitals.filter((hospital) => canStart(hospital) && (!onlyToRestart || hospital.in_consortium))
+      : [];
   const nameOf = (siteId: string) =>
     data?.hospitals.find((hospital) => hospital.site_id === siteId)?.display_name ?? siteId;
 
@@ -160,6 +173,10 @@ export function DeployPanel({ onJoined }: { onJoined: () => void }) {
       view.reload();
     }
   };
+
+  // Without the overview the page shows only an error, and this panel only
+  // when a hospital in the consortium has stopped: starting it is the way back.
+  if (onlyToRestart && startable.length === 0) return null;
 
   let reason: string | null = null;
   if (isRecorded) reason = REPLAY_NOTE;
@@ -228,7 +245,7 @@ export function DeployPanel({ onJoined }: { onJoined: () => void }) {
               onClick={() => add(hospital)}
               disabled={adding !== null}
             >
-              Add {hospital.display_name}
+              {hospital.in_consortium ? `Start ${hospital.display_name} again` : `Add ${hospital.display_name}`}
             </button>
           ))}
         </div>

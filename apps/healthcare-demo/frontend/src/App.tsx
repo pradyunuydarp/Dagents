@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { COLD_START_BUDGET_MS, getJson, isRecorded, onApiWaking, recordingInfo, userMessage, type Recording } from "./api";
 import { ErrorNote, Linked, Loading, ShownError } from "./components/Basics";
+import { DeployPanel } from "./components/DeployPanel";
 import { README_URL } from "./config";
 import { sourceText } from "./format";
 import { FieldLabelsProvider } from "./labels";
@@ -108,8 +109,12 @@ export default function App() {
         onApproved={refreshOverview}
         onJoined={refreshOverview}
       />
+    ) : overviewError ? (
+      // The overview fails while a hospital that joined cannot be reached.
+      // The panel can start that hospital again, so it stays on the page.
+      <DeployPanel onJoined={refreshOverview} onlyToRestart />
     ) : (
-      !overviewError && <Loading what="the consortium" />
+      <Loading what="the consortium" />
     );
   } else if (section === "hospitals" && siteId && (sub === undefined || sub === "new")) {
     if (overview && !hospital) {

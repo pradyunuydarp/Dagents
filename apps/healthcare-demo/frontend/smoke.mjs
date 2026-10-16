@@ -1138,6 +1138,57 @@ try {
     await deployPage.close();
   }
 
+  //    A joined hospital whose LMA has stopped makes the overview fail until
+  //    it runs again. The panel offers to start it again, with the overview
+  //    and while the overview answers the app's 503. The answers are
+  //    rewritten in a page whose 503s are not counted as failures, and the
+  //    page never sends the request.
+  const restartPage = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  try {
+    const realView = await api("/api/v1/deployments");
+    const stoppedView = {
+      ...realView,
+      available: true,
+      reason: null,
+      applier: "process",
+      hospitals: realView.hospitals.map((item) => ({ ...item, in_consortium: true, service: "stopped" })),
+      deployments: [],
+    };
+    const stopped = stoppedView.hospitals[0];
+    await restartPage.route("**/api/v1/deployments", (route) =>
+      route.request().method() === "GET"
+        ? route.fulfill({ status: 200, contentType: "application/json", headers: { "X-Dagents-App": "healthcare-demo" }, json: stoppedView })
+        : route.abort()
+    );
+    const restartButton = restartPage.locator(`[data-panel="deploy"] [data-action="deploy"][data-site="${stopped.site_id}"]`);
+    const buttonText = async () =>
+      (await restartButton.waitFor({ timeout: 30000 }).then(
+        async () => ((await restartButton.textContent()) ?? "").trim(),
+        () => "no button"
+      ));
+    await restartPage.goto(baseUrl, { timeout: 60000 });
+    const withOverview = await buttonText();
+    await restartPage.route("**/api/v1/overview", (route) =>
+      route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        headers: { "X-Dagents-App": "healthcare-demo" },
+        body: JSON.stringify({ detail: `${stopped.display_name} cannot be reached right now. Try again in a minute.` }),
+      })
+    );
+    await restartPage.reload({ timeout: 60000 });
+    const withoutOverview = await buttonText();
+    const expected = `Start ${stopped.display_name} again`;
+    check(
+      "a joined hospital whose LMA stopped can be started again, also while the overview fails",
+      withOverview === expected && withoutOverview === expected,
+      `with the overview: ${withOverview}; while it answers 503: ${withoutOverview}`
+    );
+  } finally {
+    await restartPage.unrouteAll({ behavior: "ignoreErrors" });
+    await restartPage.close();
+  }
+
   // 10. Empty stores. The API is simulated in a separate page: it reports
   //     stores that hold no records, as an unseeded database would. Each page
   //     shows one banner and a plain sentence in place of zeros and empty

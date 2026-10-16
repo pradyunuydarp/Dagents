@@ -349,6 +349,12 @@ three hospital colours. The consortium charts that compare hospitals then draw
 all four in neutral ink and name each one on the axis. Run the pilot again,
 and its rounds include Hospital 290.
 
+If Hospital 290's LMA stops after it joined, the overview and the pilot
+answer `503` until it runs again, because the app asks every hospital for its
+report. The panel then offers **Start Hospital 290 again**, and it stays on
+the page while the overview cannot load. The app starts the LMA again and
+skips the steps already done.
+
 ## How it works
 
 ```mermaid

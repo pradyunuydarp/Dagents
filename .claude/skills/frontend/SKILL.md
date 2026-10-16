@@ -247,7 +247,10 @@ backend and replays.
   sits under the table, never in a table cell, so the table's scroll box
   cannot hide it on a 375 px screen. When a request ends, focus moves to the
   attempt's heading (or back to the button after an error), and a live region
-  that stays mounted says how it ended. The steps
+  that stays mounted says how it ended. A hospital in the consortium whose
+  LMA has stopped (`service` is `stopped` or `not_started`) gets a button to
+  start it again, and while the overview fails the app shows the panel alone
+  for that case, because the overview cannot load until the LMA runs. The steps
   (`data-step`, `data-status`) show their status as words, never as colours:
   a step is not a permit, narrow or deny decision. The page never decides
   whether a hospital can join or whether the next round selects it; it shows
