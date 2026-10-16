@@ -255,8 +255,9 @@ class Settings:
         default_factory=lambda: float(os.getenv("HEALTHCARE_DEMO_DEPLOY_TIMEOUT_SECONDS", "90"))
     )
 
-    #: Where the deployer keeps the Compose files it applies and, in process
-    #: mode, the new hospital's log. Empty means a new temporary directory.
+    #: Where the deployer writes its files: in process mode the new hospital's
+    #: log, in compose mode the Compose files it passes to ``docker compose``.
+    #: Empty means a new temporary directory.
     deploy_dir: str = field(default_factory=lambda: os.getenv("HEALTHCARE_DEMO_DEPLOY_DIR", ""))
 
     #: The image a new hospital's container runs, in compose mode. It is the

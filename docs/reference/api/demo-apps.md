@@ -1047,8 +1047,10 @@ for the other three. The app writes no Compose and makes no selection rule.
 The action is off unless `HEALTHCARE_DEMO_DEPLOYER` is `process` (a local
 process) or `compose` (a container, with `docker compose`), and the app refuses
 to start with either value in any role but `app`, or when `RENDER` is set. The
-hosted demo runs the combined role, so both examples below show a server that
-cannot add a hospital. An LMA answers `404` for both routes.
+hosted demo runs the combined role. So the examples below come from a server
+that cannot add a hospital: the list gives the reason, and a request gets
+`403`. A request from a page on another host also gets `403`, and a request for
+a hospital that cannot join gets `422`. An LMA answers `404` for both routes.
 [Adding a hospital is off on every host](../../../apps/healthcare-demo/docs/deployment.md#adding-a-hospital-is-off-on-every-host)
 lists the settings.
 

@@ -2,7 +2,8 @@
 
 A person who runs the split demo on their own machine can add a hospital that
 is not in the consortium at start (``JOINING_SITES``) while the demo runs. The
-app uses the framework for every decision and does the side effects itself:
+app runs the steps in order. The framework makes every decision and does every
+side effect except the join:
 
 1. ``plan``: core-service renders the new LMA's Compose file
    (``POST /api/v1/manifests/compose``, the OCaml manifest compiler). The app

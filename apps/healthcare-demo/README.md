@@ -509,8 +509,11 @@ start, listens on every interface and passes `/api` requests to port 8080.
 A split run can add Hospital 290 (`pl-290`) to the consortium while it runs.
 `POST /api/v1/deployments` with `{"site_id": "pl-290"}` starts the hospital's
 LMA, and from the next round on the GMA's planner decides whether to select it,
-as it does for the other three. The framework makes each decision, and the app
-does the side effects:
+as it does for the other three. The app runs seven steps in order. The
+framework makes each decision and does most of the work: core-service renders
+the file, `compose_apply.py` starts the service, and the GMA accepts the
+address and enrols the site. The app itself only adds the hospital to its
+consortium (`join`):
 
 | Step | What happens | Done by |
 |---|---|---|
@@ -764,14 +767,14 @@ backend/app/
     coordinator_routes.py  the app's routes for the LMAs (models, updates) and the listener they run on
   domain/
     conditions.py        feature contract, classification, condition pack, release gates, field domains
-    dataset.py           the three IST hospitals and the extract loader
+    dataset.py           the three IST hospitals, Hospital 290 (JOINING_SITES), and the loader for both extracts
     stroke_rule.py       the seed rule and the shared evaluation
     stroke_model.py      the logistic regression: encoding, local training, updates
     fhir.py              FHIR-shaped ingestion into the contract
   services/
     site_store.py        the per-hospital stores and the coordinator store (memory and Postgres)
     hospital.py          one hospital as a federated site, with its Guard and store
-    consortium.py        the pilot across all three
+    consortium.py        the pilot across the consortium's hospitals: three at start, four once Hospital 290 joins
     runtime.py           the model registry and the parameter-averaging runtime
     charts_service.py    the charts each view shows
     framework_client.py  calls to Dagents services and planners
@@ -779,7 +782,7 @@ backend/app/
     remote.py            the HTTP clients a split run uses for the LMAs, the app and the Dagents GMA
     deployment.py        adds a hospital while the demo runs: the settings check, the Compose request, the seven steps
   main.py                FastAPI app
-data/ist/                the IST extract, its licence and notice
+data/ist/                the IST extracts (the three hospitals, and Hospital 290), their licence and notice
 supabase/                migrations and the role emulation used by the tests
 frontend/
   src/                   the UI (Vite + React): consortium view, hospital view, data entry;
