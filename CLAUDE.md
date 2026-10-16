@@ -260,6 +260,13 @@ refuses a recording whose guard controls change nothing, or that lacks a
 request the UI sends at the exact path and query string it sends it. Recordings
 are gitignored; the workflow makes them.
 
+**A failed deploy.** A deploy can stall on GitHub's side. So the deploy job
+tries a failed deploy once more after 30 seconds, and a second failure fails the
+run. If both attempts fail, re-run the failed jobs of that run. The Pages
+artifact is kept for one day; after that, re-run the whole run. A new run of the
+same commit adds a green check beside the red one but does not replace it, so
+the commit still shows the failure.
+
 **Link previews and icons.** A link to one of the sites, shared on LinkedIn,
 WhatsApp, Slack or X, shows that site's card: the 1200 x 630 PNG named by the
 page's `og:image` tag. The three cards and the logo mark are HTML and SVG files
