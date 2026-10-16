@@ -1,0 +1,104 @@
+# Lets Hospital 290 join the running demo as a container. Opt-in, for one machine.
+#
+# WARNING: this file mounts the Docker socket into the API's container. That
+# gives the API control of Docker on this machine: it can start, stop and
+# remove any container. Never use this file on a shared or public host.
+#
+# It needs Docker Compose 2.33 or later. The API's build reads another
+# service's image (additional_contexts: service:lma-uk-134), and older Compose
+# takes "service:lma-uk-134" for a folder without a warning, so the build fails
+# later with a missing path. `docker compose version` prints the version.
+#
+# Use it on top of docker-compose.yml, from apps/healthcare-demo:
+#
+#   DOCKER_GID=$(stat -c %g /var/run/docker.sock) \
+#     docker compose -f docker-compose.yml -f docker-compose.deploy.yml \
+#     --env-file env/.env.healthcare-demo up --build
+#
+# What it changes:
+#
+#   core-service              the Dagents core service, which renders the new
+#                             LMA's Compose file. No published port.
+#   setup                     also makes Hospital 290's tokens, gives the GMA its
+#                             one accepted address and its token entries
+#                             (gma.env), gives the API its address and site token
+#                             (api.env), and writes the new LMA's env file
+#                             (lma-pl-290.env), readable by the API's user only.
+#   healthcare-demo-backend   the demo image plus the Docker command-line tool,
+#                             with the Docker socket and HEALTHCARE_DEMO_DEPLOYER
+#                             set to compose. It publishes the API on 127.0.0.1
+#                             only.
+#   healthcare-demo-frontend  publishes the UI on 127.0.0.1 only.
+#
+# Adding Hospital 290 (POST /api/v1/deployments) starts lma-pl-290 in its own
+# Compose project, healthcare-demo-lma-pl-290, on this project's network, with
+# no published port. `docker compose down` on the demo does not remove it;
+# remove it with
+#
+#   docker rm -f $(docker ps -aq --filter label=com.docker.compose.project=healthcare-demo-lma-pl-290)
+#
+# The network is healthcare-demo_default because the project is named
+# healthcare-demo. With another project name (-p), set
+# HEALTHCARE_DEMO_DEPLOY_NETWORK to <project>_default.
+
+services:
+  core-service:
+    build:
+      context: ../..
+      dockerfile: services/core-service/Dockerfile
+    image: dagents/core-service:local
+    env_file:
+      - ../../env/.env.shared
+      - ../../env/.env.core-service
+    environment:
+      API_PORT: ${HEALTHCARE_DEMO_CORE_SERVICE_PORT:?run with --env-file env/.env.healthcare-demo}
+    healthcheck:
+      test: ["CMD-SHELL", "python -c 'import os, urllib.request; urllib.request.urlopen(\"http://127.0.0.1:%s/api/v1/health\" % os.environ[\"API_PORT\"])'"]
+      interval: 3s
+      timeout: 5s
+      retries: 30
+      start_period: 5s
+    restart: unless-stopped
+
+  setup:
+    environment:
+      HEALTHCARE_DEMO_DEPLOYER: compose
+      HEALTHCARE_DEMO_LMA_PL_290_PORT: ${HEALTHCARE_DEMO_LMA_PL_290_PORT:?run with --env-file env/.env.healthcare-demo}
+
+  healthcare-demo-backend:
+    build:
+      dockerfile: !reset null
+      # The image the hospitals run, plus the Docker command-line tool and its
+      # Compose plugin. The API runs `docker compose` on the file core-service
+      # renders.
+      additional_contexts:
+        backend-image: "service:lma-uk-134"
+      dockerfile_inline: |
+        FROM docker:29.8.1-cli AS docker-cli
+        FROM backend-image
+        USER root
+        COPY --from=docker-cli /usr/local/bin/docker /usr/local/bin/docker
+        COPY --from=docker-cli /usr/local/libexec/docker/cli-plugins/docker-compose /usr/local/libexec/docker/cli-plugins/docker-compose
+        USER appuser
+    image: dagents/healthcare-demo-backend-deploy:local
+    group_add:
+      - "${DOCKER_GID:?set DOCKER_GID to the group id of /var/run/docker.sock}"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      HEALTHCARE_DEMO_DEPLOYER: compose
+      HEALTHCARE_DEMO_CORE_SERVICE_URL: http://core-service:${HEALTHCARE_DEMO_CORE_SERVICE_PORT}
+      # setup writes the new LMA's env file here, owned by the API's user.
+      HEALTHCARE_DEMO_DEPLOY_ENV_DIR: /run/agent-settings
+      HEALTHCARE_DEMO_DEPLOY_DIR: /tmp/healthcare-demo-deploy
+      HEALTHCARE_DEMO_DEPLOY_IMAGE: dagents/healthcare-demo-backend:local
+      HEALTHCARE_DEMO_DEPLOY_NETWORK: healthcare-demo_default
+    depends_on:
+      core-service:
+        condition: service_healthy
+    ports: !override
+      - "127.0.0.1:${HEALTHCARE_DEMO_API_PORT}:${HEALTHCARE_DEMO_API_PORT}"
+
+  healthcare-demo-frontend:
+    ports: !override
+      - "127.0.0.1:${HEALTHCARE_DEMO_UI_PORT}:5174"

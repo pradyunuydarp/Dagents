@@ -83,14 +83,18 @@ jobs:
         with:
           python-version: "3.11"
           cache: pip
-          cache-dependency-path: apps/healthcare-demo/requirements.txt
+          cache-dependency-path: |
+            apps/healthcare-demo/requirements.txt
+            services/core-service/requirements.txt
 
       - name: Install dependencies
         # psycopg comes from the app's own requirements, so this job and the
-        # deployed image install the same driver.
+        # deployed image install the same driver. tests/test_network_deploy.py
+        # also starts core-service, so its requirements are installed too.
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -r apps/healthcare-demo/requirements.txt
+          python -m pip install -r apps/healthcare-demo/requirements.txt \
+                                -r services/core-service/requirements.txt
 
       - name: Refuse to run without a credential
         # The secret reaches every step through `env:`, never through `${{ }}`
@@ -145,8 +149,9 @@ jobs:
         # it to the service container, try every cross-site path, and run the
         # stores, the pilot, data entry, the API and the status report against
         # it. They also check that each hospital's LMA uses only its own store
-        # and role, run a pilot while records are written, and run the GMA,
-        # one LMA per hospital and the API as separate processes.
+        # and role, run a pilot while records are written, run the GMA,
+        # one LMA per hospital and the API as separate processes, and add
+        # Hospital 290 to those processes through core-service.
         working-directory: apps/healthcare-demo
         env:
           PYTHONPATH: ${{ github.workspace }}:${{ github.workspace }}/apps/healthcare-demo/backend
@@ -166,6 +171,7 @@ jobs:
             tests.test_agents_wiring \
             tests.test_concurrency \
             tests.test_network_mode \
+            tests.test_network_deploy \
             2>&1 | tee database-suite.log
 
       - name: Test the framework's database code on the scratch PostgreSQL 16
@@ -216,6 +222,7 @@ jobs:
             --require-ran tests.test_concurrency.PostgresPilotWhileWritingTests \
             --require-ran tests.test_network_mode.NetworkModeTests \
             --require-ran tests.test_network_mode.NetworkApprovalTests \
+            --require-ran tests.test_network_deploy.NetworkDeployTests \
             apps/healthcare-demo/database-suite.log || status=1
           python scripts/ci_no_skipped_tests.py \
             --forbid planner \

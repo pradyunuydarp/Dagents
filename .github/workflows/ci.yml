@@ -411,6 +411,7 @@ jobs:
           cache: pip
           cache-dependency-path: |
             apps/healthcare-demo/requirements.txt
+            services/core-service/requirements.txt
             services/nl2sql-demo/backend/requirements.txt
 
       - uses: actions/download-artifact@v4
@@ -425,6 +426,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r apps/healthcare-demo/requirements.txt \
+                                -r services/core-service/requirements.txt \
                                 -r services/nl2sql-demo/backend/requirements.txt
 
       - name: healthcare-demo
@@ -433,7 +435,9 @@ jobs:
         # tests/test_network_mode.py starts the GMA, one LMA per hospital and
         # the API as separate uvicorn processes on loopback ports the system
         # picks, against the service container, and checks that their pilot
-        # equals the in-process pilot.
+        # equals the in-process pilot. tests/test_network_deploy.py also starts
+        # core-service from services/core-service and adds Hospital 290 to the
+        # running processes.
         working-directory: apps/healthcare-demo
         env:
           DAGENTSC_BIN: ${{ env.PLANNER_DIR }}/dagentsc.exe
@@ -443,8 +447,18 @@ jobs:
           set -o pipefail
           python -m unittest discover -s tests -t . -v 2>&1 | tee healthcare-suite.log
 
-      - name: Fail if the healthcare governance tests skipped
-        run: python scripts/ci_no_skipped_tests.py --forbid planner apps/healthcare-demo/healthcare-suite.log
+      - name: Fail if the healthcare governance or deployment tests skipped
+        # The deployment classes skip without docker, bash or curl, which the
+        # runner has; --require-ran fails the step if one of them did not run.
+        # ComposeOverrideTests checks that only the API gets the Docker socket
+        # and that the API and the UI are published on 127.0.0.1 only.
+        run: |
+          python scripts/ci_no_skipped_tests.py \
+            --forbid planner \
+            --require-ran tests.test_compose_override.ComposeOverrideTests \
+            --require-ran tests.test_deployment_spec.ComposeRequestTests \
+            --require-ran tests.test_network_deploy.NetworkScriptDeployTests \
+            apps/healthcare-demo/healthcare-suite.log
 
       - name: Framework database tests against PostgreSQL
         # These modules also run in the agents job, which has no database, so
@@ -499,6 +513,7 @@ jobs:
             --require-ran tests.test_concurrency.PostgresPilotWhileWritingTests \
             --require-ran tests.test_network_mode.NetworkModeTests \
             --require-ran tests.test_network_mode.NetworkApprovalTests \
+            --require-ran tests.test_network_deploy.NetworkDeployTests \
             apps/healthcare-demo/healthcare-suite.log || status=1
           python scripts/ci_no_skipped_tests.py \
             --forbid database \

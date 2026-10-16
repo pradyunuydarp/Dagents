@@ -30,6 +30,8 @@ LMA_TOKENS = tuple(f"HEALTHCARE_DEMO_LMA_{site}_TOKEN" for site in ("UK_134", "I
 JOINING_LMA_URLS = ("HEALTHCARE_DEMO_LMA_PL_290_URL",)
 JOINING_LMA_TOKENS = ("HEALTHCARE_DEMO_LMA_PL_290_TOKEN",)
 #: Settings that hold a secret: they are set in the environment, never written down.
+#: Ports the start scripts and the deploy override read for a run with ``--deploy``. The app reads none of them.
+DEPLOY_PORTS = ("HEALTHCARE_DEMO_LMA_PL_290_PORT", "HEALTHCARE_DEMO_CORE_SERVICE_PORT")
 TOKENS = ("HEALTHCARE_DEMO_GMA_TOKEN", *LMA_TOKENS, *JOINING_LMA_TOKENS)
 #: A connection string with a password in it: ``scheme://user:password@``.
 CREDENTIAL = re.compile(r"[a-z]+://[^\s:/@<>]+:[^\s@<>]+@")
@@ -111,7 +113,7 @@ class SettingsDocumentedTests(unittest.TestCase):
 
     def test_the_env_file_names_the_deploy_settings(self) -> None:
         text = ENV_FILE.read_text(encoding="utf-8")
-        for name in (*JOINING_LMA_URLS, *JOINING_LMA_TOKENS):
+        for name in (*JOINING_LMA_URLS, *JOINING_LMA_TOKENS, *DEPLOY_PORTS):
             with self.subTest(name=name):
                 self.assertTrue(name in text, f"{name} is not listed")
 

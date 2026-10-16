@@ -215,6 +215,35 @@ Its records are in its own Postgres schema, `site_pl_290`, seeded with the
 others by `scripts/seed_supabase.py`, after migration
 `0004_joining_site.sql`. Only its own LMA reads them, acting as its own role.
 
+There are two ways to run it. Both need the database from the section above:
+
+```bash
+scripts/run_frontend_demo.sh --deploy    # the new LMA starts as a local process
+DOCKER_GID=$(stat -c %g /var/run/docker.sock) \
+  docker compose -f docker-compose.yml -f docker-compose.deploy.yml \
+  --env-file env/.env.healthcare-demo up --build   # the new LMA starts as a container
+```
+
+`--deploy` works on `run_local_demo.sh` too, and implies `--agents network`.
+It also starts core-service from `services/core-service` on 127.0.0.1, port
+8040 (`HEALTHCARE_DEMO_CORE_SERVICE_PORT`). Hospital 290's LMA gets port 8085
+(`HEALTHCARE_DEMO_LMA_PL_290_PORT`). The script refuses to start when either
+port already answers. It makes Hospital 290's tokens with the others, writes
+the new LMA's env file in a folder only you can enter, and on exit stops the
+new LMA with the other processes.
+
+`docker-compose.deploy.yml` mounts the Docker socket into the API's container.
+That gives the API control of Docker on the machine, so never use it on a
+shared or public host. It needs Docker Compose 2.33 or later. It adds
+core-service, has `setup` write Hospital 290's tokens and env file, and
+publishes the API and the UI on 127.0.0.1 only. The new LMA runs in its own
+Compose project, `healthcare-demo-lma-pl-290`, with no published port.
+`docker compose down` does not remove it; this does:
+
+```bash
+docker rm -f $(docker ps -aq --filter label=com.docker.compose.project=healthcare-demo-lma-pl-290)
+```
+
 `POST /api/v1/deployments` with `{"site_id": "pl-290"}` runs seven steps. The
 framework makes every decision and does every side effect except the join:
 
@@ -697,6 +726,15 @@ process, that an approval releases a candidate at the GMA and at every LMA
 process, and that no answer or log holds a token or an agent's address. It
 needs the database URL above and the planner.
 
+`tests/test_network_deploy.py` starts the same processes plus core-service with
+the deployer on, adds Hospital 290, and checks that the next pilot includes it,
+that a held port fails the `start` step and that the new LMA stops with the
+API. It also runs `run_local_demo.sh --deploy` with stand-in programs to check
+what the script refuses. `tests/test_compose_override.py` reads the merged
+Compose files with `docker compose config` (no daemon is needed) and checks
+that only the API gets the Docker socket and that the API and the UI are
+published on 127.0.0.1 only; it skips without Docker.
+
 Good tests to read first:
 
 - `tests/test_federated_pilot.py`: `test_no_patient_level_data_crosses_the_boundary`,
@@ -753,7 +791,10 @@ frontend/
   social-meta.mjs        writes the published address (PUBLIC_SITE_URL) into the link preview tags
   smoke.mjs              drives the UI against a live backend
 docs/screenshots/        screenshots of the UI
-scripts/                 run the demo, run the pilot, extract the data, seed a database, move into its own repository
+scripts/                 run the demo, run the pilot, extract the data, seed a database, write the
+                         agents' settings files, move into its own repository
+docker-compose.yml       the network layout in containers on a local PostgreSQL 16
+docker-compose.deploy.yml  opt-in override that lets Hospital 290 join as a container
 tests/                   the test suite
 ```
 

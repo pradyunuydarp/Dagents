@@ -522,14 +522,18 @@ def database_test_classes(test_dir: Path, module_prefix: str) -> set[str]:
 
     A class needs a database when one of its methods calls an entry point in
     `DATABASE_ENTRY_POINTS`, or a module-level function that does, or when it
-    inherits from a class in the same module that does. Only classes with at
-    least one test method count, so a shared base or mixin is not listed.
+    inherits from a class that does. The base class can be in the same module
+    or imported from another test module in `test_dir`
+    (`from tests.test_network_mode import _AgentProcesses`). Only classes with
+    at least one test method count, so a shared base or mixin is not listed.
     """
-    found: set[str] = set()
+    modules: dict[str, dict[str, ast.ClassDef]] = {}
+    opens_in: dict[str, set[str]] = {}
+    imported: dict[str, dict[str, tuple[str, str]]] = {}
     for path in sorted(test_dir.glob("test_*.py")):
         tree = ast.parse(path.read_text(encoding="utf-8"))
         functions = {node.name: node for node in tree.body if isinstance(node, ast.FunctionDef)}
-        classes = {node.name: node for node in tree.body if isinstance(node, ast.ClassDef)}
+        modules[path.stem] = {node.name: node for node in tree.body if isinstance(node, ast.ClassDef)}
 
         opens: set[str] = set(DATABASE_ENTRY_POINTS)
         changed = True
@@ -539,24 +543,50 @@ def database_test_classes(test_dir: Path, module_prefix: str) -> set[str]:
                 if name not in opens and _called_names(function) & opens:
                     opens.add(name)
                     changed = True
+        opens_in[path.stem] = opens
 
-        def bases(node: ast.ClassDef) -> list[ast.ClassDef]:
-            return [classes[base.id] for base in node.bases if isinstance(base, ast.Name) and base.id in classes]
+        # Names imported from a sibling test module: `from tests.test_x import Base`.
+        imported[path.stem] = {
+            alias.asname or alias.name: (node.module.removeprefix(module_prefix), alias.name)
+            for node in tree.body
+            if isinstance(node, ast.ImportFrom)
+            and node.module
+            and node.module.startswith(module_prefix)
+            and node.module.removeprefix(module_prefix).startswith("test_")
+            for alias in node.names
+        }
 
-        def needs_database(node: ast.ClassDef) -> bool:
-            return bool(_called_names(node) & opens) or any(needs_database(base) for base in bases(node))
+    def bases(module: str, node: ast.ClassDef) -> list[tuple[str, ast.ClassDef]]:
+        found_bases = []
+        for base in node.bases:
+            if not isinstance(base, ast.Name):
+                continue
+            if base.id in modules[module]:
+                found_bases.append((module, modules[module][base.id]))
+            elif base.id in imported[module]:
+                other, name = imported[module][base.id]
+                if name in modules.get(other, {}):
+                    found_bases.append((other, modules[other][name]))
+        return found_bases
 
-        def has_tests(node: ast.ClassDef) -> bool:
-            own = any(
-                isinstance(item, ast.FunctionDef) and item.name.startswith("test")
-                for item in node.body
-            )
-            return own or any(has_tests(base) for base in bases(node))
+    def needs_database(module: str, node: ast.ClassDef) -> bool:
+        return bool(_called_names(node) & opens_in[module]) or any(
+            needs_database(*base) for base in bases(module, node)
+        )
 
-        for name, node in classes.items():
-            if needs_database(node) and has_tests(node):
-                found.add(f"{module_prefix}{path.stem}.{name}")
-    return found
+    def has_tests(module: str, node: ast.ClassDef) -> bool:
+        own = any(
+            isinstance(item, ast.FunctionDef) and item.name.startswith("test")
+            for item in node.body
+        )
+        return own or any(has_tests(*base) for base in bases(module, node))
+
+    return {
+        f"{module_prefix}{module}.{name}"
+        for module, classes in modules.items()
+        for name, node in classes.items()
+        if needs_database(module, node) and has_tests(module, node)
+    }
 
 
 def requirement(path: Path, package: str) -> str:
@@ -616,13 +646,18 @@ class WorkflowGuardTests(unittest.TestCase):
     def test_the_data_workflow_requires_what_ci_requires_before_migrating(self) -> None:
         """healthcare-data.yml tests on a scratch database before it touches the project.
 
-        It requires every class the demo-apps job requires: the healthcare
-        database classes and the framework's, because the deployed demo runs
-        both on the project's database.
+        It requires every database class the demo-apps job requires: the
+        healthcare classes and the framework's, because the deployed demo runs
+        both on the project's database. The demo-apps job also requires some
+        classes that need Docker or bash rather than a database; the data
+        workflow does not run those modules.
         """
         data = DATA_WORKFLOW.read_text(encoding="utf-8")
         data_calls = [call for call in guard_calls(jobs(data)["migrate"]) if call.require_ran]
-        ci_calls = [call for call in guard_calls(jobs(self.CI)["demo-apps"]) if call.require_ran]
+        ci_calls = [
+            call for call in guard_calls(jobs(self.CI)["demo-apps"])
+            if call.require_ran and "database" in call.forbid
+        ]
         self.assertTrue(data_calls, "healthcare-data.yml requires no test class to run")
         for call in data_calls:
             with self.subTest(log=call.log):
@@ -641,11 +676,14 @@ class WorkflowGuardTests(unittest.TestCase):
     # only by `--require-ran`, so every database class must be listed.
 
     def demo_apps_call(self, log: str) -> Any:
+        """The one call that checks `log` for database skips with `--require-ran`."""
         calls = [
             call for call in guard_calls(jobs(self.CI)["demo-apps"])
-            if Path(call.log).name == log and call.require_ran
+            if Path(call.log).name == log and call.require_ran and "database" in call.forbid
         ]
-        self.assertEqual(1, len(calls), f"the demo-apps job should check {log} with --require-ran exactly once")
+        self.assertEqual(
+            1, len(calls), f"the demo-apps job should check {log} for database skips with --require-ran exactly once"
+        )
         return calls[0]
 
     def test_every_healthcare_database_class_is_required_to_run(self) -> None:
@@ -709,6 +747,29 @@ class WorkflowGuardTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             (Path(directory) / "test_sample.py").write_text(source, encoding="utf-8")
             self.assertEqual({"tests.test_sample.PostgresTests"}, database_test_classes(Path(directory), "tests."))
+
+    def test_the_finder_follows_a_base_class_imported_from_another_test_module(self) -> None:
+        """test_network_deploy reuses test_network_mode's process fixture, which opens the database."""
+        fixture = (
+            "def _seeded():\n"
+            "    return SupabaseLikeDatabase(admin_dsn_or_skip())\n"
+            "class _Processes:\n"
+            "    @classmethod\n"
+            "    def setUpClass(cls): cls.db = _seeded()\n"
+            "class Helper:\n"
+            "    pass\n"
+        )
+        user = (
+            "from tests.test_fixture import _Processes, Helper\n"
+            "class DeployTests(_Processes, unittest.TestCase):\n"
+            "    def test_join(self): pass\n"
+            "class PlainTests(Helper, unittest.TestCase):\n"
+            "    def test_plain(self): pass\n"
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            (Path(directory) / "test_fixture.py").write_text(fixture, encoding="utf-8")
+            (Path(directory) / "test_user.py").write_text(user, encoding="utf-8")
+            self.assertEqual({"tests.test_user.DeployTests"}, database_test_classes(Path(directory), "tests."))
 
     def test_each_required_module_runs_in_the_step_that_writes_the_log(self) -> None:
         """A class can only run if the command that writes the log runs its module."""

@@ -391,6 +391,23 @@ runs the network layout against PostgreSQL 16, checks that its pilot equals an
 in-process pilot, and approves a candidate across the processes (it needs
 `HEALTHCARE_DEMO_TEST_DATABASE_URL`).
 
+A fourth hospital, Hospital 290 (`pl-290`), can join a network-mode run while
+it runs (`POST /api/v1/deployments`). core-service renders its LMA's Compose
+file, and the API starts it as a local process or a container:
+
+```bash
+apps/healthcare-demo/scripts/run_frontend_demo.sh --deploy   # network mode plus core-service; the new LMA is a process
+cd apps/healthcare-demo && DOCKER_GID=$(stat -c %g /var/run/docker.sock) \
+  docker compose -f docker-compose.yml -f docker-compose.deploy.yml \
+  --env-file env/.env.healthcare-demo up --build              # the new LMA is a container
+```
+
+It is off by default (`HEALTHCARE_DEMO_DEPLOYER=off`) and on one machine only:
+the API refuses to start with it on when `RENDER` is set or the agents run in
+process. The override mounts the Docker socket into the API's container, so
+never use it on a shared host. `apps/healthcare-demo/tests/test_network_deploy.py`
+adds the hospital to real processes against PostgreSQL 16.
+
 All of them need `dagentsc`. Without it the Ethical Guard denies every request,
 which is correct but makes every panel a denial, so the scripts check first.
 Without `HEALTHCARE_DEMO_DATABASE_URL`, each hospital keeps its records in
@@ -424,6 +441,8 @@ and a bundle only prove that the app compiles. The smoke test exits 2 and prints
 | healthcare-demo backend | 8080 |
 | healthcare-demo GMA (`--agents network` and compose) | 8081 |
 | healthcare-demo LMAs (`uk-134`, `it-002`, `ch-245`) | 8082, 8083, 8084 |
+| healthcare-demo LMA of the joining hospital (`pl-290`, `--deploy` and the deploy override) | 8085 |
+| healthcare-demo core-service (`--deploy` and the deploy override) | 8040 |
 | healthcare-demo frontend | 5174 |
 | framework site (dev) | 5175 |
 
