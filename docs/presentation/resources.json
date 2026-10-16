@@ -16,14 +16,14 @@
           "source": "docs/presentation/dagents-project-presentation.pptx",
           "previewSlide": 2,
           "facts": {
-            "updated": "2026-09-04",
-            "bytes": 1153964,
-            "sha256": "e9fde3965822eda2840fd55e8c73dae86a4d08afa646f047ec22399de408032c",
+            "updated": "2026-10-16",
+            "bytes": 1148593,
+            "sha256": "34dbbe29635d2b717a9b420bc2369810e54cf8eb1981885f737d004d7bebb434",
             "slides": 61,
             "pdf": {
               "path": "docs/presentation/exports/dagents-framework.pdf",
-              "bytes": 1649995,
-              "sha256": "b0396ee52536624330240f011af600173b30b96cf4834f5831118f0dd793bf92",
+              "bytes": 1650004,
+              "sha256": "673c5f29ee5439a48b3ca83628a172fc4efc5033ebb7747783e026a3e3865c88",
               "pages": 61,
               "settings": "319627d34f00b00b"
             },
@@ -246,14 +246,14 @@
           "source": "docs/presentation/healthcare-case-study/federated-healthcare-use-case/dagents-federated-stroke-use-case.pptx",
           "previewSlide": 23,
           "facts": {
-            "updated": "2026-09-04",
-            "bytes": 1129652,
-            "sha256": "ea986e806dcc9ac2fef3e8656285d01580993c95850a49471d834941959f9acf",
+            "updated": "2026-10-16",
+            "bytes": 1129651,
+            "sha256": "dc6953da5cee3ec39c03fb99f1b9e973b190e34d504038b1695384bc40abd0bc",
             "slides": 41,
             "pdf": {
               "path": "docs/presentation/exports/federated-stroke.pdf",
               "bytes": 1352275,
-              "sha256": "7eb0d606bd9743871c80a944332cca2201ebb5b86334cb657f2ef65ae008c673",
+              "sha256": "220efa0956bae993d811f45d2f9751c8e00f67637405332432569628b0c201d9",
               "pages": 41,
               "settings": "319627d34f00b00b"
             },
@@ -276,14 +276,14 @@
           "source": "docs/presentation/healthcare-case-study/federated-healthcare-use-case/dagents-federated-healthcare-use-case.pptx",
           "previewSlide": 6,
           "facts": {
-            "updated": "2026-09-04",
-            "bytes": 307023,
-            "sha256": "428211a3b5cc9d23b76e3cbf5fcafb06413f56fa57a60dd77c671a2395f8972f",
+            "updated": "2026-10-16",
+            "bytes": 307022,
+            "sha256": "c93171f0f33a7010884a2cfff9739ee1ce37c03b64a33d152a06d856a716699e",
             "slides": 30,
             "pdf": {
               "path": "docs/presentation/exports/federated-sepsis.pdf",
               "bytes": 458845,
-              "sha256": "ff2dd5137820769ab92c5211a5aefa41845b150a9ec3cc84170734e41c57a9b7",
+              "sha256": "248dd3e4281af7455ee7953702d5c4480149656310f52ef17bf7cd2225071772",
               "pages": 30,
               "settings": "319627d34f00b00b"
             },
