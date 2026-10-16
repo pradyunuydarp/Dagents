@@ -5,10 +5,10 @@ deployment whose database was unreachable never finished importing, never bound
 its port, and answered nothing, and the health endpoint that would have
 explained it was never reachable.
 
-So nothing at import may touch a store, and a store that cannot be reached is
-reported as a 503 with a plain message. The message never names the database
-host or user; the detail goes to the server log. None of these tests needs the
-planner or a database, so none skips.
+So nothing at import may touch a store or start an agent, and a store that
+cannot be reached is reported as a 503 with a plain message. The message never
+names the database host or user; the detail goes to the server log. None of
+these tests needs the planner or a database, so none skips.
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ from unittest import mock
 from tests.api_support import ApiTestCase, main
 
 from app.domain.dataset import SITES, load_site_records
-from app.services.consortium import Consortium
+from app.services.agents import HealthcareDemo
 from app.services.site_store import StoreUnavailableError
 
 APP_ROOT = Path(__file__).resolve().parents[1]
@@ -44,14 +44,24 @@ class ImportTimeTests(unittest.TestCase):
         """Run in a fresh interpreter, so the import really happens."""
         script = textwrap.dedent(
             """
+            import threading
             from unittest import mock
             import psycopg
-            with mock.patch("app.services.consortium.load_site_records") as loader, \\
+            with mock.patch("app.services.agents.load_site_records") as loader, \\
+                 mock.patch("app.services.agents.build_in_process_agents") as agents, \\
                  mock.patch.object(psycopg, "connect", side_effect=AssertionError("connected at import")) as connect:
                 import app.main
-                assert len(app.main.consortium.hospitals) == 3
+                assert len(app.main.demo.sites) == 3
                 assert not loader.called, "records were read at import"
                 assert not connect.called, "a connection was opened at import"
+                assert not agents.called, "the agents were started at import"
+                running = [thread.name for thread in threading.enumerate() if "agent" in thread.name]
+                assert not running, running
+                # The agents' app factories load on first use, so the health
+                # check answers before they are imported and compiled.
+                import sys
+                loaded = [name for name in ("agents.lma.app_factory", "agents.gma.app_factory") if name in sys.modules]
+                assert not loaded, loaded
             print("ok")
             """
         )
@@ -69,34 +79,35 @@ class ImportTimeTests(unittest.TestCase):
                 self.assertEqual(0, result.returncode, result.stderr[-2000:])
                 self.assertEqual("ok", result.stdout.strip())
 
-    def test_building_the_consortium_reads_no_records(self) -> None:
-        with mock.patch("app.services.consortium.load_site_records") as loader:
-            consortium = Consortium()
-            self.assertEqual(3, len(consortium.hospitals))
+    def test_building_the_services_reads_no_records(self) -> None:
+        with mock.patch("app.services.agents.load_site_records") as loader:
+            demo = HealthcareDemo()
+            self.assertEqual(3, len(demo.sites))
             loader.assert_not_called()
 
     def test_each_hospitals_records_are_read_once_on_first_use(self) -> None:
-        with mock.patch("app.services.consortium.load_site_records", side_effect=load_site_records) as loader:
-            consortium = Consortium()
-            consortium.overview()
-            consortium.overview()
-            consortium.hospital("uk-134").worklist(5)
+        with mock.patch("app.services.agents.load_site_records", side_effect=load_site_records) as loader:
+            demo = HealthcareDemo()
+            self.addCleanup(demo.close)
+            demo.overview.hospital_rows()
+            demo.overview.hospital_rows()
+            demo.hospital("uk-134").records()
         self.assertEqual(sorted(site.site_id for site in SITES), sorted(call.args[0] for call in loader.call_args_list))
 
     def test_an_unreachable_store_raises_and_names_the_hospital(self) -> None:
-        consortium = Consortium(database_url=UNREACHABLE, environ={})
+        demo = HealthcareDemo(database_url=UNREACHABLE, environ={})
         with self.assertRaises(StoreUnavailableError) as caught:
-            consortium.hospital("uk-134").counts()
+            demo.hospital("uk-134").counts()
         self.assertIn("hospital uk-134", str(caught.exception))
-        consortium.close()
+        demo.close()
 
 
 class ShutdownTests(unittest.TestCase):
-    def test_shutting_down_closes_every_store(self) -> None:
+    def test_shutting_down_closes_every_store_and_stops_the_agents(self) -> None:
         from fastapi.testclient import TestClient
 
-        consortium = Consortium()
-        with mock.patch.object(main, "consortium", consortium), mock.patch.object(consortium, "close") as close:
+        demo = HealthcareDemo()
+        with mock.patch.object(main, "demo", demo), mock.patch.object(demo, "close") as close:
             with TestClient(main.app) as client:
                 self.assertEqual(200, client.get("/api/v1/health").status_code)
                 close.assert_not_called()
@@ -134,8 +145,8 @@ class ServingWhileTheStoreIsDownTests(ApiTestCase):
     """The app answers, with a plain message, instead of disappearing."""
 
     @classmethod
-    def make_consortium(cls) -> Consortium:
-        return Consortium(database_url=UNREACHABLE, environ={})
+    def make_demo(cls) -> HealthcareDemo:
+        return HealthcareDemo(database_url=UNREACHABLE, environ={})
 
     def assert_plain_503(self, response) -> None:
         self.assertEqual(503, response.status_code)

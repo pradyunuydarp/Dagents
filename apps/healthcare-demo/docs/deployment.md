@@ -1,8 +1,10 @@
 # Deploying this demo
 
 The published demo is this app running on a host. It keeps each hospital's
-records in its own schema of a Postgres database, and the OCaml planner in its
-image makes every governance and federation decision. This page explains how the
+records in its own schema of a Postgres database. The three Dagents LMAs and the
+GMA run inside the API's process, and the API calls their routes through
+`httpx.ASGITransport`, without a socket. The agents run the OCaml planner in the
+image for every governance and federation decision. This page explains how the
 parts connect and where each credential is kept.
 
 A local run needs none of this: no database, no host and no account. Each
@@ -14,7 +16,7 @@ See the README.
 | Part | What it is | Defined in |
 |---|---|---|
 | Hospital stores | Supabase Postgres: one schema and one role per hospital, plus a coordinator schema | `supabase/migrations/` |
-| API | this FastAPI app plus `dagentsc`, as a Docker service on Render | `render.yaml`, `backend/Dockerfile` |
+| API | this FastAPI app, its three LMAs and its GMA in one process, plus `dagentsc`, as a Docker service on Render | `render.yaml`, `backend/Dockerfile` |
 | Frontend | the Vite build, published to GitHub Pages under the framework site | `.github/workflows/pages.yml` |
 | Schema and seed | a manually started workflow that migrates, loads each hospital's records and checks the isolation | `.github/workflows/healthcare-data.yml` |
 
@@ -31,8 +33,8 @@ Migrations `supabase/migrations/0002_site_isolation.sql` and
 
 | Schema | Owned by | Tables |
 |---|---|---|
-| `site_uk_134`, `site_it_002`, `site_ch_245` | the role with the same name | `encounters` (the records), `guard_audit` (that hospital's audit chain) |
-| `coordinator` | `dagents_coordinator` | `models` (the model registry), `site_contributions` (what each hospital sent in each round), `pilot_reports` (the newest 20 pilot reports), `guard_audit` (the release Guard's audit chain) |
+| `site_uk_134`, `site_it_002`, `site_ch_245` | the role with the same name | `encounters` (the records), `guard_audit` (the audit chain of that hospital's LMA) |
+| `coordinator` | `dagents_coordinator` | `models` (the GMA's model registry), `site_contributions` (each hospital's LMA job log: what it sent in each round), `pilot_reports` (the app's newest 20 pilot reports), `guard_audit` (the audit chain of the GMA's release Guard) |
 
 - The four roles are `NOLOGIN`. On PostgreSQL 16 or later the migration grants
   each one to the connecting role `WITH INHERIT FALSE, SET TRUE`: the API can
@@ -68,19 +70,29 @@ Migrations `supabase/migrations/0002_site_isolation.sql` and
   results and the training curve. It holds no hospital's audit records and no
   record of any patient.
 
-The API runs every database operation in one transaction that starts with `SET
-LOCAL ROLE <role>` and checks `current_user`, so each query runs as one
-hospital or as the coordinator.
+The API and its agents run every database operation in one transaction that
+starts with `SET LOCAL ROLE <role>` and checks `current_user`, so each query
+runs as one hospital or as the coordinator. The process holds four kept
+connections: one per hospital store and one for the coordinator. Each LMA uses
+its hospital store's connection, acting as the hospital's role, for its reads,
+its audit chain and its job log. The GMA uses the coordinator's connection,
+acting as `dagents_coordinator`, which has no grant on any hospital schema.
+
+The agents need no migration of their own: they use the tables that
+migrations 0002 and 0003 create. The model rows a database already holds for
+the seed rule and the initial logistic regression match what the app registers
+with the GMA, so the registration changes nothing, and each audit chain
+continues where it ended.
 
 ### What the coordinator sees of the audit chains
 
-Each hospital's Guard writes its decisions to that hospital's own
-`guard_audit` table. The coordinator's release Guard writes to
+Each hospital's LMA writes its Guard's decisions to that hospital's own
+`guard_audit` table. The GMA's release Guard writes to
 `coordinator.guard_audit`. A pilot report tells the coordinator, for each
 chain, only whether it verifies and how many decisions it holds
-(`site_audits` and `coordinator_audit`). The decisions themselves stay where
-they were written. A hospital's own view, `GET /api/v1/hospitals/{id}/audit`,
-lists its recent decisions.
+(`site_audits` and `coordinator_audit`, which the app reads through the GMA).
+The decisions themselves stay where they were written. A hospital's own view,
+`GET /api/v1/hospitals/{id}/audit`, lists its recent decisions, from its LMA.
 
 How a chain is checked:
 
@@ -131,6 +143,13 @@ No secret is in the repository or in this file. Each one is kept in one place:
 | `HEALTHCARE_DEMO_CORS_ORIGINS` | the API service's environment on Render | the deployed API |
 | `HEALTHCARE_API_BASE` (optional) | GitHub → the same page → **Variables** | the Pages build, instead of `env/.env.published` |
 
+The agents' tokens are not on this list. In process, the API makes a new token
+for each agent and scope when it first builds the agents (on the first request
+that needs them), with `secrets.token_urlsafe`, and never logs them. Only
+network mode reads tokens from the environment (`HEALTHCARE_DEMO_GMA_TOKEN` and
+`HEALTHCARE_DEMO_LMA_<SITE>_TOKEN`); set them as secrets of the service, never
+in a file.
+
 `env/.env.published` at the repository root holds the API's address. It is
 committed on purpose, because the Pages build reads it. It is the only file in
 the repository with that address: the docs use an API run locally, the page
@@ -157,8 +176,27 @@ defaults suit it; each setting is an environment variable on the service.
 | `HEALTHCARE_DEMO_TRUST_FORWARDED_FOR` | on when `RENDER` is set | read the client from `X-Forwarded-For` instead of the TCP peer |
 | `HEALTHCARE_DEMO_FORWARDED_FOR_HOPS` | 3 when `RENDER` is set, otherwise 1 | proxies in front of the app that append to `X-Forwarded-For` |
 | `HEALTHCARE_DEMO_MAX_BODY_BYTES` | 65536 | largest request body; then 413 |
+| `HEALTHCARE_DEMO_MAX_IN_FLIGHT` | 12 | public requests the API works on at once; the health routes are never held back |
+| `HEALTHCARE_DEMO_IN_FLIGHT_WAIT_SECONDS` | 20 | how long a request waits for a slot; then 503 with `Retry-After: 60` |
 
 `0` turns a rate limit or an hourly cap off.
+
+The agents have settings of their own. `render.yaml` sets each of them, with
+these defaults:
+
+| Setting | Default | What it does |
+|---|---|---|
+| `HEALTHCARE_DEMO_AGENTS` | `in-process` | `in-process` runs the LMAs and the GMA in the API's process; `network` calls them as separate processes and needs `HEALTHCARE_DEMO_DATABASE_URL` |
+| `HEALTHCARE_DEMO_AGENT_THREAD_TOKENS` | 64 | in process, how many agent handlers may run at once across the four agents; the API refuses to start with fewer than 4 × `HEALTHCARE_DEMO_MAX_IN_FLIGHT` + 8 |
+| `HEALTHCARE_DEMO_DISPATCH_CONCURRENCY` | 3 | how many hospitals the GMA sends a round's jobs to at once, from 1 to 64 |
+| `HEALTHCARE_DEMO_REQUEST_TIMEOUT_SECONDS` | 2.0 | how long each agent's health check in the status report may take |
+
+A public request can make nested calls to the agents, and in process every
+agent handler takes one of the shared threads. Without the cap on requests in
+progress, a burst of requests could hold every thread while each waits for an
+agent, and none would finish. The startup check keeps enough threads for the
+cap. A request takes its slot only after its whole body has arrived, so a
+client that sends a body slowly holds no slot.
 
 The hourly caps bound how fast the database grows. Each Guard probe adds a
 record to that hospital's audit chain, and each pilot adds model versions,
@@ -250,8 +288,10 @@ so a real mistake stays visible.
 
 3. **Deploy the API.** Render → New → Blueprint, and choose
    `apps/healthcare-demo/render.yaml`. It builds `backend/Dockerfile`, which
-   compiles `dagentsc` in its first stage and copies the IST extract into the
-   image; without the planner, the Guard denies every request. Set
+   compiles `dagentsc` in its first stage and copies the IST extract and the
+   framework's `agents/` package into the image; without the planner, the Guard
+   denies every request. The blueprint is still one free web service: the
+   agents run inside it and need no service or secret of their own. Set
    `HEALTHCARE_DEMO_DATABASE_URL` and `HEALTHCARE_DEMO_CORS_ORIGINS` when asked.
 
 4. **Point the published frontend at it.** Set `HEALTHCARE_DEMO_PUBLIC_API_URL`
@@ -371,26 +411,32 @@ Deploy → Deploy latest commit** to fix it.
 
 The API runs on a free tier that stops the container after about 15 minutes
 without traffic, so the first request usually starts it. A measured start took
-about 22 seconds. `liveFetch` in `frontend/src/api.ts` retries only requests
-that never reached the app, for up to 90 seconds, and the page shows a plain
-"connecting" banner while it waits.
+about 22 seconds, before the agents ran inside the API. The API builds its
+stores and its agents on the first request that needs them, not at start, so
+the health check answers first. `liveFetch` in `frontend/src/api.ts` retries
+only requests that never reached the app, for up to 90 seconds, and the page
+shows a plain "connecting" banner while it waits.
 
 Each store operation takes three round trips to the database: one message that
 begins the transaction, switches to the site's role, applies the settings and
-checks the role; the query; and `COMMIT`. A pilot makes about 145 store
-operations, or about 440 round trips (144 operations and 437 round trips
-measured), so its time depends on the distance to the database:
+checks the role; the query; and `COMMIT`. A pilot makes about 425 round trips
+(421 to 430 measured); the first pilot after a start makes about 50 more (473
+measured). The GMA sends each round's job to the three hospitals at once, one
+`jobs:run` call each, so the hospitals' database operations overlap. A pilot's
+time still depends on the distance to the database. Measured at full CPU on a
+development machine, with the planner; each time is the mean of three pilots:
 
 | Where the database is | Pilot time |
 |---|---|
-| in memory (no database) | about 1 second |
-| local Postgres | about 1.3 seconds |
-| through a proxy that adds a 20 ms round trip | 10.7 seconds |
-| through a proxy that adds a 40 ms round trip | 19.7 seconds |
+| in memory (no database) | about 1.5 seconds |
+| local Postgres | about 1.8 seconds |
+| through a proxy that adds a 20 ms round trip | about 6.5 seconds |
+| through a proxy that adds a 40 ms round trip | about 11 seconds |
 
-Before the opening statements were sent as one message, the same pilot took 29
-seconds at 20 ms and 55 seconds at 40 ms. Keep the API and the database in the
-same region.
+The hosted service has a fraction of one CPU, so its pilots take longer. In a
+container limited to a tenth of a CPU, a pilot took about 22 seconds through
+the 20 ms proxy and about 37 seconds through a proxy that adds a 110 ms round
+trip. Keep the API and the database in the same region.
 
 The page never falls back to the recording. A recording from another commit
 shown as live would misreport both the data and the framework. A live build that
@@ -403,6 +449,10 @@ cannot reach its API says so.
 | A hospital store cannot be reached, or a database operation fails | 503 | "The hospital records cannot be reached right now. Try again in a minute." |
 | The database lacks a schema, table, role or grant this version needs | 503 | "The demo database is not set up for this version of the app yet, so the hospital records cannot be shown. Try again later." |
 | The planner cannot run during a pilot | 503 | "The planner is not available right now, so the pilot cannot run. Try again in a minute." |
+| The planner cannot run for a page that shows the model in use (the GMA checks each model version with it) | 503 | "The planner is not available right now. Try again in a minute." |
+| A Dagents agent did not answer in time | 503 | "Part of the demo server did not answer in time. Try again in a minute." |
+| A hospital's LMA could not get what it needed from the GMA, for example because the GMA's store failed | 503 | "Part of the demo server could not complete this request. Try again in a minute." |
+| More public requests are in progress than the cap allows, and no slot freed in time | 503, with `Retry-After: 60` | "The demo server is busy. Try again in a minute." |
 | Any other error | 500 | "The server could not complete this request." |
 | The hourly cap on Guard probes at one hospital is reached | 429, with `Retry-After` | "The demo's hourly limit for Guard probes at Hospital 134 is reached. Try again in about 12 minutes." |
 | The hourly cap on pilots is reached | 429, with `Retry-After` | "The demo's hourly limit for pilots is reached. Try again in about 12 minutes." |
@@ -412,11 +462,20 @@ Each one is a JSON body, `{"detail": ...}`, with the CORS headers and
 the app, such as one sent while the service starts. An answer with
 `X-Dagents-App` comes from the app, so the page shows its message at once. The
 database error itself names the host and the user, so it goes to the service's
-log and never into a response.
+log and never into a response. An agent's error is logged the same way, with
+any address in it replaced, and the visitor gets the app's own message.
 
 `GET /api/v1/framework/status` never returns 503. When it cannot read the
 stores it reports `"ready": false` and `"hospitals": null`; when every store
-can be read it lists each hospital's `record_count` and `labelled_count`.
+can be read it lists each hospital's `record_count` and `labelled_count`, as
+each LMA counts them. Its `agents` field says how the agents run
+(`"mode": "in-process"` on the hosted service), the GMA's engine, and whether
+each LMA answered. It waits at most 15 seconds for the GMA's site summaries,
+and the GMA waits at most 10 seconds for each LMA
+(`GMA_SUMMARY_TIMEOUT_SECONDS`). The GMA's engine name and each agent's health
+check wait at most `HEALTHCARE_DEMO_REQUEST_TIMEOUT_SECONDS` (2 seconds by
+default). So an agent that does not answer makes the report say "not ready"
+instead of holding the request.
 
 ## Seeding again
 

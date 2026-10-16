@@ -28,7 +28,7 @@ from fastapi import Depends, FastAPI, Request
 from fastapi.responses import JSONResponse, Response
 from fastapi.testclient import TestClient
 
-from agents.common.domain.federation import ModelVersion, UpdateUpload
+from agents.common.domain.federation import ModelReleaseDecision, ModelVersion, UpdateUpload
 from agents.common.domain.governance import KyuAttribute, Requester
 from agents.common.extensions import ExtensionRegistry
 from agents.common.infrastructure.agent_auth import (
@@ -135,6 +135,8 @@ class FakeGma:
     It checks the GMA site token bound to the site, as the real GMA does.
     ``uploads`` keeps every stored update. ``receipt_digest`` replaces the
     digest it answers with, and ``refuse_uploads`` makes it answer 409.
+    ``upload_failure``, a ``(status, body)`` pair, makes it answer the upload
+    with that error instead, as a GMA whose own store failed does.
     """
 
     def __init__(self, released: ModelVersion | None = None, site_tokens: dict[str, str] | None = None) -> None:
@@ -144,6 +146,7 @@ class FakeGma:
         self.not_modified = 0
         self.receipt_digest: str | None = None
         self.refuse_uploads = False
+        self.upload_failure: tuple[int, dict[str, Any]] | None = None
         tokens = site_tokens if site_tokens is not None else {SITE: GMA_SITE_TOKEN}
         self.app = FastAPI(title="fake GMA")
         install_agent_access(
@@ -168,6 +171,9 @@ class FakeGma:
             dependencies=[Depends(require_scope("site", bind_site="site_id"))],
         )
         def upload_update(round_id: str, site_id: str, upload: UpdateUpload) -> Any:
+            if self.upload_failure is not None:
+                status, body = self.upload_failure
+                return JSONResponse(body, status_code=status)
             if self.refuse_uploads:
                 return JSONResponse(
                     {"detail": f"an update from {site_id} is already stored for {round_id}", "code": "conflict"},
@@ -644,6 +650,9 @@ class SiteRoutesTests(unittest.TestCase):
                 "digest": LINEAR.parameter_digest(TRAINED),
                 "status": "released",
                 "params": TRAINED,
+                "parent_version": None,
+                "created_at": None,
+                "release_decision": None,
             },
             first.json(),
         )
@@ -651,6 +660,22 @@ class SiteRoutesTests(unittest.TestCase):
         self.assertEqual(first.json(), second.json())
         self.assertEqual(2, lma.gma.released_requests)
         self.assertEqual(1, lma.gma.not_modified, "the second read must send the known digest")
+
+    def test_model_in_use_carries_the_registry_details_the_gma_sent(self) -> None:
+        """The site's staff see where the model in use came from: its parent, its age and its release decision."""
+        decision = ModelReleaseDecision(
+            action="release", guard_permitted=True, round_id="study-training-2", baseline_version="toy-threshold-v1",
+            metrics_source="rounds", decided_at="2026-01-02T03:04:05+00:00",
+        )
+        released = linear_version(
+            parent_version="toy-linear-v1", created_at="2026-01-01T00:00:00+00:00", release_decision=decision
+        )
+        lma = self.harness(gma=FakeGma(released=released))
+        body = lma.get("/api/v1/site/model").json()
+        self.assertEqual("toy-linear-v1", body["parent_version"])
+        self.assertEqual("2026-01-01T00:00:00+00:00", body["created_at"])
+        self.assertEqual(decision.model_dump(mode="json"), body["release_decision"])
+        self.assertEqual(TRAINED, body["params"])
 
     def test_a_released_model_whose_parameters_do_not_match_is_refused(self) -> None:
         tampered = linear_version(digest=LINEAR.parameter_digest(INITIAL))
@@ -784,7 +809,13 @@ class TokenScopeTests(unittest.TestCase):
                 self.assertEqual("Bearer", response.headers.get("www-authenticate"))
 
     def test_job_routes_take_only_the_coordinator_token(self) -> None:
-        for path in ("/api/v1/federation/jobs:offer", "/api/v1/federation/jobs:execute", "/federation/jobs:offer"):
+        for path in (
+            "/api/v1/federation/jobs:offer",
+            "/api/v1/federation/jobs:execute",
+            "/api/v1/federation/jobs:run",
+            "/federation/jobs:offer",
+            "/federation/jobs:run",
+        ):
             with self.subTest(path=path):
                 response = self.lma.client.post(path, headers=SITE_HEADERS, json={})
                 self.assertEqual(403, response.status_code, response.text)
@@ -863,6 +894,7 @@ class RoutePairTests(unittest.TestCase):
             "federation_registration",
             "offer_job",
             "execute_job",
+            "run_job",
             "list_jobs",
         ):
             with self.subTest(handler=name):

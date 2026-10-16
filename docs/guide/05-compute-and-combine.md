@@ -226,7 +226,7 @@ version changes, and checks the version at most once every 30 seconds
 | `POST /site/source:refresh` | `site` | The record count and source version after the LMA asked the source again. Call it after a write |
 | `GET /site/model`, `POST /site/model:evaluate` | `site` | The released model, read from the GMA and checked by its model kind; its metrics on the site's labelled records |
 | `POST /governance/restrictions:probe`, `GET /governance/audit:summary` | `site`; the summary also `coordinator` | What the Guard would release, never the rows (Step 4); the audit chain's state and length |
-| `GET /federation/registration`, `POST /federation/jobs:offer`, `POST /federation/jobs:execute` | `coordinator` | The site's enrolment and its part of a round (Step 6) |
+| `GET /federation/registration`, `POST /federation/jobs:offer`, `POST /federation/jobs:execute`, `POST /federation/jobs:run` | `coordinator` | The site's enrolment and its part of a round (Step 6) |
 | `GET /federation/jobs` | `site` | The site's job log: each job it refused or ran, newest first |
 
 The label rate in the summary is decided like any other table request. The LMA

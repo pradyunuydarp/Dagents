@@ -97,6 +97,7 @@ The site and job routes, in their `/api/v1` form:
 | `GET /federation/registration` | `coordinator` | How the site enrols, with its current record count |
 | `POST /federation/jobs:offer` | `coordinator` | Check a job before reading any data; accept or refuse it with the reason |
 | `POST /federation/jobs:execute` | `coordinator` | Run an accepted job once, on the Guard's payload |
+| `POST /federation/jobs:run` | `coordinator` | Both steps in one call: check the job and, when the site accepts it, run it. The GMA's HTTP engine sends this one |
 | `GET /federation/jobs?limit=20` | `site` | The job log, newest first |
 
 With tokens configured, every other route except `/health` needs the `site`

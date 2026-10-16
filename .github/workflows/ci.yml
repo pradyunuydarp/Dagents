@@ -137,7 +137,10 @@ jobs:
         # service. --forbid planner covers every planner test; the classes
         # below must also have run: the Guard, the round controller, the
         # charts, the LMA's federated jobs, the GMA's HTTP engine and release,
-        # and the agent client over a real loopback socket.
+        # the agent client over a real loopback socket, the update upload
+        # while every GMA thread token is held, the refused approval on the
+        # simulator, and a whole study through the GMA and three LMAs, in
+        # process and as separate uvicorn processes.
         run: |
           python scripts/ci_no_skipped_tests.py \
             --forbid planner \
@@ -147,9 +150,14 @@ jobs:
             --require-ran agents.tests.test_charts.RenderTests \
             --require-ran agents.tests.test_lma_federation_jobs.OfferTests \
             --require-ran agents.tests.test_lma_federation_jobs.ExecuteTests \
+            --require-ran agents.tests.test_lma_federation_jobs.RunTests \
             --require-ran agents.tests.test_gma_http_engine.HttpEngineTests \
+            --require-ran agents.tests.test_gma_http_engine.UploadThreadTests \
             --require-ran agents.tests.test_gma_release.ReleaseEvaluationTests \
+            --require-ran agents.tests.test_gma_release.SimulatorRoundFlowTests \
             --require-ran agents.tests.test_agent_client.NetworkClientTests \
+            --require-ran agents.tests.test_agent_network_flow.InProcessStudyTests \
+            --require-ran agents.tests.test_agent_network_flow.OverHttpStudyTests \
             agents-suite.log
 
       - name: Run the getting-started example and check the guide
@@ -358,9 +366,9 @@ jobs:
   # ---------------------------------------------------------------------------
   # The consumer apps. Both prove the framework is consumable; the healthcare
   # suite also carries the governance and federation assertions for the demo.
-  # The healthcare store and site isolation tests, and the framework's database
-  # tests, need a real PostgreSQL 16, so this job runs one as a service
-  # container and fails if those tests skip.
+  # The healthcare store and site isolation tests, the demo in network mode,
+  # and the framework's database tests need a real PostgreSQL 16, so this job
+  # runs one as a service container and fails if those tests skip.
   # ---------------------------------------------------------------------------
   demo-apps:
     name: Demo app backends
@@ -407,6 +415,12 @@ jobs:
                                 -r services/nl2sql-demo/backend/requirements.txt
 
       - name: healthcare-demo
+        # The demo calls the LMAs and the GMA only through their HTTP APIs.
+        # Most tests build the agents inside the API process.
+        # tests/test_network_mode.py starts the GMA, one LMA per hospital and
+        # the API as separate uvicorn processes on loopback ports the system
+        # picks, against the service container, and checks that their pilot
+        # equals the in-process pilot.
         working-directory: apps/healthcare-demo
         env:
           DAGENTSC_BIN: ${{ env.PLANNER_DIR }}/dagentsc.exe
@@ -463,12 +477,15 @@ jobs:
             --require-ran tests.test_pilot_postgres.PostgresApprovalAfterRestartTests \
             --require-ran tests.test_pilot_postgres.PostgresRestartTests \
             --require-ran tests.test_data_entry_flow.PostgresDataEntryTests \
-            --require-ran tests.test_runtime.PostgresRegistryTests \
             --require-ran tests.test_store_connections.PostgresConnectionReuseTests \
             --require-ran tests.test_store_connections.PostgresPilotConnectionTests \
             --require-ran tests.test_api_postgres.PostgresApiTests \
             --require-ran tests.test_api_postgres.UnmigratedDatabaseApiTests \
             --require-ran tests.test_data_source_status.PostgresStatusTests \
+            --require-ran tests.test_agents_wiring.PostgresWiringTests \
+            --require-ran tests.test_concurrency.PostgresPilotWhileWritingTests \
+            --require-ran tests.test_network_mode.NetworkModeTests \
+            --require-ran tests.test_network_mode.NetworkApprovalTests \
             apps/healthcare-demo/healthcare-suite.log || status=1
           python scripts/ci_no_skipped_tests.py \
             --forbid database \

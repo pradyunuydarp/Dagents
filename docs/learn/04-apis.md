@@ -10,7 +10,7 @@
 | pipeline-service | 8030 | Pipeline registry, validation and runs |
 | core-service | 8040 | Catalog, topology, workload compilation, Kubernetes manifests |
 | Spring control and core | 8050, 8060 | The same control and core APIs for JVM consumers |
-| Stroke demo backend | 8080 | The demo's own API: hospitals, data entry, the Guard probe, the pilot, charts |
+| Stroke demo backend | 8080 | The demo's own API: hospitals, data entry, the Guard probe, the pilot, charts. It calls an LMA per hospital and a GMA through their APIs |
 
 The [API reference](../reference/api/overview.md) describes every endpoint: its
 parameters, its request and response fields, its errors, and examples captured
@@ -46,7 +46,9 @@ from real calls. It is generated from the code, grouped by module:
 
 Build the planner first (see [Step 5](05-hands-on.md)). Then start the API from
 the repository root. It needs no database: each hospital keeps its records in
-memory, loaded from the committed International Stroke Trial extract.
+memory, loaded from the committed International Stroke Trial extract. The API
+runs one LMA per hospital and a GMA inside its own process, and calls them
+through their HTTP routes without a socket.
 
 ```bash
 export DAGENTSC_BIN=$PWD/bindings/ocaml/_build/default/bin/dagentsc.exe
@@ -63,7 +65,8 @@ API=http://127.0.0.1:8080
 curl -s $API/api/v1/health
 
 # Where are the records stored? Locally: "cohort_source": "in-memory",
-# "ready": true, and each hospital's record_count and labelled_count.
+# "ready": true, each hospital's record_count and labelled_count, and
+# "agents": {"mode": "in-process", "engine": "http", ...}.
 curl -s $API/api/v1/framework/status
 
 # The three hospitals, what each reports, and the release gates
@@ -72,6 +75,12 @@ curl -s $API/api/v1/overview
 # One hospital's ranked worklist
 curl -s "$API/api/v1/hospitals/uk-134/worklist?limit=3"
 ```
+
+Every successful answer whose body is a JSON object ends with
+`framework_calls`: the LMA and GMA calls the demo made to build it. Each entry
+names the agent, the method, the route template, the status and the time it
+took, never a host or a token. The overview's calls go to the GMA, which asks
+each hospital's LMA for its summary (`GET /api/v1/federation/sites/summaries`).
 
 The overview lists what each hospital reports about its records, never the
 records themselves:
@@ -114,7 +123,9 @@ The top row at `uk-134`, shortened:
 ### Ask the governance planner
 
 `governance:probe` runs one request through a hospital's Guard and returns the
-plan. `site_id` picks the hospital; the default is the first one.
+plan. `site_id` picks the hospital; the default is the first one. The demo
+sends the request to that hospital's LMA, and `framework_calls` names the call:
+`POST /api/v1/governance/restrictions:probe`.
 
 ```bash
 curl -s -X POST $API/api/v1/governance:probe \
@@ -182,14 +193,16 @@ curl -s -X POST $API/api/v1/hospitals/it-002/encounters \
        "atrial_fibrillation": true, "stroke_subtype": "TACS"}'
 ```
 
-The answer is `201` with four parts:
+The answer is `201` with four parts, followed by `framework_calls`:
 
 - `record`: the stored row, with the id `it-002-e1`, `origin: "entered"` and the
   age band `70-79` filled in from the age;
 - `assessment`: score 0.9526, priority `urgent`, 11 points;
 - `counts`: `{"total": 293, "entered": 1, "labelled": 292}`;
-- `profile`: the hospital's running statistics, updated with this one record.
-  For example, `systolic_bp` now has 293 values with a mean of 160.27.
+- `profile`: the hospital's running statistics. The demo asked the hospital's
+  LMA to read the store again (`POST /api/v1/site/source:refresh`), and the LMA
+  rebuilt them. For example, `systolic_bp` now has 293 values with a mean of
+  160.27.
 
 What else to try:
 
@@ -226,8 +239,12 @@ curl -s -X POST $API/api/v1/pilot:run \
 
 `round_prefix` starts each round's id and must be `ui` or `api`. This runs
 eight federated rounds (analytics, evaluation of the model in use, five training
-rounds and validation of the candidate) and then the release gates. It takes
-about a second. On the committed records, before any entry:
+rounds and validation of the candidate) and then the release gates. The demo
+calls only the GMA. The GMA sends each round's job to the three LMAs, and
+`framework_calls` lists those calls too, with `"via": "gma"`: one
+`jobs:run` call per hospital and round, in which the hospital's LMA checks the
+job and runs it when it accepts. It takes about a second. On the
+committed records, before any entry:
 
 - the model in use, `stroke-outcome-rule-v1`, scores a size-weighted AUC of
   0.7769 at the three hospitals;
@@ -276,16 +293,20 @@ curl -s $API/api/v1/charts                      # consortium charts, from report
 curl -s "$API/api/v1/hospitals/uk-134/charts/outcome-by-age-band.svg?theme=dark" -o chart.svg
 ```
 
-Each list entry has `chart_id`, `title`, `available`, `svg_path` and `table`.
+Each list entry has `chart_id`, `title`, `available`, `svg_path` and `table`,
+and says who drew the chart (`drawn_by`) and where its numbers come from
+(`data_from`).
 Before the first pilot, the training curve, AUC and gate charts are listed with
 `available: false`. With a database, the coordinator keeps the pilot reports, so
 after a restart these charts show the last pilot.
 
 ### When something fails
 
-A store or database failure returns a JSON `503` with a plain message, and any
-other error a JSON `500`. Both carry the CORS headers and the `X-Dagents-App`
-header, which tells a client the answer came from the app and not from a proxy.
+A store or database failure, a missing planner or an agent that does not
+answer returns a JSON `503` with a plain message, and any other error a JSON
+`500`. The message is the demo's own, never the agent's. Both carry the CORS
+headers and the `X-Dagents-App` header, which tells a client the answer came
+from the app and not from a proxy.
 [The deployment notes](../../apps/healthcare-demo/docs/deployment.md#what-the-api-returns-when-something-fails)
 list each message.
 
@@ -393,7 +414,8 @@ sequenceDiagram
 Each path also works under `/api/v1/`. A round id can be used once: sending
 the same manifest again answers `409`. Only the sites the plan selected may
 post a result; any other site gets `403`. The readiness `GET` asks the planner
-and stores nothing. A round is aggregated once and takes one release decision;
+and stores nothing. With the HTTP engine the GMA collects the results itself,
+and the dispatch answer already carries the readiness. A round is aggregated once and takes one release decision;
 a second attempt answers `409`. The request schemas are on the GMA's `/docs` page and in
 the [federated rounds](../reference/api/agents.md#federated-rounds) section of
 the API reference.

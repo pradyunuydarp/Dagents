@@ -208,6 +208,7 @@ own process.
 | Pilots running at once | 1; a second gets `409` | none |
 | Records entered at one hospital | 300; then `409` | `HEALTHCARE_DEMO_MAX_ENTERED_PER_SITE` |
 | Request body | 64 KB; larger gets `413` | `HEALTHCARE_DEMO_MAX_BODY_BYTES` |
+| Requests in progress, all clients together | 12; a request beyond it waits up to 20 seconds for a slot, then gets `503` with `Retry-After: 60`. The health routes never wait | `HEALTHCARE_DEMO_MAX_IN_FLIGHT`, `HEALTHCARE_DEMO_IN_FLIGHT_WAIT_SECONDS` |
 
 A per-minute limit lets a client send that many requests at once, then one more
 every `60 / limit` seconds. A setting of `0` turns a limit off. Over a limit,

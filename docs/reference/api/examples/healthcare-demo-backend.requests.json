@@ -1,8 +1,9 @@
 {
   "service": "healthcare-demo-backend",
-  "note": "Captured in process with the planner available and no database, so each hospital's records are in memory, loaded from apps/healthcare-demo/data/ist/. The per-client limits and hourly caps are off, except model approvals, which are limited to 2 per minute so the last approval example shows a 429. No framework service was running, so the status example lists each one as unavailable. The framework service addresses point at port 9, where nothing listens, so the answers are the same on a machine that runs the services.",
+  "note": "Captured in process with the planner available and no database, so each hospital's records are in memory, loaded from apps/healthcare-demo/data/ist/. The three LMAs and the GMA run inside the app and are called through httpx.ASGITransport, as on the published demo. The per-client limits and hourly caps are off, except model approvals, which are limited to 2 per minute so the last approval example shows a 429. The agents' tokens are new on every run and appear in no answer. The time each agent call took (framework_calls ms) changes on every run, so the replay check ignores it.",
   "env": {
     "HEALTHCARE_DEMO_DATABASE_URL": "",
+    "HEALTHCARE_DEMO_AGENTS": "in-process",
     "HEALTHCARE_DEMO_RATE_LIMIT_ENTRIES": "0",
     "HEALTHCARE_DEMO_RATE_LIMIT_PROBES": "0",
     "HEALTHCARE_DEMO_RATE_LIMIT_PILOTS": "0",
@@ -11,11 +12,6 @@
     "HEALTHCARE_DEMO_PILOTS_PER_HOUR": "0",
     "HEALTHCARE_DEMO_CORS_ORIGINS": "",
     "HEALTHCARE_DEMO_TRUST_FORWARDED_FOR": "0",
-    "CORE_SERVICE_PUBLIC_URL": "http://127.0.0.1:9",
-    "PIPELINE_SERVICE_PUBLIC_URL": "http://127.0.0.1:9",
-    "MODEL_SERVICE_PUBLIC_URL": "http://127.0.0.1:9",
-    "LMA_PUBLIC_URL": "http://127.0.0.1:9",
-    "GMA_PUBLIC_URL": "http://127.0.0.1:9",
     "NO_PROXY": "127.0.0.1,localhost",
     "no_proxy": "127.0.0.1,localhost"
   },
@@ -49,7 +45,10 @@
       "trim": {
         "items": 3,
         "chars": 300
-      }
+      },
+      "volatile": [
+        "/framework_calls/*/ms"
+      ]
     },
     {
       "id": "conditions",
@@ -71,7 +70,10 @@
       "request": {
         "path": "/api/v1/extension"
       },
-      "status": 200
+      "status": 200,
+      "volatile": [
+        "/framework_calls/*/ms"
+      ]
     },
     {
       "id": "assess",
@@ -279,7 +281,8 @@
       },
       "status": 200,
       "volatile": [
-        "/current_model/created_at"
+        "/current_model/created_at",
+        "/framework_calls/*/ms"
       ],
       "trim": {
         "items": 3,
@@ -305,7 +308,10 @@
           "limit": 2
         }
       },
-      "status": 200
+      "status": 200,
+      "volatile": [
+        "/framework_calls/*/ms"
+      ]
     },
     {
       "id": "hospital-worklist-limit",
@@ -329,7 +335,10 @@
       "status": 200,
       "trim": {
         "items": 4
-      }
+      },
+      "volatile": [
+        "/framework_calls/*/ms"
+      ]
     },
     {
       "id": "entry-form",
@@ -370,7 +379,8 @@
       },
       "status": 201,
       "volatile": [
-        "/record/recorded_at"
+        "/record/recorded_at",
+        "/framework_calls/*/ms"
       ],
       "trim": {
         "items": 3,
@@ -405,7 +415,8 @@
       },
       "status": 201,
       "volatile": [
-        "/record/recorded_at"
+        "/record/recorded_at",
+        "/framework_calls/*/ms"
       ],
       "trim": {
         "items": 3,
@@ -479,7 +490,8 @@
       },
       "status": 200,
       "volatile": [
-        "/encounters/*/recorded_at"
+        "/encounters/*/recorded_at",
+        "/framework_calls/*/ms"
       ]
     },
     {
@@ -495,7 +507,8 @@
       "status": 200,
       "volatile": [
         "/record/recorded_at",
-        "/record/outcome_recorded_at"
+        "/record/outcome_recorded_at",
+        "/framework_calls/*/ms"
       ],
       "trim": {
         "items": 3,
@@ -550,7 +563,11 @@
       },
       "status": 200,
       "volatile": [
-        "/audit_id"
+        "/audit_id",
+        "/request_id",
+        "/plan/request_id",
+        "/plan/obligations/0",
+        "/framework_calls/*/ms"
       ]
     },
     {
@@ -574,7 +591,11 @@
       },
       "status": 200,
       "volatile": [
-        "/audit_id"
+        "/audit_id",
+        "/request_id",
+        "/plan/request_id",
+        "/plan/obligations/0",
+        "/framework_calls/*/ms"
       ]
     },
     {
@@ -608,7 +629,10 @@
         "/records/*/audit_id",
         "/records/*/recorded_at",
         "/records/*/digest",
-        "/records/*/previous_digest"
+        "/records/*/previous_digest",
+        "/records/*/request_id",
+        "/records/*/obligations/0",
+        "/framework_calls/*/ms"
       ]
     },
     {
@@ -623,7 +647,10 @@
       "trim": {
         "items": 5,
         "chars": 300
-      }
+      },
+      "volatile": [
+        "/framework_calls/*/ms"
+      ]
     },
     {
       "id": "chart-svg",
@@ -670,7 +697,10 @@
       "trim": {
         "items": 4,
         "chars": 300
-      }
+      },
+      "volatile": [
+        "/framework_calls/*/ms"
+      ]
     },
     {
       "id": "hospital-chart-svg",
@@ -746,7 +776,12 @@
         "/release/guard/plan/request_id",
         "/release/guard/plan/obligations/0",
         "/release/gates/round_id",
-        "/release/gates/candidate_version"
+        "/release/gates/candidate_version",
+        "/framework_calls/*/ms",
+        "/rounds/*/acceptances/*/round_id",
+        "/rounds/training/*/acceptances/*/round_id",
+        "/rounds/*/dispatch",
+        "/rounds/training/*/dispatch"
       ]
     },
     {
@@ -777,7 +812,8 @@
         "/model_in_use/created_at",
         "/models/*/created_at",
         "/models/*/version",
-        "/models/*/parent_version"
+        "/models/*/parent_version",
+        "/framework_calls/*/ms"
       ]
     },
     {
@@ -811,28 +847,16 @@
     {
       "id": "status",
       "endpoint": "GET /api/v1/framework/status",
-      "title": "Read where the records are stored and which services answer",
+      "title": "Read where the records are stored and how the agents run",
       "request": {
         "path": "/api/v1/framework/status"
       },
-      "status": 200
-    },
-    {
-      "id": "trace",
-      "endpoint": "GET /api/v1/framework/trace",
-      "title": "Trace three of Hospital 2's records through the planners",
-      "request": {
-        "path": "/api/v1/framework/trace",
-        "query": {
-          "site_id": "it-002",
-          "limit": 3
-        }
-      },
       "status": 200,
-      "trim": {
-        "items": 6,
-        "chars": 300
-      }
+      "volatile": [
+        "/framework_calls/*/ms",
+        "/framework_calls/*/service",
+        "/framework_calls/*/site_id"
+      ]
     }
   ]
 }

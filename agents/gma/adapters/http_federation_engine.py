@@ -11,16 +11,21 @@ at a time:
    read from the model registry with its digest checked against the
    manifest's ``model_artifact_digest``. A model that does not verify stops
    the dispatch before any site is called.
-2. ``POST /api/v1/federation/jobs:offer``. A refusal becomes a ``rejected``
-   result with the site's reason.
-3. ``POST /api/v1/federation/jobs:execute`` when the site accepted. While the
-   job runs, the LMA sends its clipped update to the GMA's update store.
+2. ``POST /api/v1/federation/jobs:run``: one call in which the site checks
+   the job (the offer) and, when it accepts, runs it (the execution). A
+   refusal becomes a ``rejected`` result with the site's reason. While the
+   job runs, the LMA sends its clipped update to the GMA's update store. The
+   LMA's ``jobs:offer`` and ``jobs:execute`` routes take the same two steps
+   in two calls; one call per site saves a round trip and a second copy of
+   the job.
 
 A missing LMA address, a timeout or an HTTP error becomes a ``failed`` result
-whose ``refusal_reason`` says which call failed and how. It never holds a
-host, a port or the body of an answer that is not JSON. Each call is recorded
-as a :class:`DispatchCall` (site, step, status, milliseconds, outcome), in the
-order the calls finished. Results come back sorted by site.
+whose ``refusal_reason`` says the run failed, with the LMA's status and error
+code, and the site counts as not having accepted the job. It never holds the
+LMA's error detail, which can name a database host or a hosting vendor; the
+engine logs the detail with addresses removed. Each call is recorded as a
+:class:`DispatchCall` (site, step ``run``, status, milliseconds, outcome), in
+the order the calls finished. Results come back sorted by site.
 
 **Aggregation.** An analytics or evaluation round makes metrics only. For a
 training round the engine:
@@ -43,6 +48,7 @@ from __future__ import annotations
 from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
+import logging
 import threading
 import time
 from typing import Callable, Mapping, TypeVar
@@ -57,14 +63,17 @@ from agents.common.domain.federation import (
     FederatedJob,
     JobAcceptance,
     JobModel,
+    JobRun,
     RoundManifest,
     RoundPlan,
     RoundSubmission,
     SiteResult,
 )
-from agents.common.infrastructure.agent_client import AgentError, AgentNetwork, CallLog
+from agents.common.infrastructure.agent_client import AgentError, AgentNetwork, CallLog, without_addresses
 from agents.gma.application.model_registry import ModelRegistry, UnknownModelKind
 from agents.gma.infrastructure.update_store import InMemoryUpdateStore
+
+logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
 
@@ -91,7 +100,7 @@ class HttpFederationEngine:
     """
 
     name = "http"
-    #: Every result comes from a site's ``jobs:execute`` answer, so the round
+    #: Every result comes from a site's ``jobs:run`` answer, so the round
     #: controller refuses results posted through the results route.
     collects_results = True
 
@@ -249,15 +258,16 @@ class HttpFederationEngine:
                 refusal_reason=reason,
             )
 
-        acceptance, error = self._call("offer", record, lambda: client.offer_job(job), _offer_outcome)
-        if acceptance is None:
-            reason = f"the job offer failed: {error}"
+        def not_accepted(reason: str) -> tuple[JobAcceptance, SiteResult]:
             refused = JobAcceptance(round_id=round_id, site_id=site_id, accepted=False, reason=reason)
             return refused, failed(reason)
+
+        answer, error = self._call("run", record, lambda: client.run_job(job), _run_outcome)
+        if answer is None:
+            return not_accepted(f"the job run failed: {_failure(error, site_id, round_id)}")
+        acceptance, result = answer.acceptance, answer.result
         if acceptance.site_id != site_id or acceptance.round_id != round_id:
-            reason = "the LMA answered the offer for another site or round"
-            refused = JobAcceptance(round_id=round_id, site_id=site_id, accepted=False, reason=reason)
-            return refused, failed(reason)
+            return not_accepted("the LMA answered the offer for another site or round")
         if not acceptance.accepted:
             rejected = SiteResult(
                 round_id=round_id,
@@ -267,10 +277,8 @@ class HttpFederationEngine:
                 refusal_reason=acceptance.reason or None,
             )
             return acceptance, rejected
-
-        result, error = self._call("execute", record, lambda: client.execute_job(job), _execute_outcome)
         if result is None:
-            return acceptance, failed(f"the job did not run: {error}")
+            return acceptance, failed("the LMA accepted the job but returned no result")
         if result.site_id != site_id or result.round_id != round_id:
             return acceptance, failed("the LMA returned a result for another site or round")
         return acceptance, result
@@ -344,12 +352,25 @@ class HttpFederationEngine:
         return model.version, model.digest
 
 
-def _offer_outcome(acceptance: JobAcceptance) -> str:
-    return "accepted" if acceptance.accepted else "refused"
+def _failure(error: AgentError | None, site_id: str, round_id: str) -> str:
+    """Why a call to an LMA failed, as results may show it: who answered, the status and the code.
+
+    Results reach the coordinator and an application's users. The LMA's own
+    detail can quote a store error that names a database host or a hosting
+    vendor, so it goes only to the log, with addresses removed.
+    """
+    assert error is not None
+    logger.warning(
+        "site %s, round %s: %s", site_id, round_id, without_addresses(str(error))
+    )
+    return error.without_detail()
 
 
-def _execute_outcome(result: SiteResult) -> str:
-    return result.participation
+def _run_outcome(answer: JobRun) -> str:
+    """A run call's outcome: ``refused``, or the participation of the result the site returned."""
+    if not answer.acceptance.accepted:
+        return "refused"
+    return answer.result.participation if answer.result is not None else "failed"
 
 
 __all__ = ["DEFAULT_HISTORY", "HttpFederationEngine"]

@@ -44,6 +44,7 @@ from agents.common.domain.federation import (
     CandidateModel,
     FederatedJob,
     JobAcceptance,
+    JobRun,
     ModelVersion,
     ModelVersionList,
     ModelVersionRegistration,
@@ -263,6 +264,15 @@ def build_fake_lma(site_id: str, access: AgentAccess) -> FastAPI:
         if job.round_id == "not-accepted":
             return conflict("this LMA did not accept a job for round not-accepted")
         return SiteResult(round_id=job.round_id, site_id=job.site_id, participation="completed", contributed_examples=12)
+
+    @app.post("/api/v1/federation/jobs:run", dependencies=coordinator_only)
+    def run(job: FederatedJob):
+        accepted = job.round_id != "refused"
+        acceptance = JobAcceptance(round_id=job.round_id, site_id=job.site_id, accepted=accepted, verified_digest=accepted)
+        if not accepted:
+            return JobRun(acceptance=acceptance)
+        result = SiteResult(round_id=job.round_id, site_id=job.site_id, participation="completed", contributed_examples=12)
+        return JobRun(acceptance=acceptance, result=result)
 
     @app.get("/api/v1/federation/jobs", dependencies=site_only)
     def jobs(limit: int = 20):
@@ -616,6 +626,12 @@ class ClientContract:
         with self.assertRaises(AgentError) as caught:
             lma.execute_job(job.model_copy(update={"round_id": "not-accepted"}))
         self.assertEqual((caught.exception.status, caught.exception.code), (409, "conflict"))
+        ran = lma.run_job(job)
+        self.assertIsInstance(ran, JobRun)
+        self.assertTrue(ran.acceptance.accepted)
+        self.assertEqual(("completed", 12), (ran.result.participation, ran.result.contributed_examples))
+        refused = lma.run_job(job.model_copy(update={"round_id": "refused"}))
+        self.assertEqual((False, None), (refused.acceptance.accepted, refused.result))
 
     def test_each_lma_answers_for_its_own_site(self) -> None:
         self.assertEqual(self.network.lma(OTHER_SITE, LMA_SITE_TOKEN).site_info().site_id, OTHER_SITE)

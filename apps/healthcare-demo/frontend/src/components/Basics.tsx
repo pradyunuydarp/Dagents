@@ -13,13 +13,18 @@ export function Chip({ tone, children }: { tone: Tone; children: ReactNode }) {
   return <span className={`ds-chip ds-chip--${tone}`}>{children}</span>;
 }
 
-/** A panel with a heading row. `hook` is the `data-panel` name the smoke test uses. */
+/**
+ * A panel with a heading row. `hook` is the `data-panel` name the smoke test uses.
+ *
+ * `level` 3 is for a panel inside a group that has its own heading.
+ */
 export function Panel({
   hook,
   eyebrow,
   title,
   action,
   className,
+  level = 2,
   children
 }: {
   hook: string;
@@ -27,14 +32,16 @@ export function Panel({
   title: string;
   action?: ReactNode;
   className?: string;
+  level?: 2 | 3;
   children: ReactNode;
 }) {
+  const Heading = level === 3 ? "h3" : "h2";
   return (
     <section className={`panel ds-panel${className ? ` ${className}` : ""}`} data-panel={hook}>
       <div className="ds-panel-head">
         <div className="head-titles">
           {eyebrow && <p className="ds-eyebrow">{eyebrow}</p>}
-          <h2>{title}</h2>
+          <Heading className="panel-title">{title}</Heading>
         </div>
         {action}
       </div>

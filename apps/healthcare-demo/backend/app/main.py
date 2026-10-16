@@ -1,38 +1,59 @@
 """FastAPI entrypoint for the Dagents healthcare stroke-triage demo.
 
-This app uses the Dagents framework; it is not part of it. It contributes a
-feature contract, a data classification, a condition pack, a seed rule and a
-model encoding. The framework supplies validation, restriction planning, Guard
-enforcement, round planning, quorum, release gates and workload compilation.
+This app uses the Dagents framework; it is not part of it. Each hospital is
+served by a Dagents LMA (local monitoring agent), and the study is coordinated
+by a Dagents GMA (global monitoring agent). The app calls them only through
+their HTTP APIs (``app.services.agents``): the hospital views call each
+hospital's LMA, and the study operator calls the GMA. By default the four
+agents run inside this process and are called without a socket; they can also
+run as their own processes.
+
+The app keeps the stroke domain: the feature contract, the classification and
+the condition pack (contributed to the agents as an extension), the seed rule
+and the logistic regression (contributed as model kinds), the hospitals'
+stores and data entry, the hospitals' own views, the order of the pilot's
+rounds, the charts and this public API with its limits.
 
 The records are real, de-identified records from the International Stroke
 Trial (1991-1996), grouped by hospital. Each hospital's records are in its own
 store: its own schema and role in Postgres, or its own in-memory store when no
 database is configured. Nothing this app returns is clinical advice.
 
-Building the app reads no records and opens no database connection. The
-stores are opened on first use and closed when the app shuts down.
+Every successful answer whose body is a JSON object has a ``framework_calls``
+field: the LMA and GMA calls behind it, by route, with no host and no token.
+
+Building the app reads no records, opens no database connection and starts no
+agent. The stores and the agents are built on first use and stopped when the
+app shuts down.
 """
 
 from __future__ import annotations
 
+import json
 import logging
 from contextlib import asynccontextmanager
-from typing import Annotated, Any, AsyncIterator, Literal
+from typing import Annotated, Any, AsyncIterator, Awaitable, Callable, Literal
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Path, Query, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from agents.common.domain.governance import KyuAttribute, Requester, RestrictionRequest
-from agents.common.extensions import default_registry
+from agents.common.domain.governance import KyuAttribute, Requester
+from agents.common.domain.site import ProbeRequest
 from agents.common.infrastructure.charts import ChartsUnavailableError
-from agents.common.infrastructure.dagents_runner import PlannerUnavailableError
 
 from app.api.app_header import APP_HEADER, AppHeader
 from app.api.errors import UNEXPECTED_ERROR_MESSAGE, UnhandledErrors
-from app.api.limits import BodySizeLimit, HourlyCap, RateLimiter, SingleFlight, forwarded_for_entries, retry_after
+from app.api.limits import (
+    BodySizeLimit,
+    HourlyCap,
+    InFlightCap,
+    RateLimiter,
+    SingleFlight,
+    forwarded_for_entries,
+    retry_after,
+)
 from app.core.config import settings
 from app.domain import stroke_rule
 from app.domain.conditions import (
@@ -43,9 +64,8 @@ from app.domain.conditions import (
     STROKE_FEATURE_CONTRACT,
     STROKE_FIELD_DOMAINS,
 )
-from app.domain.dataset import UnknownSiteError
+from app.domain.dataset import DATASET, UnknownSiteError
 from app.domain.fhir import map_bundle
-from app.extension import install
 from app.models import (
     IDEMPOTENCY_KEY_MAX_LENGTH,
     IDEMPOTENCY_KEY_PATTERN,
@@ -61,18 +81,18 @@ from app.models import (
     WorklistRequest,
     entry_form_fields,
 )
+from app.services.agents import AgentError, FrameworkCalls, HealthcareDemo, loggable
 from app.services.charts_service import ChartNotAvailable, ChartService, UnknownChartError
-from app.services.consortium import ApprovalRefused, Consortium
-from app.services.framework_client import FrameworkClient
-from app.services.hospital import EntryLimitReached, Hospital
+from app.services.hospital_views import HospitalView
+from app.services.overview import ApprovalRefused, SiteReportMissing, SiteUnreachable, UnknownModelVersion
 from app.services.site_store import (
+    EntryLimitReached,
     IdempotencyKeyReused,
     OutcomeAlreadyRecorded,
     RecordRejected,
     StoreNotSetUpError,
     StoreUnavailableError,
     UnknownEncounterError,
-    UnknownModelError,
     not_set_up_errors,
 )
 
@@ -82,6 +102,9 @@ except ModuleNotFoundError:  # pragma: no cover - psycopg is in requirements.txt
     psycopg = None  # type: ignore[assignment]
 
 logger = logging.getLogger("healthcare_demo")
+
+#: The version of this app. The extension reports the same version.
+APP_VERSION = "1.1.0"
 
 #: The message a visitor sees when a store cannot be reached or a database
 #: operation fails. The database error itself names the host and user, so it
@@ -95,8 +118,22 @@ DATABASE_NOT_SET_UP_MESSAGE = (
     "shown. Try again later."
 )
 
-#: The message a visitor sees when the planner cannot be run.
+#: The message a visitor sees when the planner cannot be run during a pilot.
 PLANNER_UNAVAILABLE_MESSAGE = "The planner is not available right now, so the pilot cannot run. Try again in a minute."
+
+#: The message for any other page that needs the planner, such as one that
+#: shows the model in use: the GMA checks each model version with it.
+PLANNER_NEEDED_MESSAGE = "The planner is not available right now. Try again in a minute."
+
+#: The path of the pilot, which gets the pilot's own planner message.
+PILOT_PATH = "/api/v1/pilot:run"
+
+#: The message a visitor sees when a Dagents agent did not answer in time.
+AGENT_UNAVAILABLE_MESSAGE = "Part of the demo server did not answer in time. Try again in a minute."
+
+#: The message a visitor sees when a hospital's LMA could not get what it
+#: needed from the GMA, for example because the GMA's store failed.
+AGENT_FAILED_MESSAGE = "Part of the demo server could not complete this request. Try again in a minute."
 
 OUTCOME_ALREADY_RECORDED_MESSAGE = "This record already has an outcome. It cannot be changed."
 
@@ -118,15 +155,13 @@ ENTRY_NOTICE = (
 
 PILOT_BUSY_MESSAGE = "A pilot is already running. Try again when it finishes."
 
-if settings.register_extension:
-    install()
+# Settings that cannot work stop the app here, before it serves a request:
+# an unknown agent mode, or too few agent threads for the in-flight cap.
+settings.check_agent_capacity()
 
-consortium = Consortium(
-    database_url=settings.database_url,
-    secure_aggregation_threshold=settings.secure_aggregation_threshold,
-    max_entered_per_site=settings.max_entered_per_site,
-)
-framework = FrameworkClient(settings)
+#: The app's services: the hospitals' stores, the agents, the hospital views,
+#: the study and the overview. Built on first use. Tests replace it with their own.
+demo = HealthcareDemo()
 chart_service = ChartService()
 
 #: Per-client limits on the POST endpoints. Tests replace them with
@@ -159,22 +194,91 @@ def _over_hourly_cap(wait: float, action: str) -> HTTPException:
 
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
-    """Close every store's database connection when the app shuts down."""
+    """Stop the agents and close every store's database connection when the app shuts down."""
     try:
         yield
     finally:
-        consortium.close()
+        demo.close()
+
+
+# --- framework_calls ------------------------------------------------------------------------
+
+
+class FrameworkCallsField:
+    """ASGI middleware that adds ``framework_calls`` to every successful JSON object the app answers with.
+
+    It records the agent calls made while the request runs
+    (:class:`~app.services.agents.FrameworkCalls`). Sync route handlers run in
+    a thread with a copy of the request's context, so their calls are
+    recorded too. For a 2xx response whose body is a JSON object, it sets
+    ``framework_calls`` to the list. Other responses pass unchanged: errors, a
+    JSON list, an SVG chart and a 304.
+    """
+
+    def __init__(self, app: Callable[..., Awaitable[None]]) -> None:
+        self.app = app
+
+    async def __call__(self, scope: dict, receive: Callable[[], Awaitable[dict]], send: Any) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        with FrameworkCalls() as calls:
+            start: dict | None = None
+            chunks: list[bytes] = []
+
+            async def add_calls(message: dict) -> None:
+                nonlocal start
+                if message["type"] == "http.response.start":
+                    headers = dict(message.get("headers") or [])
+                    json_body = headers.get(b"content-type", b"").startswith(b"application/json")
+                    if 200 <= message["status"] < 300 and json_body:
+                        start = message
+                        return
+                    await send(message)
+                    return
+                if message["type"] == "http.response.body" and start is not None:
+                    chunks.append(message.get("body", b""))
+                    if message.get("more_body", False):
+                        return
+                    body = _with_calls(b"".join(chunks), calls.entries())
+                    headers = [(name, value) for name, value in start.get("headers") or [] if name.lower() != b"content-length"]
+                    headers.append((b"content-length", str(len(body)).encode()))
+                    await send({**start, "headers": headers})
+                    await send({"type": "http.response.body", "body": body})
+                    return
+                await send(message)
+
+            await self.app(scope, receive, add_calls)
+
+
+def _with_calls(body: bytes, entries: list[dict[str, Any]]) -> bytes:
+    """``body`` with ``framework_calls`` set, when it is a JSON object; otherwise ``body`` unchanged."""
+    try:
+        content = json.loads(body)
+    except ValueError:
+        return body
+    if not isinstance(content, dict):
+        return body
+    content["framework_calls"] = entries
+    return json.dumps(content, ensure_ascii=False, allow_nan=False, separators=(",", ":")).encode("utf-8")
 
 
 app = FastAPI(
     title=settings.app_name,
-    version="0.3.0",
+    version=APP_VERSION,
     description=(
         "A Dagents demo app for federated stroke triage, on de-identified records from the International "
-        "Stroke Trial. Nothing here is a validated clinical model or clinical advice."
+        "Stroke Trial. Each hospital is served by a Dagents LMA and the study by a Dagents GMA, called through "
+        "their HTTP APIs. Nothing here is a validated clinical model or clinical advice."
     ),
     lifespan=lifespan,
 )
+# Innermost, so it sees each route's own answer and every agent call the route makes.
+app.add_middleware(FrameworkCallsField)
+# Inside the body limit, so a request takes a slot only after its whole body has
+# arrived: a client that sends its body slowly holds no slot. Inside the CORS
+# middleware and the marker too, so its 503 "busy" carries both.
+app.add_middleware(InFlightCap, max_in_flight=settings.max_in_flight, wait_seconds=settings.in_flight_wait_seconds)
 app.add_middleware(BodySizeLimit, max_bytes=settings.max_body_bytes)
 # Inside the CORS middleware and the marker, so the 500 it sends for an
 # unhandled error carries both. Starlette's own 500 comes from outside them.
@@ -205,12 +309,12 @@ def _short(value: object, limit: int = 100) -> str:
     return text if len(text) <= limit else text[:limit] + "…"
 
 
-def _not_set_up(request: Request, exc: Exception) -> JSONResponse:
+def _not_set_up(request: Request, exc: BaseException) -> JSONResponse:
     logger.error(
         "the database is not set up for this version of the app on %s %s (apply the migrations, then seed): %s",
         request.method,
         request.url.path,
-        exc,
+        loggable(exc),
     )
     return JSONResponse(status_code=503, content={"detail": DATABASE_NOT_SET_UP_MESSAGE})
 
@@ -225,7 +329,7 @@ def store_unavailable(request: Request, exc: StoreUnavailableError) -> JSONRespo
     """
     if isinstance(exc, StoreNotSetUpError):
         return _not_set_up(request, exc)
-    logger.warning("store unavailable on %s %s: %s", request.method, request.url.path, exc)
+    logger.warning("store unavailable on %s %s: %s", request.method, request.url.path, loggable(exc))
     return JSONResponse(status_code=503, content={"detail": STORE_UNAVAILABLE_MESSAGE})
 
 
@@ -236,14 +340,63 @@ if psycopg is not None:
         """Any other database error is a 503 with a plain message, never a 500 without CORS headers."""
         if isinstance(exc, not_set_up_errors()):
             return _not_set_up(request, exc)
-        logger.error("database error on %s %s: %s: %s", request.method, request.url.path, type(exc).__name__, exc)
+        logger.error(
+            "database error on %s %s: %s: %s", request.method, request.url.path, type(exc).__name__, loggable(exc)
+        )
         return JSONResponse(status_code=503, content={"detail": STORE_UNAVAILABLE_MESSAGE})
 
 
-@app.exception_handler(PlannerUnavailableError)
-def planner_unavailable(request: Request, exc: PlannerUnavailableError) -> JSONResponse:
-    logger.error("planner unavailable on %s %s: %s", request.method, request.url.path, exc)
-    return JSONResponse(status_code=503, content={"detail": PLANNER_UNAVAILABLE_MESSAGE})
+#: What a visitor sees for each error code an agent can answer with. Any other
+#: code is the app's own fault and gets the plain 500. The agent's own message
+#: is logged, never returned: a store's message can name a host.
+AGENT_ERROR_MESSAGES: dict[str, tuple[int, str]] = {
+    "planner_unavailable": (503, PLANNER_UNAVAILABLE_MESSAGE),
+    "store_unavailable": (503, STORE_UNAVAILABLE_MESSAGE),
+    "store_not_set_up": (503, DATABASE_NOT_SET_UP_MESSAGE),
+    "agent_unavailable": (503, AGENT_UNAVAILABLE_MESSAGE),
+    # An LMA's 502: the GMA behind it failed, for example because its store did.
+    "bad_gateway": (503, AGENT_FAILED_MESSAGE),
+}
+
+
+@app.exception_handler(AgentError)
+def agent_error(request: Request, exc: AgentError) -> JSONResponse:
+    """An LMA or GMA error the route did not expect, as a plain answer with the status its code calls for.
+
+    The agent's message goes to the log only, with any address removed. A
+    visitor gets the app's own words.
+    """
+    if exc.code == "store_not_set_up":
+        return _not_set_up(request, exc)
+    status, message = AGENT_ERROR_MESSAGES.get(exc.code, (500, UNEXPECTED_ERROR_MESSAGE))
+    if exc.code == "store_unavailable":
+        logger.warning("store unavailable on %s %s: %s", request.method, request.url.path, loggable(exc))
+    elif exc.code == "planner_unavailable":
+        logger.error("planner unavailable on %s %s: %s", request.method, request.url.path, loggable(exc))
+        if request.url.path != PILOT_PATH:
+            message = PLANNER_NEEDED_MESSAGE
+    else:
+        (logger.warning if status == 503 else logger.error)(
+            "an agent call failed on %s %s, calling %s %s: %s",
+            request.method,
+            request.url.path,
+            exc.service,
+            exc.path,
+            loggable(exc),
+        )
+    return JSONResponse(status_code=status, content={"detail": message})
+
+
+@app.exception_handler(SiteUnreachable)
+def site_unreachable(request: Request, exc: SiteUnreachable) -> JSONResponse:
+    logger.warning("%s on %s %s", exc, request.method, request.url.path)
+    return JSONResponse(status_code=503, content={"detail": AGENT_UNAVAILABLE_MESSAGE})
+
+
+@app.exception_handler(SiteReportMissing)
+def site_report_missing(request: Request, exc: SiteReportMissing) -> JSONResponse:
+    logger.warning("%s on %s %s", exc, request.method, request.url.path)
+    return JSONResponse(status_code=503, content={"detail": STORE_UNAVAILABLE_MESSAGE})
 
 
 @app.exception_handler(OutcomeAlreadyRecorded)
@@ -274,7 +427,9 @@ def entry_limit(_: Request, exc: EntryLimitReached) -> JSONResponse:
 
 @app.exception_handler(ApprovalRefused)
 def approval_refused(_: Request, exc: ApprovalRefused) -> JSONResponse:
-    return JSONResponse(status_code=409, content={"detail": f"The model cannot be approved: {exc}."})
+    # The GMA's reason can end with its own full stop.
+    reason = str(exc).rstrip(".")
+    return JSONResponse(status_code=409, content={"detail": f"The model cannot be approved: {reason}."})
 
 
 @app.exception_handler(UnknownSiteError)
@@ -291,8 +446,8 @@ def unknown_encounter(_: Request, exc: UnknownEncounterError) -> JSONResponse:
     )
 
 
-@app.exception_handler(UnknownModelError)
-def unknown_model(_: Request, exc: UnknownModelError) -> JSONResponse:
+@app.exception_handler(UnknownModelVersion)
+def unknown_model(_: Request, exc: UnknownModelVersion) -> JSONResponse:
     version = exc.args[0] if exc.args else ""
     return JSONResponse(status_code=404, content={"detail": f"There is no model version {_short(version)!r}."})
 
@@ -357,8 +512,9 @@ def invalid_request(request: Request, exc: RequestValidationError) -> JSONRespon
     return JSONResponse(status_code=422, content={"detail": "Some fields are not valid.", "errors": errors})
 
 
-def _hospital(site_id: str) -> Hospital:
-    return consortium.hospital(site_id)
+def _hospital(site_id: str) -> HospitalView:
+    """The hospital's view, with the services ready. Raises ``UnknownSiteError`` first for an unknown id."""
+    return demo.hospital(site_id)
 
 
 def _idempotency_key(
@@ -403,8 +559,8 @@ NOT_VALID = (422, "A parameter or a body field is not valid. The errors field na
 TOO_MANY = (429, "Too many requests from this client. Wait for the seconds in the Retry-After header.")
 STORE_DOWN = (
     503,
-    "Only with a database: a hospital's store cannot be reached, or the database is not set up for this "
-    "version of the app.",
+    "The demo server is busy, a Dagents agent did not answer, or, with a database, a hospital's store cannot be "
+    "reached or the database is not set up for this version of the app.",
 )
 SVG_RESPONSES: dict[int | str, dict[str, Any]] = {
     200: {"description": "The chart, as an SVG document.", "content": {"image/svg+xml": {}}},
@@ -427,21 +583,21 @@ IF_NONE_MATCH = {
 
 
 @app.get("/health")
-def health() -> dict[str, str]:
-    """Liveness. Reads no store."""
+def health() -> dict[str, Any]:
+    """Liveness. Reads no store and calls no agent."""
     return settings.as_health_payload()
 
 
 @app.get("/api/v1/health")
-def health_v1() -> dict[str, str]:
+def health_v1() -> dict[str, Any]:
     """Versioned alias for the health endpoint."""
     return health()
 
 
 @app.get("/api/v1/overview", responses=_errors(STORE_DOWN))
 def overview() -> dict[str, Any]:
-    """The consortium, the numbers each hospital reports, and the release gates."""
-    return consortium.overview()
+    """The consortium, the numbers each hospital reports through the GMA, and the release gates."""
+    return demo.overview.overview()
 
 
 @app.get("/api/v1/conditions")
@@ -455,25 +611,27 @@ def conditions() -> dict[str, Any]:
     }
 
 
-@app.get("/api/v1/extension")
+@app.get("/api/v1/extension", responses=_errors(STORE_DOWN))
 def extension() -> dict[str, Any]:
-    """What this app contributes to the framework, and what each side owns."""
+    """What this app contributes to the agents, as the GMA's extension registry describes it, and what each side owns."""
     return {
-        "registry": default_registry.describe(),
+        "registry": demo.overview.extension(),
         "boundary": {
             "framework_owns": [
-                "source and schema validation",
-                "data-quality rule evaluation",
-                "restriction planning (Ethical-Restriction Rails)",
-                "Guard enforcement and audit",
+                "the LMA at each hospital: its Guard and audit chain, running profile, outcome-rate decision and job log",
+                "the GMA: enrolment, job dispatch to the LMAs, the update store and the model registry",
+                "restriction planning (Ethical-Restriction Rails) and Guard enforcement",
                 "federated round planning, quorum and aggregation readiness",
-                "release gate evaluation",
-                "pipeline DAG planning and Kubernetes workload compilation",
+                "the release Guard, release gate evaluation and approval",
+                "the chart renderer",
             ],
             "app_owns": [
                 "the stroke feature contract and its units",
                 "which fields are sensitive and under which regulations",
-                "the seed outcome rule and the federated model's encoding",
+                "the seed outcome rule and the logistic regression, contributed as model kinds",
+                "how a hospital's update is checked and combined",
+                "the hospitals' stores, data entry and the hospitals' own views",
+                "the order of the pilot's rounds and its report",
                 "FHIR mapping into the contract",
                 "the intended-use statement and its limitations",
                 "the release gates this condition requires",
@@ -513,13 +671,13 @@ def ingest_fhir(request: FhirIngestRequest) -> dict[str, Any]:
 
 @app.get("/api/v1/hospitals", responses=_errors(STORE_DOWN))
 def hospitals() -> list[dict[str, Any]]:
-    """What each hospital reports about its records: counts and an outcome rate."""
-    return [consortium.hospitals[site.site_id].summary() for site in consortium.sites]
+    """What each hospital reports about its records through the GMA: counts and an outcome rate."""
+    return demo.overview.hospital_rows()
 
 
 @app.get("/api/v1/hospitals/{site_id}", responses=_errors(NOT_A_HOSPITAL, NOT_VALID, STORE_DOWN))
 def hospital_dashboard(site_id: SiteId) -> dict[str, Any]:
-    """One hospital's own view: its store, statistics, local metrics and what it sent."""
+    """One hospital's own view: its store, what its LMA reports, local metrics and what it sent."""
     return _hospital(site_id).dashboard()
 
 
@@ -528,7 +686,7 @@ def hospital_worklist(
     site_id: SiteId,
     limit: int = Query(default=12, ge=1, le=200, description="How many records to return, highest risk first."),
 ) -> dict[str, Any]:
-    """One hospital's records ranked by the model in use. The list stays at the hospital."""
+    """One hospital's records ranked by the model its LMA reports in use. The list stays at the hospital."""
     return {"site_id": site_id, "worklist": _hospital(site_id).worklist(limit)}
 
 
@@ -543,7 +701,7 @@ def hospital_audit(
     site_id: SiteId,
     limit: int = Query(default=50, ge=1, le=500, description="How many audit records to return, newest first."),
 ) -> dict[str, Any]:
-    """One hospital's Guard decisions, newest first, and whether its audit chain verifies."""
+    """One hospital's Guard decisions, newest first, and whether its audit chain verifies, from its LMA."""
     return _hospital(site_id).audit_trail(limit)
 
 
@@ -609,7 +767,7 @@ def hospital_enter(
     entry: EncounterEntry,  # type: ignore[valid-type]
     idempotency_key: str | None = Depends(_idempotency_key),
 ) -> dict[str, Any]:
-    """Store a new record at one hospital, as that hospital, and update its running statistics.
+    """Store a new record at one hospital, as that hospital, and have its LMA read the store again.
 
     Returns ``{record, assessment, counts, profile}``. The next round, worklist,
     chart and probe at this hospital include the record.
@@ -677,8 +835,8 @@ def _draw(request: Request, draw: Any, theme: str) -> Response:
 
 @app.get("/api/v1/charts", responses=_errors(STORE_DOWN))
 def consortium_charts() -> dict[str, Any]:
-    """The consortium charts, from site summaries and the last pilot. Never a 4xx."""
-    return {"charts": chart_service.consortium_list(consortium)}
+    """The consortium charts, from what the hospitals report through the GMA and the last pilot. Never a 4xx."""
+    return {"charts": chart_service.consortium_list(demo.overview)}
 
 
 @app.get(
@@ -702,7 +860,8 @@ def consortium_chart_svg(
     theme: ChartTheme = "light",
 ) -> Response:
     """One consortium chart as SVG. 404 for a chart that needs a pilot that has not run."""
-    return _draw(request, lambda: chart_service.consortium_svg(consortium, chart_id, theme), theme)
+    overview = demo.overview
+    return _draw(request, lambda: chart_service.consortium_svg(overview, chart_id, theme), theme)
 
 
 @app.get("/api/v1/hospitals/{site_id}/charts", responses=_errors(NOT_A_HOSPITAL, NOT_VALID, STORE_DOWN))
@@ -757,27 +916,32 @@ def hospital_chart_svg(
     ),
 )
 def governance_probe(request: GuardProbeRequest) -> dict[str, Any]:
-    """Run one request through a hospital's Guard and report what it would release.
+    """Run one request through a hospital's Guard, at its LMA, and report what it would release.
 
     The decision is a lookup in the typed planner, so changing the requester's
-    verification, the boundary or the granularity changes it. The Guard runs at
-    the chosen hospital (the first by default), over that hospital's first
-    records, and writes the decision to that hospital's audit chain. The
-    requester and the purpose are fixed here, so no visitor's text reaches the
-    chain.
+    verification, the boundary or the granularity changes it. The hospital's
+    LMA runs the Guard (``POST /api/v1/governance/restrictions:probe``) over
+    the hospital's first records, with the hospital's classification and
+    approved purposes, and writes the decision to the hospital's audit chain.
+    The requester and the purpose are fixed here, so no visitor's text reaches
+    the chain.
 
     The coordinator's page calls this, so the answer holds no record: it
     counts the released records and names their fields
     (:class:`GuardProbeResponse`).
     """
-    hospital = _hospital(request.site_id) if request.site_id else consortium.hospitals[consortium.sites[0].site_id]
+    site_id = request.site_id or demo.sites[0].site_id
+    hospital = _hospital(site_id)
     # Counted after the hospital is known, so an unknown id is a 404 and adds no key.
     wait = hourly_caps.take("probes", hospital.site_id)
     if wait > 0:
         raise _over_hourly_cap(wait, f"Guard probes at {hospital.display_name}")
-    restriction = RestrictionRequest(
-        request_id=f"probe:{hospital.site_id}:{request.boundary}:{request.granularity}",
-        boundary=request.boundary,  # type: ignore[arg-type]
+    probe = ProbeRequest(
+        boundary=request.boundary,
+        granularity=request.granularity,
+        requested_fields=request.requested_fields,
+        cohort_size=request.cohort_size,
+        record_limit=request.record_limit,
         requester=Requester(
             requester_id=PROBE_REQUESTER_ID,
             requester_kind=request.requester_kind,  # type: ignore[arg-type]
@@ -789,19 +953,13 @@ def governance_probe(request: GuardProbeRequest) -> dict[str, Any]:
                 KyuAttribute(attribute_id="signed_dua", verified=request.verified),
             ],
         ),
-        classification=STROKE_CLASSIFICATION,
-        requested_fields=request.requested_fields,
-        granularity=request.granularity,  # type: ignore[arg-type]
-        cohort_size=request.cohort_size,
         declared_purpose=PROBE_PURPOSE,
-        approved_purposes=STROKE_APPROVED_PURPOSES,
     )
-    decision = hospital.guard_probe(restriction, record_limit=request.record_limit)
-    return {"site_id": hospital.site_id, **decision}
+    return hospital.probe(probe)
 
 
 @app.post(
-    "/api/v1/pilot:run",
+    PILOT_PATH,
     dependencies=[Depends(rate_limits.dependency("pilots"))],
     responses=_errors(
         (409, "A pilot is already running. One pilot runs at a time."),
@@ -811,11 +969,11 @@ def governance_probe(request: GuardProbeRequest) -> dict[str, Any]:
             "Too many pilots from this client, or the hourly cap on pilots is reached. Wait for the seconds in "
             "the Retry-After header.",
         ),
-        (503, "The planner cannot be run, or, with a database, a store cannot be reached."),
+        (503, "The planner cannot be run, an agent did not answer, or, with a database, a store cannot be reached."),
     ),
 )
 def run_pilot(request: PilotRequest) -> Any:
-    """Run the federated pilot across every hospital and return its evidence.
+    """Run the federated pilot across every hospital, through the GMA, and return its evidence.
 
     Analytics, then evaluation of the model in use, then training rounds, then
     validation of the candidate, then the release Guard and gates. One pilot
@@ -829,15 +987,15 @@ def run_pilot(request: PilotRequest) -> Any:
         wait = hourly_caps.take("pilots")
         if wait > 0:
             raise _over_hourly_cap(wait, "pilots")
-        return consortium.run_pilot(request.round_prefix)
+        return demo.pilot.run_pilot(request.round_prefix)
     finally:
         pilot_flight.leave()
 
 
 @app.get("/api/v1/models", responses=_errors(STORE_DOWN))
 def models() -> dict[str, Any]:
-    """The model the hospitals use, and the 20 newest registered versions, oldest first."""
-    return {"model_in_use": consortium.model_in_use(), "models": consortium.models(limit=MODELS_LISTED)}
+    """The model the hospitals use, and the 20 newest registered versions, oldest first, from the GMA."""
+    return demo.overview.models(MODELS_LISTED)
 
 
 @app.post(
@@ -860,12 +1018,12 @@ def approve_model(
         str, Path(description="The candidate's version, as the pilot's `candidate.candidate_version` gives it.")
     ],
 ) -> dict[str, Any]:
-    """Release a candidate whose last release decision was ``release``.
+    """Release a candidate whose last release decision was ``release``, through the GMA.
 
     Returns ``{released, previous}``. 409 when the gates or the release Guard
     did not allow it, or the version is no longer a candidate.
     """
-    return consortium.approve(version)
+    return demo.overview.approve(version)
 
 
 # --- The framework ----------------------------------------------------------------------------
@@ -873,21 +1031,28 @@ def approve_model(
 
 @app.get("/api/v1/framework/status")
 def framework_status(request: Request) -> dict[str, Any]:
-    """Where the records are stored, which framework services answer, and the allowed origins.
+    """Where the records are stored, how the Dagents agents run, which answer, and the allowed origins.
 
-    The page shows the storage the backend reports, so a reader can tell
-    records in Postgres from records in memory.
+    The page shows the storage the hospitals' LMAs report, so a reader can tell
+    records in Postgres from records in memory. ``agents`` says whether the
+    LMAs and the GMA run inside the demo server or as their own processes.
 
     ``rate_limit_client`` says how the rate limits identify a client. A
     request sent without ``X-Forwarded-For`` arrives with one entry per proxy
     that appended to it, so ``forwarded_for_entries`` should equal
     ``forwarded_for_hops`` for such a request. Fewer means every visitor is
     counted as the proxy; more means the limits count a proxy's address.
+
+    It never fails because a store or an agent does not answer.
     """
     hops = rate_limits.forwarded_for_hops
+    try:
+        status = demo.status()
+    except Exception as error:  # noqa: BLE001 - the status report must answer while the agents cannot be built
+        logger.warning("the agents could not be built for the status report: %s", type(error).__name__)
+        status = _status_without_agents()
     return {
-        **consortium.data_source_status(),
-        "services": framework.service_status(),
+        **status,
         # A browser can discover this list by asking, so it is not a secret,
         # and a wrong value blocks every request from the published page.
         "allowed_origins": settings.allowed_origins(),
@@ -899,20 +1064,18 @@ def framework_status(request: Request) -> dict[str, Any]:
     }
 
 
-@app.get("/api/v1/framework/trace", responses=_errors(NOT_A_HOSPITAL, NOT_VALID, STORE_DOWN))
-def framework_trace(
-    site_id: str | None = Query(
-        default=None,
-        max_length=64,
-        description="The hospital whose records are traced, such as `it-002`. Without it, the first hospital.",
-    ),
-    limit: int = Query(default=50, ge=1, le=1000, description="How many of the hospital's first records to trace."),
-) -> dict[str, Any]:
-    """Run one hospital's records through the framework's planners, at that hospital.
+def _status_without_agents() -> dict[str, Any]:
+    """The status report when the agents cannot be built: nothing is ready.
 
-    None of the steps knows what a stroke is. They work from the contract and
-    classification the extension declared.
+    ``cohort_source`` is then the kind of store the app is configured for.
     """
-    hospital = _hospital(site_id) if site_id else consortium.hospitals[consortium.sites[0].site_id]
-    records = hospital.local_records(limit)
-    return {"site_id": hospital.site_id, "record_count": len(records), "trace": framework.planner_trace(records)}
+    kind = "postgres" if demo.database_url else "in-memory"
+    return {
+        "cohort_source": kind,
+        "store_layout": {"postgres": "schema-per-site", "in-memory": "in-memory-per-site"}[kind],
+        "dataset": dict(DATASET),
+        "ready": False,
+        "hospitals": None,
+        "agents": {"mode": settings.agents_mode, "engine": None, "lmas": None},
+        "services": [],
+    }

@@ -36,6 +36,7 @@ from agents.common.infrastructure.agent_client import (
     AgentUnavailableError,
     LmaClient,
     lma_agent,
+    without_addresses,
 )
 
 logger = logging.getLogger(__name__)
@@ -54,6 +55,10 @@ class SiteDirectory:
     - `lma_tokens`: the coordinator token to send to each site's LMA.
     - `concurrency`: how many LMAs are called at once.
     - `ttl_seconds`: how long summaries are kept. ``0`` keeps nothing.
+    - `timeout_s`: how long each summary, audit state and site description
+      call to an LMA may take. An LMA that takes longer is reported as not
+      reachable, so one frozen LMA cannot hold the caller for the network's
+      longer timeout. ``None`` uses the network's timeout.
     """
 
     def __init__(
@@ -64,6 +69,7 @@ class SiteDirectory:
         lma_tokens: Mapping[str, str] | None = None,
         concurrency: int = 3,
         ttl_seconds: float = 2.0,
+        timeout_s: float | None = None,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self._network = network
@@ -71,6 +77,7 @@ class SiteDirectory:
         self._tokens = dict(lma_tokens or {})
         self._concurrency = max(1, int(concurrency))
         self._ttl = float(ttl_seconds)
+        self._timeout_s = timeout_s
         self._clock = clock
         self._cache: dict[bool, tuple[float, list[SiteDirectoryEntry]]] = {}
         self._source_kinds: dict[str, str] = {}
@@ -108,7 +115,7 @@ class SiteDirectory:
             try:
                 registration = self._client(site_id).registration()
             except AgentError as error:
-                logger.warning("the GMA could not refresh site %s: %s", site_id, error)
+                logger.warning("the GMA could not refresh site %s: %s", site_id, without_addresses(str(error)))
                 return None
             if registration.site_id != site_id:
                 logger.warning("the LMA of site %s answered with the registration of another site", site_id)
@@ -138,14 +145,14 @@ class SiteDirectory:
     def _entry(self, site_id: str, include_audit: bool) -> SiteDirectoryEntry:
         client = self._client(site_id)
         try:
-            summary = client.site_summary()
+            summary = client.site_summary(timeout_s=self._timeout_s)
         except AgentError as error:
             # An LMA that answered with an error still answered.
             return SiteDirectoryEntry(site_id=site_id, reachable=not isinstance(error, AgentUnavailableError))
         audit = None
         if include_audit:
             try:
-                audit = client.audit_summary()
+                audit = client.audit_summary(timeout_s=self._timeout_s)
             except AgentError:
                 audit = None
         return SiteDirectoryEntry(
@@ -162,7 +169,7 @@ class SiteDirectory:
         if known is not None:
             return known
         try:
-            kind = client.site_info().source.kind
+            kind = client.site_info(timeout_s=self._timeout_s).source.kind
         except AgentError:
             return None
         with self._lock:

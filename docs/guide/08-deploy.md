@@ -150,7 +150,7 @@ The same client code reaches the agents in two ways
 | Built with | `AgentNetwork.in_process()`, then `network.add_app(name, create_app(...))` for each agent | `AgentNetwork.over_http({name: base_url, ...})`; each agent runs under uvicorn with its settings |
 | A call goes through | The agent's real routes, request checks and token checks, through `httpx.ASGITransport`, without a socket | HTTP, with one kept-alive client per agent |
 | Use it for | One application that hosts its agents, such as a demo on one server | Sources on their own machines |
-| Example | `examples/getting-started/shop/agents.py` ([Step 6](06-federated-rounds.md#6-run-the-round-through-the-lma-and-gma)) | `PYTHONPATH=. uvicorn agents.lma.main:app` and `agents.gma.main:app`, configured from the environment |
+| Example | `examples/getting-started/shop/agents.py` ([Step 6](06-federated-rounds.md#6-run-the-round-through-the-lma-and-gma)); the stroke demo's published API (`apps/healthcare-demo/backend/app/services/agents.py`) | `PYTHONPATH=. uvicorn agents.lma.main:app` and `agents.gma.main:app`, configured from the environment; `apps/healthcare-demo/scripts/run_local_demo.sh --agents network` |
 
 Rules that apply in process:
 
@@ -164,8 +164,26 @@ Rules that apply in process:
   that each made a nested call deadlocked in a measurement; with 64 they
   finished. Every call has a timeout (30 seconds, or 120 seconds for a job, a
   dispatch, a site refresh or the site summaries), so a starved call ends with
-  `AgentUnavailableError` instead of waiting forever.
+  `AgentUnavailableError` instead of waiting forever. The stroke demo lets 12
+  public requests run at once (`HEALTHCARE_DEMO_MAX_IN_FLIGHT`). A request
+  beyond that waits up to 20 seconds for a slot, then gets `503` with
+  `Retry-After: 60`. The demo refuses to start with fewer than 4 × the cap + 8
+  thread tokens, because one public request can hold up to four agent threads.
+- **Hold no lock or database connection of your own while you call an
+  agent.** In process, an agent can read the same store your code writes. The
+  stroke demo finishes a write, releases its lock, and then asks the
+  hospital's LMA to read the store again (`POST /api/v1/site/source:refresh`).
 - **Close the network** with `network.close()` when you stop.
+
+The stroke demo runs both ways from the same code. With
+`HEALTHCARE_DEMO_AGENTS=in-process` (the default, and the published demo) it
+builds the three LMAs and the GMA in its own process, on the first request
+that needs them, and makes their tokens then. With `HEALTHCARE_DEMO_AGENTS=network` it reads each agent's address and
+token from the environment (`HEALTHCARE_DEMO_GMA_URL`, `HEALTHCARE_DEMO_GMA_TOKEN`,
+`HEALTHCARE_DEMO_LMA_<SITE>_URL`, `HEALTHCARE_DEMO_LMA_<SITE>_TOKEN`), and needs
+a database, because separate processes cannot share an in-memory store.
+`apps/healthcare-demo/tests/test_network_mode.py` runs a pilot both ways
+against the same database and checks that the numbers are equal.
 
 Over HTTP, a call is sent once more when a kept-alive connection closed before
 the answer came. These routes refuse a repeat with `409`, so a repeat of them
@@ -224,6 +242,6 @@ Pass them to `GovernanceService(audit=...)` and
 | `401` with the code `unauthorized` | The agent has tokens, and the call has no `Authorization: Bearer` header or a token the agent does not accept | Send the token for the route's scope (section 6) |
 | `403` with the code `forbidden` | The token's scope may not call the route, or a site's token was used for another site | Use the token of the right scope |
 | An agent logs "runs without tokens: every caller may call every route" | No token is configured | Set the tokens, and `LMA_REQUIRE_TOKENS=1` or `GMA_REQUIRE_TOKENS=1` |
-| `AgentUnavailableError` in your application, or a round result `failed` with "the job offer failed: ..." or "the job did not run: ..." | An agent did not answer in time, or has no address configured | Check the agent is running and its address is in `GMA_SITE_ENDPOINTS` or `LMA_GMA_ENDPOINT`; in process, cap concurrent requests (section 7) |
+| `AgentUnavailableError` in your application, or a round result `failed` with "the job run failed: ..." | An agent did not answer in time, or has no address configured | Check the agent is running and its address is in `GMA_SITE_ENDPOINTS` or `LMA_GMA_ENDPOINT`; in process, cap concurrent requests (section 7) |
 
 Next: [Step 9: Test your integration](09-test-your-integration.md).

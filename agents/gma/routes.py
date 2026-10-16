@@ -986,8 +986,8 @@ def dispatch_round(manifest: RoundManifest, rounds: RoundsDep):
     quorum the round is stored as `closed` and offered to no site. With the
     HTTP engine (`GMA_ENGINE=http`) each selected site's LMA is offered the
     job, then runs it, up to `GMA_DISPATCH_CONCURRENCY` sites at a time; the
-    round holds the sites' answers (`acceptances`), their results and every
-    call made (`dispatch`).
+    round holds the sites' answers (`acceptances`), their results, every call
+    made (`dispatch`) and the planner's `readiness`, since every result is in.
     """
     return rounds.dispatch_round(manifest)
 
@@ -1182,11 +1182,11 @@ async def upload_update(
             raise _unknown_round(round_id)
         if site_id not in record.plan.selected_sites:
             raise NotSelected(f"site {site_id} was not selected for round {round_id}")
-        model = models.get(record.manifest.model_version)
-        if model is None:
+        kind_name = models.kind_of(record.manifest.model_version)
+        if kind_name is None:
             raise RoundConflict(f"round {round_id} starts from {record.manifest.model_version}, which is not registered")
         try:
-            kind = models.kind(model.kind)
+            kind = models.kind(kind_name)
         except UnknownModelKind as error:
             raise RoundConflict(f"round {round_id} starts from a model of a kind no extension contributes") from error
         return updates.put(record, site_id, upload, kind)

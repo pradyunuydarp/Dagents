@@ -25,7 +25,8 @@ with CallLog() as calls:
         print(f"  enrolled {registration.site_id}: {registration.cohort_size} orders, {registration.feature_contract_version}")
 
     # 3. The same round contract as step 4, under a new round id. The GMA plans
-    #    the round, then offers each selected store a job and asks it to run it.
+    #    the round, then sends each selected store its job in one call: the
+    #    store checks the job and runs it when it accepts.
     manifest = RoundManifest(
         round_id="returns-eval-http-1",
         study_id=STUDY_ID,
@@ -45,12 +46,8 @@ with CallLog() as calls:
     )
     record = gma.dispatch_round(manifest)
     print(f"Round {record.manifest.round_id}: {record.status}, selected {', '.join(record.plan.selected_sites)}")
-    for site_id in record.plan.selected_sites:
-        steps = {call.step: call for call in record.dispatch if call.site_id == site_id}
-        print(
-            f"  {site_id} offer {steps['offer'].status_code} {steps['offer'].outcome}, "
-            f"execute {steps['execute'].status_code} {steps['execute'].outcome}"
-        )
+    for call in sorted(record.dispatch, key=lambda item: item.site_id):
+        print(f"  {call.site_id} {call.step} {call.status_code} {call.outcome}")
 
     # 4. What each store's LMA sent back: counts and metrics, never orders.
     for result in record.results:

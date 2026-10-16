@@ -1,10 +1,11 @@
 """The healthcare demo's HTTP API, endpoint by endpoint.
 
-Each class runs against its own in-memory consortium (see ``api_support``).
-The governance, pilot and model tests use the real planner and skip without
-it; CI fails on that skip. Data entry is in ``test_entry_api.py``, charts in
-``test_charts_api.py``, rate limits in ``test_rate_limits.py`` and the
-Postgres run in ``test_api_postgres.py``.
+Each class runs against its own app services: in-memory stores and the four
+Dagents agents in process (see ``api_support``). Every route that shows a
+model version needs the planner, because the GMA checks each version with it,
+so most classes skip without it; CI fails on that skip. Data entry is in
+``test_entry_api.py``, charts in ``test_charts_api.py``, rate limits in
+``test_rate_limits.py`` and the Postgres run in ``test_api_postgres.py``.
 """
 
 from __future__ import annotations
@@ -12,8 +13,10 @@ from __future__ import annotations
 import unittest
 from unittest import mock
 
-from tests.api_support import ApiTestCase, main
-from tests.support import HIGH_RISK_ENTRY, dagentsc_available, tiny_site
+from agents.common.domain.federation import GateComparison, ModelVersionRegistration, ReleaseGate
+
+from tests.api_support import ApiTestCase, main, without_calls
+from tests.support import HIGH_RISK_ENTRY, built_demo, dagentsc_available, gated_extension, tiny_site
 
 from app.domain.conditions import (
     GUARD_PROBE_DEFAULT_FIELDS,
@@ -22,7 +25,9 @@ from app.domain.conditions import (
     STROKE_RELEASE_GATES,
 )
 from app.domain.dataset import DATASET_NOTICE, SITES, age_band_for
-from app.services.consortium import Consortium
+from app.domain import stroke_model
+from app.domain.model_kinds import LOGISTIC_REGRESSION
+from app.services.agents import HealthcareDemo
 
 SITE_IDS = [site.site_id for site in SITES]
 HOSPITAL_SUMMARY_KEYS = {
@@ -97,8 +102,8 @@ class DescriptionTests(ApiTestCase):
         payload = self.ok(self.client.get("/api/v1/framework/status"))
         self.assertEqual(
             {
-                "cohort_source", "store_layout", "dataset", "ready", "hospitals", "services", "allowed_origins",
-                "rate_limit_client",
+                "cohort_source", "store_layout", "dataset", "ready", "hospitals", "agents", "services",
+                "allowed_origins", "rate_limit_client", "framework_calls",
             },
             set(payload),
         )
@@ -112,6 +117,35 @@ class DescriptionTests(ApiTestCase):
             self.assertEqual({"name", "status", "detail"}, set(service))
             self.assertIn(service["status"], ("ok", "unavailable"))
 
+    def test_framework_status_says_how_the_agents_run(self) -> None:
+        """The page shows what the backend reports: the agents run inside the demo server, one LMA per hospital."""
+        payload = self.ok(self.client.get("/api/v1/framework/status"))
+        agents = payload["agents"]
+        self.assertEqual({"mode", "engine", "lmas"}, set(agents))
+        self.assertEqual("in-process", agents["mode"])
+        self.assertEqual("http", agents["engine"])
+        self.assertEqual(
+            [{"site_id": site_id, "reachable": True, "source_kind": "in-memory"} for site_id in SITE_IDS],
+            agents["lmas"],
+        )
+        self.assertEqual(
+            ["gma", *(f"lma-{site_id}" for site_id in SITE_IDS)], [service["name"] for service in payload["services"]]
+        )
+        self.assertEqual({"ok"}, {service["status"] for service in payload["services"]})
+        # Every agent call is listed by route: never a host, a port or a token.
+        calls = payload["framework_calls"]
+        self.assertIn(("gma", "GET", "/api/v1/federation/sites/summaries"),
+                      {(call["service"], call["method"], call["path"]) for call in calls})
+        for call in calls:
+            self.assertEqual({"service", "site_id", "method", "path", "status", "ms", "via"}, set(call))
+            self.assertTrue(call["path"].startswith("/api/v1/"), call)
+            self.assertNotIn("://", str(call))
+
+    def test_the_trace_route_is_removed(self) -> None:
+        """It ran planner commands inside the app; the app now reaches the planner only through the agents."""
+        self.assertEqual(404, self.client.get("/api/v1/framework/trace?site_id=uk-134").status_code)
+
+    @unittest.skipUnless(dagentsc_available(), "dagentsc binary is not available")
     def test_models_lists_the_model_in_use(self) -> None:
         payload = self.ok(self.client.get("/api/v1/models"))
         self.assertEqual("stroke-outcome-rule-v1", payload["model_in_use"]["version"])
@@ -119,40 +153,52 @@ class DescriptionTests(ApiTestCase):
         self.assertIn("stroke-outcome-rule-v1", [model["version"] for model in payload["models"]])
 
 
+@unittest.skipUnless(dagentsc_available(), "dagentsc binary is not available")
 class ModelListTests(ApiTestCase):
-    """Every pilot adds model versions, so the list returns only the newest."""
+    """Every pilot adds model versions, so the list returns only the newest. The GMA keeps the registry."""
 
     def test_models_lists_the_model_in_use_and_the_20_newest_versions(self) -> None:
-        store = self.consortium.coordinator_store
-        self.consortium.model_in_use()  # registers the seed rule on first use
+        agents = built_demo(self.demo)  # registers the seed rule and the initial model
+        gma = self.demo.agents.gma()
         for number in range(1, 26):
-            store.save_model(f"lr-{number:02d}", "logistic_regression", {"w": [number]}, f"d{number}",
-                             "stroke-outcome-rule-v1")
-        with mock.patch.object(store, "list_models", wraps=store.list_models) as listed:
+            gma.register_model_version(
+                f"lr-{number:02d}",
+                ModelVersionRegistration(kind=LOGISTIC_REGRESSION.kind, params=stroke_model.initial_params()),
+            )
+        store = agents["gma"].state.models.store
+        with mock.patch.object(store, "list", wraps=store.list) as listed:
             payload = self.ok(self.client.get("/api/v1/models"))
         self.assertEqual("stroke-outcome-rule-v1", payload["model_in_use"]["version"])
         self.assertEqual([f"lr-{number:02d}" for number in range(6, 26)], [m["version"] for m in payload["models"]])
         # The store selects the 20 newest itself (ORDER BY ... LIMIT in SQL); the API never reads every row.
-        self.assertEqual([mock.call(limit=20)], listed.call_args_list)
+        self.assertEqual([mock.call(20)], listed.call_args_list)
+        self.assertIn(("gma", "GET", "/api/v1/model-versions"),
+                      {(c["service"], c["method"], c["path"]) for c in payload["framework_calls"]})
 
 
+@unittest.skipUnless(dagentsc_available(), "dagentsc binary is not available")
 class HospitalTests(ApiTestCase):
-    """What the coordinator and each hospital see."""
+    """What the coordinator and each hospital see. The pages that show the model in use need the planner."""
 
     def test_the_overview_shows_what_each_hospital_reports(self) -> None:
         payload = self.ok(self.client.get("/api/v1/overview"))
         self.assertEqual(SITE_IDS, [hospital["site_id"] for hospital in payload["hospitals"]])
         for hospital in payload["hospitals"]:
             self.assertEqual(HOSPITAL_SUMMARY_KEYS, set(hospital))
-            # The numbers are the hospital's own report, not a count the
-            # coordinator made from rows.
-            self.assertEqual(self.consortium.hospital(hospital["site_id"]).summary(), hospital)
+            # The numbers are the hospital's own report, as its LMA answers
+            # it, not a count the coordinator made from rows.
+            self.assertEqual(self.demo.hospital(hospital["site_id"]).summary(), hospital)
         self.assertEqual({"version": "stroke-outcome-rule-v1", "kind": "points_rule"}, payload["current_model"])
         self.assertEqual(20, payload["minimum_cohort"])
         self.assertEqual(len(STROKE_RELEASE_GATES), len(payload["release_gates"]))
         self.assertEqual(DATASET_NOTICE, payload["dataset"]["notice"])
         for key in ("study_id", "condition", "feature_contract", "engine", "secure_aggregation_threshold"):
             self.assertIn(key, payload)
+        # The coordinator reads what the hospitals report through the GMA, and calls no LMA itself.
+        calls = payload["framework_calls"]
+        self.assertIn(("gma", "GET", "/api/v1/federation/sites/summaries"),
+                      {(call["service"], call["method"], call["path"]) for call in calls})
+        self.assertEqual({"gma"}, {call["service"] for call in calls})
 
     def test_the_hospitals_list_matches_the_overview(self) -> None:
         self.assertEqual(
@@ -167,8 +213,16 @@ class HospitalTests(ApiTestCase):
                 "site_id", "display_name", "country", "store", "counts", "outcome_rate", "outcome_rate_status",
                 "minimum_cohort", "max_entered", "profile", "local_metrics", "current_model", "contributions",
             },
-            set(payload),
+            set(without_calls(payload)),
         )
+        # The hospital's page calls its own LMA and no other agent.
+        lma_calls = [call for call in payload["framework_calls"] if call["service"] == "lma"]
+        self.assertEqual({"it-002"}, {call["site_id"] for call in lma_calls})
+        self.assertLessEqual(
+            {"/api/v1/site/summary", "/api/v1/site/profile", "/api/v1/site/model:evaluate", "/api/v1/site/model"},
+            {call["path"] for call in lma_calls},
+        )
+        self.assertNotIn("log_loss", payload["local_metrics"]["metrics"])
         self.assertEqual({"kind": "in-memory", "memory": "process"}, payload["store"])
         self.assertEqual(292, payload["counts"]["total"])
         self.assertEqual("stroke-outcome-rule-v1", payload["local_metrics"]["model_version"])
@@ -185,12 +239,12 @@ class HospitalTests(ApiTestCase):
 
     def test_the_audit_trail_has_a_chain_status(self) -> None:
         payload = self.ok(self.client.get("/api/v1/hospitals/ch-245/audit?limit=50"))
-        self.assertEqual({"site_id", "chain_intact", "records"}, set(payload))
+        self.assertEqual({"site_id", "chain_intact", "records"}, set(without_calls(payload)))
         self.assertTrue(payload["chain_intact"])
 
     def test_entered_records_are_listed_and_only_entered_ones(self) -> None:
         payload = self.ok(self.client.get("/api/v1/hospitals/ch-245/encounters?origin=entered&limit=20"))
-        self.assertEqual({"site_id", "origin", "encounters", "counts", "max_entered"}, set(payload))
+        self.assertEqual({"site_id", "origin", "encounters", "counts", "max_entered"}, set(without_calls(payload)))
         self.assertEqual([], payload["encounters"])
         response = self.client.get("/api/v1/hospitals/ch-245/encounters?origin=dataset")
         self.assertEqual(422, response.status_code)
@@ -209,7 +263,6 @@ class HospitalTests(ApiTestCase):
             "/api/v1/hospitals/nowhere/entry-form",
             "/api/v1/hospitals/nowhere/charts",
             "/api/v1/hospitals/nowhere/charts/presentation.svg",
-            "/api/v1/framework/trace?site_id=nowhere",
         ):
             with self.subTest(path=path):
                 response = self.client.get(path)
@@ -224,9 +277,9 @@ class SuppressionTests(ApiTestCase):
     """A hospital below the minimum cohort reports no outcome rate. The planner decides, so this needs it."""
 
     @classmethod
-    def make_consortium(cls) -> Consortium:
+    def make_demo(cls) -> HealthcareDemo:
         tiny, store = tiny_site(5)
-        return Consortium(sites=[*SITES, tiny], site_stores={tiny.site_id: store})
+        return HealthcareDemo(sites=[*SITES, tiny], site_stores={tiny.site_id: store})
 
     def test_a_small_hospital_reports_counts_but_no_rate(self) -> None:
         hospitals = {h["site_id"]: h for h in self.ok(self.client.get("/api/v1/overview"))["hospitals"]}
@@ -296,8 +349,13 @@ class ProbeReleasesNoRecordsTests(ApiTestCase):
         self.assertEqual(sorted(GUARD_PROBE_DEFAULT_FIELDS), sorted(payload["released_fields"]))
         self.assertEqual(
             {"site_id", "request_id", "boundary", "permitted", "plan", "released_count", "released_fields",
-             "withheld_fields", "transformed_fields", "audit_id", "message"},
+             "withheld_fields", "transformed_fields", "audit_id", "message", "framework_calls"},
             set(payload),
+        )
+        # The hospital's LMA ran the Guard, and only that LMA was called.
+        self.assertEqual(
+            [("lma", "ch-245", "POST", "/api/v1/governance/restrictions:probe", 200)],
+            [(c["service"], c["site_id"], c["method"], c["path"], c["status"]) for c in payload["framework_calls"]],
         )
 
     def test_the_record_finder_finds_records(self) -> None:
@@ -310,7 +368,7 @@ class ProbeReleasesNoRecordsTests(ApiTestCase):
 
 @unittest.skipUnless(dagentsc_available(), "dagentsc binary is not available")
 class GovernedApiTests(ApiTestCase):
-    """The Guard probe, the trace, the pilot and approval, with the real planner."""
+    """The Guard probe, the pilot and approval, with the real planner."""
 
     pilot: dict
 
@@ -424,17 +482,6 @@ class GovernedApiTests(ApiTestCase):
         self.assertEqual("demo-operator", newest["requester_id"])
         self.assertFalse(any("purpose" in violation for violation in newest["violations"]))
 
-    def test_the_trace_runs_every_planner_step_at_the_chosen_site(self) -> None:
-        payload = self.ok(self.client.get("/api/v1/framework/trace?site_id=it-002&limit=40"))
-        self.assertEqual("it-002", payload["site_id"])
-        self.assertEqual(40, payload["record_count"])
-        names = [step["name"] for step in payload["trace"]]
-        self.assertIn("Feature contract validation", names)
-        self.assertIn("Ethical-Restriction Rails (egress)", names)
-        self.assertTrue(all(step["status"] == "ok" for step in payload["trace"]), payload["trace"])
-        quality = next(step for step in payload["trace"] if step["name"] == "Clinical data-quality rules")
-        self.assertTrue(quality["payload"]["results"])
-
     def test_the_pilot_returns_its_evidence(self) -> None:
         pilot = self.pilot
         for key in (
@@ -454,6 +501,34 @@ class GovernedApiTests(ApiTestCase):
             self.assertGreater(audit["record_count"], 0)
         self.assertEqual({"chain_intact", "record_count"}, set(pilot["coordinator_audit"]))
         self.assertEqual(DATASET_NOTICE, pilot["dataset_notice"])
+
+    def test_the_pilot_lists_the_agent_calls_behind_it(self) -> None:
+        """The study operator calls only the GMA; the GMA's calls to each LMA follow the round that made them."""
+        calls = self.pilot["framework_calls"]
+        app_calls = [call for call in calls if call["via"] == "app"]
+        self.assertTrue(app_calls)
+        self.assertEqual({"gma"}, {call["service"] for call in app_calls})
+        paths = {(call["method"], call["path"]) for call in app_calls}
+        for expected in (
+            ("POST", "/api/v1/federation/sites:refresh"),
+            ("POST", "/api/v1/federation/rounds"),
+            ("POST", "/api/v1/federation/rounds/{round_id}:aggregate"),
+            ("POST", "/api/v1/federation/rounds/{round_id}:evaluate-release"),
+        ):
+            self.assertIn(expected, paths)
+        dispatch = [call for call in calls if call["via"] == "gma"]
+        self.assertEqual({"lma"}, {call["service"] for call in dispatch})
+        for site_id in SITE_IDS:
+            steps = {call["path"] for call in dispatch if call["site_id"] == site_id}
+            self.assertEqual({"/api/v1/federation/jobs:run"}, steps, site_id)
+        rounds = 3 + len(self.pilot["rounds"]["training"])
+        self.assertEqual(rounds * len(SITE_IDS), len(dispatch), "one jobs:run call per hospital per round")
+        for round_report in (self.pilot["rounds"]["analytics"], *self.pilot["rounds"]["training"]):
+            self.assertEqual(sorted(SITE_IDS), sorted(a["site_id"] for a in round_report["acceptances"]))
+            self.assertTrue(all(a["accepted"] for a in round_report["acceptances"]))
+            self.assertEqual(len(SITE_IDS), len(round_report["dispatch"]))
+            self.assertEqual({"run"}, {row["step"] for row in round_report["dispatch"]})
+        self.assertNotIn("://", str(calls))
 
     def test_the_decision_matches_its_gate_results(self) -> None:
         gates = self.pilot["release"]["gates"]
@@ -504,8 +579,6 @@ class GovernedApiTests(ApiTestCase):
 
 
 def _gates(*gates):
-    from agents.common.domain.federation import GateComparison, ReleaseGate
-
     return [ReleaseGate(gate_id=g, metric="auc", comparison=GateComparison(kind="at_least", value=v)) for g, v in gates]
 
 
@@ -520,8 +593,13 @@ class ApprovalTests(ApiTestCase):
     """
 
     def run_pilot_with(self, gates) -> dict:
-        with mock.patch("app.services.consortium.STROKE_RELEASE_GATES", gates):
-            return self.ok(self.client.post("/api/v1/pilot:run", json={"round_prefix": "api"}))
+        """Put app services whose condition pack has these gates behind the app, for this test, and run a pilot."""
+        demo = HealthcareDemo(extension=gated_extension(gates))
+        self.addCleanup(demo.close)
+        patcher = mock.patch.object(main, "demo", demo)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        return self.ok(self.client.post("/api/v1/pilot:run", json={"round_prefix": "api"}))
 
     def test_approval_is_refused_after_a_reject(self) -> None:
         in_use = self.ok(self.client.get("/api/v1/models"))["model_in_use"]["version"]

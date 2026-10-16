@@ -2,6 +2,21 @@
 
 Every URL and port is environment-driven, matching the framework's convention.
 Nothing is hardcoded, and the defaults point at a local run.
+
+The Dagents agents (three LMAs and one GMA) run inside this process by default
+(``HEALTHCARE_DEMO_AGENTS=in-process``): the app builds them and calls them
+through their HTTP routes without a socket, with tokens it generates when it
+first builds them.
+With ``HEALTHCARE_DEMO_AGENTS=network`` the app calls agents that run as their
+own processes. Their addresses and tokens then come from the environment:
+
+- ``HEALTHCARE_DEMO_GMA_URL`` and ``HEALTHCARE_DEMO_GMA_TOKEN``: the GMA and
+  its ``admin`` token;
+- ``HEALTHCARE_DEMO_LMA_<SITE>_URL`` and ``HEALTHCARE_DEMO_LMA_<SITE>_TOKEN``
+  for each hospital (``uk-134`` becomes ``UK_134``): its LMA and that LMA's
+  ``site`` token.
+
+No token or address is ever logged or returned.
 """
 
 from __future__ import annotations
@@ -9,6 +24,7 @@ from __future__ import annotations
 import os
 import re
 from dataclasses import dataclass, field
+from typing import Mapping
 from urllib.parse import urlparse
 
 from agents.common.env import load_env_files
@@ -79,6 +95,31 @@ def _bool_env(name: str, default: bool) -> bool:
     if value is None:
         return default
     return value.lower() in {"1", "true", "yes", "on"}
+
+
+#: Where the agents run: in this process, or as their own processes.
+AGENT_MODES = ("in-process", "network")
+
+
+def _site_key(site_id: str) -> str:
+    """``uk-134`` as it appears in a variable name: ``UK_134``."""
+    return site_id.upper().replace("-", "_")
+
+
+def lma_url_variable(site_id: str) -> str:
+    """The variable that holds one hospital's LMA address in network mode."""
+    return f"HEALTHCARE_DEMO_LMA_{_site_key(site_id)}_URL"
+
+
+def lma_token_variable(site_id: str) -> str:
+    """The variable that holds one hospital's LMA ``site`` token in network mode."""
+    return f"HEALTHCARE_DEMO_LMA_{_site_key(site_id)}_TOKEN"
+
+
+def site_value(variable: str, environ: Mapping[str, str] | None = None) -> str:
+    """A per-hospital setting, stripped, or ``""`` when it is not set."""
+    env = os.environ if environ is None else environ
+    return (env.get(variable) or "").strip()
 
 
 @dataclass(frozen=True, slots=True)
@@ -161,18 +202,59 @@ class Settings:
     #: Largest request body a POST may send, in bytes.
     max_body_bytes: int = int(os.getenv("HEALTHCARE_DEMO_MAX_BODY_BYTES", str(64 * 1024)))
 
-    #: Framework services, reached over HTTP when they are running.
-    core_service_url: str = os.getenv("CORE_SERVICE_PUBLIC_URL", "http://127.0.0.1:8040")
-    pipeline_service_url: str = os.getenv("PIPELINE_SERVICE_PUBLIC_URL", "http://127.0.0.1:8030")
-    model_service_url: str = os.getenv("MODEL_SERVICE_PUBLIC_URL", "http://127.0.0.1:8000")
-    lma_url: str = os.getenv("LMA_PUBLIC_URL", "http://127.0.0.1:8010")
-    gma_url: str = os.getenv("GMA_PUBLIC_URL", "http://127.0.0.1:8020")
-
-    #: Seconds to wait for a framework service's status before reporting it unavailable.
+    #: Seconds to wait for an agent's health check before ``/api/v1/framework/status``
+    #: reports it unavailable.
     request_timeout_seconds: float = float(os.getenv("HEALTHCARE_DEMO_REQUEST_TIMEOUT_SECONDS", "2.0"))
 
-    #: Whether the app registers its Dagents extension on startup.
-    register_extension: bool = _bool_env("HEALTHCARE_DEMO_REGISTER_EXTENSION", True)
+    #: Where the Dagents agents run: ``in-process`` (the default; the app builds
+    #: three LMAs and a GMA and calls them without a socket) or ``network``
+    #: (the app calls agents that run as their own processes; it needs
+    #: ``HEALTHCARE_DEMO_DATABASE_URL``, because separate processes cannot share
+    #: an in-memory store).
+    agents_mode: str = os.getenv("HEALTHCARE_DEMO_AGENTS", "in-process")
+
+    #: Network mode: the GMA's base address and its ``admin`` token. Set them in
+    #: the environment, never in a committed file. Each hospital's LMA has
+    #: ``HEALTHCARE_DEMO_LMA_<SITE>_URL`` and ``HEALTHCARE_DEMO_LMA_<SITE>_TOKEN``
+    #: (see :func:`lma_url_variable` and :func:`lma_token_variable`).
+    gma_url: str = os.getenv("HEALTHCARE_DEMO_GMA_URL", "")
+    gma_token: str = field(default_factory=lambda: os.getenv("HEALTHCARE_DEMO_GMA_TOKEN", ""), repr=False)
+
+    #: Most public requests the app works on at once. A request waits up to
+    #: ``in_flight_wait_seconds`` for a slot, then gets 503 "busy". In process,
+    #: each request can hold several of the agents' threads while agents call
+    #: each other, so the cap keeps them from running out.
+    max_in_flight: int = int(os.getenv("HEALTHCARE_DEMO_MAX_IN_FLIGHT", "12"))
+    in_flight_wait_seconds: float = float(os.getenv("HEALTHCARE_DEMO_IN_FLIGHT_WAIT_SECONDS", "20"))
+
+    #: In process: how many of the agents' handlers may run at once, across
+    #: the three LMAs and the GMA. It must be at least 4 x ``max_in_flight`` + 8
+    #: (see :meth:`check_agent_capacity`).
+    agent_thread_tokens: int = int(os.getenv("HEALTHCARE_DEMO_AGENT_THREAD_TOKENS", "64"))
+
+    #: In process: how many hospitals the GMA sends a round's jobs to at once.
+    dispatch_concurrency: int = int(os.getenv("HEALTHCARE_DEMO_DISPATCH_CONCURRENCY", "3"))
+
+    def check_agent_capacity(self) -> None:
+        """Refuse settings that could leave the in-process agents without threads.
+
+        One public request can hold up to four agent handlers at once (the GMA
+        dispatching, an LMA running a job, the LMA's upload to the GMA, and a
+        nested read), so the agents need at least 4 x ``max_in_flight`` + 8
+        thread tokens. Raises ``ValueError`` naming the settings.
+        """
+        if self.agents_mode not in AGENT_MODES:
+            raise ValueError(f"HEALTHCARE_DEMO_AGENTS must be one of {', '.join(AGENT_MODES)}")
+        if self.max_in_flight < 1:
+            raise ValueError("HEALTHCARE_DEMO_MAX_IN_FLIGHT must be at least 1")
+        if not 1 <= self.dispatch_concurrency <= 64:
+            raise ValueError("HEALTHCARE_DEMO_DISPATCH_CONCURRENCY must be from 1 to 64")
+        needed = 4 * self.max_in_flight + 8
+        if self.agents_mode == "in-process" and self.agent_thread_tokens < needed:
+            raise ValueError(
+                f"HEALTHCARE_DEMO_AGENT_THREAD_TOKENS must be at least {needed} "
+                "(4 x HEALTHCARE_DEMO_MAX_IN_FLIGHT + 8)"
+            )
 
     def client_proxy_hops(self) -> int:
         """The proxies the rate limits trust: ``forwarded_for_hops``, or 0 when the header is not trusted."""

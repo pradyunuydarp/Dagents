@@ -1,6 +1,7 @@
 import { count, outcomeRateText, sourceText, storeText } from "../format";
 import { href } from "../router";
 import type { FrameworkStatus, Overview } from "../types";
+import { ApiCalls } from "./ApiCalls";
 import { Panel } from "./Basics";
 
 /**
@@ -96,6 +97,12 @@ export function HospitalsTable({ overview, status }: { overview: Overview; statu
         cannot point to one patient. When a rate is not reported, the table gives the
         hospital&rsquo;s reason. Poor outcome means dead or dependent six months after the stroke.
       </p>
+      <p className="note ds-note">
+        The records, the records with an outcome and the rate come from each hospital&rsquo;s LMA, which
+        reports them to the GMA. The entered count and where the data is stored come from the app at
+        each hospital.
+      </p>
+      <ApiCalls calls={overview.framework_calls} />
     </Panel>
   );
 }

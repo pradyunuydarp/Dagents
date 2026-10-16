@@ -45,12 +45,13 @@ from agents.common.domain.federation import (
     FederatedJob,
     JobAcceptance,
     JobModel,
+    JobRun,
     RoundManifest,
     SiteResult,
 )
 from agents.common.domain.site import JobLogEntry
 from agents.common.extensions import ExtensionError, ModelKind, TrainingOutcome
-from agents.common.infrastructure.dagents_runner import round_digest
+from agents.common.infrastructure.dagents_runner import dagentsc_binary, round_digest
 from agents.lma.application.site_service import SiteService, has_label
 
 logger = logging.getLogger(__name__)
@@ -69,12 +70,53 @@ def _canonical(value: Any) -> str:
     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
 
 
+#: Round digests the planner computed in this process, by planner binary and manifest.
+_PLANNER_DIGESTS: OrderedDict[tuple[str, str], str] = OrderedDict()
+#: The manifests whose digest the planner is computing now, so others wait for it.
+_PLANNER_DIGESTS_IN_FLIGHT: dict[tuple[str, str], threading.Event] = {}
+_PLANNER_DIGESTS_LOCK = threading.Lock()
+#: How many manifests' digests the process keeps.
+PLANNER_DIGESTS_KEPT = 512
+
+
 def planner_round_digest(manifest: RoundManifest) -> str:
-    """The manifest's round digest from the planner (``dagentsc federation round digest``)."""
-    digest = round_digest(manifest.model_dump(mode="json")).get("round_digest")
-    if not isinstance(digest, str) or not digest:
-        raise ValueError("the planner returned no round digest")
-    return digest
+    """The manifest's round digest from the planner (``dagentsc federation round digest``).
+
+    The digest is a pure function of the manifest, so the process keeps each
+    one the planner computed, by planner binary and manifest. Several LMAs in
+    one process that are offered the same round at the same time run the
+    planner once: the first computes the digest and the others wait for it.
+    Each LMA still compares the job's digest with this one. A planner that
+    could not be run is asked again by the next caller, so a failure is never
+    kept and the job is refused.
+    """
+    payload = manifest.model_dump(mode="json")
+    key = (dagentsc_binary(), _canonical(payload))
+    while True:
+        with _PLANNER_DIGESTS_LOCK:
+            known = _PLANNER_DIGESTS.get(key)
+            if known is not None:
+                return known
+            running = _PLANNER_DIGESTS_IN_FLIGHT.get(key)
+            if running is None:
+                running = _PLANNER_DIGESTS_IN_FLIGHT[key] = threading.Event()
+                break
+        # Another caller is asking the planner for this manifest: use its answer,
+        # or ask the planner after it, when it failed.
+        running.wait(timeout=60.0)
+    try:
+        digest = round_digest(payload).get("round_digest")
+        if not isinstance(digest, str) or not digest:
+            raise ValueError("the planner returned no round digest")
+        with _PLANNER_DIGESTS_LOCK:
+            _PLANNER_DIGESTS[key] = digest
+            while len(_PLANNER_DIGESTS) > PLANNER_DIGESTS_KEPT:
+                _PLANNER_DIGESTS.popitem(last=False)
+        return digest
+    finally:
+        with _PLANNER_DIGESTS_LOCK:
+            _PLANNER_DIGESTS_IN_FLIGHT.pop(key, None)
+        running.set()
 
 
 class SourceDataSource:
@@ -318,6 +360,20 @@ class FederationJobService:
             result = self._ended(job, "failed", f"the local run failed ({type(error).__name__})")
         self._log_result(job, result)
         return result
+
+    # --- Run ---------------------------------------------------------------------
+
+    def run(self, job: FederatedJob) -> JobRun:
+        """Offer the job and, when the site accepts it, execute it: the two steps of :meth:`offer` and :meth:`execute`.
+
+        A refused job has no result. Raises what :meth:`offer` and
+        :meth:`execute` raise, such as :class:`RoundConflict` for a round this
+        site was offered before.
+        """
+        acceptance = self.offer(job)
+        if not acceptance.accepted:
+            return JobRun(acceptance=acceptance)
+        return JobRun(acceptance=acceptance, result=self.execute(job))
 
     def _ended(self, job: FederatedJob, participation: str, reason: str) -> SiteResult:
         return SiteResult(

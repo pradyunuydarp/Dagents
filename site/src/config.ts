@@ -46,13 +46,14 @@ export const DEMOS: DemoLink[] = [
     slug: "healthcare-demo",
     name: "Stroke triage across three hospitals",
     summary:
-      "Governance and federated learning on real patient records. Three hospitals from the International Stroke Trial each keep their records in a separate store, and train and evaluate a triage model without sharing them.",
+      "Governance and federated learning on real patient records. Three hospitals from the International Stroke Trial each keep their records in a separate store, and train and evaluate a triage model without sharing them. Each hospital is served by a Dagents LMA and the study by a GMA, and the demo calls them only through their APIs.",
     tryThis: [
       "Change who is asking and how much they ask for, and watch the protection change.",
       "Run the pilot: five rounds of federated training, then the release gates decide whether the new model may replace the current one.",
-      "Open a hospital's view to see what its staff see. Enter a record there: once its outcome is recorded, the next pilot trains on it."
+      "Open a hospital's view to see what its staff see. Enter a record there: once its outcome is recorded, the next pilot trains on it.",
+      "Open Dagents API calls under a panel to see which agent answered, on which route."
     ],
-    data: "Calls the demo's API when it is up and reading Postgres, where each hospital keeps its de-identified records from 1991-1996 in its own schema. Otherwise the page replays a recorded run and says so. Contains information from the International Stroke Trial database (version 2), made available under the ODC Attribution License.",
+    data: "Calls the demo's API when it is up and reading Postgres, where each hospital keeps its de-identified records from 1991-1996 in its own schema. Otherwise the page replays a recorded run and says so. The API runs the hospitals' LMAs and the GMA inside its own process. Contains information from the International Stroke Trial database (version 2), made available under the ODC Attribution License.",
     source: `${REPO_URL}/tree/main/apps/healthcare-demo`
   },
   {

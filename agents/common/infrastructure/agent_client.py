@@ -23,7 +23,10 @@ Errors. A response that is not 2xx (or 304) raises :class:`AgentError` with
 :class:`AgentUnavailableError` is raised when no answer came (a connection
 failure, a timeout, an agent with no address) and for a 502, 503 or 504
 without a JSON ``code``. Neither error ever holds a host, a port or the body of
-an answer that is not JSON.
+an answer that is not JSON. The ``detail`` of a JSON error body is the agent's
+own text, and a store error's text can name a database host, so text that
+callers or users see uses :meth:`AgentError.without_detail`, and a log line
+uses :func:`without_addresses`.
 
 Call log. Inside ``with CallLog() as log:``, every call made from that context
 is recorded as ``{service, site_id, method, path, status, ms}``, where
@@ -76,6 +79,7 @@ from agents.common.domain.federation import (
     CandidateModel,
     FederatedJob,
     JobAcceptance,
+    JobRun,
     ModelVersion,
     ModelVersionList,
     ModelVersionRegistration,
@@ -133,6 +137,19 @@ def _parse_agent_name(name: str) -> tuple[Service, str | None]:
 
 def _label(service: Service, site_id: str | None) -> str:
     return "the GMA" if service == "gma" else f"the LMA of site {site_id}"
+
+
+_ADDRESS = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*://\S+")
+
+
+def without_addresses(text: str) -> str:
+    """``text`` with every ``scheme://...`` address replaced by ``[address]``.
+
+    Use it before logging an agent's error: a store error's detail can quote a
+    connection string. An answer to a caller should not carry the detail at
+    all (see :meth:`AgentError.without_detail`).
+    """
+    return _ADDRESS.sub("[address]", text)
 
 
 # ---------------------------------------------------------------------------
@@ -248,12 +265,26 @@ class AgentError(Exception):
     def _message(self) -> str:
         return f"{_label(self.service, self.site_id)} answered {self.status} ({self.code}): {self.detail}"
 
+    def without_detail(self) -> str:
+        """Who answered, with which status and code, without the agent's detail.
+
+        The detail is the agent's own text. A store error's detail can name a
+        database host or a hosting vendor, so text that callers or users see
+        should use this, and the detail should go only to a log, through
+        :func:`without_addresses`.
+        """
+        return f"{_label(self.service, self.site_id)} answered {self.status} ({self.code})"
+
 
 class AgentUnavailableError(AgentError):
     """No usable answer came: a connection failure, a timeout, no address, or a 502-504 without a code."""
 
     def _message(self) -> str:
         return f"{_label(self.service, self.site_id)} is unavailable: {self.detail}"
+
+    def without_detail(self) -> str:
+        # The client wrote this detail itself ("no answer within 30 s"), so it holds no host.
+        return self._message()
 
 
 @dataclass(frozen=True)
@@ -872,9 +903,9 @@ class AgentClient:
         response = self.request(method, template, path_params=path_params, params=params, json=json, timeout_s=timeout_s)
         return self._parse(response, shape, template)
 
-    def health(self) -> dict[str, Any]:
-        """``GET /api/v1/health``."""
-        return self._call("GET", "/api/v1/health", _DICT)
+    def health(self, *, timeout_s: float | None = None) -> dict[str, Any]:
+        """``GET /api/v1/health``. ``timeout_s`` replaces the network's timeout for this call."""
+        return self._call("GET", "/api/v1/health", _DICT, timeout_s=timeout_s)
 
 
 def _body(model: Any) -> Any:
@@ -901,6 +932,7 @@ _REGISTRATION: _Shape[SiteRegistration] = _Shape(SiteRegistration, "SiteRegistra
 _REGISTRATIONS: _Shape[list[SiteRegistration]] = _Shape(list[SiteRegistration], "a list of SiteRegistration")
 _ACCEPTANCE: _Shape[JobAcceptance] = _Shape(JobAcceptance, "JobAcceptance")
 _SITE_RESULT: _Shape[SiteResult] = _Shape(SiteResult, "SiteResult")
+_JOB_RUN: _Shape[JobRun] = _Shape(JobRun, "JobRun")
 _JOB_LOG: _Shape[list[JobLogEntry]] = _Shape(list[JobLogEntry], "a list of JobLogEntry")
 _DIRECTORY: _Shape[list[SiteDirectoryEntry]] = _Shape(list[SiteDirectoryEntry], "a list of SiteDirectoryEntry")
 _ROUND_PLAN: _Shape[RoundPlan] = _Shape(RoundPlan, "RoundPlan")
@@ -923,13 +955,13 @@ class LmaClient(AgentClient):
     ``coordinator`` token.
     """
 
-    def site_info(self) -> SiteInfo:
+    def site_info(self, *, timeout_s: float | None = None) -> SiteInfo:
         """``GET /api/v1/site``: who the site is and what its LMA serves."""
-        return self._call("GET", "/api/v1/site", _SITE_INFO)
+        return self._call("GET", "/api/v1/site", _SITE_INFO, timeout_s=timeout_s)
 
-    def site_summary(self) -> SiteSummary:
+    def site_summary(self, *, timeout_s: float | None = None) -> SiteSummary:
         """``GET /api/v1/site/summary``: counts and the label rate the site's planner permits."""
-        return self._call("GET", "/api/v1/site/summary", _SITE_SUMMARY)
+        return self._call("GET", "/api/v1/site/summary", _SITE_SUMMARY, timeout_s=timeout_s)
 
     def site_profile(self) -> dict[str, Any]:
         """``GET /api/v1/site/profile``: the site's running profile, as ``RunningProfile.snapshot()``."""
@@ -951,9 +983,9 @@ class LmaClient(AgentClient):
         """``POST /api/v1/governance/restrictions:probe``: what the site's Guard would release. Never rows."""
         return self._call("POST", "/api/v1/governance/restrictions:probe", _PROBE_RESPONSE, json=_body(request))
 
-    def audit_summary(self) -> AuditSummary:
+    def audit_summary(self, *, timeout_s: float | None = None) -> AuditSummary:
         """``GET /api/v1/governance/audit:summary``: the audit chain's state and length."""
-        return self._call("GET", "/api/v1/governance/audit:summary", _AUDIT_SUMMARY)
+        return self._call("GET", "/api/v1/governance/audit:summary", _AUDIT_SUMMARY, timeout_s=timeout_s)
 
     def registration(self) -> SiteRegistration:
         """``GET /api/v1/federation/registration``: the site's enrolment, with its current cohort size."""
@@ -969,6 +1001,16 @@ class LmaClient(AgentClient):
             "POST",
             "/api/v1/federation/jobs:execute",
             _SITE_RESULT,
+            json=_body(job),
+            timeout_s=self._network.dispatch_timeout_s,
+        )
+
+    def run_job(self, job: FederatedJob) -> JobRun:
+        """``POST /api/v1/federation/jobs:run``: offer the job and, when the site accepts it, run it, in one call."""
+        return self._call(
+            "POST",
+            "/api/v1/federation/jobs:run",
+            _JOB_RUN,
             json=_body(job),
             timeout_s=self._network.dispatch_timeout_s,
         )
@@ -994,15 +1036,19 @@ class GmaClient(AgentClient):
             "POST", "/api/v1/federation/sites:refresh", _REGISTRATIONS, timeout_s=self._network.dispatch_timeout_s
         )
 
-    def site_summaries(self, include_audit: bool = False) -> list[SiteDirectoryEntry]:
-        """``GET /api/v1/federation/sites/summaries``: what each site reports, with its audit state when asked."""
+    def site_summaries(self, include_audit: bool = False, *, timeout_s: float | None = None) -> list[SiteDirectoryEntry]:
+        """``GET /api/v1/federation/sites/summaries``: what each site reports, with its audit state when asked.
+
+        The GMA calls every LMA, so the call waits up to the network's
+        dispatch timeout unless ``timeout_s`` is given.
+        """
         params = {"include": "audit"} if include_audit else None
         return self._call(
             "GET",
             "/api/v1/federation/sites/summaries",
             _DIRECTORY,
             params=params,
-            timeout_s=self._network.dispatch_timeout_s,
+            timeout_s=timeout_s if timeout_s is not None else self._network.dispatch_timeout_s,
         )
 
     def list_sites(self) -> list[SiteRegistration]:
@@ -1147,4 +1193,5 @@ __all__ = [
     "GmaClient",
     "LmaClient",
     "lma_agent",
+    "without_addresses",
 ]

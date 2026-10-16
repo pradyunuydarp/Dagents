@@ -44,6 +44,9 @@ const METRIC_LABELS: Record<string, string> = {
   record_count: "Records",
   completeness: "Completeness",
   label_coverage: "Share with an outcome",
+  // The LMA reports the share of labelled records with a poor outcome as
+  // `label_rate`. Pilot reports stored before the agents call it `outcome_rate`.
+  label_rate: "Poor outcome rate",
   outcome_rate: "Poor outcome rate",
   start_loss: "Loss before training",
   train_loss: "Loss after training"
@@ -64,6 +67,7 @@ const METRIC_SHORT: Record<string, string> = {
   record_count: "records",
   completeness: "completeness",
   label_coverage: "with an outcome",
+  label_rate: "poor outcome rate",
   outcome_rate: "poor outcome rate",
   start_loss: "loss before training",
   train_loss: "loss after training"
@@ -74,7 +78,14 @@ export function metricShort(key: string): string {
 }
 
 /** Metrics that are shares of a group, shown as percentages. */
-const PERCENT_METRICS = new Set(["sensitivity", "specificity", "completeness", "label_coverage", "outcome_rate"]);
+const PERCENT_METRICS = new Set([
+  "sensitivity",
+  "specificity",
+  "completeness",
+  "label_coverage",
+  "label_rate",
+  "outcome_rate"
+]);
 
 export function formatMetric(key: string, value: number | null | undefined): string {
   if (value === null || value === undefined || Number.isNaN(value)) return "—";
@@ -334,13 +345,44 @@ export function phaseLabel(phase: string): string {
 }
 
 const PHASE_NOTES: Record<string, string> = {
-  analytics: "Each hospital reports counts, completeness and its outcome rate from its running statistics.",
+  analytics:
+    "Each hospital reports its record count, completeness and the share with an outcome. It reports its poor outcome rate only when its planner permits it.",
   evaluation: "Each hospital scores its labelled records with the model in use and reports the metrics. These are the baseline.",
   candidate_validation: "Each hospital scores its labelled records with the candidate and reports the metrics."
 };
 
 export function phaseNote(phase: string): string {
   return PHASE_NOTES[phase] ?? "";
+}
+
+/** A Dagents agent's name: the study's GMA, or a hospital's LMA by its site id. */
+export function agentName(service: string, siteId: string | null | undefined): string {
+  if (service === "gma") return "GMA";
+  if (service === "lma") return `LMA ${siteId ?? ""}`.trim();
+  return service.toUpperCase();
+}
+
+/**
+ * What a hospital's LMA answered to the job offer, in words. A failed offer
+ * shows the error status the LMA answered with, or "no answer" when none came.
+ */
+export function offerText(outcome: string, statusCode: number | null = null): string {
+  if (outcome === "failed") return statusCode === null ? "no answer" : `failed (${statusCode})`;
+  return outcome.replace(/_/g, " ");
+}
+
+/** The tone of a job offer's answer: the LMA's governance accepts or refuses the job. */
+export function offerTone(outcome: string): Tone {
+  if (outcome === "accepted") return "permit";
+  if (outcome === "refused") return "deny";
+  return "inert";
+}
+
+/** The kind of store an LMA reports it reads, in a few words. */
+export function sourceKindText(kind: string | null | undefined): string {
+  if (kind === "postgres") return "its Postgres schema";
+  if (kind === "in-memory") return "its store in memory";
+  return kind ? kind : "not reported";
 }
 
 /** Where a hospital's records are stored, in a few words. */

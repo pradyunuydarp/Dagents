@@ -95,8 +95,9 @@ Both agents use the same code layout:
 Messaging is in memory today, and so are the GMA's enrolments and rounds. With
 a database, an LMA keeps its audit chain and job log in Postgres, and the GMA
 keeps its model registry and its own audit chain there. Each runs every query
-as one database role. The stroke demo keeps each site's records and audit chain
-in Postgres, as described below.
+as one database role. The stroke demo runs one LMA per hospital and a GMA, and
+calls them only through their APIs. It keeps each site's records and audit
+chain in Postgres, as described below.
 
 ## Four guard boundaries
 
@@ -142,8 +143,8 @@ sequenceDiagram
 ```
 
 The GMA sends each call to the LMA over its HTTP API
-(`POST /api/v1/federation/jobs:offer` and `jobs:execute`), and records the
-status of each call with the round. A result counts only when it comes from a
+(`POST /api/v1/federation/jobs:run`, in which the LMA checks the job and runs
+it when it accepts), and records the status of each call with the round. A result counts only when it comes from a
 site the round's plan selected. The planner rejects any other result with the
 reason "site was not selected for this round", and the GMA refuses it with
 `403` when it is posted. A round id can be used once.
@@ -164,16 +165,18 @@ registry applies the planner's answer and keeps no status rule of its own.
 
 The stroke demo runs eight rounds in order: analytics, evaluation of the model in
 use, five training rounds, and validation of the candidate at each hospital.
-Then it evaluates the release gates.
+Then it asks the GMA to evaluate the release gates. The demo sends each round to
+the GMA, and the GMA sends each hospital's job to that hospital's LMA.
 
 ## Where each site's data is kept
 
 In the stroke demo, each hospital keeps its records in a store of its own. With
 a database, that is one Postgres schema and one role per hospital; the role owns
 the schema and cannot log in. Without a database, each hospital has its own
-in-memory store. The coordinator has a separate schema for the model registry,
-what each hospital sent in each round, the pilot reports and its own release
-audit chain. It has no access to any hospital's schema.
+in-memory store. The hospital's LMA reads the store as the hospital's role. The
+coordinator has a separate schema for the GMA's model registry and release
+audit chain, each hospital's job log and the demo's pilot reports. The GMA has
+no access to any hospital's schema.
 
 ```mermaid
 flowchart TB
@@ -186,22 +189,22 @@ flowchart TB
     subgraph CH["Hospital 245, Switzerland"]
         S3[("schema site_ch_245<br/>records, audit chain")] --- L3["LMA and Guard<br/>acting as site_ch_245"]
     end
-    R["<b>Parameter averaging</b><br/>the app's runtime"]
-    G["<b>GMA</b>, the coordinator<br/>schema coordinator: model registry and contributions"]
+    G["<b>GMA</b>, the coordinator<br/>schema coordinator: model registry and release audit chain"]
+    U["<b>Update store</b> in the GMA<br/>write-only, deleted after the round"]
     L1 -->|"results"| G
     L2 -->|"results"| G
     L3 -->|"results"| G
-    L1 -->|"clipped update"| R
-    L2 -->|"clipped update"| R
-    L3 -->|"clipped update"| R
-    R -->|"new model version"| G
+    L1 -->|"clipped update"| U
+    L2 -->|"clipped update"| U
+    L3 -->|"clipped update"| U
+    U -->|"combined by the app's model kind"| G
 ```
 
-The coordinator sends each hospital the round manifest. The arrows show what a
+The GMA sends each hospital's LMA the round manifest. The arrows show what a
 hospital sends back. Its **results** (counts, aggregate metrics, and the
-update's size and digest) go to the coordinator, and only when the hospital's
+update's size and digest) go to the GMA, and only when the hospital's
 `before_send` Guard permits the round's contribution. Its **clipped update**
-goes only to the runtime that averages the updates.
+goes only to the GMA's update store, which no route reads back.
 
 Every database operation runs in one transaction that first switches to the
 hospital's role (`SET LOCAL ROLE`) and checks that the switch happened. So a
@@ -218,17 +221,19 @@ What crosses from a hospital, and what stays:
 | Whether its audit chain verifies, and how many decisions it holds | The decisions in that chain |
 
 The model update itself goes from the hospital's `before_send` Guard, which
-clips it to a norm of 1.0, to the app's parameter-averaging runtime. That
-runtime stands in for a federated learning runtime such as Flower. It averages
-the clipped updates with the weights the planner chose (each hospital's share of
-the records) and registers the new model version. The update never appears in a
-round result, because results are shown to the coordinator.
+clips it to a norm of 1.0, to the GMA's update store. When the round is
+aggregated, the GMA checks each update against the digest the hospital
+reported, combines the updates with the weights the planner chose (each
+hospital's share of the records) using the demo's model kind, registers the
+new model version as a candidate and deletes the updates. The GMA's HTTP
+engine stands in for a federated learning runtime such as Flower. The update
+never appears in a round result, because results are shown to the coordinator.
 
 When a hospital's staff enter a new record, it is written to that hospital's
-store as that hospital's role. The hospital then updates its running statistics
-(counts, means and category counts) with the one new record instead of
-recomputing them from every record. Once the record has an outcome, the next
-round trains and evaluates on it.
+store as that hospital's role. Then the demo asks the hospital's LMA to read the
+store again, and the LMA rebuilds its running statistics (counts, means and
+category counts). Once the record has an outcome, the next round trains and
+evaluates on it.
 
 One limit applies to the published demo. Supabase gives the API one database
 login, and that login can read every schema. The isolation therefore holds

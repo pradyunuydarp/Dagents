@@ -1,9 +1,13 @@
-"""A record entered at a hospital flows through that hospital's store, profile and rounds.
+"""A record entered at a hospital flows through that hospital's store, its LMA's profile and the rounds.
 
 Every assertion runs against both store implementations: the in-memory stores
 of a local run and the Postgres schemas of the deployed API. The Postgres half
 needs ``HEALTHCARE_DEMO_TEST_DATABASE_URL`` (see ``test_site_isolation.py``).
-The round tests also need the planner.
+
+The app writes the record; the hospital's LMA reads the store again and keeps
+the running profile. An entry is answered with its assessment by the model in
+use, and the GMA checks every model version with the planner, so these tests
+need the planner.
 """
 
 from __future__ import annotations
@@ -21,10 +25,13 @@ sys.path.insert(0, str(APP_ROOT.parents[1]))
 from agents.common.application.running_profile import RunningProfile  # noqa: E402
 
 from app.domain import stroke_rule  # noqa: E402
-from app.domain.dataset import SITES, load_site_records  # noqa: E402
-from app.services.consortium import Consortium  # noqa: E402
-from app.services.hospital import PROFILE_FIELDS, EntryLimitReached  # noqa: E402
+from app.domain.dataset import SITES, UnknownSiteError, load_site_records  # noqa: E402
+from app.domain.model_kinds import INITIAL_VERSION  # noqa: E402
+from app.services.agents import AgentError, HealthcareDemo  # noqa: E402
+from app.services.hospital_views import PROFILE_FIELDS  # noqa: E402
+from app.services.pilot import ModelRef  # noqa: E402
 from app.services.site_store import (  # noqa: E402
+    EntryLimitReached,
     IdempotencyKeyReused,
     PostgresSiteStore,
     RecordRejected,
@@ -57,19 +64,33 @@ def _by_site(round_report: dict[str, Any], site_id: str) -> dict[str, Any]:
     return next(result for result in round_report["results"] if result["site_id"] == site_id)
 
 
-class DataEntryContract:
-    """The data-entry flow. Subclasses supply the consortium."""
+def _ref(model: Any) -> ModelRef:
+    return ModelRef(model.version, model.kind, model.digest)
 
-    def make_consortium(self, **kwargs: Any) -> Consortium:
+
+class DataEntryContract:
+    """The data-entry flow. Subclasses supply the app services."""
+
+    def make_demo(self, **kwargs: Any) -> HealthcareDemo:
         raise NotImplementedError
 
+    def demo_for_test(self, **kwargs: Any) -> HealthcareDemo:
+        """App services that stop when the test ends."""
+        demo = self.make_demo(**kwargs)
+        self.addCleanup(demo.close)  # type: ignore[attr-defined]
+        return demo
+
     def setUp(self) -> None:
-        self.consortium = self.make_consortium()
-        self.hospital = self.consortium.hospital("uk-134")
+        self.demo = self.demo_for_test()
+        self.hospital = self.demo.hospital("uk-134")
+
+    def profile(self, hospital: Any = None) -> dict[str, Any]:
+        """The running profile, as the hospital's LMA keeps it."""
+        return (hospital or self.hospital).lma().site_profile()
 
     def test_an_entry_is_stored_and_counted_once(self) -> None:
         before = self.hospital.counts()
-        profile_before = self.hospital.profile_snapshot()
+        profile_before = self.profile()
 
         result = self.hospital.enter(HIGH_RISK_ENTRY, "entry-1")
         record = result["record"]
@@ -103,7 +124,7 @@ class DataEntryContract:
 
         rebuilt = RunningProfile(PROFILE_FIELDS)
         rebuilt.add_many(self.hospital.store.records())
-        incremental = self.hospital.profile_snapshot()
+        incremental = self.profile()
         expected = rebuilt.snapshot()
         self.assertEqual(expected["record_count"], incremental["record_count"])
         for name, stats in expected["fields"].items():
@@ -119,7 +140,7 @@ class DataEntryContract:
 
     def test_invalid_entries_raise_typed_errors_and_change_nothing(self) -> None:
         before = self.hospital.counts()
-        profile = self.hospital.profile_snapshot()
+        profile = self.profile()
         with self.assertRaises(RecordRejected) as caught:
             self.hospital.enter({**HIGH_RISK_ENTRY, "age": 140})
         self.assertIn("age", caught.exception.errors)
@@ -132,13 +153,13 @@ class DataEntryContract:
         with self.assertRaises(IdempotencyKeyReused):
             self.hospital.enter(HIGH_RISK_ENTRY, "key")
         self.assertEqual(before["entered"] + 1, self.hospital.counts()["entered"])
-        self.assertEqual(profile["record_count"] + 1, self.hospital.profile_snapshot()["record_count"])
+        self.assertEqual(profile["record_count"] + 1, self.profile()["record_count"])
 
     def test_an_outcome_counts_the_record_as_labelled(self) -> None:
-        site = self.consortium.hospital("ch-245")
+        site = self.demo.hospital("ch-245")
         entry = site.enter(LOW_RISK_ENTRY, "outcome")["record"]["encounter_id"]
         before = site.summary()
-        booleans = site.profile_snapshot()["fields"]["poor_outcome_6m"]["booleans"]
+        booleans = self.profile(site)["fields"]["poor_outcome_6m"]["booleans"]
 
         result = site.set_outcome(entry, True)
         self.assertIs(True, result["record"]["poor_outcome_6m"])
@@ -149,11 +170,9 @@ class DataEntryContract:
         self.assertEqual(booleans["false"], after["false"])
         summary = site.summary()
         positives, labelled = booleans["true"] + 1, before["labelled_count"] + 1
-        if PLANNER:
-            self.assertAlmostEqual(positives / labelled, summary["outcome_rate"], places=12)
-        else:
-            # The planner decides whether the rate may leave; without it, it does not.
-            self.assertIsNone(summary["outcome_rate"])
+        # The planner decides whether the rate may leave. Without it the rate
+        # does not leave: see test_planner_errors.PlannerMissingPageTests.
+        self.assertAlmostEqual(positives / labelled, summary["outcome_rate"], places=12)
 
         dataset_row = load_site_records("ch-245")[0]["encounter_id"]
         with self.assertRaises(RecordRejected):
@@ -211,20 +230,33 @@ class DataEntryContract:
         self.assertEqual([], dashboard["contributions"])
 
     def test_the_entry_limit_refuses_more_records(self) -> None:
-        consortium = self.make_consortium(max_entered_per_site=1)
-        site = consortium.hospital("it-002")
+        demo = self.demo_for_test(max_entered_per_site=1)
+        site = demo.hospital("it-002")
         site.enter(LOW_RISK_ENTRY, "limit-1")
         with self.assertRaises(EntryLimitReached):
             site.enter(HIGH_RISK_ENTRY, "limit-2")
         self.assertEqual(1, site.counts()["entered"])
 
-    @unittest.skipUnless(PLANNER, "dagentsc binary is not available")
     def test_labelled_entries_reach_the_next_round(self) -> None:
         """Entries count in the next round: all of them for profiling, labelled ones for evaluation and training."""
-        initial = self.consortium.registry.ensure_initial()
-        analytics = self.consortium.run_round("entry-analytics-1", "analytics")
-        evaluation = self.consortium.run_round("entry-evaluation-1", "evaluation")
-        training = self.consortium.run_round("entry-training-1", "training", initial)
+        self.demo.ready()
+        gma = self.demo.agents.gma()
+        in_use = _ref(gma.released_model())
+        initial = _ref(gma.get_model_version(INITIAL_VERSION))
+        pilot = self.demo.pilot
+
+        def run(round_id: str, phase: str, model: ModelRef) -> dict[str, Any]:
+            try:
+                return pilot.run_round(round_id, phase, model)  # type: ignore[arg-type]
+            finally:
+                if phase == "training":
+                    gma.discard_round(round_id, "the test round ended")
+
+        # The GMA reads each hospital's cohort size when it enrols them, once per pilot.
+        gma.refresh_sites()
+        analytics = run("entry-analytics-1", "analytics", in_use)
+        evaluation = run("entry-evaluation-1", "evaluation", in_use)
+        training = run("entry-training-1", "training", initial)
         before = {
             "analytics": _by_site(analytics, "uk-134")["contributed_examples"],
             "evaluation": _by_site(evaluation, "uk-134")["contributed_examples"],
@@ -236,13 +268,15 @@ class DataEntryContract:
         self.hospital.set_outcome(entries[0], True)
         self.hospital.set_outcome(entries[1], False)
 
-        analytics = self.consortium.run_round("entry-analytics-2", "analytics")
-        evaluation = self.consortium.run_round("entry-evaluation-2", "evaluation")
-        training = self.consortium.run_round("entry-training-2", "training", initial)
+        refreshed = {site.site_id: site for site in gma.refresh_sites()}["uk-134"]
+        analytics = run("entry-analytics-2", "analytics", in_use)
+        evaluation = run("entry-evaluation-2", "evaluation", in_use)
+        training = run("entry-training-2", "training", initial)
         self.assertEqual(before["analytics"] + 3, _by_site(analytics, "uk-134")["contributed_examples"])
         self.assertEqual(before["evaluation"] + 2, _by_site(evaluation, "uk-134")["contributed_examples"])
         self.assertEqual(before["training"] + 2, _by_site(training, "uk-134")["contributed_examples"])
-        registration = {site.site_id: site for site in self.consortium.controller.list_sites()}["uk-134"]
+        registration = {site.site_id: site for site in gma.list_sites()}["uk-134"]
+        self.assertEqual(refreshed.cohort_size, registration.cohort_size)
         self.assertEqual(self.hospital.counts()["total"], registration.cohort_size)
         self.assertEqual(before["analytics"] + 3, registration.cohort_size)
         self.assertEqual(
@@ -252,38 +286,55 @@ class DataEntryContract:
 
 
 class ConstructionTests(unittest.TestCase):
-    """Building a consortium reads nothing; a store that cannot be reached says which one."""
+    """Building the app's services reads nothing; a store that cannot be reached says which one."""
 
     UNREACHABLE = "postgresql://demo:demo@127.0.0.1:1/healthcare"
 
-    def test_building_a_consortium_reads_no_records(self) -> None:
-        with mock.patch("app.services.consortium.load_site_records") as loader:
-            consortium = Consortium()
-            self.assertEqual(["uk-134", "it-002", "ch-245"], list(consortium.hospitals))
+    def test_building_the_services_reads_no_records_and_starts_no_agent(self) -> None:
+        with mock.patch("app.services.agents.load_site_records") as loader, \
+                mock.patch("app.services.agents.build_in_process_agents") as agents:
+            demo = HealthcareDemo()
+            self.assertEqual(["uk-134", "it-002", "ch-245"], [site.site_id for site in demo.sites])
             loader.assert_not_called()
-            Consortium(database_url=self.UNREACHABLE, environ={})
+            HealthcareDemo(database_url=self.UNREACHABLE, environ={})
             loader.assert_not_called()
+            agents.assert_not_called()
 
     def test_an_unreachable_database_raises_and_names_the_store(self) -> None:
-        consortium = Consortium(database_url=self.UNREACHABLE, environ={})
-        self.assertEqual("postgres", consortium.data_source_status()["cohort_source"])
+        demo = HealthcareDemo(database_url=self.UNREACHABLE, environ={})
+        self.addCleanup(demo.close)
+        self.assertEqual("postgres", demo.status()["cohort_source"])
+        # The app's own read of the hospital's store names the hospital.
         with self.assertRaises(StoreUnavailableError) as caught:
-            consortium.hospital("uk-134").summary()
+            demo.hospital("uk-134").counts()
         self.assertIn("hospital uk-134", str(caught.exception))
+        # The hospital's LMA cannot read the store either, and says so by code.
+        with self.assertRaises(AgentError) as caught:
+            demo.hospital("uk-134").summary()
+        self.assertEqual((503, "store_unavailable"), (caught.exception.status, caught.exception.code))
+        # The GMA cannot reach the coordinator's tables to register the model versions.
+        with self.assertRaises(AgentError) as caught:
+            demo.overview.model_in_use()
+        self.assertEqual((503, "store_unavailable"), (caught.exception.status, caught.exception.code))
         with self.assertRaises(StoreUnavailableError) as caught:
-            consortium.model_in_use()
+            demo.coordinator_store.latest_pilot_report()
         self.assertIn("coordinator store", str(caught.exception))
 
     def test_an_unknown_hospital_is_a_key_error(self) -> None:
+        demo = HealthcareDemo()
+        self.addCleanup(demo.close)
         with self.assertRaises(KeyError):
-            Consortium().hospital("nowhere")
+            demo.hospital("nowhere")
+        self.assertTrue(issubclass(UnknownSiteError, KeyError))
 
 
+@unittest.skipUnless(PLANNER, "dagentsc binary is not available")
 class MemoryDataEntryTests(DataEntryContract, unittest.TestCase):
-    def make_consortium(self, **kwargs: Any) -> Consortium:
-        return Consortium(**kwargs)
+    def make_demo(self, **kwargs: Any) -> HealthcareDemo:
+        return HealthcareDemo(**kwargs)
 
 
+@unittest.skipUnless(PLANNER, "dagentsc binary is not available")
 class PostgresDataEntryTests(DataEntryContract, unittest.TestCase):
     db: SupabaseLikeDatabase
 
@@ -302,8 +353,8 @@ class PostgresDataEntryTests(DataEntryContract, unittest.TestCase):
     def tearDownClass(cls) -> None:
         cls.db.stop()
 
-    def make_consortium(self, **kwargs: Any) -> Consortium:
-        return Consortium(database_url=self.db.dsn, environ={}, **kwargs)
+    def make_demo(self, **kwargs: Any) -> HealthcareDemo:
+        return HealthcareDemo(database_url=self.db.dsn, environ={}, **kwargs)
 
     def setUp(self) -> None:
         with self.db.admin() as conn:

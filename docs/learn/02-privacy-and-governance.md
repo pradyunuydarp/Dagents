@@ -116,10 +116,10 @@ denial.
 
 ## Example
 
-These are real responses from the stroke demo's governance endpoint, at Hospital
-134. The classification marks `systolic_bp` as high sensitivity, `age_band` as
-medium and `onset_on_waking` (symptoms noticed on waking) as low, with a minimum
-cohort of 20.
+These are real responses from the stroke demo's governance endpoint at Hospital
+134, which asks that hospital's LMA to run its Guard. The classification marks
+`systolic_bp` as high sensitivity, `age_band` as medium and `onset_on_waking`
+(symptoms noticed on waking) as low, with a minimum cohort of 20.
 
 | Request | `systolic_bp` | `age_band` | `onset_on_waking` | Decision |
 |---|---|---|---|---|
@@ -156,7 +156,9 @@ value cannot be clipped.
 Open the Ethical Guard panel in the [stroke triage demo](https://pradyunuydarp.github.io/Dagents/healthcare-demo/).
 Choose a hospital, change **Requester verified**, the granularity and the
 **Cohort size**, select **Ask the guard**, and compare the strategies. Each answer
-comes from the planner, and each one is written to that hospital's audit log.
-Step 4 shows how to make the same call with `curl`.
+comes from the planner, through the hospital's LMA, and each one is written to
+that hospital's audit log. The **Dagents API calls** table under the panel
+names the LMA route that answered. Step 4 shows how to make the same call with
+`curl`.
 
 Next: [Step 3 — How Dagents is built](03-architecture.md)

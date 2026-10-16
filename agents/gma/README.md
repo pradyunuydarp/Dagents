@@ -62,6 +62,7 @@ replacing variables already set, then reads:
 | `GMA_SITE_TOKENS` | none | `SITE=TOKEN,...`: each LMA's token for its update uploads and the released model (`site` scope, bound to the site) |
 | `GMA_DISPATCH_CONCURRENCY` | `3` | How many sites a round's jobs run at at once, from 1 to 64 |
 | `GMA_SUMMARY_TTL_SECONDS` | `2` | How long the site directory keeps the sites' summaries |
+| `GMA_SUMMARY_TIMEOUT_SECONDS` | `30` | How long the site directory waits for each LMA's answer; an LMA that takes longer is reported as not reachable |
 | `GMA_EXTENSIONS` | none | `module:attribute,...`: extensions for this GMA's own registry. Without it the GMA reads the default registry |
 | `GMA_DATABASE_URL`, `GMA_DATABASE_ROLE` | none | The coordinator database and the role every query runs as. The address is never shown in a log or a response |
 | `GMA_MODEL_TABLE` | none | `schema.table` for the model registry; in memory without it |
@@ -107,16 +108,16 @@ caller and logs a warning.
 ## The HTTP engine
 
 With `GMA_ENGINE=http`, the engine (`adapters/http_federation_engine.py`)
-offers each selected site its job, with the round's starting model from the
-registry, and asks the site to execute it when it accepted, with up to
-`GMA_DISPATCH_CONCURRENCY` sites at a time. A missing address, a timeout or an
+sends each selected site its job, with the round's starting model from the
+registry, in one `jobs:run` call: the site checks the job and runs it when it
+accepts. Up to `GMA_DISPATCH_CONCURRENCY` sites are called at a time. A missing address, a timeout or an
 HTTP error becomes a `failed` result with its reason, and a refusal a
 `rejected` result. Each call is recorded on the round as a dispatch row (site,
 step, status, milliseconds, outcome). For a training round, aggregation checks
 every stored update against the digest its site reported, calls the model
 kind's `combine` with the planner's weights, registers
 `<version_prefix>+<round_id>` as a candidate, and always deletes the round's
-updates. Every result comes from a site's `jobs:execute` answer, so the
+updates. Every result comes from a site's `jobs:run` answer, so the
 results route refuses a posted result (`409`), and only a GMA on this engine
 records `metrics_source: rounds` in a release decision. The update upload runs
 on a small thread pool of the GMA's own (8 threads), so an upload never waits

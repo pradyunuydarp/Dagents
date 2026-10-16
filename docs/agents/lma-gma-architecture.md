@@ -35,7 +35,7 @@ an execution and coordination layer.
 | Started with | No `LMA_SITE_ID` | `LMA_SITE_ID` and `LMA_CONDITION_ID`, or a `SiteConfig` in `LmaDeps` |
 | Records | Sent in each request, or read from a registered source | Read from the site's own source (`SiteRecordSource`), as the site's database role |
 | Guard | Plans against the classification in each request | Plans against the condition pack's classification, and refuses a request whose inline classification differs |
-| Routes | Profiling, model runs, sources, bundles and runs, the Guard, the audit log | All of those, plus the site routes (`/site`, `/site/summary`, `/site/profile`, `/site/source:refresh`, `/site/model`, `/site/model:evaluate`, `/governance/restrictions:probe`, `/governance/audit:summary`) and the federated job routes (`/federation/registration`, `/federation/jobs:offer`, `/federation/jobs:execute`, `/federation/jobs`) |
+| Routes | Profiling, model runs, sources, bundles and runs, the Guard, the audit log | All of those, plus the site routes (`/site`, `/site/summary`, `/site/profile`, `/site/source:refresh`, `/site/model`, `/site/model:evaluate`, `/governance/restrictions:probe`, `/governance/audit:summary`) and the federated job routes (`/federation/registration`, `/federation/jobs:offer`, `/federation/jobs:execute`, `/federation/jobs:run`, `/federation/jobs`) |
 | Lock-down | None | A request may not embed a source in `dataset` or register a source that names a database, a role, a credential or SQL |
 
 A generic LMA answers `404` on the site and job routes. One process can serve
@@ -69,21 +69,17 @@ sequenceDiagram
   participant P as dagentsc
   Op->>GMA: POST /api/v1/federation/rounds with the manifest
   GMA->>P: federation round plan
-  GMA->>LMA: POST /api/v1/federation/jobs:offer with the job and the model
+  GMA->>LMA: POST /api/v1/federation/jobs:run with the job and the model
   LMA->>P: round digest, then the before_train Guard
-  LMA-->>GMA: JobAcceptance
-  GMA->>LMA: POST /api/v1/federation/jobs:execute
   LMA->>P: before_read Guard, local training, before_send Guard
   LMA->>GMA: PUT /api/v1/federation/rounds/ROUND/updates/SITE
   GMA-->>LMA: the update digest
-  LMA-->>GMA: SiteResult with the norm and digest only
-  GMA-->>Op: RoundRecord with results, acceptances and dispatch rows
-  Op->>GMA: GET /api/v1/federation/rounds/ROUND/readiness
+  LMA-->>GMA: JobRun: the JobAcceptance and the SiteResult with the norm and digest only
   GMA->>P: federation aggregate readiness with the selected sites
+  GMA-->>Op: RoundRecord with results, acceptances, dispatch rows and the readiness
   Op->>GMA: POST /api/v1/federation/rounds/ROUND:aggregate
   GMA->>P: federation model lifecycle, event aggregated
-  GMA-->>Op: CandidateModel
-  Op->>GMA: POST /api/v1/federation/rounds/ROUND:discard
+  GMA-->>Op: CandidateModel; the round's updates are deleted
 ```
 
 Before it reads any data, the LMA checks that the job is for its site, round

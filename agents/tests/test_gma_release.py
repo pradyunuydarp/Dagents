@@ -199,6 +199,25 @@ class ReleaseEvaluationTests(unittest.TestCase):
         self.assertEqual(newest["requester_id"], COMMITTEE.requester_id)
         self.assertEqual(newest["request_id"], f"{self.pilot.last_training_id}:release:{self.pilot.candidate_version}")
 
+    def test_the_guard_answer_says_what_the_guard_released(self) -> None:
+        """The answer carries the Guard's whole decision, so a caller never rebuilds it from the plan."""
+        evaluation = self.evaluate()
+        guard = evaluation.guard
+        newest = self.client.get("/api/v1/governance/audit", params={"limit": 1}).json()["records"][0]
+        self.assertEqual("before_release", guard.boundary)
+        self.assertEqual(newest["request_id"], guard.request_id)
+        self.assertEqual(newest["withheld_fields"], guard.withheld_fields)
+        self.assertEqual(1, len(guard.payload), guard.payload)
+        self.assertEqual(["model_update"], sorted(guard.payload[0]))
+        change = guard.payload[0]["model_update"]
+        self.assertIsInstance(change, float)
+        if "model_update" in guard.transformed_fields:
+            # A bounded contribution: the audit record keeps its size after the bound.
+            self.assertAlmostEqual(newest["contribution_norm_after"], abs(change), places=12)
+        else:
+            self.assertEqual([], newest["contribution_strategies"])
+        self.assertTrue(set(guard.transformed_fields) <= {"model_update"})
+
     def test_the_decision_is_stored_with_the_model_version(self) -> None:
         self.evaluate()
         stored = self.gma.get_model_version(self.pilot.candidate_version)

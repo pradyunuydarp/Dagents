@@ -347,10 +347,8 @@ class Shared:
                     self.assertEqual([a.site_id for a in record.acceptances], list(SITES))
                     self.assertTrue(all(a.accepted for a in record.acceptances))
                     rows = sorted((call.site_id, call.step, call.status_code, call.outcome) for call in record.dispatch)
-                    expected = sorted(
-                        [(site, "offer", 200, "accepted") for site in SITES]
-                        + [(site, "execute", 200, "completed") for site in SITES]
-                    )
+                    # One jobs:run call per site: the offer and the execution in one call.
+                    expected = sorted((site, "run", 200, "completed") for site in SITES)
                     self.assertEqual(rows, expected)
                     self.assertTrue(self.outcome.readiness[round_id].aggregation_permitted)
                     self.assertEqual(sorted(self.outcome.readiness[round_id].site_weights), list(SITES))

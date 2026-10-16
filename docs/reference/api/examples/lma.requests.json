@@ -1191,7 +1191,10 @@
           "Authorization": "Bearer example-store-north-staff-token"
         }
       },
-      "status": 200
+      "status": 200,
+      "volatile": [
+        "/created_at"
+      ]
     },
     {
       "id": "site-model-evaluate",
@@ -1584,6 +1587,68 @@
       "status": 409
     },
     {
+      "id": "run-job",
+      "endpoint": "POST /api/v1/federation/jobs:run",
+      "title": "Offer and run a job in one call",
+      "description": "What the GMA's HTTP engine sends: the job for round returns-eval-2, whose round digest is fnv1a:40cf947bc69b5e88. The LMA checks the job, then runs it, and answers with both steps.",
+      "app": "store-north",
+      "request": {
+        "path": "/api/v1/federation/jobs:run",
+        "headers": {
+          "Authorization": "Bearer example-store-north-coordinator-token"
+        },
+        "json": {
+          "round_id": "returns-eval-2",
+          "site_id": "store-north",
+          "manifest": {
+            "round_id": "returns-eval-2",
+            "study_id": "returns-pilot",
+            "condition_id": "order_returns",
+            "phase": "evaluation",
+            "model_version": "return-check-rule-v2",
+            "model_artifact_digest": "sha256:6367ac6596e4db525b87ac86bc6b9d0aa6138948a230cc3ea2d5308b6174e937",
+            "training_code_digest": "sha256:6367ac6596e4db525b87ac86bc6b9d0aa6138948a230cc3ea2d5308b6174e937",
+            "feature_contract_version": "retail-orders-v1",
+            "privacy_profile": "guarded-rows",
+            "aggregation": {
+              "kind": "fedavg"
+            },
+            "minimum_participants": 2,
+            "minimum_cohort_per_site": 20,
+            "required_capabilities": [
+              "evaluate"
+            ],
+            "stop_conditions": [
+              "schema_failure",
+              "quorum_not_met"
+            ],
+            "invited_sites": [
+              "store-north",
+              "store-south"
+            ]
+          },
+          "manifest_digest": "fnv1a:40cf947bc69b5e88",
+          "task": "evaluate",
+          "parameters": {
+            "model": {
+              "version": "return-check-rule-v2",
+              "kind": "return_check_rule",
+              "params": {
+                "risky_categories": [
+                  "clothing",
+                  "shoes"
+                ],
+                "min_items": 3,
+                "high_value": 150
+              },
+              "digest": "sha256:6367ac6596e4db525b87ac86bc6b9d0aa6138948a230cc3ea2d5308b6174e937"
+            }
+          }
+        }
+      },
+      "status": 200
+    },
+    {
       "id": "offer-untrainable",
       "endpoint": "POST /api/v1/federation/jobs:offer",
       "title": "A training job for a model that cannot be trained",
@@ -1648,7 +1713,7 @@
     {
       "id": "job-log",
       "endpoint": "GET /api/v1/federation/jobs",
-      "title": "The store's job log: the refusal and the result",
+      "title": "The store's job log: the refusal and the results",
       "app": "store-north",
       "request": {
         "path": "/api/v1/federation/jobs",

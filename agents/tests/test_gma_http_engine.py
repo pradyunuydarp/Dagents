@@ -26,14 +26,17 @@ What is checked:
 
 from __future__ import annotations
 
+import json
 import socket
 import threading
 import time
 import unittest
 from concurrent.futures import ThreadPoolExecutor
+from unittest import mock
 
 from fastapi.testclient import TestClient
 
+from agents.common.domain.errors import AggregationRefused
 from agents.common.domain.federation import (
     ModelVersionRegistration,
     SiteRegistration,
@@ -149,6 +152,19 @@ class HttpEngineTests(unittest.TestCase):
         without = self.gma.site_summaries()
         self.assertTrue(all(entry.audit is None for entry in without))
 
+    def test_a_slow_lma_is_reported_unreachable_after_the_summary_timeout(self) -> None:
+        study = build_study(registry=toy_registry(), summary_timeout_seconds=0.5)
+        self.addCleanup(study.close)
+        study.lmas["site-b"].summary_delay = 3.0
+        started = time.monotonic()
+        entries = study.gma().site_summaries()
+        self.assertLess(time.monotonic() - started, 2.5, "the GMA waited for the slow LMA")
+        self.assertEqual([entry.site_id for entry in entries], list(SITES))
+        slow = next(entry for entry in entries if entry.site_id == "site-b")
+        self.assertFalse(slow.reachable)
+        self.assertIsNone(slow.summary)
+        self.assertTrue(all(entry.reachable for entry in entries if entry.site_id != "site-b"))
+
     def test_site_summaries_keep_an_lma_that_refused_the_call_as_reachable(self) -> None:
         study = build_study(registry=toy_registry(), sites=("site-a",), lma_tokens={"site-a": "x" * 20})
         self.addCleanup(study.close)
@@ -175,13 +191,15 @@ class HttpEngineTests(unittest.TestCase):
             self.assertEqual(result.job_digest, record.plan.round_digest)
             self.assertTrue(result.update_digest)
             self.assertGreater(result.update_norm, 0.0)
-        # Each site was offered the job and then ran it: two calls per site.
-        self.assertEqual(len(record.dispatch), 6)
+        # Each site was offered the job and ran it in one jobs:run call.
+        self.assertEqual(len(record.dispatch), 3)
         for site_id in SITES:
             calls = [call for call in record.dispatch if call.site_id == site_id]
-            self.assertEqual([call.step for call in calls], ["offer", "execute"])
-            self.assertEqual([call.outcome for call in calls], ["accepted", "completed"])
-            self.assertEqual([call.status_code for call in calls], [200, 200])
+            self.assertEqual([call.step for call in calls], ["run"])
+            self.assertEqual([call.outcome for call in calls], ["completed"])
+            self.assertEqual([call.status_code for call in calls], [200])
+            # The site checked the job before it ran it, as with a separate offer.
+            self.assertEqual(len(self.study.lmas[site_id].offers), 1)
         # The sites ran at the same time, not one after another.
         self.assertGreaterEqual(self.study.meter.highest, 2)
         # Every site stored its clipped update with the GMA.
@@ -199,6 +217,23 @@ class HttpEngineTests(unittest.TestCase):
             self.assertEqual(model["digest"], self.digests[INITIAL_VERSION])
             self.assertEqual((job.site_id, job.task), (site_id, "train"))
             self.assertEqual(job.manifest_digest, record.plan.round_digest)
+
+    def test_a_training_round_reads_its_starting_model_from_the_store_once(self) -> None:
+        # Each read is a database round trip when the registry is in Postgres.
+        # The dispatch loads the model once; the sites' update uploads use the
+        # kind kept from that load instead of reading the version again.
+        store = self.study.state.models.store
+        real_get = store.get
+        reads: list[str] = []
+
+        def counting_get(version: str):  # noqa: ANN202 - same signature as the store's
+            reads.append(version)
+            return real_get(version)
+
+        with mock.patch.object(store, "get", side_effect=counting_get):
+            record = self.gma.dispatch_round(self.training_manifest())
+        self.assertEqual([result.participation for result in record.results], ["completed"] * 3)
+        self.assertLessEqual(reads.count(INITIAL_VERSION), 1, reads)
 
     def test_a_round_whose_model_does_not_match_its_digest_is_refused(self) -> None:
         manifest = self.training_manifest(model_artifact_digest="sha256:not-the-registered-model")
@@ -230,7 +265,7 @@ class HttpEngineTests(unittest.TestCase):
         acceptance = next(item for item in record.acceptances if item.site_id == "site-d")
         self.assertFalse(acceptance.accepted)
         call = next(call for call in record.dispatch if call.site_id == "site-d")
-        self.assertEqual((call.step, call.status_code, call.outcome), ("offer", None, "failed"))
+        self.assertEqual((call.step, call.status_code, call.outcome), ("run", None, "failed"))
         # The other sites still completed.
         self.assertEqual(
             [result.participation for result in record.results if result.site_id != "site-d"], ["completed"] * 3
@@ -244,8 +279,39 @@ class HttpEngineTests(unittest.TestCase):
         self.assertIn("500", result.refusal_reason)
         self.assertNotIn("postgresql", result.refusal_reason)
         self.assertNotIn("example.internal", record.model_dump_json())
-        call = [call for call in record.dispatch if call.site_id == "site-b"][-1]
-        self.assertEqual((call.step, call.status_code, call.outcome), ("execute", 500, "failed"))
+        [call] = [call for call in record.dispatch if call.site_id == "site-b"]
+        self.assertEqual((call.step, call.status_code, call.outcome), ("run", 500, "failed"))
+
+    def test_an_lma_error_detail_never_reaches_the_round(self) -> None:
+        # A site store that cannot connect answers 503 with a detail that names a
+        # host, a password and a vendor. The round keeps the status and code only.
+        leaks = ("hunter2", "postgresql", "example.internal", "ExampleCloud", "ExampleHost", "://admin")
+        # The store can fail at the offer or the execution inside a jobs:run
+        # call; the GMA sees one failed call either way.
+        prefix = "the job run failed"
+        for step in ("offer", "execute", "run"):
+            with self.subTest(step=step):
+                self.study.lmas["site-b"].store_error_on = step
+                round_id = f"round-store-error-{step}"
+                with self.assertLogs("agents.gma.adapters.http_federation_engine", "WARNING") as logs:
+                    record = self.gma.dispatch_round(self.training_manifest(round_id))
+                result = next(result for result in record.results if result.site_id == "site-b")
+                self.assertEqual(result.participation, "failed")
+                self.assertEqual(result.refusal_reason, f"{prefix}: the LMA of site site-b answered 503 (store_unavailable)")
+                acceptance = next(item for item in record.acceptances if item.site_id == "site-b")
+                self.assertFalse(acceptance.accepted)
+                self.assertEqual(acceptance.reason, result.refusal_reason)
+                stored = self.gma.request("GET", "/api/v1/federation/rounds/{round_id}", path_params={"round_id": round_id})
+                for text in (record.model_dump_json(), json.dumps(stored.body)):
+                    for leak in leaks:
+                        self.assertNotIn(leak, text)
+                # The operator's log keeps the detail, with the address removed.
+                logged = "\n".join(logs.output)
+                self.assertIn("site-b", logged)
+                self.assertIn("[address]", logged)
+                self.assertNotIn("hunter2", logged)
+                self.gma.discard_round(round_id, "the test is done with it")
+        self.study.lmas["site-b"].store_error_on = None
 
     def test_a_refused_offer_gives_a_rejected_result_with_the_site_reason(self) -> None:
         self.study.lmas["site-c"].refuse_with = "the site is closed for maintenance"
@@ -254,7 +320,7 @@ class HttpEngineTests(unittest.TestCase):
         self.assertEqual(result.participation, "rejected")
         self.assertEqual(result.refusal_reason, "the site is closed for maintenance")
         calls = [call for call in record.dispatch if call.site_id == "site-c"]
-        self.assertEqual([(call.step, call.outcome) for call in calls], [("offer", "refused")])
+        self.assertEqual([(call.step, call.outcome) for call in calls], [("run", "refused")])
 
     def test_a_reused_round_id_is_refused_with_409(self) -> None:
         manifest = self.evaluation_manifest()
@@ -267,10 +333,41 @@ class HttpEngineTests(unittest.TestCase):
 
     def test_readiness_checks_the_selected_sites_and_writes_nothing(self) -> None:
         record = self.gma.dispatch_round(self.training_manifest())
+        before = self.gma.get_round(record.manifest.round_id)
         readiness = self.gma.readiness(record.manifest.round_id)
         self.assertTrue(readiness.aggregation_permitted, readiness)
         self.assertEqual(readiness.accepted_sites, list(SITES))
-        self.assertIsNone(self.gma.get_round(record.manifest.round_id).readiness)
+        # The read changed nothing on the stored round.
+        self.assertEqual(before, self.gma.get_round(record.manifest.round_id))
+
+    def test_a_dispatched_round_carries_its_readiness(self) -> None:
+        # The HTTP engine collects every result while it dispatches, so the GMA
+        # asks the planner for the readiness then: the caller needs no second call.
+        record = self.gma.dispatch_round(self.training_manifest())
+        round_id = record.manifest.round_id
+        self.assertIsNotNone(record.readiness)
+        self.assertTrue(record.readiness.aggregation_permitted, record.readiness)
+        self.assertEqual(record.readiness, self.gma.readiness(round_id))
+        self.assertEqual(record.readiness, self.gma.get_round(round_id).readiness)
+        # A round without quorum is closed at dispatch and has no readiness.
+        closed = self.gma.dispatch_round(self.training_manifest("round-no-quorum", minimum_participants=9))
+        self.assertEqual(closed.status, "closed")
+        self.assertIsNone(closed.readiness)
+
+    def test_a_readiness_failure_at_dispatch_discards_the_round(self) -> None:
+        rounds = self.study.state.rounds
+
+        def failing(round_id, *args, **kwargs):  # noqa: ANN001, ANN002, ANN003, ANN202
+            raise RuntimeError("the planner stopped answering")
+
+        with mock.patch.object(rounds, "evaluate_readiness", side_effect=failing):
+            with self.assertRaises(AgentError) as caught, self.assertLogs(level="ERROR"):
+                self.gma.dispatch_round(self.training_manifest("round-readiness-fails"))
+        self.assertEqual(caught.exception.status, 500)
+        self.assertEqual(self.study.state.updates.pending_rounds(), [])
+        closed = self.gma.get_round("round-readiness-fails")
+        self.assertEqual(closed.status, "closed")
+        self.assertEqual(closed.abandoned_reason, "the planner could not check the round's readiness after its dispatch")
 
     def test_aggregate_combines_the_stored_updates_and_registers_a_candidate(self) -> None:
         record = self.gma.dispatch_round(self.training_manifest())
@@ -360,6 +457,45 @@ class HttpEngineTests(unittest.TestCase):
             self.gma.aggregate(round_id)
         self.assertEqual(caught.exception.code, "aggregation_refused")
         self.assertIn("digest", caught.exception.detail)
+
+    def test_aggregation_is_refused_when_training_starts_from_a_kind_that_cannot_be_trained(self) -> None:
+        # The LMA refuses such a job, so the engine is called directly: its own
+        # check must hold even when a site would accept the job.
+        record = self.gma.dispatch_round(self.training_manifest())
+        round_id = record.manifest.round_id
+        readiness = self.gma.readiness(round_id)
+        from_rule = record.manifest.model_copy(
+            update={"model_version": THRESHOLD_VERSION, "model_artifact_digest": self.digests[THRESHOLD_VERSION]}
+        )
+        with self.assertRaises(AggregationRefused) as caught:
+            self.study.state.engine.aggregate(from_rule, readiness, record.results)
+        self.assertIn("cannot be trained", str(caught.exception))
+        self.assertEqual(self.study.state.updates.pending_rounds(), [])
+        versions = {item.version for item in self.gma.list_model_versions(limit=20).versions}
+        self.assertEqual(versions, {THRESHOLD_VERSION, INITIAL_VERSION})
+
+    def test_aggregation_is_refused_when_the_planner_gave_an_accepted_site_no_weight(self) -> None:
+        import agents.common.application.federation as federation
+
+        record = self.gma.dispatch_round(self.training_manifest())
+        round_id = record.manifest.round_id
+        real = federation.evaluate_aggregation_readiness
+
+        def without_site_b_weight(*args, **kwargs):  # noqa: ANN002, ANN003, ANN202 - same signature as the runner
+            payload = real(*args, **kwargs)
+            weights = payload.get("site_weights", payload.get("siteWeights"))
+            weights.pop("site-b")
+            return payload
+
+        with mock.patch.object(federation, "evaluate_aggregation_readiness", without_site_b_weight):
+            with self.assertRaises(AgentError) as caught:
+                self.gma.aggregate(round_id)
+        self.assertEqual((caught.exception.status, caught.exception.code), (409, "aggregation_refused"))
+        self.assertIn("no weight for site-b", caught.exception.detail)
+        self.assertEqual(self.study.state.updates.pending_rounds(), [])
+        self.assertIsNone(self.gma.get_round(round_id).candidate)
+        versions = {item.version for item in self.gma.list_model_versions(limit=20).versions}
+        self.assertEqual(versions, {THRESHOLD_VERSION, INITIAL_VERSION})
 
     # --- Results ---------------------------------------------------------------------
 
@@ -874,6 +1010,7 @@ class GmaSettingsTests(unittest.TestCase):
                 "GMA_SITE_TOKENS": f"site-a={SITE_TOKENS['site-a']}",
                 "GMA_DISPATCH_CONCURRENCY": "5",
                 "GMA_SUMMARY_TTL_SECONDS": "0.5",
+                "GMA_SUMMARY_TIMEOUT_SECONDS": "4",
                 "GMA_EXTENSIONS": "agents.tests.fixtures.toy_extension:ToyExtension",
                 "GMA_ALLOW_SOURCE_READS": "0",
                 "GMA_REQUIRE_TOKENS": "1",
@@ -883,6 +1020,7 @@ class GmaSettingsTests(unittest.TestCase):
         self.assertEqual(dict(settings.site_endpoints), {"site-a": "http://127.0.0.1:9101", "site-b": "http://127.0.0.1:9102"})
         self.assertEqual(settings.dispatch_concurrency, 5)
         self.assertEqual(settings.summary_ttl_seconds, 0.5)
+        self.assertEqual(settings.summary_timeout_seconds, 4.0)
         self.assertFalse(settings.allow_source_reads)
         self.assertTrue(settings.require_tokens)
         # No token and no connection string is shown by repr.
@@ -896,11 +1034,14 @@ class GmaSettingsTests(unittest.TestCase):
         self.assertFalse(settings.require_tokens)
         self.assertEqual(settings.dispatch_concurrency, 3)
         self.assertEqual(settings.summary_ttl_seconds, 2.0)
+        # The agent network's own timeout for a call, as before the setting existed.
+        self.assertEqual(settings.summary_timeout_seconds, 30.0)
 
     def test_settings_refuse_values_they_cannot_use(self) -> None:
         for variables in (
             {"GMA_ENGINE": "flower"},
             {"GMA_DISPATCH_CONCURRENCY": "0"},
+            {"GMA_SUMMARY_TIMEOUT_SECONDS": "0"},
             {"GMA_ALLOW_SOURCE_READS": "maybe"},
             {"GMA_SITE_ENDPOINTS": "site-a"},
         ):

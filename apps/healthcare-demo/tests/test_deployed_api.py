@@ -8,6 +8,8 @@ test in this repository and failed on the first request to the running service.
 So this talks to a real deployment and checks what the demo shows:
 
 - the records come from Postgres, as the service itself reports;
+- the Dagents LMAs and GMA run inside the API, every LMA answers the GMA, and
+  each answer lists the agent calls behind it, by route only;
 - every hospital serves a worklist of real rows;
 - the Guard's levers change the protection strategy, so the OCaml planner is in
   the image and answering;
@@ -31,6 +33,7 @@ warning, because they are the only check of the deployed service.
 
 from __future__ import annotations
 
+import json
 import os
 import time
 import unittest
@@ -162,6 +165,49 @@ class DeployedApiTests(unittest.TestCase):
         for row in status["hospitals"]:
             with self.subTest(site=row["site_id"]):
                 self.assertGreater(row["record_count"], 0)
+
+    def test_the_agents_run_inside_the_api_and_every_lma_answers(self) -> None:
+        """The deployed image is the one that calls the Dagents LMAs and GMA through their APIs.
+
+        An image from before the agents passes every other test here, so a
+        deploy that kept the old image would look green without this one.
+        """
+        status = self.get_json("/api/v1/framework/status", "/api/v1/framework/status")
+        agents = status.get("agents")
+        self.assertIsInstance(
+            agents, dict, "the status report has no agents block, so the deployed image predates the Dagents agents"
+        )
+        self.assertEqual("in-process", agents["mode"])
+        self.assertEqual("http", agents["engine"], "the GMA does not run the rounds over HTTP")
+        self.assertTrue(agents["lmas"], "the GMA reported no LMA")
+        for lma in agents["lmas"]:
+            with self.subTest(site=lma["site_id"]):
+                self.assertTrue(lma["reachable"], f"the LMA of {lma['site_id']} did not answer the GMA")
+
+    def test_each_answer_lists_the_agent_calls_behind_it(self) -> None:
+        """The overview reads the hospitals through the GMA, and a probe is answered by the hospital's LMA."""
+        overview = self.get_json("/api/v1/overview", "/api/v1/overview")
+        site_id = overview["hospitals"][0]["site_id"]
+        probe = self.json_of(
+            self.client.post("/api/v1/governance:probe", json={"site_id": site_id}),
+            "/api/v1/governance:probe",
+        )
+        overview_calls = overview.get("framework_calls")
+        probe_calls = probe.get("framework_calls")
+        self.assertTrue(overview_calls, "the overview lists no agent call")
+        self.assertTrue(probe_calls, "the probe lists no agent call")
+        self.assertIn(
+            ("gma", None, "GET", "/api/v1/federation/sites/summaries"),
+            {(call["service"], call["site_id"], call["method"], call["path"]) for call in overview_calls},
+        )
+        self.assertIn(
+            ("lma", site_id, "POST", "/api/v1/governance/restrictions:probe"),
+            {(call["service"], call["site_id"], call["method"], call["path"]) for call in probe_calls},
+        )
+        for call in [*overview_calls, *probe_calls]:
+            with self.subTest(call=call):
+                self.assertEqual({"service", "site_id", "method", "path", "status", "ms", "via"}, set(call))
+                self.assertNotIn("://", json.dumps(call), "a call names an address")
 
     def test_the_app_marks_its_own_responses(self) -> None:
         """The page retries a 503 without X-Dagents-App, and shows one with it at once."""

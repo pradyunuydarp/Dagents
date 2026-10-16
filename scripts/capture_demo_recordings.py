@@ -18,9 +18,14 @@ follow:
   minimum, where the decision changes.
 
 The healthcare backend runs with no database, so each hospital reads the
-committed IST extract into memory, and with its rate limits off. Charts are
-recorded as SVG text in both themes: a non-JSON response is stored as
-``{"content_type": ..., "text": ...}`` in the entry's ``response``, and every
+committed IST extract into memory, and with its rate limits off. It runs the
+Dagents agents (an LMA per hospital and the GMA) inside the demo server, as
+the published demo does, and every successful answer whose body is a JSON
+object lists the agent calls behind it in ``framework_calls``. The script
+writes no healthcare recording whose answers do not show those calls
+(``check_demo_recordings.agent_call_problems`` says which are required).
+Charts are recorded as SVG text in both themes: a non-JSON response is stored
+as ``{"content_type": ..., "text": ...}`` in the entry's ``response``, and every
 entry names its ``content_type``. Each healthcare entry also has a ``phase``:
 ``before_pilot`` for what the page shows when it opens, and ``after_pilot``
 for the pilot itself and the views it changes (the consortium charts, the
@@ -30,16 +35,18 @@ Usage::
 
     scripts/capture_demo_recordings.py --demo all
     scripts/capture_demo_recordings.py --demo healthcare --python .venv/bin/python
+    scripts/capture_demo_recordings.py --demo healthcare --port 9850   # another port for the backend
 
-Exits non-zero if the planner is missing, a backend does not come up, or a
-request the UI depends on fails.
+Exits non-zero if the planner is missing, a backend does not come up, a
+request the UI depends on fails, or the healthcare answers do not show the
+agent calls.
 """
 
 from __future__ import annotations
 
 import argparse
 from contextlib import ExitStack
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 import datetime as dt
 import json
 import os
@@ -73,10 +80,13 @@ AUDIT_LIMIT = 50
 ENTERED_LIMIT = 20
 CHART_THEMES = ("light", "dark")
 
-#: Settings for the healthcare backend during a capture: no database, so the
-#: hospitals read the committed extract, and no rate limits or hourly caps,
-#: because the capture sends 150 probes in a few seconds.
+#: Settings for the healthcare backend during a capture: the agents inside the
+#: demo server, as on the published demo (network mode would also need a
+#: database); no database, so the hospitals read the committed extract; and no
+#: rate limits or hourly caps, because the capture sends 150 probes in a few
+#: seconds.
 HEALTHCARE_CAPTURE_ENV = {
+    "HEALTHCARE_DEMO_AGENTS": "in-process",
     "HEALTHCARE_DEMO_DATABASE_URL": "",
     "HEALTHCARE_DEMO_SITE_UK_134_DATABASE_URL": "",
     "HEALTHCARE_DEMO_SITE_IT_002_DATABASE_URL": "",
@@ -313,18 +323,18 @@ class Recorder:
 
     def __init__(self, client: Any, base_url: str) -> None:
         self._client = client
-        self._base = base_url
+        self.base_url = base_url
         self.entries: list[dict[str, Any]] = []
         self.phase: str | None = None
 
     def get(self, path: str, *, required: bool = True) -> Any:
         """Record a GET, returning the decoded body (the text for a non-JSON body)."""
-        response = self._client.get(f"{self._base}{path}")
+        response = self._client.get(f"{self.base_url}{path}")
         return self._record("GET", path, None, response, required)
 
     def post(self, path: str, body: dict[str, Any], *, required: bool = True) -> Any:
         """Record a POST, returning the decoded body."""
-        response = self._client.post(f"{self._base}{path}", json=body)
+        response = self._client.post(f"{self.base_url}{path}", json=body)
         return self._record("POST", path, body, response, required)
 
     def _record(self, method: str, path: str, body: Any, response: Any, required: bool) -> Any:
@@ -517,18 +527,50 @@ def write_recording(target: Path, recorder: Recorder, note: str) -> None:
     print(f"  wrote {len(recorder.entries)} entries ({size:.0f} KB) to {display_path(target)}")
 
 
-def capture(demo: str, python: str, planner: str) -> None:
-    """Start the stack one demo needs, capture it, and write the recording."""
+def require_agent_calls(entries: list[dict[str, Any]]) -> None:
+    """Stop before writing a healthcare recording whose answers do not show the Dagents agent calls.
+
+    The rules live in ``check_demo_recordings.agent_call_problems``, so the
+    capture and the checker refuse the same recordings.
+
+    Raises:
+    - `SystemExit` naming every problem.
+    """
+    # Imported here: the checker imports this module for the paths the UI sends.
+    from check_demo_recordings import agent_call_problems, site_ids_in
+
+    document = {"entries": entries}
+    problems = agent_call_problems(document, site_ids_in(document))
+    if problems:
+        raise SystemExit(
+            "The healthcare capture does not show the Dagents agent calls behind its answers, so it was not "
+            "written. Fix the backend before recording:\n" + "\n".join(f"  - {problem}" for problem in problems)
+        )
+
+
+def capture(demo: str, python: str, planner: str, *, port: int | None = None) -> None:
+    """Start the stack one demo needs, capture it, and write the recording.
+
+    Params:
+    - `demo`: ``healthcare`` or ``nl2sql``.
+    - `python`: interpreter to run uvicorn with.
+    - `planner`: value for `DAGENTSC_BIN` in every child.
+    - `port`: the port for the demo backend the capture calls; its usual port when `None`.
+    """
     print(f"{demo}: starting backends")
     services = HEALTHCARE_SERVICES if demo == "healthcare" else NL2SQL_SERVICES
+    # The demo backend, the one the recorder calls, is the last service started.
+    if port is not None:
+        services = (*services[:-1], replace(services[-1], port=port))
+    backend_url = f"http://127.0.0.1:{services[-1].port}"
     with ExitStack() as stack:
         live = running_stack(services, python, planner, stack)
+        recorder = Recorder(live.client, backend_url)
         if demo == "healthcare":
-            recorder = Recorder(live.client, "http://127.0.0.1:8080")
             capture_healthcare(recorder)
+            require_agent_calls(recorder.entries)
             target = HEALTHCARE_RECORDING
         else:
-            recorder = Recorder(live.client, "http://127.0.0.1:8070")
             capture_nl2sql(recorder)
             target = NL2SQL_RECORDING
         note = f"dagentsc at {planner}"
@@ -551,12 +593,23 @@ def main(argv: list[str] | None = None) -> int:
         default=sys.executable,
         help="interpreter used to run the backends (default: this one)",
     )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=None,
+        help="port for the demo backend the capture calls (default: its usual port, "
+        f"{HEALTHCARE_SERVICES[-1].port} for healthcare and {NL2SQL_SERVICES[-1].port} for NL2SQL)",
+    )
     args = parser.parse_args(argv)
+    # Each backend starts in its own directory, so a relative interpreter path
+    # is made absolute here. `abspath`, not `resolve`: a virtual environment's
+    # interpreter is a symlink, and following it would leave the environment.
+    python = os.path.abspath(args.python) if os.sep in args.python else args.python
 
     planner = planner_path()
     print(f"planner: {planner}")
     for demo in (("healthcare", "nl2sql") if args.demo == "all" else (args.demo,)):
-        capture(demo, args.python, planner)
+        capture(demo, python, planner, port=args.port)
     return 0
 
 

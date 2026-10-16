@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+- The HTTP engine sends each selected site one `POST /api/v1/federation/jobs:run`
+  call per round instead of `jobs:offer` then `jobs:execute`. A round's
+  dispatch has one row per site, with the step `run`. A run call that fails
+  counts the site as not having accepted the job.
+- With the HTTP engine, a dispatched round carries the planner's readiness: the
+  engine collects every result while it dispatches, so the GMA asks the planner
+  then and stores the answer on the round. `aggregate` still asks again. If the
+  readiness call fails, the round is closed and its updates are deleted.
+- A dispatch row's reason for a failed job call keeps the LMA's status and
+  error code only. The LMA's detail, which can quote a store error naming a
+  database host, goes to the GMA's log with addresses removed.
+- An update upload takes the model kind the round's dispatch loaded, so a
+  training round reads its starting model from the model store once instead of
+  once per site.
+- New setting `GMA_SUMMARY_TIMEOUT_SECONDS` (default 30): how long the site
+  directory waits for each LMA. An LMA that takes longer is reported as not
+  reachable.
+- A round-flow release evaluation returns the release Guard's whole decision:
+  `guard` gains `request_id`, `boundary`, `payload` (one row with the size of the
+  candidate's change), `withheld_fields` and `transformed_fields`.
 - The GMA can run a study's rounds over HTTP. With `GMA_ENGINE=http` its engine
   (`adapters/http_federation_engine.py`) offers each round's job to the selected
   sites' LMAs and runs it where it was accepted, up to

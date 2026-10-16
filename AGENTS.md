@@ -123,8 +123,10 @@ The intended operating flow across the framework is:
 8. Downstream orchestration systems apply manifests and consume model outcomes.
 
 A federated round follows its own flow: the GMA plans the round with the
-planner, offers each selected LMA its job (`jobs:offer`), asks it to run it
-(`jobs:execute`), collects the results and any clipped training updates,
+planner, sends each selected LMA its job in one `jobs:run` call (the LMA
+checks the job and runs it when it accepts; `jobs:offer` and `jobs:execute`
+take the same steps in two calls), collects the results and any clipped
+training updates,
 asks the planner whether the results may be combined, and makes a candidate.
 The release Guard, the release gates and a person's approval decide whether
 the candidate is released. `docs/agents/lma-gma-architecture.md` shows the
@@ -290,10 +292,10 @@ Implemented framework capabilities currently include:
 - a published site at <https://pradyunuydarp.github.io/Dagents/> carrying the documentation, the
   generated API reference, and both demos. The stroke demo calls a deployed healthcare API that
   keeps each of three hospitals' International Stroke Trial records in its own Postgres schema,
-  with the planner in the image; the NL2SQL demo replays a capture, because it has no deployed
-  backend. A workflow tests the deployment itself (guard levers, cohort floor, a governed pilot,
-  the audit chains, the charts), because every fault that deployment has had passed the local
-  suites. The API's address is kept only in `env/.env.published`
+  runs one LMA per hospital and a GMA in its own process, and has the planner in the image; the
+  NL2SQL demo replays a capture, because it has no deployed backend. A workflow tests the
+  deployment itself (guard levers, cohort floor, a governed pilot, the audit chains, the charts),
+  because every fault that deployment has had passed the local suites. The API's address is kept only in `env/.env.published`
 
 Deliberately **not** implemented, and named so nobody assumes otherwise:
 
@@ -440,9 +442,15 @@ Two consumers in this repository show the boundary, and both are published:
   data entry across three hospitals of the International Stroke Trial, each with its own store.
   Live: <https://pradyunuydarp.github.io/Dagents/healthcare-demo/>. The app owns its clinical
   feature contract, the dataset extract, the per-hospital stores, the seed rule, the logistic
-  regression and its parameter-averaging runtime, the FHIR mapping and the intended-use
-  statement; nothing in `agents/` knows what a stroke is, and nothing in the app re-implements a
-  quorum rule.
+  regression (contributed as a model kind, including how an update is checked and combined),
+  the study sequence, the FHIR mapping and the intended-use statement. It calls one LMA per
+  hospital and a GMA only through their HTTP APIs, with
+  `agents/common/infrastructure/agent_client.py`: in its own process through
+  `httpx.ASGITransport` on the published demo, or over HTTP when the agents run as separate
+  processes (`scripts/run_local_demo.sh --agents network`, its compose file). Every successful
+  answer whose body is a JSON object lists the agent calls behind it (`framework_calls`); errors,
+  the hospital list and the SVG charts do not. Nothing in `agents/` knows what a stroke
+  is, and nothing in the app re-implements a quorum rule.
 - [`services/nl2sql-demo/`](services/nl2sql-demo/README.md) — validation, planning, service checks
   and workload compilation. Live: <https://pradyunuydarp.github.io/Dagents/nl2sql-demo/>. The app
   owns its UI and its SQL generation.

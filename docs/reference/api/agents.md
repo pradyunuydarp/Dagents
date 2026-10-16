@@ -36,7 +36,7 @@ have no twin; the [overview](overview.md#versions-and-paths) lists them.
 flowchart LR
     Operator["Study operator"] -->|"admin token"| GMA["GMA :8020"]
     Staff["A site's staff or application"] -->|"site token"| LMA["LMA :8010, one per site"]
-    GMA -->|"registration, summaries, job offer and execute (coordinator token)"| LMA
+    GMA -->|"registration, summaries, job runs (coordinator token)"| LMA
     LMA -->|"clipped update, released model (site token)"| GMA
     LMA --> Source[("The site's records")]
     LMA --> Planner["dagentsc"]
@@ -49,11 +49,12 @@ LMA. With `GMA_ENGINE=http` it sends each round's jobs to the LMAs over their
 HTTP API ([Calls between agents](#tokens-errors-and-calls-between-agents)).
 
 The [Spring control service](spring-services.md) serves the GMA's agent
-registry paths again for JVM applications. The healthcare demo runs the same
-shared classes in its own process instead of calling the agents over HTTP
-([Demo apps](demo-apps.md)). The [getting-started example](../../guide/README.md)
-runs one LMA per store and a GMA in one process and calls them through their
-APIs.
+registry paths again for JVM applications. The healthcare demo runs one LMA per
+hospital and a GMA, and calls them only through these APIs: in its own process
+on the published demo, or as separate processes in network mode
+([Demo apps](demo-apps.md#which-agent-calls-each-endpoint-makes)). The
+[getting-started example](../../guide/README.md) runs one LMA per store and a
+GMA in one process and calls them through their APIs.
 
 ## Tokens, errors and calls between agents
 
@@ -91,7 +92,7 @@ and each token has one scope:
 | Agent | Scope | Setting | Who holds it | Routes it may call |
 |---|---|---|---|---|
 | LMA | `site` | `LMA_SITE_TOKEN` | The site's staff and the site's own applications | Every route except the three coordinator routes below |
-| LMA | `coordinator` | `LMA_COORDINATOR_TOKEN` | The GMA, which reads it from `GMA_LMA_TOKENS` | `GET /federation/registration`, `POST /federation/jobs:offer` and `POST /federation/jobs:execute`; also `GET /site`, `GET /site/summary` and `GET /governance/audit:summary` |
+| LMA | `coordinator` | `LMA_COORDINATOR_TOKEN` | The GMA, which reads it from `GMA_LMA_TOKENS` | `GET /federation/registration`, `POST /federation/jobs:offer`, `POST /federation/jobs:execute` and `POST /federation/jobs:run`; also `GET /site`, `GET /site/summary` and `GET /governance/audit:summary` |
 | GMA | `admin` | `GMA_ADMIN_TOKEN` | The study operator | Every route except the update upload, which takes only the site's own token |
 | GMA | `site`, bound to one site | `GMA_SITE_TOKENS` (`SITE=TOKEN,...`) | That site's LMA, which reads it from `LMA_GMA_TOKEN` | `PUT /federation/rounds/{round_id}/updates/{site_id}` for its own site only, `GET /model-versions:released`, and the LMA reports (registration, heartbeats, telemetry and deployment sync) for an agent registered with its own site in `scope.site` |
 
@@ -199,9 +200,9 @@ How the LMA relates to the other modules:
   Kubernetes objects that run an LMA.
 - **Applications can run it in process.** The getting-started example builds
   one LMA per store with `create_app` and calls it through `AgentNetwork`. The
-  healthcare demo creates a `GovernanceService` and a `LocalFederatedWorker` for
-  each hospital inside its own backend, without calling the LMA
-  ([Demo apps](demo-apps.md)).
+  healthcare demo does the same for each hospital, with a site source over the
+  hospital's store, and calls only that hospital's LMA from the hospital's views
+  ([Demo apps](demo-apps.md#hospitals)).
 
 ```mermaid
 flowchart TB
@@ -242,7 +243,7 @@ table for them.
 | Guard decisions | `InMemoryAuditLog`, or `PostgresAuditSink` with `LMA_AUDIT_TABLE` | Enforce, the probe, and the Guard of each job | `GET /api/v1/governance/audit`, `GET /api/v1/governance/audit:summary` |
 | The site's records and their running profile, kept until the source's version changes | `SiteService` | The site source | The site routes and the jobs |
 | The label-rate decision, one per labelled count | `SiteService` | The summary | The summary and profile jobs |
-| Accepted job offers, so each runs once | `FederationJobService` | `POST /api/v1/federation/jobs:offer` | `POST /api/v1/federation/jobs:execute` |
+| Accepted job offers, so each runs once | `FederationJobService` | `POST /api/v1/federation/jobs:offer`, `POST /api/v1/federation/jobs:run` | `POST /api/v1/federation/jobs:execute`, `POST /api/v1/federation/jobs:run` |
 | Job log: each refused offer and each result | `InMemoryJobLog` (the newest 1,000), or `PostgresJobLog` with `LMA_JOB_LOG_TABLE` | Offers and executions | `GET /api/v1/federation/jobs` |
 
 ### Limits of the LMA in this version
@@ -1272,14 +1273,18 @@ endpoints:
 - POST /api/v1/federation/jobs:offer
 - POST /federation/jobs:execute
 - POST /api/v1/federation/jobs:execute
+- POST /federation/jobs:run
+- POST /api/v1/federation/jobs:run
 - GET /federation/jobs
 - GET /api/v1/federation/jobs
 ```
 
 The site's part of a federated round. A GMA with the HTTP engine calls these
 endpoints with the LMA's `coordinator` token: it enrols the site from its
-registration, then, for each round that selects the site, **offers** the site a
-job and asks it to **execute** the job when the site accepted. A job carries the
+registration, then, for each round that selects the site, sends the site its
+job in one **run** call: the site checks the job (the **offer**) and, when it
+accepts, runs it (the **execution**). `jobs:offer` and `jobs:execute` take the
+same two steps in two calls, for a coordinator that sends them apart. A job carries the
 round's manifest, its digest, the task of the round's phase (`profile` for
 analytics, `evaluate` for evaluation, `train` for training) and the round's
 starting model in `parameters.model` ([the JobModel object](#the-jobmodel-object)).
@@ -1310,20 +1315,20 @@ sequenceDiagram
     participant LMA
     participant Planner as dagentsc
     participant Store as GMA update store
-    GMA->>LMA: POST /api/v1/federation/jobs:offer
+    GMA->>LMA: POST /api/v1/federation/jobs:run
     LMA->>LMA: check site, round, task, model, digests
     LMA->>Planner: federation round digest
     LMA->>Planner: governance restrict, before_train
-    LMA-->>GMA: JobAcceptance
-    GMA->>LMA: POST /api/v1/federation/jobs:execute, the same job
-    LMA->>Planner: governance restrict, before_read
-    LMA->>LMA: the model kind runs on the Guard's payload
-    LMA->>Planner: governance restrict, before_send
-    opt a training job
-        LMA->>Store: PUT /api/v1/federation/rounds/ROUND/updates/SITE, the clipped update
-        Store-->>LMA: the update's digest
+    opt the site accepted the job
+        LMA->>Planner: governance restrict, before_read
+        LMA->>LMA: the model kind runs on the Guard's payload
+        LMA->>Planner: governance restrict, before_send
+        opt a training job
+            LMA->>Store: PUT /api/v1/federation/rounds/ROUND/updates/SITE, the clipped update
+            Store-->>LMA: the update's digest
+        end
     end
-    LMA-->>GMA: SiteResult with counts, metrics, the update's norm and digest
+    LMA-->>GMA: JobRun: the JobAcceptance and, for an accepted job, the SiteResult
 ```
 
 ### Report the site's registration
@@ -1402,6 +1407,27 @@ token.
 **Related.** [The SiteResult object](#the-siteresult-object),
 [the job log](#lma-get-api-v1-federation-jobs).
 
+### Offer and run a job in one call
+
+```api-endpoint
+POST /api/v1/federation/jobs:run
+```
+
+Takes the two steps of [the offer](#lma-post-api-v1-federation-jobs-offer) and
+[the execution](#lma-post-api-v1-federation-jobs-execute) in one call, with the
+same checks, Guard decisions, job log entries and update upload. The answer is
+a [JobRun](#the-jobrun-object): the `acceptance` and, when the site accepted
+the job, the `result`. A refused job has no result, and no data is read for
+it. The GMA's HTTP engine sends each selected site one `jobs:run` call per
+round, which saves a call and a second copy of the job.
+
+**Errors.** `409` (`conflict`) when the site was already offered a job for this
+round, by any of the three routes. `404` when the LMA was started without a
+site. `422` when the body is not a valid job. `403` for a `site` token.
+
+**Related.** [The FederatedJob object](#the-federatedjob-object),
+[the JobRun object](#the-jobrun-object).
+
 ### Read the site's job log
 
 ```api-endpoint
@@ -1468,6 +1494,7 @@ process-wide extension registry, everything in memory and source reads on.
 | `GMA_ADMIN_TOKEN`, `GMA_SITE_TOKENS`, `GMA_REQUIRE_TOKENS` | none, none, `0` | The tokens this GMA accepts ([Tokens](#tokens-errors-and-calls-between-agents)) |
 | `GMA_DISPATCH_CONCURRENCY` | `3` | How many sites a round's jobs run at at once, 1 to 64 |
 | `GMA_SUMMARY_TTL_SECONDS` | `2` | How long the site summaries are kept |
+| `GMA_SUMMARY_TIMEOUT_SECONDS` | `30` | How long the GMA waits for each LMA's summary, audit state and site description. An LMA that takes longer is reported as not reachable. |
 | `GMA_EXTENSIONS` | none | `module:attribute,...`: the extensions loaded into this GMA's own registry. The condition packs and model kinds come from them. |
 | `GMA_DATABASE_URL`, `GMA_DATABASE_ROLE` | none | The coordinator's database, and the role every coordinator query acts as |
 | `GMA_MODEL_TABLE` | none | `schema.table` for the model registry. In memory without it. |
@@ -1508,9 +1535,9 @@ How the GMA relates to the other modules:
 - **The core service knows its address.** The core service lists the GMA in its
   [catalog](framework-services.md#core-service-get-api-v1-services).
 - **Applications can run it in process.** The getting-started example builds
-  the GMA with `create_app` next to one LMA per store. The healthcare demo
-  creates its own `FederatedRoundController` and `GovernanceService` inside its
-  backend and does not call the GMA ([Demo apps](demo-apps.md)). The
+  the GMA with `create_app` next to one LMA per store. The healthcare demo does
+  the same, with `GMA_ENGINE=http`, and runs its whole pilot as GMA calls
+  ([Demo apps](demo-apps.md#the-federated-pilot-and-model-releases)). The
   [guide to federated rounds](../../guide/06-federated-rounds.md) shows both.
 
 ```mermaid
@@ -2454,12 +2481,13 @@ only when the site's own planner permits it), the kind of its source and, with
 The GMA calls the LMAs with their `coordinator` tokens, up to
 `GMA_DISPATCH_CONCURRENCY` at a time. It keeps the answer for
 `GMA_SUMMARY_TTL_SECONDS` (default 2), because one page can ask several times,
-and reads each site's source kind once. The GMA itself runs no planner
+and reads each site's source kind once. It waits up to
+`GMA_SUMMARY_TIMEOUT_SECONDS` (default 30) for each LMA. The GMA itself runs no planner
 command; each LMA runs one for its label rate, as the example's planner calls
 show.
 
-An LMA that does not answer has `reachable: false` and no summary. An LMA that
-answers with an error is reachable and has no summary. No entry holds a row.
+An LMA that does not answer in time has `reachable: false` and no summary. An
+LMA that answers with an error is reachable and has no summary. No entry holds a row.
 
 **Errors.** `401` and `403` for tokens: it needs the `admin` token. `422` when
 `include` is not `audit`.
@@ -2508,7 +2536,7 @@ produces a candidate, never a release.
 | Step | Endpoint | Planner command | What is stored |
 |---|---|---|---|
 | 1. See which sites may join | [Plan a round](#gma-post-api-v1-federation-rounds-plan) | `federation round plan` | Nothing |
-| 2. Plan again and send the job to the selected sites | [Dispatch a round](#gma-post-api-v1-federation-rounds) | `federation round plan` | The round, with each site's answer to the offer, its result and the calls made |
+| 2. Plan again and send the job to the selected sites | [Dispatch a round](#gma-post-api-v1-federation-rounds) | `federation round plan`, and with the HTTP engine `federation aggregate readiness` | The round, with each site's answer to the offer, its result and the calls made; with the HTTP engine, also the readiness |
 | 3. A site sends a result itself (simulator, or a site outside the engine) | [Record a result](#gma-post-api-v1-federation-rounds-round-id-results) | none | The result, replacing that site's earlier one |
 | 4. Check which results count | [Check readiness](#gma-get-api-v1-federation-rounds-round-id-readiness) | `federation aggregate readiness` | Nothing |
 | 5. Combine the results that count | [Aggregate](#gma-post-api-v1-federation-rounds-round-id-aggregate) | `federation aggregate readiness`; for a training round, `federation model lifecycle` | The readiness, the candidate and the status `aggregated`; a training round's candidate goes into the [model registry](#model-versions) |
@@ -2587,11 +2615,9 @@ sequenceDiagram
     participant LMA as Each selected site's LMA
     Operator->>GMA: POST /api/v1/federation/rounds (manifest)
     GMA->>Planner: federation round plan (manifest, enrolments)
-    GMA->>LMA: POST /api/v1/federation/jobs:offer
-    LMA-->>GMA: JobAcceptance
-    GMA->>LMA: POST /api/v1/federation/jobs:execute
+    GMA->>LMA: POST /api/v1/federation/jobs:run
     LMA->>GMA: PUT /api/v1/federation/rounds/{round_id}/updates/{site_id} (training)
-    LMA-->>GMA: SiteResult
+    LMA-->>GMA: JobRun: the JobAcceptance and the SiteResult
     GMA-->>Operator: 202, the round with acceptances, results and dispatch calls
     Operator->>GMA: POST /api/v1/federation/rounds/{round_id}:aggregate
     GMA->>Planner: federation aggregate readiness (manifest, results, selected sites)
@@ -2669,7 +2695,14 @@ are stored, sorted by site, and the round is `collecting`.
 With the HTTP engine, as in the example "Dispatch an evaluation round to the
 stores' LMAs", each selected store's LMA is offered the job and runs it, and
 the planner calls listed with the example include the LMAs' own
-(`federation round digest` and `governance restrict`). In "Dispatch a training
+(`federation round digest` and `governance restrict`). The HTTP engine collects
+every result itself, so the GMA then asks the planner for the round's
+[readiness](#the-aggregationreadiness-object) and stores it on the round: the
+answer carries it, and a caller needs no
+[readiness check](#gma-get-api-v1-federation-rounds-round-id-readiness) before
+it aggregates. If that planner call fails, the round is closed and its updates
+are deleted. The LMAs in one process that are offered the same round run the
+planner once for its digest, and each compares the job's digest with it. In "Dispatch a training
 round", store east has no LMA in the GMA's network: its offer fails, and its
 result is `failed` with the reason.
 
@@ -3850,8 +3883,8 @@ service: lma
 example: lma offer-job /request/json
 ```
 
-The job the GMA's HTTP engine sends a site, first to
-[offer](#lma-post-api-v1-federation-jobs-offer) it and then to
+The job a GMA sends a site, to [run](#lma-post-api-v1-federation-jobs-run) it
+in one call, or to [offer](#lma-post-api-v1-federation-jobs-offer) it and then
 [execute](#lma-post-api-v1-federation-jobs-execute) it. It carries the round's
 manifest, the round digest the planner computed for it, the task of the
 round's phase and the round's starting model in `parameters.model`. The site
@@ -3880,6 +3913,17 @@ example: lma offer-job /response/body
 A site's answer to a job offer. `accepted: false` is a refusal, with the
 reason; the GMA stores each answer in the round's `acceptances`.
 
+### The JobRun object
+
+```api-object
+class: agents.common.domain.federation.JobRun
+service: lma
+example: lma run-job /response/body
+```
+
+A site's answer to [`jobs:run`](#lma-post-api-v1-federation-jobs-run): its
+answer to the offer and, for a job it accepted, the result of running it.
+
 ### The SiteDirectoryEntry object
 
 ```api-object
@@ -3900,10 +3944,11 @@ service: gma
 example: gma dispatch-http /response/body/dispatch/0
 ```
 
-One call the GMA's HTTP engine made to a site's LMA during a dispatch: the
-site, the step (`offer` or `execute`), the status the LMA answered with (null
-when no answer came), how long it took and what it came to. A round's
-`dispatch` lists them in the order the calls finished.
+One call the GMA made to a site's LMA during a dispatch: the site, the step
+(`run` for the HTTP engine's one call per site; `offer` or `execute` for the
+two-call form), the status the LMA answered with (null when no answer came),
+how long it took and what it came to. A round's `dispatch` lists them in the
+order the calls finished.
 
 ### The UpdateUpload object
 

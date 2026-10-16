@@ -25,7 +25,7 @@ from typing import Annotated, Any, Literal, Mapping
 from pydantic import ConfigDict, Field, SerializerFunctionWrapHandler, model_serializer
 
 from agents.common.domain.base import DagentsModel
-from agents.common.domain.governance import Requester, RestrictionPlan
+from agents.common.domain.governance import GuardBoundary, Requester, RestrictionPlan
 
 #: What a round is for.
 #:
@@ -539,6 +539,21 @@ class JobAcceptance(DagentsModel):
     )
 
 
+class JobRun(DagentsModel):
+    """A site's answer to ``jobs:run``: the job offer and, when the site accepted, the job's result.
+
+    The site takes the same two steps as for ``jobs:offer`` then
+    ``jobs:execute``, in one call: it checks the job and asks its Guard, and
+    runs the job only when it accepted it.
+    """
+
+    acceptance: JobAcceptance = Field(description="The site's answer to the job offer.")
+    result: SiteResult | None = Field(
+        default=None,
+        description="What the job produced, as `jobs:execute` returns it. Null when the site refused the job.",
+    )
+
+
 class JobModel(DagentsModel):
     """The model a round's jobs start from, sent to each site with the job.
 
@@ -567,13 +582,15 @@ class JobModel(DagentsModel):
         return cls.model_validate(raw)
 
 
-#: The calls the GMA's HTTP engine makes to an LMA for one site in a round.
-DispatchStep = Literal["offer", "execute"]
+#: The calls a GMA makes to an LMA for one site in a round: ``offer`` then
+#: ``execute``, or both steps in one ``run`` call (what the HTTP engine sends).
+DispatchStep = Literal["offer", "execute", "run"]
 
 #: What one dispatch call came to. ``accepted`` and ``refused`` answer an
-#: offer. ``completed``, ``rejected``, ``failed``, ``dropped`` and
-#: ``accepted`` are the participation of the result an execute call returned.
-#: ``failed`` is also any call that did not get an answer it could read.
+#: offer. ``completed``, ``rejected``, ``failed`` and ``dropped`` are the
+#: participation of the result an execute or run call returned; a run the
+#: site refused is ``refused``. ``failed`` is also any call that did not get
+#: an answer it could read.
 DispatchOutcome = Literal["accepted", "refused", "completed", "rejected", "failed", "dropped"]
 
 
@@ -581,7 +598,12 @@ class DispatchCall(DagentsModel):
     """One call the GMA made to an LMA while it dispatched a round."""
 
     site_id: str = Field(description="The site whose LMA was called.")
-    step: DispatchStep = Field(description="`offer` (the site checks the job) or `execute` (the site runs it).")
+    step: DispatchStep = Field(
+        description=(
+            "`offer` (the site checks the job), `execute` (the site runs it), or `run` (both steps in one call: "
+            "the site checks the job and runs it when it accepts)."
+        )
+    )
     status_code: int | None = Field(
         default=None,
         description="The HTTP status the LMA answered with. Null when no answer came: the LMA was unreachable or the call timed out.",
@@ -589,9 +611,11 @@ class DispatchCall(DagentsModel):
     ms: float = Field(ge=0, description="How long the call took, in milliseconds. At least 0.")
     outcome: DispatchOutcome = Field(
         description=(
-            "For an offer: `accepted`, `refused`, or `failed` when no answer could be read. For an execute "
-            "call: the participation of the returned result (`completed`, `rejected`, `failed`, `dropped`), or "
-            "`failed` when no answer could be read."
+            "For an offer: `accepted`, `refused`, or `failed` when the call failed: the LMA answered with an "
+            "error status or an answer that could not be read, or no answer came (`status_code` is null). For an "
+            "execute call: the participation of the returned result (`completed`, `rejected`, `failed`, "
+            "`dropped`), or `failed` when the call failed. For a run call: the participation of the returned "
+            "result, `refused` when the site refused the job, or `failed` when the call failed."
         )
     )
 
@@ -668,7 +692,11 @@ class RoundRecord(DagentsModel):
         ),
     )
     readiness: AggregationReadiness | None = Field(
-        default=None, description="The readiness check saved by the aggregate endpoint. Null before it."
+        default=None,
+        description=(
+            "The planner's readiness check, saved by the aggregate endpoint and, with an engine that collects "
+            "every result itself (the HTTP engine), at the end of the dispatch. Null before either."
+        ),
     )
     decision: ReleaseDecision | None = Field(
         default=None, description="The release decision, saved by the evaluate-release endpoint. Null before it."
@@ -952,10 +980,29 @@ class ReleaseEvaluationRequest(DagentsModel):
 
 
 class ReleaseGuardCheck(DagentsModel):
-    """What the `before_release` Guard decided for a release evaluation."""
+    """What the `before_release` Guard decided for a release evaluation.
 
+    It holds the Guard's whole decision. The payload is one row with the size
+    of the candidate's change (`model_update`), never a record or a parameter.
+    """
+
+    request_id: str = Field(
+        default="", description="`<round_id>:release:<candidate_version>`. It is the request id in the audit record."
+    )
+    boundary: GuardBoundary = Field(default="before_release", description="Always `before_release`.")
     permitted: bool = Field(description="Whether the Guard permitted the release.")
     plan: RestrictionPlan = Field(description="The plan the Guard applied.")
+    payload: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description=(
+            "What the Guard released: one row whose `model_update` is the model kind's `parameter_change`, after "
+            "its strategy (for example clipped). Empty when the Guard denied the release."
+        ),
+    )
+    withheld_fields: list[str] = Field(default_factory=list, description="The requested fields the Guard removed.")
+    transformed_fields: list[str] = Field(
+        default_factory=list, description="The requested fields the Guard returned with changed values, such as a clipped `model_update`."
+    )
     audit_id: str = Field(description="The id of the record in the GMA's audit chain.")
     message: str = Field(default="", description="The decision in words.")
 

@@ -291,6 +291,7 @@ def create_app(settings: Settings | None = None, deps: GmaDeps | None = None) ->
             lma_tokens=settings.lma_tokens,
             concurrency=settings.dispatch_concurrency,
             ttl_seconds=settings.summary_ttl_seconds,
+            timeout_s=settings.summary_timeout_seconds,
         )
         releases = ReleaseService(rounds, models, governance, extensions)
     except Exception:

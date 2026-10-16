@@ -195,7 +195,18 @@ backend and replays.
 - **Never record without the planner.** The Guard fails closed, so a recording
   made without `dagentsc` holds only denials. `capture_demo_recordings.py`
   refuses to run without it, and `check_demo_recordings.py` refuses a recording
-  whose controls change nothing.
+  whose controls change nothing, or whose healthcare answers do not list the
+  agent calls behind them (`framework_calls` on the status, the overview, each
+  probe and each dashboard; the GMA's round call and a `jobs:run` call (or
+  `jobs:execute`) to each hospital's LMA in the pilot; `agents.mode` in the
+  status). The capture
+  refuses to write such a recording.
+- **A "Dagents API calls" strip never shows a host, a token or a body.** It
+  shows the agent, the caller, the method, the route template, the status and
+  a count, from the answer's `framework_calls`. On a hospital's pages a strip
+  lists only that hospital's LMA (`SiteCalls`); any other call, such as the
+  app registering its model versions with the GMA after a start, gets a strip
+  of its own.
 - The page names the commit it was recorded from. Keep that visible.
 - If you change what the UI requests, record again. Otherwise the published
   demo answers "not recorded" where it used to work. A hospital-page GET path
@@ -303,7 +314,11 @@ hospital view and checks that its charts draw, checks that the backend's
 validation errors appear on an empty form, submits a data entry and checks that
 the record appears and the count rises, switches to the dark theme and checks
 that the charts are drawn again, checks that a 503 without `X-Dagents-App` shows the connecting
-banner while the app's own 503 shows at once, and fails on any console error. It finds controls by their labels ("Requester verified",
+banner while the app's own 503 shows at once, checks that every "Dagents API
+calls" strip names its agent, method and route, matches the answer's calls and
+holds no address, checks that "Who does what" shows the agent mode the backend
+reports, checks that each pilot round lists how the GMA dispatched its job to
+every hospital, and fails on any console error. It finds controls by their labels ("Requester verified",
 "Cohort size") and buttons by name ("Ask the guard", "Run the pilot"); rename
 them only together with the test. When you add a control, add an assertion for
 it. The test must not assume which release decision the pilot reaches.

@@ -527,13 +527,15 @@ your process and at the GMA:
 - **Readiness can be checked without saving it.**
   `evaluate_readiness(round_id, save=False)` asks the planner without storing
   the answer. The GMA's readiness `GET` works this way;
-  `aggregate` stores the readiness and the candidate on the round.
+  `aggregate` stores the readiness and the candidate on the round. With an
+  engine that collects every result itself, such as the GMA's HTTP engine,
+  `dispatch_round` stores the readiness too and returns it with the round.
 - **A round can be given up.** `discard(round_id, reason)` closes a round that
   is still running, keeps the first reason in `abandoned_reason`, and tells the
   engine to delete what it holds for the round, such as stored updates. An
   aggregated round keeps its candidate. At the GMA, call
-  `POST /api/v1/federation/rounds/{round_id}:discard` at the end of every
-  training round.
+  `POST /api/v1/federation/rounds/{round_id}:discard` for a training round
+  that was not aggregated; aggregating a round deletes its updates itself.
 
 ## 6. Run the round through the LMA and GMA
 
@@ -556,15 +558,14 @@ sequenceDiagram
   GMA->>LMA: GET /api/v1/federation/registration
   App->>GMA: POST /api/v1/federation/rounds
   GMA->>P: federation round plan
-  GMA->>LMA: POST /api/v1/federation/jobs:offer, with the job and the model
+  GMA->>LMA: POST /api/v1/federation/jobs:run, with the job and the model
   LMA->>P: round digest, then the before_train Guard
-  LMA-->>GMA: accepted or refused, with the reason
-  GMA->>LMA: POST /api/v1/federation/jobs:execute
-  LMA->>P: before_read Guard, then before_send Guard
-  LMA-->>GMA: SiteResult: counts and metrics, no orders
-  GMA-->>App: the round, with each result and each call it made
-  App->>GMA: GET .../readiness, then POST ...:aggregate
+  LMA->>P: when it accepts: before_read Guard, then before_send Guard
+  LMA-->>GMA: accepted or refused, with the reason, and the SiteResult: counts and metrics, no orders
   GMA->>P: federation aggregate readiness, with the selected sites
+  GMA-->>App: the round, with each result, each call it made and the readiness
+  App->>GMA: POST ...:aggregate, when the planner permits it
+  GMA->>P: federation aggregate readiness, again
 ```
 
 ### Build the agents
@@ -713,7 +714,8 @@ with CallLog() as calls:
         print(f"  enrolled {registration.site_id}: {registration.cohort_size} orders, {registration.feature_contract_version}")
 
     # 3. The same round contract as step 4, under a new round id. The GMA plans
-    #    the round, then offers each selected store a job and asks it to run it.
+    #    the round, then sends each selected store its job in one call: the
+    #    store checks the job and runs it when it accepts.
     manifest = RoundManifest(
         round_id="returns-eval-http-1",
         study_id=STUDY_ID,
@@ -733,12 +735,8 @@ with CallLog() as calls:
     )
     record = gma.dispatch_round(manifest)
     print(f"Round {record.manifest.round_id}: {record.status}, selected {', '.join(record.plan.selected_sites)}")
-    for site_id in record.plan.selected_sites:
-        steps = {call.step: call for call in record.dispatch if call.site_id == site_id}
-        print(
-            f"  {site_id} offer {steps['offer'].status_code} {steps['offer'].outcome}, "
-            f"execute {steps['execute'].status_code} {steps['execute'].outcome}"
-        )
+    for call in sorted(record.dispatch, key=lambda item: item.site_id):
+        print(f"  {call.site_id} {call.step} {call.status_code} {call.outcome}")
 
     # 4. What each store's LMA sent back: counts and metrics, never orders.
     for result in record.results:
@@ -812,8 +810,8 @@ Registered return-check-rule-v2 as a candidate, digest matches the rule: True
   enrolled store-north: 60 orders, retail-orders-v1
   enrolled store-south: 45 orders, retail-orders-v1
 Round returns-eval-http-1: collecting, selected store-north, store-south
-  store-north offer 200 accepted, execute 200 completed
-  store-south offer 200 accepted, execute 200 completed
+  store-north run 200 completed
+  store-south run 200 completed
   store-north: completed, 60 examples, flag_rate 0.400, precision 0.750, recall 0.692
   store-south: completed, 45 examples, flag_rate 0.422, precision 0.737, recall 0.824
 A result from store-east, which the round did not select: 403 forbidden
@@ -841,8 +839,9 @@ How to read it:
 
 - Each store's result is the same as in section 5: the LMA ran the same rule on
   the same guarded orders.
-- `offer 200 accepted, execute 200 completed` are the GMA's dispatch rows: the
-  status of each call it made to each LMA, and the outcome.
+- `run 200 completed` is the GMA's dispatch row for each store: one
+  `jobs:run` call, in which the store checked the job and then ran it, with the
+  status of the call and its outcome.
 - The GMA refused store-east's result with `403`, because the round did not
   select store-east.
 - Each store reported a return rate because its own planner permitted a table
@@ -941,17 +940,25 @@ this:
    and deletes the round's updates whether or not it succeeded. Any failed
    check answers `409` with the code `aggregation_refused`, and no candidate is
    made.
-5. End every training round with `POST .../rounds/{round_id}:discard`, so no
-   update stays in the GMA's memory if aggregation did not run.
+5. End a training round that was not aggregated with
+   `POST .../rounds/{round_id}:discard`, so no update stays in the GMA's
+   memory.
 
 The update store is in memory. A GMA restart loses the pending updates, so the
 round cannot be aggregated.
 
-The stroke demo runs its training rounds with its own engine,
-`ParameterAveragingRuntime`, in
-[`apps/healthcare-demo/backend/app/services/runtime.py`](../../apps/healthcare-demo/backend/app/services/runtime.py).
-It implements both `FederationEngine` and `UpdateChannel` in one process, and
-averages the clipped updates with the planner's weights.
+The stroke demo runs its training rounds this way. Its study operator,
+[`apps/healthcare-demo/backend/app/services/pilot.py`](../../apps/healthcare-demo/backend/app/services/pilot.py),
+calls only the GMA. It enrols the hospitals once per pilot, then sends each
+round as one dispatch, whose answer carries the readiness. It aggregates the
+evaluation, training and validation rounds, and discards a training round that
+was not aggregated.
+Last, it asks for the release evaluation, with the evaluation round as the
+baseline (`baseline_from_round`). The averaging
+itself is the app's model kind, `LogisticRegressionKind.combine` in
+[`app/domain/model_kinds.py`](../../apps/healthcare-demo/backend/app/domain/model_kinds.py),
+which the GMA calls. [Demo apps](../reference/api/demo-apps.md#the-federated-pilot-and-model-releases)
+lists every call of a pilot.
 
 ## 8. Decide on release
 

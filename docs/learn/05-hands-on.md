@@ -66,6 +66,25 @@ International Stroke Trial records in memory, loaded from
 `apps/healthcare-demo/data/ist/`, so the demo needs no database. Records you
 enter are lost when you stop it. Press Ctrl-C to stop it.
 
+The API runs one Dagents LMA per hospital and a GMA inside its own process, and
+calls them through their HTTP routes. The **Who does what** panel on the
+consortium page says so, and the **Dagents API calls** table under each panel
+lists the calls behind it.
+
+To run the agents as separate processes instead, give the demo a PostgreSQL
+database with the migrations applied and the records loaded, then add
+`--agents network`:
+
+```bash
+export HEALTHCARE_DEMO_DATABASE_URL=postgresql://user:pw@127.0.0.1:5432/healthcare_demo
+apps/healthcare-demo/scripts/run_frontend_demo.sh --agents network
+```
+
+The script starts the GMA on port 8081 and the three LMAs on ports 8082 to
+8084, each with new tokens of its own, then the API. The
+[demo's README](../../apps/healthcare-demo/README.md#run-the-agents-as-separate-processes)
+explains how to set up the database.
+
 ## 6. Run the tests
 
 ```bash

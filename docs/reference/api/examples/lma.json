@@ -127,7 +127,7 @@
       "bundle_version": "1.4.0",
       "bundle_uri": "oci://registry.example.com/dagents/order-checks:1.4.0",
       "signature": "sha256:5f1c0e",
-      "deployed_at": 1792082418,
+      "deployed_at": 1792123890,
       "config_digest": "4e34d7cfe08d9bd3e286804e474a171396a525691f427ac27477c21d0730ab5e"
      }
     ],
@@ -177,8 +177,8 @@
        "store": "north"
       },
       "status": "COMPLETED",
-      "started_at": 1792082418,
-      "completed_at": 1792082418,
+      "started_at": 1792123890,
+      "completed_at": 1792123890,
       "metrics_emitted": 2,
       "pointers": {
        "scope": "{'table': 'orders', 'store': 'north'}",
@@ -201,7 +201,7 @@
          "bundle_id": "order-checks",
          "bundle_version": "1.4.0"
         },
-        "observed_at": 1792082418
+        "observed_at": 1792123890
        },
        {
         "key": "metadata_fields_total",
@@ -209,7 +209,7 @@
         "labels": {
          "correlation_id": "nightly-2026-10-14"
         },
-        "observed_at": 1792082418
+        "observed_at": 1792123890
        }
       ],
       "pointers": {
@@ -291,8 +291,8 @@
        "store": "north"
       },
       "status": "COMPLETED",
-      "started_at": 1792082418,
-      "completed_at": 1792082418,
+      "started_at": 1792123890,
+      "completed_at": 1792123890,
       "metrics_emitted": 2,
       "pointers": {
        "scope": "{'table': 'orders', 'store': 'north'}",
@@ -373,7 +373,7 @@
          "bundle_id": "order-checks",
          "bundle_version": "1.4.0"
         },
-        "observed_at": 1792082418
+        "observed_at": 1792123890
        },
        {
         "key": "metadata_fields_total",
@@ -381,7 +381,7 @@
         "labels": {
          "correlation_id": "nightly-2026-10-14"
         },
-        "observed_at": 1792082418
+        "observed_at": 1792123890
        }
       ],
       "pointers": {
@@ -1243,7 +1243,7 @@
       ]
      },
      "run": {
-      "run_id": "lma-store-north-1792082418",
+      "run_id": "lma-store-north-1792123890",
       "agent_role": "LMA",
       "scope_id": "store-north",
       "scope_kind": "source",
@@ -1259,8 +1259,8 @@
        "feature_coverage": 0.625
       },
       "artifact_uri": "artifacts/lma/store-north/random_forest-v2.json",
-      "started_at": 1792082418,
-      "completed_at": 1792082418
+      "started_at": 1792123890,
+      "completed_at": 1792123890
      }
     },
     "trimmed": []
@@ -1343,7 +1343,7 @@
       ]
      },
      "run": {
-      "run_id": "lma-store-north-1792082418",
+      "run_id": "lma-store-north-1792123890",
       "agent_role": "LMA",
       "scope_id": "store-north",
       "scope_kind": "source",
@@ -1359,8 +1359,8 @@
        "feature_coverage": 1.0
       },
       "artifact_uri": "artifacts/lma/store-north/autoencoder-v1.json",
-      "started_at": 1792082418,
-      "completed_at": 1792082418
+      "started_at": 1792123890,
+      "completed_at": 1792123890
      }
     },
     "trimmed": []
@@ -1438,7 +1438,7 @@
     },
     "body": [
      {
-      "run_id": "lma-store-north-1792082418",
+      "run_id": "lma-store-north-1792123890",
       "agent_role": "LMA",
       "scope_id": "store-north",
       "scope_kind": "source",
@@ -1454,11 +1454,11 @@
        "feature_coverage": 1.0
       },
       "artifact_uri": "artifacts/lma/store-north/autoencoder-v1.json",
-      "started_at": 1792082418,
-      "completed_at": 1792082418
+      "started_at": 1792123890,
+      "completed_at": 1792123890
      },
      {
-      "run_id": "lma-store-north-1792082418",
+      "run_id": "lma-store-north-1792123890",
       "agent_role": "LMA",
       "scope_id": "store-north",
       "scope_kind": "source",
@@ -1474,8 +1474,8 @@
        "feature_coverage": 0.625
       },
       "artifact_uri": "artifacts/lma/store-north/random_forest-v2.json",
-      "started_at": 1792082418,
-      "completed_at": 1792082418
+      "started_at": 1792123890,
+      "completed_at": 1792123890
      }
     ],
     "trimmed": []
@@ -2132,7 +2132,7 @@
      "transformed_fields": [
       "customer_age_band"
      ],
-     "audit_id": "28caa18c914e4c23b14becf703fa336a",
+     "audit_id": "bf8d1cb6d47b4ff6b1608d49f8ba9b81",
      "message": "permitted with restrictions"
     },
     "trimmed": []
@@ -2274,7 +2274,7 @@
      "transformed_fields": [
       "model_update"
      ],
-     "audit_id": "f4734791f731496da5df9d4e5bb7a76d",
+     "audit_id": "e861d5f475bf4e5094ab166ae3c7e870",
      "message": "permitted with restrictions"
     },
     "trimmed": []
@@ -2391,7 +2391,7 @@
       "category"
      ],
      "transformed_fields": [],
-     "audit_id": "41a16ac689b64420971831b711604af5",
+     "audit_id": "6b4bd1475457418e94d283d9220b9769",
      "message": "the restriction planner denied this request"
     },
     "trimmed": []
@@ -2470,8 +2470,8 @@
      "chain_intact": true,
      "records": [
       {
-       "audit_id": "41a16ac689b64420971831b711604af5",
-       "recorded_at": 1792082418,
+       "audit_id": "6b4bd1475457418e94d283d9220b9769",
+       "recorded_at": 1792123890,
        "boundary": "before_read",
        "request_id": "read-rows-006",
        "requester_id": "unknown-caller",
@@ -2493,12 +2493,12 @@
        "contribution_norm_before": null,
        "contribution_norm_after": null,
        "contribution_strategies": [],
-       "previous_digest": "470b0200e8d9de1665fdc8a7ec1e76d4f077e3243fa550a5e457f6695ccac0f0",
-       "digest": "db6331d75725062dc6f1ca1948849f946244d695591d432c86f3b36c253012e8"
+       "previous_digest": "b235207ae088ecd7ed8fe366a413696284066c8e08dbd5ffcd985203e55bc4b7",
+       "digest": "88c0d39de03ec5f10ad5e82c13087a343f740c95ea071b77e05fcbd4c88a0a68"
       },
       {
-       "audit_id": "f4734791f731496da5df9d4e5bb7a76d",
-       "recorded_at": 1792082418,
+       "audit_id": "e861d5f475bf4e5094ab166ae3c7e870",
+       "recorded_at": 1792123890,
        "boundary": "before_send",
        "request_id": "send-update-005",
        "requester_id": "returns-coordinator",
@@ -2521,12 +2521,12 @@
        "contribution_strategies": [
         "clip_contribution:1"
        ],
-       "previous_digest": "c0316faba1ab2917b2de86841a46f0c7b8419228614b3702be1dbea9f6941e49",
-       "digest": "470b0200e8d9de1665fdc8a7ec1e76d4f077e3243fa550a5e457f6695ccac0f0"
+       "previous_digest": "9349508ada735eedd35802529967a9d0dcd7cfb7b2b6eecb7f5223852eb00df4",
+       "digest": "b235207ae088ecd7ed8fe366a413696284066c8e08dbd5ffcd985203e55bc4b7"
       },
       {
-       "audit_id": "28caa18c914e4c23b14becf703fa336a",
-       "recorded_at": 1792082418,
+       "audit_id": "bf8d1cb6d47b4ff6b1608d49f8ba9b81",
+       "recorded_at": 1792123890,
        "boundary": "before_read",
        "request_id": "read-rows-004",
        "requester_id": "store-north-dashboard",
@@ -2548,7 +2548,7 @@
        "contribution_norm_after": null,
        "contribution_strategies": [],
        "previous_digest": "",
-       "digest": "c0316faba1ab2917b2de86841a46f0c7b8419228614b3702be1dbea9f6941e49"
+       "digest": "9349508ada735eedd35802529967a9d0dcd7cfb7b2b6eecb7f5223852eb00df4"
       }
      ]
     },
@@ -2880,6 +2880,9 @@
    "endpoint": "GET /api/v1/site/model",
    "title": "The released model, read from the GMA",
    "app": "store-north",
+   "volatile": [
+    "/created_at"
+   ],
    "request": {
     "method": "GET",
     "path": "/api/v1/site/model",
@@ -2904,7 +2907,10 @@
       ],
       "min_items": 3,
       "high_value": 150
-     }
+     },
+     "parent_version": null,
+     "created_at": "2026-10-16T04:11:31.210393+00:00",
+     "release_decision": null
     },
     "trimmed": []
    },
@@ -2993,11 +2999,11 @@
      "content-type": "application/json"
     },
     "body": {
-     "request_id": "probe:store-north:f29926d36e1642f09d8ecf70fe4dce14",
+     "request_id": "probe:store-north:4d61a826f8064bafa2126e25fe5e67b8",
      "boundary": "before_read",
      "permitted": true,
      "plan": {
-      "request_id": "probe:store-north:f29926d36e1642f09d8ecf70fe4dce14",
+      "request_id": "probe:store-north:4d61a826f8064bafa2126e25fe5e67b8",
       "boundary": "before_read",
       "assessment": {
        "requester_id": "store-north-returns-desk",
@@ -3042,7 +3048,7 @@
       "decision": "narrow",
       "filtering_score": 0.175,
       "obligations": [
-       "record the decision, reason, and request id probe:store-north:f29926d36e1642f09d8ecf70fe4dce14 in the audit log",
+       "record the decision, reason, and request id probe:store-north:4d61a826f8064bafa2126e25fe5e67b8 in the audit log",
        "enforce at boundary before_read",
        "apply controls required by GDPR"
       ],
@@ -3060,7 +3066,7 @@
       "order_value",
       "customer_postcode"
      ],
-     "audit_id": "40181eab850d47bb9203c6f0402f4628",
+     "audit_id": "39bc6098f44b4db1a1122385eb1710f2",
      "message": "permitted with restrictions"
     },
     "trimmed": []
@@ -3118,11 +3124,11 @@
      "content-type": "application/json"
     },
     "body": {
-     "request_id": "probe:store-north:221c94b386d4464484ae1c5d06e88e49",
+     "request_id": "probe:store-north:6b663a86ada04f129b7d1d4485ddf4ec",
      "boundary": "before_read",
      "permitted": false,
      "plan": {
-      "request_id": "probe:store-north:221c94b386d4464484ae1c5d06e88e49",
+      "request_id": "probe:store-north:6b663a86ada04f129b7d1d4485ddf4ec",
       "boundary": "before_read",
       "assessment": {
        "requester_id": "store-north-returns-desk",
@@ -3155,7 +3161,7 @@
       "decision": "deny",
       "filtering_score": 1.0,
       "obligations": [
-       "record the decision, reason, and request id probe:store-north:221c94b386d4464484ae1c5d06e88e49 in the audit log",
+       "record the decision, reason, and request id probe:store-north:6b663a86ada04f129b7d1d4485ddf4ec in the audit log",
        "enforce at boundary before_read",
        "apply controls required by GDPR"
       ],
@@ -3170,7 +3176,7 @@
       "category"
      ],
      "transformed_fields": [],
-     "audit_id": "93930ae1dd834d6aac90af7ed283040b",
+     "audit_id": "38f50108767c4c218b0b8b9bc43deb6f",
      "message": "declared_purpose marketing is not an approved purpose"
     },
     "trimmed": []
@@ -3581,6 +3587,106 @@
    "planner_calls": []
   },
   {
+   "id": "run-job",
+   "endpoint": "POST /api/v1/federation/jobs:run",
+   "title": "Offer and run a job in one call",
+   "description": "What the GMA's HTTP engine sends: the job for round returns-eval-2, whose round digest is fnv1a:40cf947bc69b5e88. The LMA checks the job, then runs it, and answers with both steps.",
+   "app": "store-north",
+   "request": {
+    "method": "POST",
+    "path": "/api/v1/federation/jobs:run",
+    "headers": {
+     "Authorization": "Bearer example-store-north-coordinator-token"
+    },
+    "json": {
+     "round_id": "returns-eval-2",
+     "site_id": "store-north",
+     "manifest": {
+      "round_id": "returns-eval-2",
+      "study_id": "returns-pilot",
+      "condition_id": "order_returns",
+      "phase": "evaluation",
+      "model_version": "return-check-rule-v2",
+      "model_artifact_digest": "sha256:6367ac6596e4db525b87ac86bc6b9d0aa6138948a230cc3ea2d5308b6174e937",
+      "training_code_digest": "sha256:6367ac6596e4db525b87ac86bc6b9d0aa6138948a230cc3ea2d5308b6174e937",
+      "feature_contract_version": "retail-orders-v1",
+      "privacy_profile": "guarded-rows",
+      "aggregation": {
+       "kind": "fedavg"
+      },
+      "minimum_participants": 2,
+      "minimum_cohort_per_site": 20,
+      "required_capabilities": [
+       "evaluate"
+      ],
+      "stop_conditions": [
+       "schema_failure",
+       "quorum_not_met"
+      ],
+      "invited_sites": [
+       "store-north",
+       "store-south"
+      ]
+     },
+     "manifest_digest": "fnv1a:40cf947bc69b5e88",
+     "task": "evaluate",
+     "parameters": {
+      "model": {
+       "version": "return-check-rule-v2",
+       "kind": "return_check_rule",
+       "params": {
+        "risky_categories": [
+         "clothing",
+         "shoes"
+        ],
+        "min_items": 3,
+        "high_value": 150
+       },
+       "digest": "sha256:6367ac6596e4db525b87ac86bc6b9d0aa6138948a230cc3ea2d5308b6174e937"
+      }
+     }
+    }
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "acceptance": {
+      "round_id": "returns-eval-2",
+      "site_id": "store-north",
+      "accepted": true,
+      "reason": "job verified and permitted by local governance",
+      "verified_digest": true,
+      "feature_contract_version": "retail-orders-v1"
+     },
+     "result": {
+      "round_id": "returns-eval-2",
+      "site_id": "store-north",
+      "job_digest": "fnv1a:40cf947bc69b5e88",
+      "participation": "completed",
+      "code_verified": true,
+      "privacy_checks_passed": true,
+      "contributed_examples": 60,
+      "update_norm": 0.0,
+      "update_digest": null,
+      "metrics": {
+       "precision": 0.75,
+       "recall": 0.6923076923076923,
+       "flag_rate": 0.4
+      },
+      "local_evidence_pointer": "site-local://store-north/rounds/returns-eval-2/evidence"
+     }
+    },
+    "trimmed": []
+   },
+   "planner_calls": [
+    "federation round digest",
+    "governance restrict"
+   ]
+  },
+  {
    "id": "offer-untrainable",
    "endpoint": "POST /api/v1/federation/jobs:offer",
    "title": "A training job for a model that cannot be trained",
@@ -3661,7 +3767,7 @@
   {
    "id": "job-log",
    "endpoint": "GET /api/v1/federation/jobs",
-   "title": "The store's job log: the refusal and the result",
+   "title": "The store's job log: the refusal and the results",
    "app": "store-north",
    "volatile": [
     "/*/submitted_at"
@@ -3689,7 +3795,23 @@
       "job_digest": "fnv1a:0000000000000000",
       "metrics": {},
       "reason": "return-check-rule-v2 is a return_check_rule, which cannot be trained",
-      "submitted_at": "2026-10-15T16:40:18.501751+00:00"
+      "submitted_at": "2026-10-16T04:11:31.431199+00:00"
+     },
+     {
+      "round_id": "returns-eval-2",
+      "phase": "evaluation",
+      "participation": "completed",
+      "contributed_examples": 60,
+      "update_norm": 0.0,
+      "update_digest": null,
+      "job_digest": "fnv1a:40cf947bc69b5e88",
+      "metrics": {
+       "precision": 0.75,
+       "recall": 0.6923076923076923,
+       "flag_rate": 0.4
+      },
+      "reason": null,
+      "submitted_at": "2026-10-16T04:11:31.427311+00:00"
      },
      {
       "round_id": "returns-eval-1",
@@ -3705,7 +3827,7 @@
        "flag_rate": 0.4
       },
       "reason": null,
-      "submitted_at": "2026-10-15T16:40:18.497168+00:00"
+      "submitted_at": "2026-10-16T04:11:31.400620+00:00"
      }
     ],
     "trimmed": []

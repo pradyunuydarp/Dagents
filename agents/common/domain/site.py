@@ -16,7 +16,7 @@ from typing import Any, Literal
 from pydantic import ConfigDict, Field
 
 from agents.common.domain.base import DagentsModel
-from agents.common.domain.federation import ModelStatus, RoundPhase, SiteParticipation
+from agents.common.domain.federation import ModelReleaseDecision, ModelStatus, RoundPhase, SiteParticipation
 from agents.common.domain.governance import (
     Granularity,
     GuardBoundary,
@@ -165,6 +165,16 @@ class ModelInUse(DagentsModel):
     digest: str = Field(description="The digest of the parameters, checked by the model kind.")
     status: ModelStatus = Field(description="The version's status in the GMA's registry; `released` when it is in use.")
     params: dict[str, Any] = Field(description="The parameters, in the form the model kind reads.")
+    parent_version: str | None = Field(
+        default=None,
+        description="The version the training round that made it started from, as the GMA's registry records it. Null for a registered version.",
+    )
+    created_at: str | None = Field(
+        default=None, description="When the GMA's registry stored the version, in ISO 8601. Null when the GMA sent none."
+    )
+    release_decision: ModelReleaseDecision | None = Field(
+        default=None, description="The release decision the GMA stored with the version. Null for a version released without one."
+    )
 
 
 class LocalEvaluation(DagentsModel):

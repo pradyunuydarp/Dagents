@@ -429,7 +429,14 @@ class SiteService:
         """
         model, _ = self._released_model()
         return ModelInUse(
-            version=model.version, kind=model.kind, digest=model.digest, status=model.status, params=model.params or {}
+            version=model.version,
+            kind=model.kind,
+            digest=model.digest,
+            status=model.status,
+            params=model.params or {},
+            parent_version=model.parent_version,
+            created_at=model.created_at,
+            release_decision=model.release_decision,
         )
 
     def _released_model(self) -> tuple[ModelVersion, ModelKind]:

@@ -13,6 +13,7 @@ without it.
 
 from __future__ import annotations
 
+import json
 import math
 import os
 import socket
@@ -41,6 +42,7 @@ from agents.tests.test_lma_site_api import (
     COORDINATOR_HEADERS,
     INITIAL,
     SITE,
+    SITE_HEADERS,
     TRAINED,
     LmaHarness,
 )
@@ -171,6 +173,9 @@ class JobHarness(LmaHarness):
         return self.client.post(
             "/api/v1/federation/jobs:execute", headers=COORDINATOR_HEADERS, json=value.model_dump(mode="json")
         )
+
+    def run(self, value: FederatedJob, path: str = "/api/v1/federation/jobs:run") -> Any:
+        return self.client.post(path, headers=COORDINATOR_HEADERS, json=value.model_dump(mode="json"))
 
     def audit(self) -> list[dict[str, Any]]:
         return self.get("/api/v1/governance/audit", params={"limit": 100}).json()["records"]
@@ -324,6 +329,67 @@ class OfferTests(unittest.TestCase):
 
 
 @unittest.skipUnless(dagentsc_available(), "dagentsc binary is not available")
+class PlannerDigestTests(unittest.TestCase):
+    """The planner computes a manifest's round digest once per process, and never skips a failure.
+
+    Several LMAs in one process are offered the same round at the same time.
+    The digest is a pure function of the manifest, so one planner run serves
+    them all; each LMA still compares the job's digest with it.
+    """
+
+    def test_lmas_offered_the_same_round_at_once_run_the_planner_once(self) -> None:
+        import threading
+        import time as time_module
+
+        from agents.lma.application import federation_jobs
+
+        value = manifest("toy-study-digest-once")
+        real = federation_jobs.round_digest
+        calls: list[str] = []
+
+        def counting(payload):  # noqa: ANN001, ANN202 - same signature as the runner
+            calls.append(payload["round_id"])
+            time_module.sleep(0.2)  # every caller arrives while the first one waits
+            return real(payload)
+
+        digests: list[str] = []
+        with patch.object(federation_jobs, "round_digest", side_effect=counting):
+            threads = [
+                threading.Thread(target=lambda: digests.append(federation_jobs.planner_round_digest(value)))
+                for _ in range(3)
+            ]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join(10)
+            again = federation_jobs.planner_round_digest(value)
+        self.assertEqual(["toy-study-digest-once"], calls)
+        self.assertEqual([planner_digest(value)] * 3, digests)
+        self.assertEqual(planner_digest(value), again)
+
+    def test_a_planner_failure_is_not_kept(self) -> None:
+        from agents.lma.application import federation_jobs
+
+        value = manifest("toy-study-digest-failure")
+        with patch.object(federation_jobs, "round_digest", side_effect=RuntimeError("the planner stopped")):
+            with self.assertRaises(RuntimeError):
+                federation_jobs.planner_round_digest(value)
+        self.assertEqual(planner_digest(value), federation_jobs.planner_round_digest(value))
+
+    def test_a_missing_planner_still_refuses_a_manifest_it_computed_before(self) -> None:
+        from agents.lma.application import federation_jobs
+
+        value = manifest("toy-study-digest-missing")
+        federation_jobs.planner_round_digest(value)
+        lma = JobHarness()
+        offered = job(value)
+        with patch.dict(os.environ, {"DAGENTSC_BIN": str(REPO_ROOT / "no-such-dagentsc")}):
+            acceptance = lma.offer(offered).json()
+        self.assertFalse(acceptance["accepted"])
+        self.assertIn("planner", acceptance["reason"])
+
+
+@unittest.skipUnless(dagentsc_available(), "dagentsc binary is not available")
 class ExecuteTests(unittest.TestCase):
     def harness(self, **kwargs: Any) -> JobHarness:
         harness = JobHarness(**kwargs)
@@ -423,6 +489,34 @@ class ExecuteTests(unittest.TestCase):
         for text in ("http://", "https://", ".internal", "Bearer"):
             self.assertNotIn(text, result["refusal_reason"])
 
+    def test_a_gma_that_fails_to_store_the_update_refuses_the_job_with_its_code_only(self) -> None:
+        """The GMA's own detail never enters the result: it can name a database host or a hosting vendor.
+
+        The result goes to the GMA and on to the pages that show rounds. A
+        refusal (409) keeps the GMA's reason, which names the round and the
+        site; a failure (5xx) gives the GMA's status and code only.
+        """
+        detail = (
+            "coordinator store: could not connect to postgresql://admin:hunter2@db.example-cloud.test:5432/x "
+            "(ExampleCloud direct host)"
+        )
+        lma = self.harness()
+        lma.gma.upload_failure = (503, {"detail": detail, "code": "store_unavailable"})
+        value = self.accepted(lma, job(manifest("toy-study-training-store-down", "training")))
+        result = lma.execute(value).json()
+        self.assertEqual("rejected", result["participation"])
+        self.assertIn("503", result["refusal_reason"])
+        self.assertIn("store_unavailable", result["refusal_reason"])
+        text = json.dumps(result)
+        for leak in ("hunter2", "example-cloud", "ExampleCloud", "postgresql://", "coordinator store"):
+            self.assertNotIn(leak, text)
+
+        lma = self.harness()
+        lma.gma.refuse_uploads = True
+        value = self.accepted(lma, job(manifest("toy-study-training-twice", "training")))
+        result = lma.execute(value).json()
+        self.assertIn("already stored", result["refusal_reason"])
+
     def test_an_unreachable_gma_refuses_the_job_without_naming_its_address(self) -> None:
         # A port in this repository's test range that nothing listens on.
         port = None
@@ -514,15 +608,97 @@ class ExecuteTests(unittest.TestCase):
 
     def test_routes_answer_the_same_in_both_forms(self) -> None:
         lma = self.harness()
-        short = job(manifest("toy-study-evaluation-short"))
-        acceptance = lma.client.post(
-            "/federation/jobs:offer", headers=COORDINATOR_HEADERS, json=short.model_dump(mode="json")
-        ).json()
-        self.assertTrue(acceptance["accepted"])
-        result = lma.client.post(
-            "/federation/jobs:execute", headers=COORDINATOR_HEADERS, json=short.model_dump(mode="json")
-        ).json()
-        self.assertEqual("completed", result["participation"])
+        answers = {}
+        for form, prefix in (("short", ""), ("versioned", "/api/v1")):
+            value = job(manifest(f"toy-study-evaluation-{form}"))
+            body = value.model_dump(mode="json")
+            acceptance = lma.client.post(f"{prefix}/federation/jobs:offer", headers=COORDINATOR_HEADERS, json=body)
+            result = lma.client.post(f"{prefix}/federation/jobs:execute", headers=COORDINATOR_HEADERS, json=body)
+            self.assertEqual((200, 200), (acceptance.status_code, result.status_code), form)
+            answers[form] = (acceptance.json(), result.json())
+        (short_acceptance, short_result), (long_acceptance, long_result) = answers["short"], answers["versioned"]
+        self.assertTrue(short_acceptance["accepted"])
+        self.assertEqual(
+            {key: value for key, value in short_acceptance.items() if key != "round_id"},
+            {key: value for key, value in long_acceptance.items() if key != "round_id"},
+        )
+        self.assertEqual("completed", short_result["participation"])
+        for key in ("participation", "contributed_examples", "metrics", "code_verified", "privacy_checks_passed"):
+            self.assertEqual(short_result[key], long_result[key], key)
+
+
+@unittest.skipUnless(dagentsc_available(), "dagentsc binary is not available")
+class RunTests(unittest.TestCase):
+    """``jobs:run``: the offer and, when the site accepts, the execution, in one call."""
+
+    def harness(self, **kwargs: Any) -> JobHarness:
+        harness = JobHarness(**kwargs)
+        self.addCleanup(harness.close)
+        return harness
+
+    def test_an_accepted_job_runs_and_answers_both_steps(self) -> None:
+        lma = self.harness()
+        value = job(manifest("toy-study-training-run", "training"))
+        response = lma.run(value)
+        self.assertEqual(200, response.status_code, response.text)
+        answer = response.json()
+        self.assertTrue(answer["acceptance"]["accepted"], answer["acceptance"]["reason"])
+        self.assertTrue(answer["acceptance"]["verified_digest"])
+        result = answer["result"]
+        self.assertEqual("completed", result["participation"], result.get("refusal_reason"))
+        [(round_id, site_id, upload)] = lma.gma.uploads
+        self.assertEqual(("toy-study-training-run", SITE), (round_id, site_id))
+        self.assertEqual(lma.spy.update_digest(upload.update), result["update_digest"])
+        self.assertNotIn("update", result)
+        for name in upload.update:
+            self.assertNotIn(name, response.text)
+        # The same Guard boundaries as an offer then an execution, in the same order.
+        self.assertEqual(
+            ["before_send", "before_read", "before_train"], [record["boundary"] for record in lma.audit()]
+        )
+        [entry] = lma.jobs()
+        self.assertEqual(("toy-study-training-run", "completed"), (entry["round_id"], entry["participation"]))
+
+    def test_a_refused_job_reads_no_data_and_has_no_result(self) -> None:
+        lma = self.harness()
+        refused = job(manifest("toy-study-evaluation-run-refused"), manifest_digest="sha256:" + "f" * 64)
+        response = lma.run(refused)
+        self.assertEqual(200, response.status_code, response.text)
+        answer = response.json()
+        self.assertFalse(answer["acceptance"]["accepted"])
+        self.assertIn("digest", answer["acceptance"]["reason"])
+        self.assertIsNone(answer["result"])
+        self.assertEqual([], lma.spy.seen)
+        self.assertEqual([], lma.audit(), "no Guard ran for a job refused on its digest")
+        [entry] = lma.jobs()
+        self.assertEqual("rejected", entry["participation"])
+
+    def test_a_round_runs_once_whichever_route_offered_it(self) -> None:
+        lma = self.harness()
+        value = job(manifest("toy-study-evaluation-run-once"))
+        self.assertEqual(200, lma.run(value).status_code)
+        for again in (lma.run, lma.offer):
+            response = again(value)
+            self.assertEqual(409, response.status_code, response.text)
+            self.assertEqual("conflict", response.json()["code"])
+        self.assertEqual(409, lma.execute(value).status_code, "a job that ran cannot run again")
+        self.assertEqual(1, len(lma.spy.seen))
+
+    def test_the_route_needs_the_coordinator_token(self) -> None:
+        lma = self.harness()
+        value = job(manifest("toy-study-evaluation-run-token"))
+        for path in ("/api/v1/federation/jobs:run", "/federation/jobs:run"):
+            with self.subTest(path=path):
+                response = lma.client.post(path, headers=SITE_HEADERS, json=value.model_dump(mode="json"))
+                self.assertEqual(403, response.status_code, response.text)
+        self.assertEqual([], lma.spy.seen)
+
+    def test_routes_answer_the_same_in_both_forms(self) -> None:
+        lma = self.harness()
+        short = lma.run(job(manifest("toy-study-evaluation-run-short")), "/federation/jobs:run").json()
+        versioned = lma.run(job(manifest("toy-study-evaluation-run-long"))).json()
+        self.assertEqual(short["result"]["metrics"], versioned["result"]["metrics"])
+        self.assertTrue(short["acceptance"]["accepted"] and versioned["acceptance"]["accepted"])
 
 
 if __name__ == "__main__":

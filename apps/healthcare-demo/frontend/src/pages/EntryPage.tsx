@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 
 import { ApiError, UnreachableError, isRecorded, newIdempotencyKey, postJson, userMessage } from "../api";
+import { SiteCalls } from "../components/ApiCalls";
 import { Chip, ErrorNote, Loading, Panel } from "../components/Basics";
 import { fieldValue, fixed, priorityTone, storeText } from "../format";
 import { useFieldLabel } from "../labels";
@@ -235,8 +236,9 @@ function Saved({
           cannot read it.
         </li>
         <li>
-          The hospital&rsquo;s running statistics now count it: {result.counts.total} records, of which{" "}
-          {result.counts.entered} {result.counts.entered === 1 ? "was" : "were"} entered in the demo.
+          The hospital&rsquo;s LMA reads the store again, so its running statistics count the record. The
+          store now holds {result.counts.total} records, of which {result.counts.entered}{" "}
+          {result.counts.entered === 1 ? "was" : "were"} entered in the demo.
         </li>
         <li>It is counted in this hospital&rsquo;s statistics and charts, and ranked in its worklist.</li>
         <li>
@@ -244,6 +246,7 @@ function Saved({
           outcome on the hospital page.
         </li>
       </ol>
+      <SiteCalls calls={result.framework_calls} siteId={siteId} label="Dagents API calls after saving the record" />
       <p className="ds-row">
         <a className="ds-btn ds-btn--primary" href={href(`hospitals/${siteId}`)}>
           Back to {form.display_name}
@@ -440,6 +443,7 @@ export function EntryPage({
                   {form.data.remaining} of {form.data.max_entered} entries left at this hospital.
                 </span>
               </div>
+              <SiteCalls calls={form.data.framework_calls} siteId={siteId} label="Dagents API calls for this form" />
             </form>
           ) : (
             !form.error && <Loading what="the form" />

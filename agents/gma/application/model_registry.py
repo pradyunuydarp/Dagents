@@ -278,6 +278,20 @@ class ModelRegistry:
         model = self._store.get(version)
         return _without_params(model) if model is not None else None
 
+    def kind_of(self, version: str) -> str | None:
+        """The name of a version's model kind, or ``None`` when it is not registered.
+
+        A version's kind never changes, so a kind kept by :meth:`load` is used
+        without reading the store again. A round's update uploads ask for the
+        kind of its starting model, which the dispatch has loaded.
+        """
+        with self._lock:
+            kept = self._params.get(version)
+        if kept is not None:
+            return kept[0]
+        model = self._store.get(version)
+        return model.kind if model is not None else None
+
     def require(self, version: str) -> ModelVersion:
         """One version without its parameters. Raises :class:`UnknownModelVersion`."""
         model = self.get(version)

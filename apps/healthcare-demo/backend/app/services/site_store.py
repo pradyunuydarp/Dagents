@@ -11,32 +11,50 @@ share one test suite:
   transaction that acts as the hospital's role (``SET LOCAL ROLE``), so a
   hospital's code can reach only its own schema.
 
-Each Postgres store keeps one autocommit connection and runs one operation at a
-time on it, behind a lock. Opening a connection through a pooler takes much
-longer than a query, and a pilot runs about 145 store operations. The role and
-the statement timeout are set with ``SET LOCAL``, so both end with each
-operation's transaction and nothing carries over to the next one. A connection
-that is closed, broken or not idle is replaced, and one that has been idle for
-a while is checked with ``SELECT 1`` first. ``close()`` closes it; the next
-operation opens a new one.
+The app writes entries and outcomes through the store. The hospital's LMA reads
+the same store through :class:`app.services.site_source.StoreSiteSource`, and
+keeps its audit chain (:meth:`PostgresSiteStore.audit_sink`) and its job log
+(the framework's ``PostgresJobLog`` on :attr:`PostgresSiteStore.lease` and
+:data:`SITE_JOB_LOG_TABLE`) on the store's connection.
 
-``CoordinatorStore`` holds what the coordinator keeps: the model registry, the
-results each hospital chose to publish, the newest pilot reports and the audit
-chain of the release Guard. Its Postgres version acts as
-``dagents_coordinator``, which cannot read any hospital schema. A hospital's
-contribution is inserted while acting as that hospital. The pilot reports and
-the audit chain are in ``coordinator.pilot_reports`` and
+Each Postgres store runs on the framework's kept connection
+(:class:`agents.common.infrastructure.postgres_lease.KeptConnection`): one
+autocommit connection, lent to one operation at a time. Opening a connection
+through a pooler takes much longer than a query. The role and the statement
+timeout are set with ``SET LOCAL``, so both end with each operation's
+transaction and nothing carries over to the next one. ``close()`` closes the
+connection; the next operation opens a new one. A store can also run on a
+lease it is given, for example the lease of an LMA started on its own; it then
+leaves that lease open when it is closed.
+
+Every write that changes a store adds one to its :attr:`write_count`. The site
+source puts that count in its version, so the LMA reads the records again
+after each write through the same store object.
+
+The demo accepts at most :data:`DEFAULT_MAX_ENTERED` entered records per
+hospital. The store checks the cap in the same transaction as the insert, so
+two entries at the same moment cannot both pass it.
+
+``CoordinatorStore`` holds what the coordinator keeps itself: the newest pilot
+reports and the audit chain of the release Guard. Its Postgres version acts as
+``dagents_coordinator``, which cannot read any hospital schema. The pilot
+reports and the audit chain are in ``coordinator.pilot_reports`` and
 ``coordinator.guard_audit``, created by
-``supabase/migrations/0003_coordinator_records.sql``.
+``supabase/migrations/0003_coordinator_records.sql``. The model registry
+belongs to the GMA: the framework's ``PostgresModelStore`` keeps the model
+versions in :data:`COORDINATOR_MODELS_TABLE` on the coordinator store's lease.
 
 Each Postgres audit chain stores the point its last successful check reached in
 a ``guard_audit_anchor`` table next to it (also from 0003), written by the
 chain's own role. A restarted API continues the check from there instead of
 hashing the whole chain again.
 
-A database error that means a schema, table, role or grant is missing is raised
-as :class:`StoreNotSetUpError`, so the API can say that the database is not set
-up for this version instead of failing with a 500.
+Database errors are raised as the framework's store errors, whose messages
+never hold the connection string, its password or its host:
+:class:`StoreUnavailableError` when the database cannot be reached or an
+operation fails, and :class:`StoreNotSetUpError` when a schema, table, role or
+grant is missing, so the API can say that the database is not set up for this
+version instead of failing with a 500.
 
 Records follow the app's convention: a missing value is an absent key, never
 ``None``. A database NULL becomes an absent key.
@@ -50,22 +68,58 @@ deployment that gives each hospital its own login can set
 
 from __future__ import annotations
 
-from contextlib import contextmanager
 from datetime import datetime, timezone
 import json
 import math
 import os
 import re
 import threading
-import time
-import weakref
-from typing import Any, Iterable, Iterator, Mapping, Protocol
+from typing import Any, Iterable, Mapping, Protocol
 
 from agents.common.application.ethical_guard import AuditSink, InMemoryAuditLog
+from agents.common.domain.errors import StoreNotSetUpError, StoreUnavailableError
 from agents.common.infrastructure.postgres_audit import PostgresAuditSink
-from agents.common.infrastructure.postgres_roles import acting_as, connect
+from agents.common.infrastructure.postgres_lease import (
+    DEFAULT_LIVENESS_IDLE_SECONDS,
+    DEFAULT_STATEMENT_TIMEOUT_MS,
+    KeptConnection,
+    not_set_up_errors,
+)
 from app.domain.dataset import AGE_BANDS, AGE_MAX, AGE_MIN, Site, age_band_for
 from app.services.db_hints import connection_hint
+
+__all__ = [
+    "BOOKKEEPING_COLUMNS",
+    "CATEGORIES",
+    "COORDINATOR_MODELS_TABLE",
+    "COORDINATOR_ROLE",
+    "COORDINATOR_SCHEMA",
+    "DEFAULT_LIVENESS_IDLE_SECONDS",
+    "DEFAULT_MAX_ENTERED",
+    "DEFAULT_STATEMENT_TIMEOUT_MS",
+    "EntryLimitReached",
+    "FIELD_COLUMNS",
+    "IdempotencyKeyReused",
+    "MemoryCoordinatorStore",
+    "MemorySiteStore",
+    "OutcomeAlreadyRecorded",
+    "PILOT_REPORTS_KEPT",
+    "PostgresCoordinatorStore",
+    "PostgresSiteStore",
+    "ROW_COLUMNS",
+    "RecordRejected",
+    "SITE_JOB_LOG_TABLE",
+    "SiteStore",
+    "CoordinatorStore",
+    "StoreNotSetUpError",
+    "StoreUnavailableError",
+    "TABLE_COLUMNS",
+    "UnknownEncounterError",
+    "not_set_up_errors",
+    "site_database_url",
+    "validate_fields",
+    "validate_stored_row",
+]
 
 
 # --- The record schema --------------------------------------------------------
@@ -166,15 +220,13 @@ class OutcomeAlreadyRecorded(ValueError):
     """
 
 
-class StoreUnavailableError(RuntimeError):
-    """The database could not be reached, or an operation on it failed."""
+class EntryLimitReached(RuntimeError):
+    """The hospital already holds the most entered records the demo accepts."""
 
 
-class StoreNotSetUpError(StoreUnavailableError):
-    """The database lacks a schema, table, column, role or grant this version needs.
-
-    The migrations for this version have not been applied, or not all of them.
-    """
+#: Most records one hospital accepts from the demo's data-entry form. The public
+#: demo has no accounts, so this keeps one visitor from filling a store.
+DEFAULT_MAX_ENTERED = 300
 
 
 def _is_number(value: Any) -> bool:
@@ -360,6 +412,18 @@ def _counts(rows: Iterable[Mapping[str, Any]]) -> dict[str, int]:
     return {"total": total, "entered": entered, "labelled": labelled}
 
 
+def _check_max_entered(max_entered: int) -> int:
+    if isinstance(max_entered, bool) or not isinstance(max_entered, int) or max_entered < 1:
+        raise ValueError(f"max_entered must be a whole number of 1 or more, got {max_entered!r}")
+    return max_entered
+
+
+def _entry_limit(site: Site, max_entered: int) -> EntryLimitReached:
+    return EntryLimitReached(
+        f"{site.display_name} already holds {max_entered} entered records, the most this demo accepts"
+    )
+
+
 # --- The interface -------------------------------------------------------------
 
 
@@ -369,6 +433,16 @@ class SiteStore(Protocol):
     kind: str
     location: dict[str, str]
     site_id: str
+    #: The role every operation acts as. ``None`` for the in-memory store.
+    role: str | None
+    #: The kept connection, or ``None`` for the in-memory store.
+    lease: KeptConnection | None
+    #: Most entered records the store accepts.
+    max_entered: int
+
+    @property
+    def write_count(self) -> int:
+        """How many writes through this store object changed its records."""
 
     def records(self) -> list[dict[str, Any]]:
         """Every row: the row columns, with missing values as absent keys."""
@@ -377,7 +451,12 @@ class SiteStore(Protocol):
         """``{"total", "entered", "labelled"}``."""
 
     def append(self, record: Mapping[str, Any], client_request_id: str | None = None) -> dict[str, Any]:
-        """Store a new entry and return it. A repeated key returns the first entry."""
+        """Store a new entry and return it. A repeated key returns the first entry.
+
+        Raises :class:`EntryLimitReached` when the store already holds
+        :attr:`max_entered` entered records. A retry of an earlier entry is
+        refused too once the limit is reached.
+        """
 
     def set_outcome(self, encounter_id: str, poor_outcome_6m: bool) -> dict[str, Any]:
         """Record the six-month outcome of an entered record and return it.
@@ -390,7 +469,7 @@ class SiteStore(Protocol):
         """Entered records, newest first."""
 
     def audit_sink(self) -> AuditSink:
-        """The hospital's own audit chain."""
+        """The hospital's own audit chain. The same sink each time."""
 
     def close(self) -> None:
         """Release the store's database connection, if it has one."""
@@ -403,11 +482,16 @@ class MemorySiteStore:
     """A hospital's rows in this process. Nothing survives a restart."""
 
     kind = "in-memory"
+    role: str | None = None
+    lease: KeptConnection | None = None
 
-    def __init__(self, site: Site, records: Iterable[Mapping[str, Any]]) -> None:
+    def __init__(
+        self, site: Site, records: Iterable[Mapping[str, Any]], *, max_entered: int = DEFAULT_MAX_ENTERED
+    ) -> None:
         self.site = site
         self.site_id = site.site_id
         self.location = {"memory": "process"}
+        self.max_entered = _check_max_entered(max_entered)
         self._lock = threading.Lock()
         loaded_at = datetime.now(timezone.utc)
         rows = []
@@ -417,7 +501,14 @@ class MemorySiteStore:
             rows.append(row)
         _check_unique(rows)
         self._rows: list[dict[str, Any]] = sorted(rows, key=_sort_key)
+        self._writes = 0
         self._audit = InMemoryAuditLog()
+
+    @property
+    def write_count(self) -> int:
+        """How many writes through this store changed its records."""
+        with self._lock:
+            return self._writes
 
     def records(self) -> list[dict[str, Any]]:
         with self._lock:
@@ -431,16 +522,18 @@ class MemorySiteStore:
         fields = validate_fields(record)
         key = _check_request_id(client_request_id)
         with self._lock:
+            entered = [row for row in self._rows if row["origin"] == "entered"]
+            if len(entered) >= self.max_entered:
+                raise _entry_limit(self.site, self.max_entered)
             if key is not None:
-                for row in self._rows:
+                for row in entered:
                     if row.get("client_request_id") == key:
                         if not _same_entry(row, fields):
                             raise IdempotencyKeyReused(
                                 "this idempotency key was already used for a different record"
                             )
                         return _entry_view(row)
-            entered = (_entry_number(r["encounter_id"]) for r in self._rows if r["origin"] == "entered")
-            number = 1 + max(entered, default=0)
+            number = 1 + max((_entry_number(row["encounter_id"]) for row in entered), default=0)
             row = {
                 "encounter_id": f"{self.site_id}-e{number}",
                 "origin": "entered",
@@ -449,6 +542,7 @@ class MemorySiteStore:
                 "client_request_id": key,
             }
             self._rows.append(row)
+            self._writes += 1
             return _entry_view(row)
 
     def set_outcome(self, encounter_id: str, poor_outcome_6m: bool) -> dict[str, Any]:
@@ -465,6 +559,7 @@ class MemorySiteStore:
                         return _entry_view(row)
                     row["poor_outcome_6m"] = poor_outcome_6m
                     row["outcome_recorded_at"] = datetime.now(timezone.utc)
+                    self._writes += 1
                     return _entry_view(row)
         raise UnknownEncounterError(encounter_id)
 
@@ -488,15 +583,10 @@ class MemorySiteStore:
 #: under PostgreSQL's limit of 65,535 parameters per statement.
 SEED_BATCH_ROWS = 500
 
-#: Statement timeout for one store operation, in milliseconds. Role settings do
-#: not apply after SET ROLE, so the store sets it with SET LOCAL in each
-#: transaction, audit appends included.
-DEFAULT_STATEMENT_TIMEOUT_MS = 15_000
-
-#: Seconds a store's connection may sit idle before the next operation checks
-#: it with ``SELECT 1``. Poolers and proxies close idle connections; the check
-#: replaces such a connection instead of failing the operation.
-DEFAULT_LIVENESS_IDLE_SECONDS = 30.0
+#: The framework table each hospital's LMA keeps its job log in
+#: (``PostgresJobLog``), acting as the hospital's role. Row-level security
+#: shows each hospital only its own rows (migration 0002).
+SITE_JOB_LOG_TABLE = "coordinator.site_contributions"
 
 
 def site_database_url(site: Site, default: str, environ: Mapping[str, str] | None = None) -> str:
@@ -510,207 +600,73 @@ def site_database_url(site: Site, default: str, environ: Mapping[str, str] | Non
     return (env.get(name) or "").strip() or default
 
 
-def not_set_up_errors() -> tuple[type[Exception], ...]:
-    """The psycopg errors that mean a schema, table, column, role or grant is missing.
-
-    A role that does not exist makes ``SET LOCAL ROLE`` fail with
-    ``InvalidParameterValue``; a membership that was never granted makes it
-    fail with ``InsufficientPrivilege``.
-    """
-    from psycopg import errors
-
-    return (
-        errors.UndefinedTable,
-        errors.UndefinedColumn,
-        errors.UndefinedObject,
-        errors.UndefinedFunction,
-        errors.InvalidSchemaName,
-        errors.InvalidParameterValue,
-        errors.InsufficientPrivilege,
-    )
-
-
-class _ConnectionSlot:
-    """Holds a store's connection, so it can be closed when the store is dropped."""
-
-    def __init__(self) -> None:
-        self.conn: Any = None
-
-    def close(self) -> None:
-        conn, self.conn = self.conn, None
-        if conn is not None and not conn.closed:
-            try:
-                conn.close()
-            except Exception:  # noqa: BLE001 - the connection is being thrown away
-                pass
-
-
-class _PostgresBase:
-    """Keeps one autocommit connection and runs each operation as one role.
+class _LeasedStore:
+    """A store that runs every operation on one kept connection.
 
     Params:
-    - `dsn`: the connection string.
-    - `statement_timeout_ms`: the statement timeout inside each operation.
-    - `liveness_idle_seconds`: how long the connection may be idle before the
-      next operation checks it. ``0`` checks before every operation.
+    - `dsn`: the connection string. The store builds its own lease from it and
+      closes that lease in :meth:`close`.
+    - `lease`: a lease to run on instead, for example an LMA's. The store
+      leaves it open in :meth:`close`; its owner closes it.
+    - `name`: names the store in error messages, so a 503 says which store
+      failed. Never a host or a credential.
+    - `statement_timeout_ms`, `liveness_idle_seconds`: passed to the lease it
+      builds.
 
-    Operations take the connection one at a time, behind a lock. An operation
-    that starts while the same thread already holds the connection (it does
-    not happen in this module, but a caller could nest one) gets a separate
-    connection for that operation, because the shared one is inside a
-    transaction.
-
-    ``connections_opened`` counts the connections this store has opened.
+    Give exactly one of `dsn` and `lease`.
     """
 
     def __init__(
         self,
-        dsn: str,
+        dsn: str | None,
+        lease: KeptConnection | None,
+        *,
+        name: str,
         statement_timeout_ms: int,
-        liveness_idle_seconds: float = DEFAULT_LIVENESS_IDLE_SECONDS,
+        liveness_idle_seconds: float,
     ) -> None:
-        if not isinstance(dsn, str) or not dsn.strip():
-            raise ValueError("a Postgres store needs a connection string")
-        self._dsn = dsn
-        self._statement_timeout_ms = int(statement_timeout_ms)
-        self._liveness_idle_seconds = float(liveness_idle_seconds)
-        self._slot = _ConnectionSlot()
-        # A store that is dropped without close() still closes its connection.
-        weakref.finalize(self, self._slot.close)
-        self._conn_lock = threading.RLock()
-        self._depth = 0
-        self._last_used = 0.0
-        self.connections_opened = 0
-
-    def _open(self) -> Any:
-        import psycopg
-        from psycopg.rows import dict_row
-
-        try:
-            conn = connect(self._dsn, row_factory=dict_row)
-        except psycopg.OperationalError as error:
-            raise StoreUnavailableError(
-                f"{self._unavailable_prefix()}could not connect to the database: {error}{connection_hint(self._dsn)}"
-            ) from error
-        self.connections_opened += 1
-        return conn
-
-    def _usable(self, conn: Any) -> bool:
-        """Whether the kept connection can run the next operation."""
-        import psycopg
-        from psycopg.pq import TransactionStatus
-
-        if conn.closed or conn.broken or conn.info.transaction_status != TransactionStatus.IDLE:
-            return False
-        if time.monotonic() - self._last_used < self._liveness_idle_seconds:
-            return True
-        try:
-            conn.execute("SELECT 1")
-        except psycopg.Error:
-            return False
-        return conn.info.transaction_status == TransactionStatus.IDLE
-
-    def _discard(self) -> None:
-        self._slot.close()
-
-    def close(self) -> None:
-        """Close the kept connection. The next operation opens a new one."""
-        with self._conn_lock:
-            self._discard()
-
-    @contextmanager
-    def _lease(self, row_factory: Any = None) -> Iterator[Any]:
-        """The store's connection, held by one operation until the block ends.
-
-        Params:
-        - `row_factory`: rows as this factory makes them during the block
-          (the audit sink reads tuples). Restored afterwards.
-
-        A database error that means the connection failed (``OperationalError``
-        or ``InterfaceError``, which include a statement timeout) discards the
-        connection and is raised as :class:`StoreUnavailableError`.
-
-        An error that means the database lacks a schema, table, column, role
-        or grant this version needs is raised as :class:`StoreNotSetUpError`.
-        It keeps the connection: :func:`acting_as` has already rolled the
-        transaction back.
-        """
-        import psycopg
-        from psycopg.pq import TransactionStatus
-
-        not_set_up = not_set_up_errors()
-        with self._conn_lock:
-            if self._depth:
-                conn = self._open()
-                try:
-                    if row_factory is not None:
-                        conn.row_factory = row_factory
-                    with conn:
-                        yield conn
-                except (psycopg.OperationalError, psycopg.InterfaceError) as error:
-                    raise self._failed(error) from error
-                except not_set_up as error:
-                    raise self._not_set_up(error) from error
-                return
-
-            if self._slot.conn is None or not self._usable(self._slot.conn):
-                self._discard()
-                self._slot.conn = self._open()
-            conn = self._slot.conn
-            previous_factory = conn.row_factory
-            if row_factory is not None:
-                conn.row_factory = row_factory
-            self._depth += 1
-            try:
-                yield conn
-            except (psycopg.OperationalError, psycopg.InterfaceError) as error:
-                self._discard()
-                raise self._failed(error) from error
-            except not_set_up as error:
-                raise self._not_set_up(error) from error
-            finally:
-                self._depth -= 1
-                self._last_used = time.monotonic()
-                if self._slot.conn is conn:
-                    if conn.closed or conn.broken or conn.info.transaction_status != TransactionStatus.IDLE:
-                        self._discard()
-                    else:
-                        conn.row_factory = previous_factory
-
-    def _failed(self, error: Exception) -> StoreUnavailableError:
-        return StoreUnavailableError(f"{self._unavailable_prefix()}the database operation failed: {error}")
-
-    def _not_set_up(self, error: Exception) -> StoreNotSetUpError:
-        return StoreNotSetUpError(
-            f"{self._unavailable_prefix()}the database is not set up for this version of the app "
-            f"({type(error).__name__}: {error}). Apply the migrations, then seed."
-        )
-
-    def _lease_tuples(self) -> Any:
-        """The connection with tuple rows, as the audit sink reads them."""
-        from psycopg.rows import tuple_row
-
-        return self._lease(row_factory=tuple_row)
-
-    def _unavailable_prefix(self) -> str:
-        """Names the store in a connection error, so a 503 says which store failed."""
-        return ""
+        if lease is not None:
+            if dsn is not None:
+                raise ValueError("give a Postgres store a connection string or a lease, not both")
+            self.lease = lease
+            self._owns_lease = False
+        else:
+            if not isinstance(dsn, str) or not dsn.strip():
+                raise ValueError("a Postgres store needs a connection string or a lease")
+            self.lease = KeptConnection(
+                dsn,
+                name=name,
+                statement_timeout_ms=statement_timeout_ms,
+                liveness_idle_seconds=liveness_idle_seconds,
+                hint=connection_hint,
+            )
+            self._owns_lease = True
+        self._writes = 0
+        self._writes_lock = threading.Lock()
 
     @property
-    def _settings(self) -> dict[str, str]:
-        """``SET LOCAL`` settings for every operation: the statement timeout."""
-        return {"statement_timeout": f"{self._statement_timeout_ms}ms"}
+    def connections_opened(self) -> int:
+        """How many connections the store's lease has opened."""
+        return self.lease.connections_opened
 
-    @contextmanager
-    def _acting_as(self, role: str) -> Iterator[Any]:
-        # acting_as sends BEGIN, the role, the timeout and the current_user
-        # check as one message, so an operation costs its own queries plus two
-        # round trips (that message and COMMIT).
-        with self._lease() as conn, acting_as(conn, role, self._settings):
-            yield conn
+    @property
+    def write_count(self) -> int:
+        """How many writes through this store changed its records."""
+        with self._writes_lock:
+            return self._writes
+
+    def _wrote(self) -> None:
+        """Count one write. Called after its transaction committed."""
+        with self._writes_lock:
+            self._writes += 1
+
+    def close(self) -> None:
+        """Close the kept connection if the store built it. The next operation opens a new one."""
+        if self._owns_lease:
+            self.lease.close()
 
 
-class PostgresSiteStore(_PostgresBase):
+class PostgresSiteStore(_LeasedStore):
     """A hospital's rows in its own schema, read and written as its own role."""
 
     kind = "postgres"
@@ -718,24 +674,31 @@ class PostgresSiteStore(_PostgresBase):
     def __init__(
         self,
         site: Site,
-        dsn: str,
+        dsn: str | None = None,
         *,
+        lease: KeptConnection | None = None,
+        max_entered: int = DEFAULT_MAX_ENTERED,
         statement_timeout_ms: int = DEFAULT_STATEMENT_TIMEOUT_MS,
         liveness_idle_seconds: float = DEFAULT_LIVENESS_IDLE_SECONDS,
     ) -> None:
-        super().__init__(dsn, statement_timeout_ms, liveness_idle_seconds)
+        super().__init__(
+            dsn,
+            lease,
+            name=f"hospital {site.site_id}",
+            statement_timeout_ms=statement_timeout_ms,
+            liveness_idle_seconds=liveness_idle_seconds,
+        )
         from psycopg import sql
 
         self.site = site
         self.site_id = site.site_id
         self.role = site.role
         self.location = {"schema": site.schema, "role": site.role}
+        self.max_entered = _check_max_entered(max_entered)
         self._sql = sql
         self._table = sql.Identifier(site.schema, "encounters")
         self._audit: PostgresAuditSink | None = None
-
-    def _unavailable_prefix(self) -> str:
-        return f"hospital {self.site_id}: "
+        self._audit_lock = threading.Lock()
 
     @classmethod
     def from_environment(
@@ -754,7 +717,7 @@ class PostgresSiteStore(_PostgresBase):
         query = self._sql.SQL(
             "SELECT {columns} FROM {table} ORDER BY source_row NULLS LAST, length(encounter_id), encounter_id"
         ).format(columns=self._select(ROW_COLUMNS), table=self._table)
-        with self._acting_as(self.role) as conn:
+        with self.lease.acting_as(self.role) as conn:
             rows = conn.execute(query).fetchall()
         return [_record_view(row) for row in rows]
 
@@ -763,16 +726,26 @@ class PostgresSiteStore(_PostgresBase):
             "SELECT count(*) AS total, count(*) FILTER (WHERE origin = 'entered') AS entered, "
             "count(poor_outcome_6m) AS labelled FROM {table}"
         )
-        with self._acting_as(self.role) as conn:
+        with self.lease.acting_as(self.role) as conn:
             row = conn.execute(query).fetchone()
         return {key: int(row[key]) for key in ("total", "entered", "labelled")}
 
     def append(self, record: Mapping[str, Any], client_request_id: str | None = None) -> dict[str, Any]:
         fields = validate_fields(record)
         key = _check_request_id(client_request_id)
-        with self._acting_as(self.role) as conn:
-            # One writer at a time, so two entries cannot take the same number.
+        with self.lease.acting_as(self.role) as conn:
+            # One writer at a time, so two entries cannot take the same number
+            # or both pass the cap.
             conn.execute(self._q("LOCK TABLE {table} IN SHARE ROW EXCLUSIVE MODE"))
+            entered = conn.execute(
+                self._q(
+                    "SELECT count(*) AS n, "
+                    "coalesce(max(substring(encounter_id from '-e([0-9]+)$')::int), 0) + 1 AS next "
+                    "FROM {table} WHERE origin = 'entered'"
+                )
+            ).fetchone()
+            if int(entered["n"]) >= self.max_entered:
+                raise _entry_limit(self.site, self.max_entered)
             if key is not None:
                 existing = conn.execute(
                     self._q("SELECT * FROM {table} WHERE client_request_id = %s"), (key,)
@@ -781,13 +754,12 @@ class PostgresSiteStore(_PostgresBase):
                     if not _same_entry(existing, fields):
                         raise IdempotencyKeyReused("this idempotency key was already used for a different record")
                     return _entry_view(existing)
-            number = conn.execute(
-                self._q(
-                    "SELECT coalesce(max(substring(encounter_id from '-e([0-9]+)$')::int), 0) + 1 AS n "
-                    "FROM {table} WHERE origin = 'entered'"
-                )
-            ).fetchone()["n"]
-            row = {"encounter_id": f"{self.site_id}-e{number}", "origin": "entered", **fields, "client_request_id": key}
+            row = {
+                "encounter_id": f"{self.site_id}-e{entered['next']}",
+                "origin": "entered",
+                **fields,
+                "client_request_id": key,
+            }
             columns = list(row)
             inserted = conn.execute(
                 self._sql.SQL("INSERT INTO {table} ({columns}) VALUES ({values}) RETURNING *").format(
@@ -797,12 +769,13 @@ class PostgresSiteStore(_PostgresBase):
                 ),
                 [row[column] for column in columns],
             ).fetchone()
+        self._wrote()
         return _entry_view(inserted)
 
     def set_outcome(self, encounter_id: str, poor_outcome_6m: bool) -> dict[str, Any]:
         if not isinstance(poor_outcome_6m, bool):
             raise RecordRejected({"poor_outcome_6m": "must be true or false"})
-        with self._acting_as(self.role) as conn:
+        with self.lease.acting_as(self.role) as conn:
             # FOR UPDATE: two requests for the same record wait for each other,
             # so only the first one records an outcome.
             found = conn.execute(
@@ -823,11 +796,12 @@ class PostgresSiteStore(_PostgresBase):
                 ),
                 (poor_outcome_6m, encounter_id),
             ).fetchone()
+        self._wrote()
         return _entry_view(updated)
 
     def list_entered(self, limit: int) -> list[dict[str, Any]]:
         _check_limit(limit)
-        with self._acting_as(self.role) as conn:
+        with self.lease.acting_as(self.role) as conn:
             rows = conn.execute(
                 self._q(
                     "SELECT * FROM {table} WHERE origin = 'entered' "
@@ -838,20 +812,21 @@ class PostgresSiteStore(_PostgresBase):
         return [_entry_view(row) for row in rows]
 
     def audit_sink(self) -> AuditSink:
-        if self._audit is None:
-            # The sink takes the store's own connection for each operation. The
-            # lease releases it when the sink's ``with`` block ends; it does not
-            # close it.
-            # The anchor table (0003) lets a restarted API continue the chain
-            # check where the last process left it.
-            self._audit = PostgresAuditSink(
-                self._lease_tuples,
-                self.site.role,
-                f"{self.site.schema}.guard_audit",
-                settings=self._settings,
-                anchor_table=f"{self.site.schema}.guard_audit_anchor",
-            )
-        return self._audit
+        # Built on first use, and it opens no connection until it is used.
+        # The sink takes the store's own connection for each operation; the
+        # lease releases it when the sink's ``with`` block ends and does not
+        # close it. The anchor table (0003) lets a restarted API continue the
+        # chain check where the last process left it.
+        with self._audit_lock:
+            if self._audit is None:
+                self._audit = PostgresAuditSink(
+                    self.lease.lease_tuples,
+                    self.role,
+                    f"{self.site.schema}.guard_audit",
+                    settings=self.lease.settings,
+                    anchor_table=f"{self.site.schema}.guard_audit_anchor",
+                )
+            return self._audit
 
     def seed_dataset(self, records: Iterable[Mapping[str, Any]], *, keep_entries: bool = False) -> dict[str, int]:
         """Replace this hospital's dataset rows, acting as the hospital.
@@ -872,7 +847,7 @@ class PostgresSiteStore(_PostgresBase):
         one_row = self._sql.SQL("({})").format(
             self._sql.SQL(", ").join(self._sql.Placeholder() * len(ROW_COLUMNS))
         )
-        with self._acting_as(self.role) as conn:
+        with self.lease.acting_as(self.role) as conn:
             conn.execute(self._q(delete))
             # Multi-row INSERT statements, one after another. executemany would
             # pipeline them, and Supabase's transaction pooler does not support
@@ -887,6 +862,7 @@ class PostgresSiteStore(_PostgresBase):
                     ),
                     [row.get(column) for row in batch for column in ROW_COLUMNS],
                 )
+        self._wrote()
         return self.count()
 
 
@@ -895,102 +871,14 @@ class PostgresSiteStore(_PostgresBase):
 COORDINATOR_ROLE = "dagents_coordinator"
 COORDINATOR_SCHEMA = "coordinator"
 
-#: A model's lifecycle. Exactly one model at a time may be ``released``.
-MODEL_STATUSES = ("candidate", "released", "rejected", "superseded")
-
-
-class ModelVersionConflict(ValueError):
-    """The version is already stored with different contents."""
-
-
-class UnknownModelError(KeyError):
-    """No model with this version is stored."""
-
-
-def _check_model_limit(limit: int) -> int:
-    """A limit on a model listing: a whole number of 1 or more."""
-    if isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:
-        raise ValueError(f"a model listing limit must be a whole number of 1 or more, got {limit!r}")
-    return limit
-
-
-def _check_model(version: str, kind: str, digest: str, parent_version: str | None, status: str) -> None:
-    errors: dict[str, str] = {}
-    if not isinstance(version, str) or not 1 <= len(version) <= 200:
-        errors["version"] = "must be 1-200 characters"
-    if not isinstance(kind, str) or not 1 <= len(kind) <= 64:
-        errors["kind"] = "must be 1-64 characters"
-    if not isinstance(digest, str) or not 1 <= len(digest) <= 200:
-        errors["digest"] = "must be 1-200 characters"
-    if parent_version is not None and not isinstance(parent_version, str):
-        errors["parent_version"] = "must be a version or None"
-    if status not in MODEL_STATUSES:
-        errors["status"] = f"must be one of {', '.join(MODEL_STATUSES)}"
-    if errors:
-        raise RecordRejected(errors)
-
-
-def _check_contribution(round_id: str, phase: str, payload: Mapping[str, Any]) -> dict[str, Any]:
-    errors: dict[str, str] = {}
-    if not isinstance(round_id, str) or not 1 <= len(round_id) <= 200:
-        errors["round_id"] = "must be 1-200 characters"
-    if not isinstance(phase, str) or not 1 <= len(phase) <= 64:
-        errors["phase"] = "must be 1-64 characters"
-    if not isinstance(payload, Mapping):
-        errors["payload"] = "must be an object"
-    if errors:
-        raise RecordRejected(errors)
-    return _json_copy(payload)
+#: The framework table the GMA keeps its model versions in
+#: (``PostgresModelStore``), acting as :data:`COORDINATOR_ROLE`.
+COORDINATOR_MODELS_TABLE = "coordinator.models"
 
 
 def _json_copy(value: Any) -> Any:
     """Copy through JSON, as the database does, so both stores return the same types."""
     return json.loads(json.dumps(value, allow_nan=False))
-
-
-#: The keys a stored release decision must have, besides ``decided_at``, which
-#: the store sets.
-RELEASE_DECISION_KEYS = ("action", "guard_permitted", "gate_results", "round_id")
-
-#: Keys a stored release decision may have. ``baseline_version`` names the
-#: model the gates compared the candidate with. Decisions stored before it
-#: existed lack it.
-OPTIONAL_RELEASE_DECISION_KEYS = ("baseline_version",)
-
-
-def _check_release_decision(decision: Mapping[str, Any]) -> dict[str, Any]:
-    """Check a release decision and return it in stored form (a JSON copy).
-
-    It needs ``action`` (the gates' decision, such as ``release`` or
-    ``reject``), ``guard_permitted`` (whether the release Guard permitted the
-    request), ``gate_results`` (a list of objects) and ``round_id``. It may
-    have ``baseline_version``, 1-200 characters.
-    """
-    if not isinstance(decision, Mapping):
-        raise RecordRejected({"release_decision": "must be an object"})
-    errors: dict[str, str] = {}
-    unknown = set(decision) - set(RELEASE_DECISION_KEYS) - set(OPTIONAL_RELEASE_DECISION_KEYS)
-    if unknown:
-        errors["release_decision"] = f"unknown keys: {', '.join(sorted(map(str, unknown)))}"
-    action = decision.get("action")
-    if not isinstance(action, str) or not 1 <= len(action) <= 64:
-        errors["action"] = "must be 1-64 characters"
-    if not isinstance(decision.get("guard_permitted"), bool):
-        errors["guard_permitted"] = "must be true or false"
-    gates = decision.get("gate_results")
-    if not isinstance(gates, list) or not all(isinstance(gate, Mapping) for gate in gates):
-        errors["gate_results"] = "must be a list of objects"
-    round_id = decision.get("round_id")
-    if not isinstance(round_id, str) or not 1 <= len(round_id) <= 200:
-        errors["round_id"] = "must be 1-200 characters"
-    if "baseline_version" in decision:
-        baseline = decision["baseline_version"]
-        if not isinstance(baseline, str) or not 1 <= len(baseline) <= 200:
-            errors["baseline_version"] = "must be 1-200 characters"
-    if errors:
-        raise RecordRejected(errors)
-    keys = RELEASE_DECISION_KEYS + tuple(key for key in OPTIONAL_RELEASE_DECISION_KEYS if key in decision)
-    return _json_copy({key: decision[key] for key in keys})
 
 
 #: Pilot reports the coordinator keeps. Only the latest is read; a few more are
@@ -1016,60 +904,16 @@ def _check_pilot_report(pilot_id: str, report: Mapping[str, Any]) -> dict[str, A
     return copy
 
 
-def _same_model(stored: Mapping[str, Any], kind: str, params: Any, digest: str, parent: str | None) -> bool:
-    return (
-        stored["kind"] == kind
-        and stored["params"] == params
-        and stored["digest"] == digest
-        and stored["parent_version"] == parent
-    )
-
-
 class CoordinatorStore(Protocol):
-    """The coordinator's records: models and what hospitals published."""
+    """What the coordinator keeps itself: pilot reports and the release Guard's audit chain."""
 
     kind: str
     location: dict[str, str]
-
-    def save_model(
-        self,
-        version: str,
-        kind: str,
-        params: Mapping[str, Any],
-        digest: str,
-        parent_version: str | None = None,
-        status: str = "candidate",
-    ) -> dict[str, Any]:
-        """Store a model. Saving the same version again with the same contents returns it."""
-
-    def get_model(self, version: str) -> dict[str, Any] | None:
-        """One model, or None."""
-
-    def list_models(self, limit: int | None = None) -> list[dict[str, Any]]:
-        """Every model, oldest first, or only the newest ``limit`` of them (still oldest first)."""
-
-    def set_model_status(self, version: str, status: str) -> dict[str, Any]:
-        """Change a model's status. Releasing one supersedes the previous release."""
-
-    def released_model(self) -> dict[str, Any] | None:
-        """The model the hospitals use, if one is released."""
-
-    def set_release_decision(self, version: str, decision: Mapping[str, Any]) -> dict[str, Any]:
-        """Store a model's latest release decision, replacing any earlier one.
-
-        ``decision`` has the keys in :data:`RELEASE_DECISION_KEYS`. The store
-        adds ``decided_at``. Returns the model, whose ``release_decision`` is
-        the stored decision (``None`` until one is stored).
-        """
-
-    def add_contribution(self, site: Site, round_id: str, phase: str, payload: Mapping[str, Any]) -> dict[str, Any]:
-        """Record what a hospital published in a round, as that hospital."""
-
-    def contributions(self, round_id: str | None = None) -> list[dict[str, Any]]:
-        """Every hospital's contributions, oldest first, as the coordinator."""
-
-    def site_contributions(self, site: Site) -> list[dict[str, Any]]:
-        """One hospital's own contributions, oldest first, read as that hospital."""
+    #: The role every operation acts as. ``None`` for the in-memory store.
+    role: str | None
+    #: The kept connection, or ``None`` for the in-memory store. The GMA keeps
+    #: its model versions on it.
+    lease: KeptConnection | None
 
     def save_pilot_report(self, pilot_id: str, report: Mapping[str, Any]) -> None:
         """Store a pilot's report. Saving the same pilot again replaces its report.
@@ -1091,118 +935,15 @@ class MemoryCoordinatorStore:
     """The coordinator's records in this process."""
 
     kind = "in-memory"
+    role: str | None = None
+    lease: KeptConnection | None = None
 
     def __init__(self) -> None:
         self.location = {"memory": "process"}
         self._lock = threading.Lock()
-        self._models: dict[str, dict[str, Any]] = {}
-        self._contributions: list[dict[str, Any]] = []
         # Oldest first. A dict keeps the order in which each pilot was first saved.
         self._pilot_reports: dict[str, dict[str, Any]] = {}
         self._audit = InMemoryAuditLog()
-
-    def save_model(
-        self,
-        version: str,
-        kind: str,
-        params: Mapping[str, Any],
-        digest: str,
-        parent_version: str | None = None,
-        status: str = "candidate",
-    ) -> dict[str, Any]:
-        _check_model(version, kind, digest, parent_version, status)
-        params_copy = _json_copy(params)
-        with self._lock:
-            stored = self._models.get(version)
-            if stored is not None:
-                if not _same_model(stored, kind, params_copy, digest, parent_version):
-                    raise ModelVersionConflict(f"model {version} is already stored with different contents")
-                return _json_copy(stored)
-            if parent_version is not None and parent_version not in self._models:
-                raise UnknownModelError(parent_version)
-            if status == "released":
-                self._supersede_release()
-            self._models[version] = {
-                "version": version,
-                "kind": kind,
-                "params": params_copy,
-                "digest": digest,
-                "parent_version": parent_version,
-                "status": status,
-                "created_at": _timestamp(datetime.now(timezone.utc)),
-                "release_decision": None,
-            }
-            return _json_copy(self._models[version])
-
-    def _supersede_release(self) -> None:
-        for model in self._models.values():
-            if model["status"] == "released":
-                model["status"] = "superseded"
-
-    def get_model(self, version: str) -> dict[str, Any] | None:
-        with self._lock:
-            model = self._models.get(version)
-            return _json_copy(model) if model is not None else None
-
-    def list_models(self, limit: int | None = None) -> list[dict[str, Any]]:
-        start = -_check_model_limit(limit) if limit is not None else 0
-        with self._lock:
-            # A dict keeps insertion order, which is creation order.
-            return [_json_copy(model) for model in list(self._models.values())[start:]]
-
-    def set_model_status(self, version: str, status: str) -> dict[str, Any]:
-        if status not in MODEL_STATUSES:
-            raise RecordRejected({"status": f"must be one of {', '.join(MODEL_STATUSES)}"})
-        with self._lock:
-            model = self._models.get(version)
-            if model is None:
-                raise UnknownModelError(version)
-            if status == "released" and model["status"] != "released":
-                self._supersede_release()
-            model["status"] = status
-            return _json_copy(model)
-
-    def released_model(self) -> dict[str, Any] | None:
-        with self._lock:
-            for model in self._models.values():
-                if model["status"] == "released":
-                    return _json_copy(model)
-        return None
-
-    def set_release_decision(self, version: str, decision: Mapping[str, Any]) -> dict[str, Any]:
-        stored = _check_release_decision(decision)
-        with self._lock:
-            model = self._models.get(version)
-            if model is None:
-                raise UnknownModelError(version)
-            model["release_decision"] = {**stored, "decided_at": _timestamp(datetime.now(timezone.utc))}
-            return _json_copy(model)
-
-    def add_contribution(self, site: Site, round_id: str, phase: str, payload: Mapping[str, Any]) -> dict[str, Any]:
-        payload_copy = _check_contribution(round_id, phase, payload)
-        with self._lock:
-            entry = {
-                "contribution_id": len(self._contributions) + 1,
-                "round_id": round_id,
-                "phase": phase,
-                "site_id": site.site_id,
-                "payload": payload_copy,
-                "submitted_at": _timestamp(datetime.now(timezone.utc)),
-            }
-            self._contributions.append(entry)
-            return _json_copy(entry)
-
-    def contributions(self, round_id: str | None = None) -> list[dict[str, Any]]:
-        with self._lock:
-            return [
-                _json_copy(entry)
-                for entry in self._contributions
-                if round_id is None or entry["round_id"] == round_id
-            ]
-
-    def site_contributions(self, site: Site) -> list[dict[str, Any]]:
-        with self._lock:
-            return [_json_copy(entry) for entry in self._contributions if entry["site_id"] == site.site_id]
 
     def save_pilot_report(self, pilot_id: str, report: Mapping[str, Any]) -> None:
         stored = _check_pilot_report(pilot_id, report)
@@ -1224,209 +965,30 @@ class MemoryCoordinatorStore:
         """Nothing to close; the records stay in memory."""
 
 
-class PostgresCoordinatorStore(_PostgresBase):
-    """The coordinator's records in the ``coordinator`` schema."""
+class PostgresCoordinatorStore(_LeasedStore):
+    """The coordinator's records in the ``coordinator`` schema, read and written as ``dagents_coordinator``."""
 
     kind = "postgres"
 
     def __init__(
         self,
-        dsn: str,
-        sites: Iterable[Site],
+        dsn: str | None = None,
         *,
+        lease: KeptConnection | None = None,
         statement_timeout_ms: int = DEFAULT_STATEMENT_TIMEOUT_MS,
         liveness_idle_seconds: float = DEFAULT_LIVENESS_IDLE_SECONDS,
     ) -> None:
-        super().__init__(dsn, statement_timeout_ms, liveness_idle_seconds)
+        super().__init__(
+            dsn,
+            lease,
+            name="coordinator store",
+            statement_timeout_ms=statement_timeout_ms,
+            liveness_idle_seconds=liveness_idle_seconds,
+        )
+        self.role = COORDINATOR_ROLE
         self.location = {"schema": COORDINATOR_SCHEMA, "role": COORDINATOR_ROLE}
-        self._site_by_role = {site.role: site for site in sites}
         self._audit: PostgresAuditSink | None = None
         self._audit_lock = threading.Lock()
-
-    def _unavailable_prefix(self) -> str:
-        return "coordinator store: "
-
-    @staticmethod
-    def _model(row: Mapping[str, Any]) -> dict[str, Any]:
-        decision = row["release_decision"]
-        return {
-            "version": row["version"],
-            "kind": row["kind"],
-            "params": row["params"],
-            "digest": row["digest"],
-            "parent_version": row["parent_version"],
-            "status": row["status"],
-            "created_at": _timestamp(row["created_at"]),
-            "release_decision": (
-                {**decision, "decided_at": _timestamp(row["decided_at"])} if decision is not None else None
-            ),
-        }
-
-    def _contribution(self, row: Mapping[str, Any]) -> dict[str, Any]:
-        site = self._site_by_role.get(row["site_role"])
-        return {
-            "contribution_id": int(row["contribution_id"]),
-            "round_id": row["round_id"],
-            "phase": row["phase"],
-            "site_id": site.site_id if site is not None else row["site_role"],
-            "payload": row["payload"],
-            "submitted_at": _timestamp(row["submitted_at"]),
-        }
-
-    def save_model(
-        self,
-        version: str,
-        kind: str,
-        params: Mapping[str, Any],
-        digest: str,
-        parent_version: str | None = None,
-        status: str = "candidate",
-    ) -> dict[str, Any]:
-        from psycopg import errors
-        from psycopg.types.json import Jsonb
-
-        _check_model(version, kind, digest, parent_version, status)
-        params_copy = _json_copy(params)
-        values = (version, kind, Jsonb(params_copy), digest, parent_version, status)
-        if status != "released":
-            # One statement in the usual case. ON CONFLICT makes "insert unless
-            # stored" atomic, and the foreign key refuses an unknown parent, so
-            # no table lock is needed.
-            try:
-                with self._acting_as(COORDINATOR_ROLE) as conn:
-                    row = conn.execute(
-                        "INSERT INTO coordinator.models (version, kind, params, digest, parent_version, status) "
-                        "VALUES (%s, %s, %s, %s, %s, %s) ON CONFLICT (version) DO NOTHING RETURNING *",
-                        values,
-                    ).fetchone()
-                    if row is None:
-                        row = conn.execute(
-                            "SELECT * FROM coordinator.models WHERE version = %s", (version,)
-                        ).fetchone()
-                        model = self._model(row)
-                        if not _same_model(model, kind, params_copy, digest, parent_version):
-                            raise ModelVersionConflict(f"model {version} is already stored with different contents")
-                        return model
-            except errors.ForeignKeyViolation as error:
-                raise UnknownModelError(parent_version) from error
-            return self._model(row)
-        # A release supersedes the current one. The lock keeps two releases
-        # from racing; the unique index models_one_release would refuse the
-        # second anyway.
-        with self._acting_as(COORDINATOR_ROLE) as conn:
-            conn.execute("LOCK TABLE coordinator.models IN SHARE ROW EXCLUSIVE MODE")
-            stored = conn.execute("SELECT * FROM coordinator.models WHERE version = %s", (version,)).fetchone()
-            if stored is not None:
-                model = self._model(stored)
-                if not _same_model(model, kind, params_copy, digest, parent_version):
-                    raise ModelVersionConflict(f"model {version} is already stored with different contents")
-                return model
-            if parent_version is not None and conn.execute(
-                "SELECT 1 FROM coordinator.models WHERE version = %s", (parent_version,)
-            ).fetchone() is None:
-                raise UnknownModelError(parent_version)
-            conn.execute("UPDATE coordinator.models SET status = 'superseded' WHERE status = 'released'")
-            row = conn.execute(
-                "INSERT INTO coordinator.models (version, kind, params, digest, parent_version, status) "
-                "VALUES (%s, %s, %s, %s, %s, %s) RETURNING *",
-                values,
-            ).fetchone()
-        return self._model(row)
-
-    def get_model(self, version: str) -> dict[str, Any] | None:
-        with self._acting_as(COORDINATOR_ROLE) as conn:
-            row = conn.execute("SELECT * FROM coordinator.models WHERE version = %s", (version,)).fetchone()
-        return self._model(row) if row is not None else None
-
-    def list_models(self, limit: int | None = None) -> list[dict[str, Any]]:
-        with self._acting_as(COORDINATOR_ROLE) as conn:
-            if limit is None:
-                rows = conn.execute("SELECT * FROM coordinator.models ORDER BY created_at, version").fetchall()
-            else:
-                # The database picks the newest rows, so a long registry is not read.
-                rows = conn.execute(
-                    "SELECT * FROM (SELECT * FROM coordinator.models ORDER BY created_at DESC, version DESC "
-                    "LIMIT %s) AS newest ORDER BY created_at, version",
-                    (_check_model_limit(limit),),
-                ).fetchall()
-        return [self._model(row) for row in rows]
-
-    def set_model_status(self, version: str, status: str) -> dict[str, Any]:
-        if status not in MODEL_STATUSES:
-            raise RecordRejected({"status": f"must be one of {', '.join(MODEL_STATUSES)}"})
-        if status != "released":
-            # One statement: no other row changes.
-            with self._acting_as(COORDINATOR_ROLE) as conn:
-                row = conn.execute(
-                    "UPDATE coordinator.models SET status = %s WHERE version = %s RETURNING *", (status, version)
-                ).fetchone()
-            if row is None:
-                raise UnknownModelError(version)
-            return self._model(row)
-        with self._acting_as(COORDINATOR_ROLE) as conn:
-            conn.execute("LOCK TABLE coordinator.models IN SHARE ROW EXCLUSIVE MODE")
-            if conn.execute("SELECT 1 FROM coordinator.models WHERE version = %s", (version,)).fetchone() is None:
-                raise UnknownModelError(version)
-            conn.execute(
-                "UPDATE coordinator.models SET status = 'superseded' WHERE status = 'released' AND version <> %s",
-                (version,),
-            )
-            row = conn.execute(
-                "UPDATE coordinator.models SET status = 'released' WHERE version = %s RETURNING *", (version,)
-            ).fetchone()
-        return self._model(row)
-
-    def released_model(self) -> dict[str, Any] | None:
-        with self._acting_as(COORDINATOR_ROLE) as conn:
-            row = conn.execute("SELECT * FROM coordinator.models WHERE status = 'released'").fetchone()
-        return self._model(row) if row is not None else None
-
-    def set_release_decision(self, version: str, decision: Mapping[str, Any]) -> dict[str, Any]:
-        from psycopg.types.json import Jsonb
-
-        stored = _check_release_decision(decision)
-        with self._acting_as(COORDINATOR_ROLE) as conn:
-            row = conn.execute(
-                "UPDATE coordinator.models SET release_decision = %s, decided_at = now() "
-                "WHERE version = %s RETURNING *",
-                (Jsonb(stored), version),
-            ).fetchone()
-        if row is None:
-            raise UnknownModelError(version)
-        return self._model(row)
-
-    def add_contribution(self, site: Site, round_id: str, phase: str, payload: Mapping[str, Any]) -> dict[str, Any]:
-        from psycopg.types.json import Jsonb
-
-        payload_copy = _check_contribution(round_id, phase, payload)
-        # Inserted as the hospital: the row's site_role defaults to current_user,
-        # and the hospital has no grant to set it.
-        with self._acting_as(site.role) as conn:
-            row = conn.execute(
-                "INSERT INTO coordinator.site_contributions (round_id, phase, payload) "
-                "VALUES (%s, %s, %s) RETURNING *",
-                (round_id, phase, Jsonb(payload_copy)),
-            ).fetchone()
-        return self._contribution(row)
-
-    def contributions(self, round_id: str | None = None) -> list[dict[str, Any]]:
-        with self._acting_as(COORDINATOR_ROLE) as conn:
-            if round_id is None:
-                rows = conn.execute(
-                    "SELECT * FROM coordinator.site_contributions ORDER BY contribution_id"
-                ).fetchall()
-            else:
-                rows = conn.execute(
-                    "SELECT * FROM coordinator.site_contributions WHERE round_id = %s ORDER BY contribution_id",
-                    (round_id,),
-                ).fetchall()
-        return [self._contribution(row) for row in rows]
-
-    def site_contributions(self, site: Site) -> list[dict[str, Any]]:
-        # No WHERE clause: row level security returns only the hospital's rows.
-        with self._acting_as(site.role) as conn:
-            rows = conn.execute("SELECT * FROM coordinator.site_contributions ORDER BY contribution_id").fetchall()
-        return [self._contribution(row) for row in rows]
 
     def save_pilot_report(self, pilot_id: str, report: Mapping[str, Any]) -> None:
         from psycopg.types.json import Jsonb
@@ -1434,7 +996,7 @@ class PostgresCoordinatorStore(_PostgresBase):
         stored = _check_pilot_report(pilot_id, report)
         # coordinator.pilot_reports is created by 0003_coordinator_records.sql.
         # seq orders the reports; a pilot saved again keeps its place.
-        with self._acting_as(COORDINATOR_ROLE) as conn:
+        with self.lease.acting_as(self.role) as conn:
             conn.execute(
                 "INSERT INTO coordinator.pilot_reports (pilot_id, report) VALUES (%s, %s) "
                 "ON CONFLICT (pilot_id) DO UPDATE SET report = excluded.report",
@@ -1447,7 +1009,7 @@ class PostgresCoordinatorStore(_PostgresBase):
             )
 
     def latest_pilot_report(self) -> dict[str, Any] | None:
-        with self._acting_as(COORDINATOR_ROLE) as conn:
+        with self.lease.acting_as(self.role) as conn:
             row = conn.execute("SELECT report FROM coordinator.pilot_reports ORDER BY seq DESC LIMIT 1").fetchone()
         return row["report"] if row is not None else None
 
@@ -1457,10 +1019,10 @@ class PostgresCoordinatorStore(_PostgresBase):
         with self._audit_lock:
             if self._audit is None:
                 self._audit = PostgresAuditSink(
-                    self._lease_tuples,
-                    COORDINATOR_ROLE,
+                    self.lease.lease_tuples,
+                    self.role,
                     "coordinator.guard_audit",
-                    settings=self._settings,
+                    settings=self.lease.settings,
                     anchor_table="coordinator.guard_audit_anchor",
                 )
             return self._audit

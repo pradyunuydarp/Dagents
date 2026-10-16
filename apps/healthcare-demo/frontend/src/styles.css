@@ -867,6 +867,135 @@ ul.lever-notes {
   color: var(--ds-ink-2);
 }
 
+/* ===== Dagents API calls ================================================== */
+
+/* The strip under a panel that lists the LMA and GMA routes behind it. It is
+ * reference material, so it is quiet: a hairline above, a mono label and
+ * plain ink. No colour, because none of it is a decision. */
+.api-calls {
+  border-top: 1px solid var(--ds-line);
+  padding-top: var(--ds-3);
+  font-size: var(--ds-step--1);
+  color: var(--ds-ink-2);
+  min-width: 0;
+}
+
+.api-calls > summary {
+  cursor: pointer;
+}
+
+.api-calls[open] > summary {
+  margin-bottom: var(--ds-2);
+}
+
+.api-calls-label {
+  font-family: var(--ds-font-mono);
+  font-size: 0.72rem;
+  font-weight: 500;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--ds-ink-3);
+}
+
+.api-calls-agents {
+  margin-left: var(--ds-3);
+  font-family: var(--ds-font-mono);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.api-calls-table td {
+  padding-block: var(--ds-1);
+}
+
+.api-calls-table .api-agent {
+  white-space: nowrap;
+}
+
+/* A route breaks after a "/" when the cell is narrow, and inside a part only
+ * when one part alone is wider than the cell. */
+.api-calls-table .api-route {
+  overflow-wrap: break-word;
+  color: var(--ds-ink);
+}
+
+.api-calls-note {
+  margin-top: var(--ds-2);
+  max-width: var(--ds-measure);
+}
+
+/* ===== Groups on the hospital page ======================================== */
+
+/* The hospital page has two groups: the hospital's Dagents LMA and the app at
+ * the hospital. A heavier rule and a larger heading mark each group; the
+ * panels inside it take the next heading level down. */
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-5);
+  min-width: 0;
+}
+
+.group-head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-2);
+  padding-top: var(--ds-4);
+  border-top: 2px solid var(--ds-ink-2);
+}
+
+.group-head h2 {
+  font-size: var(--ds-step-3);
+}
+
+/* ===== Who does what ====================================================== */
+
+.who-table .who-does {
+  min-width: 16rem;
+  max-width: 48ch;
+  color: var(--ds-ink-2);
+}
+
+/* ===== Dispatch rows ====================================================== */
+
+.dispatch-table td {
+  vertical-align: baseline;
+}
+
+.dispatch-table .cell-sub {
+  max-width: 40ch;
+  margin-top: 2px;
+}
+
+/* ===== Chart sources ====================================================== */
+
+.chart-source {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--ds-ink-3);
+}
+
+.chart-source > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 var(--ds-2);
+}
+
+.chart-source dt {
+  flex: 0 0 7rem;
+  font-family: var(--ds-font-mono);
+  font-size: 0.7rem;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.chart-source dd {
+  flex: 1 1 14rem;
+  margin: 0;
+}
+
 /* ===== Narrow screens ===================================================== */
 
 /* At 375px the panels keep their hairlines and lose their wide gutter. Less
@@ -911,6 +1040,17 @@ ul.lever-notes {
   .audit-list li {
     flex-direction: column;
     gap: var(--ds-1);
+  }
+
+  /* The "What it does" text wraps in the column it has. */
+  .who-table .who-does {
+    min-width: 0;
+  }
+
+  /* The per-agent counts go on their own line under the label. */
+  .api-calls-agents {
+    display: block;
+    margin-left: 0;
   }
 
   /* A chart is drawn for 480px. Scaled to a 375px screen its text would be

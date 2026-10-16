@@ -50,5 +50,15 @@ class GmaLink:
         except AgentUnavailableError:
             raise GmaUnavailable("the GMA did not answer") from None
         except AgentError as error:
-            raise GmaRefused(f"the GMA refused the update ({error.code}: {error.detail})") from None
+            if error.status in _REFUSALS:
+                raise GmaRefused(f"the GMA refused the update ({error.code}: {error.detail})") from None
+            # The GMA failed, or did not accept the body. Its detail can quote a
+            # store error that names a database host or a hosting vendor, or
+            # echo the body; this message reaches the job's result.
+            raise GmaRefused(f"the GMA could not store the update: it answered {error.status} ({error.code})") from None
         return receipt.digest
+
+
+#: The statuses whose detail is the GMA's own reason for refusing an update,
+#: which names the round or the site and nothing else.
+_REFUSALS = frozenset({403, 404, 409})

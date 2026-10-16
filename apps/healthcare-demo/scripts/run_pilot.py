@@ -5,6 +5,10 @@ and excluded and why, what each site sent, the training loss and update norms
 per round, what the candidate measured against the baseline, how each release
 gate decided, and whether every audit chain verifies.
 
+The pilot runs through the Dagents agents, built in this process: one LMA per
+hospital and a GMA that coordinates the study. The script calls the GMA through
+its HTTP routes, as the demo API does, and stops the agents when it ends.
+
 With ``HEALTHCARE_DEMO_DATABASE_URL`` set, the pilot reads each hospital's
 records from its own schema in that database. Without it, each hospital keeps
 its records in memory, loaded from the committed IST extract.
@@ -30,10 +34,15 @@ def main() -> int:
     args = parser.parse_args()
 
     from app.domain import stroke_model
-    from app.services.consortium import Consortium
+    from app.services.agents import HealthcareDemo
 
-    consortium = Consortium(database_url=os.environ.get("HEALTHCARE_DEMO_DATABASE_URL", ""))
-    report = consortium.run_pilot(args.round_prefix, args.training_rounds or stroke_model.DEFAULT_ROUNDS)
+    demo = HealthcareDemo(database_url=os.environ.get("HEALTHCARE_DEMO_DATABASE_URL", ""))
+    try:
+        report = demo.ready().pilot.run_pilot(
+            args.round_prefix, args.training_rounds or stroke_model.DEFAULT_ROUNDS
+        )
+    finally:
+        demo.close()
 
     if args.json:
         print(json.dumps(report, indent=2, default=str))
@@ -112,6 +121,9 @@ def main() -> int:
 
     print("Audit")
     for site_id, audit in report["site_audits"].items():
+        if audit is None:
+            print(f"  {site_id:<12} its LMA did not report its audit chain")
+            continue
         print(f"  {site_id:<12} chain_intact={audit['chain_intact']}  decisions={audit['record_count']}")
     coordinator = report["coordinator_audit"]
     print(f"  {'coordinator':<12} chain_intact={coordinator['chain_intact']}  decisions={coordinator['record_count']}")

@@ -14,11 +14,12 @@ name: Healthcare data
 # Before touching the project, the job prints the project's PostgreSQL version,
 # applies the same migrations to a scratch PostgreSQL 16 service container, as a
 # non-superuser that stands in for Supabase's `postgres` role, and runs the
-# healthcare demo's database tests there. It then runs the framework's database
-# tests on the same container (role scoping, the connection lease, the model
-# store, the LMA job log and the GMA's coordinator wiring). These are the same
-# test classes the CI `demo-apps` job requires, with the planner built, so none
-# of them may skip.
+# healthcare demo's database tests there, including the demo with the GMA and
+# one LMA per hospital in their own processes. It then runs the framework's
+# database tests on the same container (role scoping, the connection lease, the
+# model store, the LMA job log and the GMA's coordinator wiring). These are the
+# same test classes the CI `demo-apps` job requires, with the planner built, so
+# none of them may skip.
 #
 # Required secret:
 #   SUPABASE_DB_URL  Supabase -> Project settings -> Database -> Connection string
@@ -143,7 +144,9 @@ jobs:
         # The schema tests read the migration as text. The other modules apply
         # it to the service container, try every cross-site path, and run the
         # stores, the pilot, data entry, the API and the status report against
-        # it.
+        # it. They also check that each hospital's LMA uses only its own store
+        # and role, run a pilot while records are written, and run the GMA,
+        # one LMA per hospital and the API as separate processes.
         working-directory: apps/healthcare-demo
         env:
           PYTHONPATH: ${{ github.workspace }}:${{ github.workspace }}/apps/healthcare-demo/backend
@@ -157,10 +160,12 @@ jobs:
             tests.test_site_store \
             tests.test_pilot_postgres \
             tests.test_data_entry_flow \
-            tests.test_runtime \
             tests.test_store_connections \
             tests.test_api_postgres \
             tests.test_data_source_status \
+            tests.test_agents_wiring \
+            tests.test_concurrency \
+            tests.test_network_mode \
             2>&1 | tee database-suite.log
 
       - name: Test the framework's database code on the scratch PostgreSQL 16
@@ -202,12 +207,15 @@ jobs:
             --require-ran tests.test_pilot_postgres.PostgresApprovalAfterRestartTests \
             --require-ran tests.test_pilot_postgres.PostgresRestartTests \
             --require-ran tests.test_data_entry_flow.PostgresDataEntryTests \
-            --require-ran tests.test_runtime.PostgresRegistryTests \
             --require-ran tests.test_store_connections.PostgresConnectionReuseTests \
             --require-ran tests.test_store_connections.PostgresPilotConnectionTests \
             --require-ran tests.test_api_postgres.PostgresApiTests \
             --require-ran tests.test_api_postgres.UnmigratedDatabaseApiTests \
             --require-ran tests.test_data_source_status.PostgresStatusTests \
+            --require-ran tests.test_agents_wiring.PostgresWiringTests \
+            --require-ran tests.test_concurrency.PostgresPilotWhileWritingTests \
+            --require-ran tests.test_network_mode.NetworkModeTests \
+            --require-ran tests.test_network_mode.NetworkApprovalTests \
             apps/healthcare-demo/database-suite.log || status=1
           python scripts/ci_no_skipped_tests.py \
             --forbid planner \

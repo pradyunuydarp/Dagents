@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { COLD_START_BUDGET_MS, getJson, isRecorded, onApiWaking, recordingInfo, userMessage, type Recording } from "./api";
+import { SiteOrder } from "./components/ApiCalls";
 import { ErrorNote, Linked, Loading, ShownError } from "./components/Basics";
 import { README_URL } from "./config";
 import { sourceText } from "./format";
@@ -122,6 +123,7 @@ export default function App() {
     page = <NotFound />;
   }
 
+  const siteOrder = useMemo(() => overview?.hospitals.map((item) => item.site_id) ?? [], [overview]);
   const dataset = overview?.dataset ?? status?.dataset ?? null;
   const shellError = recordingError ?? overviewError;
   const notReady = notReadyText(status, overview);
@@ -183,7 +185,9 @@ export default function App() {
 
       <ShownError.Provider value={shellError ? userMessage(shellError) : null}>
         <FieldLabelsProvider value={overview?.field_labels ?? null}>
-          <main className="ds-shell main">{page}</main>
+          <SiteOrder.Provider value={siteOrder}>
+            <main className="ds-shell main">{page}</main>
+          </SiteOrder.Provider>
         </FieldLabelsProvider>
       </ShownError.Provider>
 

@@ -10,6 +10,8 @@ import {
   gateTone,
   metricLabel,
   metricList,
+  offerText,
+  offerTone,
   orderedMetrics,
   phaseLabel,
   phaseNote,
@@ -17,7 +19,8 @@ import {
   releaseText,
   releaseTone
 } from "../format";
-import type { ApproveResult, AuditSummary, ChartInfo, Overview, Pilot, RoundReport } from "../types";
+import type { ApproveResult, AuditSummary, ChartInfo, DispatchCall, Overview, Pilot, RoundReport } from "../types";
+import { ApiCalls } from "./ApiCalls";
 import { Chip, ErrorNote, Panel } from "./Basics";
 import { ChartFigure } from "./Chart";
 
@@ -28,6 +31,141 @@ function siteName(overview: Overview, siteId: string): string {
 
 function participationText(value: string): string {
   return value.replace(/_/g, " ");
+}
+
+/** The sites a round's dispatch reached, in the overview's order, then any others. */
+function dispatchSites(overview: Overview, dispatch: DispatchCall[]): string[] {
+  const reached = new Set(dispatch.map((call) => call.site_id));
+  return [
+    ...overview.hospitals.map((hospital) => hospital.site_id).filter((siteId) => reached.has(siteId)),
+    ...[...reached].filter((siteId) => !overview.hospitals.some((hospital) => hospital.site_id === siteId))
+  ];
+}
+
+/** An LMA's answer to one call, for a table cell: its HTTP status, or "no answer". */
+function answerText(call: DispatchCall | undefined): string {
+  if (!call) return "—";
+  return call.status_code === null ? "no answer" : String(call.status_code);
+}
+
+/**
+ * What one hospital did with a round's job, from the GMA's dispatch rows: its
+ * answer to the offer, and the participation of the job it ran. A `run` row
+ * holds both steps of one call; older reports hold an `offer` and an
+ * `execute` row.
+ */
+function siteDispatch(dispatch: DispatchCall[], siteId: string) {
+  const rows = dispatch.filter((call) => call.site_id === siteId);
+  const runCall = rows.find((call) => call.step === "run");
+  if (runCall) {
+    const offer = runCall.outcome === "refused" || runCall.outcome === "failed" ? runCall.outcome : "accepted";
+    return {
+      offer,
+      offerStatus: runCall.status_code,
+      run: offer === "accepted" ? runCall.outcome : undefined,
+      answers: `run ${answerText(runCall)}`
+    };
+  }
+  const offerCall = rows.find((call) => call.step === "offer");
+  const executeCall = rows.find((call) => call.step === "execute");
+  return {
+    offer: offerCall?.outcome,
+    offerStatus: offerCall?.status_code ?? null,
+    run: executeCall?.outcome,
+    answers: `offer ${answerText(offerCall)}${executeCall ? `, run ${answerText(executeCall)}` : ""}`
+  };
+}
+
+/**
+ * How the GMA dispatched one or more rounds: for each hospital, the job offer
+ * and its answer, and whether the hospital's LMA ran the job.
+ *
+ * Every value comes from the round report (`dispatch` and `acceptances`). A
+ * round recorded before the agents existed has no `dispatch`, and nothing is
+ * shown for it.
+ */
+function DispatchRows({
+  overview,
+  rounds
+}: {
+  overview: Overview;
+  rounds: { label: string; round: RoundReport }[];
+}) {
+  const shown = rounds.filter(({ round }) => Array.isArray(round.dispatch));
+  if (shown.length === 0) return null;
+  const answers = shown.flatMap(({ round }) => {
+    const dispatch = round.dispatch ?? [];
+    return dispatchSites(overview, dispatch).map((siteId) => siteDispatch(dispatch, siteId));
+  });
+  const offers = answers.filter((answer) => answer.offer !== undefined);
+  const accepted = offers.filter((answer) => answer.offer === "accepted").length;
+  const withRound = shown.length > 1;
+  return (
+    <details className="ds-details dispatch" data-dispatch>
+      <summary>
+        {withRound ? "How the GMA dispatched each round's job" : "How the GMA dispatched the job"}:{" "}
+        {count(accepted)} of {count(offers.length)} offers accepted
+      </summary>
+      <p className="note ds-note">
+        The GMA offers the round&rsquo;s job to each selected hospital&rsquo;s LMA. The LMA checks the
+        job and asks its Guard before it accepts. Only an accepted job runs, and the LMA sends back a
+        result without its records. The GMA sends both steps in one call to each LMA.
+      </p>
+      <div className="ds-table-scroll">
+        <table className="ds-table dispatch-table">
+          <thead>
+            <tr>
+              {withRound && <th scope="col">Round</th>}
+              <th scope="col">Hospital</th>
+              <th scope="col">Job offer</th>
+              <th scope="col">Job run</th>
+              <th scope="col" className="wide-only">
+                LMA answers
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {shown.flatMap(({ label, round }) => {
+              const dispatch = round.dispatch ?? [];
+              if (dispatch.length === 0) {
+                return [
+                  <tr key={`${round.round_id}-none`}>
+                    {withRound && <td>{label}</td>}
+                    <td colSpan={4} className="ds-note">
+                      The GMA sent no job for this round.
+                    </td>
+                  </tr>
+                ];
+              }
+              return dispatchSites(overview, dispatch).map((siteId) => {
+                const { offer, offerStatus, run, answers } = siteDispatch(dispatch, siteId);
+                const answer = round.acceptances?.find((item) => item.site_id === siteId);
+                const refusedReason = offer && offer !== "accepted" ? answer?.reason : undefined;
+                return (
+                  <tr
+                    key={`${round.round_id}-${siteId}`}
+                    data-dispatch-round={round.round_id}
+                    data-dispatch-site={siteId}
+                    data-offer={offer ?? ""}
+                    data-run={run ?? ""}
+                  >
+                    {withRound && <td>{label}</td>}
+                    <td>{siteName(overview, siteId)}</td>
+                    <td>
+                      {offer ? <Chip tone={offerTone(offer)}>{offerText(offer, offerStatus)}</Chip> : "—"}
+                      {refusedReason && <span className="cell-sub">{plannerReason(refusedReason)}</span>}
+                    </td>
+                    <td>{run ? participationText(run) : "not run"}</td>
+                    <td className="mono wide-only">{answers}</td>
+                  </tr>
+                );
+              });
+            })}
+          </tbody>
+        </table>
+      </div>
+    </details>
+  );
 }
 
 /** One non-training round: its plan, its quorum, and what each hospital sent. */
@@ -53,6 +191,7 @@ function RoundCard({ overview, round, name }: { overview: Overview; round: Round
         </span>
       </div>
       <Exclusions overview={overview} round={round} />
+      <DispatchRows overview={overview} rounds={[{ label: phaseLabel(name), round }]} />
       <details className="ds-details">
         <summary>What each hospital sent ({round.results.length})</summary>
         <div className="ds-table-scroll">
@@ -120,10 +259,10 @@ function TrainingRounds({ overview, pilot }: { overview: Overview; pilot: Pilot 
         </span>
       </div>
       <p className="note ds-note">
-        In each round every hospital trains the current version on its own records and sends back an
-        update. Each hospital&rsquo;s Guard scales the update down to a bounded size before it is sent.
-        The updates are averaged, weighted by each hospital&rsquo;s number of records, into the next
-        version. The label stays at the hospital.
+        In each round every hospital&rsquo;s LMA trains the current version on the hospital&rsquo;s own
+        records and sends an update to the GMA. The hospital&rsquo;s Guard scales the update down to a
+        bounded size before it is sent. The GMA averages the updates, weighted by each hospital&rsquo;s
+        number of records, into the next version. The label stays at the hospital.
       </p>
       <div className="ds-table-scroll">
         <table className="ds-table training-rounds">
@@ -179,6 +318,13 @@ function TrainingRounds({ overview, pilot }: { overview: Overview; pilot: Pilot 
       {pilot.rounds.training.map((round) => (
         <Exclusions key={round.round_id} overview={overview} round={round} />
       ))}
+      <DispatchRows
+        overview={overview}
+        rounds={pilot.rounds.training.map((round) => {
+          const number = /-training-(\d+)$/.exec(round.round_id)?.[1];
+          return { label: number ? `Round ${number}` : round.round_id, round };
+        })}
+      />
     </div>
   );
 }
@@ -276,6 +422,10 @@ export function PilotPanel({
         training rounds, and validation of the new model. Training produces a candidate model. The
         release gates then decide whether it may replace the model in use. A run can take up to a
         minute.
+      </p>
+      <p className="note ds-note">
+        The app asks the GMA to run each round and calls no LMA itself. The GMA offers each round&rsquo;s
+        job to every hospital&rsquo;s LMA, collects the results, and runs the release Guard and gates.
       </p>
       {busy && (
         <p className="note ds-note" role="status" data-pilot-running>
@@ -424,10 +574,13 @@ export function PilotPanel({
                   )}
                   <ErrorNote error={approveError} />
                   {approved && (
-                    <p className="guard-message">
-                      Model in use: <span className="ds-mono">{approved.released.version}</span>. It
-                      replaces {approved.previous}. The hospital pages now score records with it.
-                    </p>
+                    <>
+                      <p className="guard-message">
+                        Model in use: <span className="ds-mono">{approved.released.version}</span>. It
+                        replaces {approved.previous}. The hospital pages now score records with it.
+                      </p>
+                      <ApiCalls calls={approved.framework_calls} label="Dagents API calls to approve the release" />
+                    </>
                   )}
                 </div>
               )}
@@ -475,6 +628,8 @@ export function PilotPanel({
               holds. The records stay at the hospital.
             </p>
           </div>
+
+          <ApiCalls key={pilot.pilot_id} calls={pilot.framework_calls} />
         </>
       )}
     </Panel>

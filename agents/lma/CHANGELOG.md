@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- `POST /federation/jobs:run` and `POST /api/v1/federation/jobs:run` offer a
+  job and, when the site accepts it, run it, in one call. The answer is a
+  `JobRun`: the acceptance and, for an accepted job, the result. The checks,
+  Guard decisions, job log entries and update upload are those of
+  `jobs:offer` then `jobs:execute`, which stay.
+- When the GMA fails to store a training update (a 5xx, or a body it did not
+  accept), the job's `refusal_reason` names the GMA's status and code only,
+  never its detail, which can quote a store error naming a database host or a
+  hosting vendor. A refusal (403, 404 or 409) keeps the GMA's reason.
+- The planner computes a round's digest once per process: LMAs in one process
+  that are offered the same round at the same time wait for the first one's
+  answer. A planner that could not be run is asked again, so the job is still
+  refused.
+- `GET /site/model` also returns the released version's `parent_version`,
+  `created_at` and `release_decision`, as the GMA's registry records them.
 - The LMA can serve one site. With `LMA_SITE_ID` and `LMA_CONDITION_ID` it reads
   the site's records through a site source that an extension contributes, plans
   against the condition pack's classification in strict mode, and serves the

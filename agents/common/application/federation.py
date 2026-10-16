@@ -69,6 +69,9 @@ _Parsed = TypeVar("_Parsed")
 #: The reason stored on a round whose engine raised while it dispatched it.
 ENGINE_FAILED_REASON = "the engine failed while it dispatched the round"
 
+#: The ``abandoned_reason`` of a round whose readiness the planner could not check after its dispatch.
+READINESS_FAILED_REASON = "the planner could not check the round's readiness after its dispatch"
+
 #: Statuses in which a round takes no more results.
 _FINISHED = ("aggregated", "closed")
 
@@ -460,11 +463,16 @@ class FederatedRoundController:
         2. The sites' answers to the offer are stored, sorted by site.
         3. The round becomes ``collecting``, with the results sorted by site
            and the engine's dispatch calls, if it reports them.
+        4. With an engine that collects the results itself, every result is in
+           when the dispatch ends, so the planner's readiness is stored on the
+           round and returned with it: the caller needs no readiness call.
+           ``aggregate`` still asks the planner again.
 
         Raises :class:`RoundConflict` when the round id is already stored: a
         second dispatch would replace the first round's evidence and decision.
         When the engine raises, the round is discarded with
-        :data:`ENGINE_FAILED_REASON` and the error is raised again.
+        :data:`ENGINE_FAILED_REASON`, and when the readiness check raises, with
+        :data:`READINESS_FAILED_REASON`; the error is raised again.
         """
         round_id = manifest.round_id
         if self._rounds.get(round_id) is not None:
@@ -513,7 +521,15 @@ class FederatedRoundController:
                 }
             )
 
-        return self._rounds.update(round_id, collected)
+        record = self._rounds.update(round_id, collected)
+        if not self.engine_collects_results or record.status != "collecting":
+            return record
+        try:
+            self.evaluate_readiness(round_id)
+        except Exception:
+            self._discard_after_failure(round_id, READINESS_FAILED_REASON)
+            raise
+        return self._require(round_id)
 
     def _dispatch_calls(self, round_id: str) -> list[DispatchCall]:
         dispatch_calls = getattr(self._engine, "dispatch_calls", None)
@@ -521,14 +537,14 @@ class FederatedRoundController:
             return []
         return [DispatchCall.model_validate(call) for call in dispatch_calls(round_id)]
 
-    def _discard_after_failure(self, round_id: str) -> None:
-        """Close a round whose engine raised, and delete what the engine holds for it.
+    def _discard_after_failure(self, round_id: str, reason: str = ENGINE_FAILED_REASON) -> None:
+        """Close a round whose dispatch failed, and delete what the engine holds for it.
 
-        The engine's error is the one the caller needs, so an error here is
-        not raised in its place.
+        The first error is the one the caller needs, so an error here is not
+        raised in its place.
         """
         try:
-            self.discard(round_id, ENGINE_FAILED_REASON)
+            self.discard(round_id, reason)
         except Exception:  # noqa: BLE001 - the engine's error is raised instead
             pass
 
@@ -772,6 +788,7 @@ __all__ = [
     "InMemoryRoundRepository",
     "InMemorySiteRegistry",
     "InProcessFederationEngine",
+    "READINESS_FAILED_REASON",
     "RoundRepository",
     "SiteRegistry",
     "SiteWorker",

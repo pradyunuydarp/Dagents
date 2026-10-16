@@ -84,6 +84,21 @@ Defence: the `framework-services` job runs the core-service suite **twice**,
 with and without `DAGENTSC_BIN`. Every behaviour with two implementations gets
 the same assertions run against both. If they cannot be kept in step, delete one.
 
+The healthcare demo calls its agents through two transports: in process
+(`httpx.ASGITransport`, as published) and over HTTP (`--agents network`,
+compose). The `demo-apps` job runs the suite in process, and
+`apps/healthcare-demo/tests/test_network_mode.py` starts the GMA, three LMAs
+and the API as uvicorn processes against the job's PostgreSQL 16 service and
+checks that their pilot equals an in-process pilot on the same database, and
+that an approval reaches every LMA process.
+`tests.test_network_mode.NetworkModeTests` and
+`tests.test_network_mode.NetworkApprovalTests` are in the `--require-ran` lists
+of both `ci.yml` and `healthcare-data.yml`, with
+`tests.test_agents_wiring.PostgresWiringTests` and
+`tests.test_concurrency.PostgresPilotWhileWritingTests`.
+`tests.test_pilot_parity.PilotParityTests` compares every number of a pilot
+with a fixture recorded before the demo used the agents.
+
 ### c. A convention written down but not checked
 
 Defence: the `contracts` job. `scripts/service_inventory.py --check` regenerates
@@ -148,8 +163,16 @@ every hospital's dashboard, worklist, entered records, audit log, entry form,
 chart list and charts (as SVG, in both themes), each hospital's dashboard and
 audit log recorded again after the pilot, consortium charts recorded after the
 pilot, real SQL, a non-empty trace, and at least one reachable framework
-service. `tests/test_publishing_guards.py` builds an all-denied recording on
-purpose and checks that the checker refuses it.
+service. For the healthcare demo it also requires the agent calls behind the
+answers: `agents.mode` in the framework status, `framework_calls` on the
+status, the overview, each probe and each dashboard (each naming that
+hospital's LMA), and in the pilot the GMA's `POST /api/v1/federation/rounds`,
+a `jobs:run` call (or `jobs:execute`) to every hospital's LMA, and a run row
+the hospital accepted (or an execute row) in dispatch for every hospital in the
+round reports (the pilot panel's dispatch tables read those rows). An entry with a field outside the seven allowed ones, a path that is not
+a route template, or any `://` is refused. The capture refuses to write a
+recording that fails these checks. `tests/test_publishing_guards.py` builds an
+all-denied recording on purpose and checks that the checker refuses it.
 
 The replay finds a response by its exact method, path and query string. So the
 hospital-page paths are defined once, in

@@ -280,7 +280,15 @@ class ReleaseService:
             correlation_id=round_id,
         )
         return ReleaseGuardCheck(
-            permitted=decision.permitted, plan=decision.plan, audit_id=decision.audit_id, message=decision.message
+            request_id=decision.request_id,
+            boundary=decision.boundary,
+            permitted=decision.permitted,
+            plan=decision.plan,
+            payload=decision.payload,
+            withheld_fields=list(decision.withheld_fields),
+            transformed_fields=list(decision.transformed_fields),
+            audit_id=decision.audit_id,
+            message=decision.message,
         )
 
 

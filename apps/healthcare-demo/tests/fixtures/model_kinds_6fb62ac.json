@@ -1,0 +1,784 @@
+{
+ "about": "What the app's own code computed at commit 6fb62ac, before the model kinds in backend/app/domain/model_kinds.py replaced it: services/runtime.py (digests, the update check, parameter averaging) and services/hospital.py (SiteRunner: evaluation, log loss and local training). Inputs: each hospital's committed records, the seed rule, the all-zero logistic regression, and one size-weighted training round. Those modules were removed in healthcare demo v1.1, so this file cannot be captured again; test_model_kinds.py compares the model kinds with it.",
+ "candidate_prefix": "stroke-outcome-logreg",
+ "commit": "6fb62ac",
+ "initial": {
+  "code_digest": "sha256:cf1c962b4001c40d2eddd2cd06a7f1144fcccd12f2011afd76f948997f8ba662",
+  "digest": "sha256:aa3d97c86ae04f1598eba39e3224607034579ba621fd11c00eba4b11d4aaf974",
+  "kind": "logistic_regression",
+  "version": "stroke-outcome-logreg-init"
+ },
+ "refusals": {
+  "logreg_unknown_name": "ModelVerificationError",
+  "rule_changed": "ModelVerificationError",
+  "unknown_kind": "ModelVerificationError"
+ },
+ "round_1": {
+  "candidate_digest": "sha256:f6960cbb6528e021c6f468e56887b007ec8c60cb2b85aa8ed258f6df1c0f2878",
+  "candidate_params": {
+   "age_band": 0.4954733765,
+   "arm_weakness": 0.3867316069,
+   "atrial_fibrillation": -0.0123409039,
+   "conscious_level": 0.4018164314,
+   "face_weakness": 0.3127205989,
+   "hours_since_onset": -0.0555369078,
+   "intercept": 0.4564984772,
+   "leg_weakness": 0.4191133158,
+   "onset_on_waking": -0.0963180621,
+   "sex_female": 0.1460642102,
+   "speech_difficulty": 0.1468909598,
+   "subtype_lacs": -0.0007508016,
+   "subtype_other": -0.0112977301,
+   "subtype_pacs": 0.0556385388,
+   "subtype_pocs": -0.085725116,
+   "subtype_tacs": 0.4452416262,
+   "systolic_bp": -0.1218399388,
+   "visual_field_loss": 0.1362943821
+  },
+  "candidate_version": "stroke-outcome-logreg+golden-train-1",
+  "parameter_change_from_initial": 1.155859876403506,
+  "weights": {
+   "ch-245": 0.1952662721893491,
+   "it-002": 0.2879684418145957,
+   "uk-134": 0.5167652859960552
+  }
+ },
+ "seed": {
+  "code_digest": "sha256:04177e54a0c7c829a484a962f37eb0945a39f1ff7e5dc3319b266842fc3bd416",
+  "digest": "sha256:04177e54a0c7c829a484a962f37eb0945a39f1ff7e5dc3319b266842fc3bd416",
+  "kind": "points_rule",
+  "version": "stroke-outcome-rule-v1"
+ },
+ "sites": {
+  "ch-245": {
+   "evaluate_candidate": {
+    "examples": 198,
+    "metrics": {
+     "alerts_per_1000": 914.1414141414141,
+     "auc": 0.8151091081593927,
+     "log_loss": 0.5037169446123991,
+     "sensitivity": 0.9852941176470589,
+     "specificity": 0.24193548387096775,
+     "subgroup_auc_gap": 0.05128784538506759
+    }
+   },
+   "evaluate_initial": {
+    "examples": 198,
+    "metrics": {
+     "alerts_per_1000": 1000.0,
+     "auc": 0.5,
+     "log_loss": 0.6931471805599465,
+     "sensitivity": 1.0,
+     "specificity": 0.0,
+     "subgroup_auc_gap": 0.0
+    }
+   },
+   "evaluate_rule": {
+    "examples": 198,
+    "metrics": {
+     "alerts_per_1000": 823.2323232323232,
+     "auc": 0.8006404174573055,
+     "log_loss": 0.4916766364605739,
+     "sensitivity": 0.9191176470588235,
+     "specificity": 0.3870967741935484,
+     "subgroup_auc_gap": 0.03509975749559091
+    }
+   },
+   "record_count": 198,
+   "train_candidate": {
+    "examples": 198,
+    "metrics": {
+     "record_count": 198.0,
+     "start_loss": 0.5037169446123991,
+     "train_loss": 0.4763904404071435
+    },
+    "update_digest": "sha256:a3e276eaf4a74a7923e15a9635013f55f9877aeb93c80c5aede9f647493dd19e",
+    "update_norm": 0.5236165585304132
+   },
+   "train_initial": {
+    "examples": 198,
+    "metrics": {
+     "record_count": 198.0,
+     "start_loss": 0.6931471805599465,
+     "train_loss": 0.4815814403425675
+    },
+    "update": {
+     "age_band": 0.5223662729,
+     "arm_weakness": 0.3489954791,
+     "atrial_fibrillation": -0.0726666181,
+     "conscious_level": 0.5708717843,
+     "face_weakness": 0.3080961892,
+     "hours_since_onset": -0.1581455485,
+     "intercept": 0.1347815404,
+     "leg_weakness": 0.5038153338,
+     "onset_on_waking": -0.1014680736,
+     "sex_female": 0.2145642209,
+     "speech_difficulty": 0.1856659644,
+     "subtype_lacs": -0.1686823328,
+     "subtype_other": 0.0,
+     "subtype_pacs": -0.0487795867,
+     "subtype_pocs": -0.1256554589,
+     "subtype_tacs": 0.4518992407,
+     "systolic_bp": -0.1167254359,
+     "visual_field_loss": 0.1687510861
+    },
+    "update_digest": "sha256:4f3e31811f5a7110738fe4a092963fd842e41be531bbf1c75f23ba4f220377c7",
+    "update_norm": 1.2253616636378493
+   }
+  },
+  "it-002": {
+   "evaluate_candidate": {
+    "examples": 292,
+    "metrics": {
+     "alerts_per_1000": 863.013698630137,
+     "auc": 0.8130891330891331,
+     "log_loss": 0.5691300458508426,
+     "sensitivity": 0.9828571428571429,
+     "specificity": 0.3162393162393162,
+     "subgroup_auc_gap": 0.00893110886448667
+    }
+   },
+   "evaluate_initial": {
+    "examples": 292,
+    "metrics": {
+     "alerts_per_1000": 1000.0,
+     "auc": 0.5,
+     "log_loss": 0.6931471805599467,
+     "sensitivity": 1.0,
+     "specificity": 0.0,
+     "subgroup_auc_gap": 0.0
+    }
+   },
+   "evaluate_rule": {
+    "examples": 292,
+    "metrics": {
+     "alerts_per_1000": 770.5479452054794,
+     "auc": 0.8092307692307692,
+     "log_loss": 0.5189562055766382,
+     "sensitivity": 0.92,
+     "specificity": 0.452991452991453,
+     "subgroup_auc_gap": 0.021132997582031576
+    }
+   },
+   "record_count": 292,
+   "train_candidate": {
+    "examples": 292,
+    "metrics": {
+     "record_count": 292.0,
+     "start_loss": 0.5691300458508426,
+     "train_loss": 0.5032809992292918
+    },
+    "update_digest": "sha256:c0d5723fbfa1004e36d4a4988d342d511ae607233dd02f4c8b52dec9e51d2368",
+    "update_norm": 0.7281049407609113
+   },
+   "train_initial": {
+    "examples": 292,
+    "metrics": {
+     "record_count": 292.0,
+     "start_loss": 0.6931471805599467,
+     "train_loss": 0.5085585106539872
+    },
+    "update": {
+     "age_band": 0.7746824492,
+     "arm_weakness": 0.3656870135,
+     "atrial_fibrillation": 0.1087383159,
+     "conscious_level": 0.3923315995,
+     "face_weakness": 0.3171247028,
+     "hours_since_onset": -0.0849102011,
+     "intercept": 0.0934824135,
+     "leg_weakness": 0.3625451366,
+     "onset_on_waking": 0.1423982923,
+     "sex_female": -0.0308591212,
+     "speech_difficulty": 0.1723881349,
+     "subtype_lacs": -0.0640959804,
+     "subtype_other": 0.0043287514,
+     "subtype_pacs": -0.2192391359,
+     "subtype_pocs": -0.1052222138,
+     "subtype_tacs": 0.4636491204,
+     "systolic_bp": -0.138887563,
+     "visual_field_loss": 0.4031424579
+    },
+    "update_digest": "sha256:b7b493e07833714f9e4de59b7075a764d993f4e9de46dd826bde350c0d1fa87f",
+    "update_norm": 1.2878507788347124
+   }
+  },
+  "uk-134": {
+   "evaluate_candidate": {
+    "examples": 524,
+    "metrics": {
+     "alerts_per_1000": 854.9618320610687,
+     "auc": 0.7455312810327706,
+     "log_loss": 0.4700417071353643,
+     "sensitivity": 0.8923444976076556,
+     "specificity": 0.29245283018867924,
+     "subgroup_auc_gap": 0.02844546101125045
+    }
+   },
+   "evaluate_initial": {
+    "examples": 524,
+    "metrics": {
+     "alerts_per_1000": 1000.0,
+     "auc": 0.5,
+     "log_loss": 0.6931471805599468,
+     "sensitivity": 1.0,
+     "specificity": 0.0,
+     "subgroup_auc_gap": 0.0
+    }
+   },
+   "evaluate_rule": {
+    "examples": 524,
+    "metrics": {
+     "alerts_per_1000": 742.3664122137404,
+     "auc": 0.7499435767807168,
+     "log_loss": 0.5383729433015968,
+     "sensitivity": 0.80622009569378,
+     "specificity": 0.5094339622641509,
+     "subgroup_auc_gap": 0.01468341846631327
+    }
+   },
+   "record_count": 524,
+   "train_candidate": {
+    "examples": 524,
+    "metrics": {
+     "record_count": 524.0,
+     "start_loss": 0.4700417071353643,
+     "train_loss": 0.4331639212843616
+    },
+    "update_digest": "sha256:65053d433313f651df05d755b5db5a1b1ba13a163a0c02ab9a6c6af406b306dc",
+    "update_norm": 0.5412660269328126
+   },
+   "train_initial": {
+    "examples": 524,
+    "metrics": {
+     "record_count": 524.0,
+     "start_loss": 0.6931471805599468,
+     "train_loss": 0.4412331841548453
+    },
+    "update": {
+     "age_band": 0.3297217683,
+     "arm_weakness": 0.4127178179,
+     "atrial_fibrillation": -0.0570176993,
+     "conscious_level": 0.3432221777,
+     "face_weakness": 0.312013795,
+     "hours_since_onset": -0.0003966168,
+     "intercept": 0.7803546683,
+     "leg_weakness": 0.4186303172,
+     "onset_on_waking": -0.2273972095,
+     "sex_female": 0.2187714825,
+     "speech_difficulty": 0.1180309865,
+     "subtype_lacs": 0.0980034644,
+     "subtype_other": -0.0242746064,
+     "subtype_pacs": 0.2482703516,
+     "subtype_pocs": -0.0597721381,
+     "subtype_tacs": 0.4324683514,
+     "systolic_bp": -0.1142726971,
+     "visual_field_loss": -0.0246713919
+    },
+    "update_digest": "sha256:514dcec9861af15a97580ab2a11cbbe4a2bfa9a8ee808a38a3916fbec9eb6e68",
+    "update_norm": 1.2927740788635536
+   }
+  }
+ },
+ "views": {
+  "candidate_assessments": [
+   {
+    "basis": [
+     "age band: -1.24 on the log-odds scale",
+     "leg weakness: -0.21 on the log-odds scale",
+     "arm weakness: -0.19 on the log-odds scale"
+    ],
+    "contributions": {
+     "age_band": -1.2387,
+     "arm_weakness": -0.1934,
+     "atrial_fibrillation": 0.0062,
+     "face_weakness": -0.1564,
+     "hours_since_onset": 0.0278,
+     "leg_weakness": -0.2096,
+     "onset_on_waking": 0.0482,
+     "sex_female": 0.073,
+     "speech_difficulty": 0.0734,
+     "subtype_pacs": 0.0556,
+     "systolic_bp": 0.1218,
+     "visual_field_loss": -0.0681
+    },
+    "data_quality_issues": [],
+    "model_kind": "logistic_regression",
+    "model_version": "stroke-outcome-logreg+golden-train-1",
+    "priority": "routine",
+    "score": 0.2682,
+    "suppressed": false,
+    "warnings": []
+   },
+   {
+    "basis": [
+     "systolic blood pressure: -0.32 on the log-odds scale",
+     "age band: -0.25 on the log-odds scale",
+     "leg weakness: +0.21 on the log-odds scale"
+    ],
+    "contributions": {
+     "age_band": -0.2477,
+     "arm_weakness": 0.1934,
+     "atrial_fibrillation": 0.0062,
+     "face_weakness": -0.1564,
+     "hours_since_onset": -0.0185,
+     "leg_weakness": 0.2096,
+     "onset_on_waking": 0.0482,
+     "sex_female": 0.073,
+     "speech_difficulty": -0.0734,
+     "subtype_lacs": -0.0008,
+     "systolic_bp": -0.3249,
+     "visual_field_loss": -0.0681
+    },
+    "data_quality_issues": [],
+    "model_kind": "logistic_regression",
+    "model_version": "stroke-outcome-logreg+golden-train-1",
+    "priority": "elevated",
+    "score": 0.5242,
+    "suppressed": false,
+    "warnings": [
+     "systolic blood pressure 240 mmHg is markedly raised"
+    ]
+   },
+   {
+    "basis": [
+     "age band: +0.74 on the log-odds scale",
+     "subtype TACS: +0.45 on the log-odds scale",
+     "conscious level: +0.40 on the log-odds scale"
+    ],
+    "contributions": {
+     "age_band": 0.7432,
+     "arm_weakness": 0.1934,
+     "atrial_fibrillation": 0.0062,
+     "conscious_level": 0.4018,
+     "face_weakness": 0.1564,
+     "hours_since_onset": -0.0093,
+     "leg_weakness": 0.2096,
+     "onset_on_waking": 0.0482,
+     "sex_female": 0.073,
+     "speech_difficulty": 0.0734,
+     "subtype_tacs": 0.4452,
+     "systolic_bp": 0.3249,
+     "visual_field_loss": 0.0681
+    },
+    "data_quality_issues": [],
+    "model_kind": "logistic_regression",
+    "model_version": "stroke-outcome-logreg+golden-train-1",
+    "priority": "urgent",
+    "score": 0.9605,
+    "suppressed": false,
+    "warnings": []
+   },
+   {
+    "basis": [
+     "age band: +0.25 on the log-odds scale",
+     "leg weakness: +0.21 on the log-odds scale",
+     "arm weakness: +0.19 on the log-odds scale"
+    ],
+    "contributions": {
+     "age_band": 0.2477,
+     "arm_weakness": 0.1934,
+     "atrial_fibrillation": 0.0062,
+     "face_weakness": 0.1564,
+     "hours_since_onset": -0.0046,
+     "leg_weakness": 0.2096,
+     "onset_on_waking": 0.0482,
+     "sex_female": 0.073,
+     "speech_difficulty": 0.0734,
+     "subtype_pocs": -0.0857
+    },
+    "data_quality_issues": [],
+    "model_kind": "logistic_regression",
+    "model_version": "stroke-outcome-logreg+golden-train-1",
+    "priority": "elevated",
+    "score": 0.798,
+    "suppressed": false,
+    "warnings": []
+   },
+   {
+    "basis": [
+     "age band: -0.25 on the log-odds scale",
+     "leg weakness: -0.21 on the log-odds scale",
+     "arm weakness: +0.19 on the log-odds scale"
+    ],
+    "contributions": {
+     "age_band": -0.2477,
+     "arm_weakness": 0.1934,
+     "atrial_fibrillation": 0.0062,
+     "face_weakness": -0.1564,
+     "hours_since_onset": -0.0162,
+     "leg_weakness": -0.2096,
+     "onset_on_waking": 0.0482,
+     "sex_female": -0.073,
+     "speech_difficulty": 0.0734,
+     "subtype_pacs": 0.0556,
+     "systolic_bp": -0.1421,
+     "visual_field_loss": -0.0681
+    },
+    "data_quality_issues": [],
+    "model_kind": "logistic_regression",
+    "model_version": "stroke-outcome-logreg+golden-train-1",
+    "priority": "routine",
+    "score": 0.48,
+    "suppressed": false,
+    "warnings": []
+   },
+   {
+    "basis": [
+     "age band: +0.25 on the log-odds scale",
+     "leg weakness: +0.21 on the log-odds scale",
+     "arm weakness: +0.19 on the log-odds scale"
+    ],
+    "contributions": {
+     "age_band": 0.2477,
+     "arm_weakness": 0.1934,
+     "atrial_fibrillation": -0.0062,
+     "face_weakness": 0.1564,
+     "leg_weakness": 0.2096,
+     "onset_on_waking": 0.0482,
+     "sex_female": -0.073,
+     "speech_difficulty": -0.0734,
+     "subtype_pacs": 0.0556,
+     "systolic_bp": 0.1218,
+     "visual_field_loss": -0.0681
+    },
+    "data_quality_issues": [],
+    "model_kind": "logistic_regression",
+    "model_version": "stroke-outcome-logreg+golden-train-1",
+    "priority": "elevated",
+    "score": 0.7805,
+    "suppressed": false,
+    "warnings": []
+   }
+  ],
+  "candidate_scores": [
+   0.26824187902132096,
+   0.524211863957241,
+   0.9604810508563574,
+   0.7980211001445501,
+   0.48003561508425135,
+   0.7804619131522575
+  ],
+  "candidate_sweep": [
+   {
+    "alerts_per_1000": 1000.0,
+    "sensitivity": 1.0,
+    "specificity": 0.0,
+    "threshold": 0.05
+   },
+   {
+    "alerts_per_1000": 1000.0,
+    "sensitivity": 1.0,
+    "specificity": 0.0,
+    "threshold": 0.1
+   },
+   {
+    "alerts_per_1000": 1000.0,
+    "sensitivity": 1.0,
+    "specificity": 0.0,
+    "threshold": 0.15
+   },
+   {
+    "alerts_per_1000": 1000.0,
+    "sensitivity": 1.0,
+    "specificity": 0.0,
+    "threshold": 0.2
+   },
+   {
+    "alerts_per_1000": 996.1832061068702,
+    "sensitivity": 0.9976076555023924,
+    "specificity": 0.009433962264150943,
+    "threshold": 0.25
+   },
+   {
+    "alerts_per_1000": 988.5496183206106,
+    "sensitivity": 0.9952153110047847,
+    "specificity": 0.03773584905660377,
+    "threshold": 0.3
+   },
+   {
+    "alerts_per_1000": 977.0992366412214,
+    "sensitivity": 0.992822966507177,
+    "specificity": 0.08490566037735849,
+    "threshold": 0.35
+   },
+   {
+    "alerts_per_1000": 944.6564885496183,
+    "sensitivity": 0.9641148325358851,
+    "specificity": 0.1320754716981132,
+    "threshold": 0.4
+   },
+   {
+    "alerts_per_1000": 910.3053435114504,
+    "sensitivity": 0.937799043062201,
+    "specificity": 0.19811320754716982,
+    "threshold": 0.45
+   },
+   {
+    "alerts_per_1000": 854.9618320610687,
+    "sensitivity": 0.8923444976076556,
+    "specificity": 0.29245283018867924,
+    "threshold": 0.5
+   },
+   {
+    "alerts_per_1000": 814.8854961832061,
+    "sensitivity": 0.854066985645933,
+    "specificity": 0.33962264150943394,
+    "threshold": 0.55
+   },
+   {
+    "alerts_per_1000": 744.2748091603054,
+    "sensitivity": 0.80622009569378,
+    "specificity": 0.5,
+    "threshold": 0.6
+   },
+   {
+    "alerts_per_1000": 660.3053435114504,
+    "sensitivity": 0.7440191387559809,
+    "specificity": 0.6698113207547169,
+    "threshold": 0.65
+   },
+   {
+    "alerts_per_1000": 564.8854961832061,
+    "sensitivity": 0.645933014354067,
+    "specificity": 0.7547169811320755,
+    "threshold": 0.7
+   },
+   {
+    "alerts_per_1000": 444.6564885496183,
+    "sensitivity": 0.5215311004784688,
+    "specificity": 0.8584905660377359,
+    "threshold": 0.75
+   },
+   {
+    "alerts_per_1000": 326.3358778625954,
+    "sensitivity": 0.3803827751196172,
+    "specificity": 0.8867924528301887,
+    "threshold": 0.8
+   },
+   {
+    "alerts_per_1000": 204.19847328244273,
+    "sensitivity": 0.24401913875598086,
+    "specificity": 0.9528301886792453,
+    "threshold": 0.85
+   },
+   {
+    "alerts_per_1000": 89.69465648854961,
+    "sensitivity": 0.11004784688995216,
+    "specificity": 0.9905660377358491,
+    "threshold": 0.9
+   },
+   {
+    "alerts_per_1000": 11.450381679389313,
+    "sensitivity": 0.014354066985645933,
+    "specificity": 1.0,
+    "threshold": 0.95
+   }
+  ],
+  "record_count": 6,
+  "rule_assessments": [
+   {
+    "basis": [
+     "age band <50: 0 points",
+     "conscious level alert: 0 points",
+     "speech difficulty: 1 point"
+    ],
+    "contributions": {
+     "age_band": 0,
+     "conscious_level": 0,
+     "speech_difficulty": 1
+    },
+    "data_quality_issues": [],
+    "max_points": 17,
+    "model_kind": "points_rule",
+    "model_version": "stroke-outcome-rule-v1",
+    "points": 1,
+    "priority": "routine",
+    "score": 0.1192,
+    "suppressed": false,
+    "warnings": []
+   },
+   {
+    "basis": [
+     "age band 60-69: 2 points",
+     "conscious level alert: 0 points",
+     "arm weakness, leg weakness: 2 points"
+    ],
+    "contributions": {
+     "age_band": 2,
+     "arm_weakness": 1,
+     "conscious_level": 0,
+     "leg_weakness": 1
+    },
+    "data_quality_issues": [],
+    "max_points": 17,
+    "model_kind": "points_rule",
+    "model_version": "stroke-outcome-rule-v1",
+    "points": 4,
+    "priority": "routine",
+    "score": 0.3775,
+    "suppressed": false,
+    "warnings": [
+     "systolic blood pressure 240 mmHg is markedly raised"
+    ]
+   },
+   {
+    "basis": [
+     "age band 80-89: 4 points",
+     "conscious level drowsy: 2 points",
+     "face weakness, arm weakness, leg weakness, speech difficulty, visual field loss: 5 points",
+     "stroke subtype TACS: 2 points"
+    ],
+    "contributions": {
+     "age_band": 4,
+     "arm_weakness": 1,
+     "conscious_level": 2,
+     "face_weakness": 1,
+     "leg_weakness": 1,
+     "speech_difficulty": 1,
+     "stroke_subtype": 2,
+     "visual_field_loss": 1
+    },
+    "data_quality_issues": [],
+    "max_points": 17,
+    "model_kind": "points_rule",
+    "model_version": "stroke-outcome-rule-v1",
+    "points": 13,
+    "priority": "urgent",
+    "score": 0.982,
+    "suppressed": false,
+    "warnings": []
+   },
+   {
+    "basis": [
+     "age band 70-79: 3 points",
+     "conscious level alert: 0 points",
+     "face weakness, arm weakness, leg weakness, speech difficulty: 4 points"
+    ],
+    "contributions": {
+     "age_band": 3,
+     "arm_weakness": 1,
+     "conscious_level": 0,
+     "face_weakness": 1,
+     "leg_weakness": 1,
+     "speech_difficulty": 1
+    },
+    "data_quality_issues": [],
+    "max_points": 17,
+    "model_kind": "points_rule",
+    "model_version": "stroke-outcome-rule-v1",
+    "points": 7,
+    "priority": "elevated",
+    "score": 0.7311,
+    "suppressed": false,
+    "warnings": []
+   },
+   {
+    "basis": [
+     "age band 60-69: 2 points",
+     "conscious level alert: 0 points",
+     "arm weakness, speech difficulty: 2 points"
+    ],
+    "contributions": {
+     "age_band": 2,
+     "arm_weakness": 1,
+     "conscious_level": 0,
+     "speech_difficulty": 1
+    },
+    "data_quality_issues": [],
+    "max_points": 17,
+    "model_kind": "points_rule",
+    "model_version": "stroke-outcome-rule-v1",
+    "points": 4,
+    "priority": "routine",
+    "score": 0.3775,
+    "suppressed": false,
+    "warnings": []
+   },
+   {
+    "basis": [
+     "age band 70-79: 3 points",
+     "conscious level alert: 0 points",
+     "face weakness, arm weakness, leg weakness: 3 points",
+     "atrial fibrillation: 1 point"
+    ],
+    "contributions": {
+     "age_band": 3,
+     "arm_weakness": 1,
+     "atrial_fibrillation": 1,
+     "conscious_level": 0,
+     "face_weakness": 1,
+     "leg_weakness": 1
+    },
+    "data_quality_issues": [],
+    "max_points": 17,
+    "model_kind": "points_rule",
+    "model_version": "stroke-outcome-rule-v1",
+    "points": 7,
+    "priority": "elevated",
+    "score": 0.7311,
+    "suppressed": false,
+    "warnings": []
+   }
+  ],
+  "rule_local_metrics": {
+   "alerts_per_1000": 742.3664122137404,
+   "auc": 0.7499435767807168,
+   "sensitivity": 0.80622009569378,
+   "specificity": 0.5094339622641509,
+   "subgroup_auc_gap": 0.01468341846631327
+  },
+  "rule_scores": [
+   0.11920292202211755,
+   0.3775406687981454,
+   0.9820137900379085,
+   0.7310585786300049,
+   0.3775406687981454,
+   0.7310585786300049
+  ],
+  "site_id": "uk-134",
+  "suppressed_candidate_assessment": {
+   "basis": [
+    "age band: +0.25 on the log-odds scale",
+    "sex: +0.07 on the log-odds scale"
+   ],
+   "contributions": {
+    "age_band": 0.2477,
+    "sex_female": 0.073
+   },
+   "data_quality_issues": [
+    "conscious_level is missing",
+    "face_weakness is missing",
+    "arm_weakness is missing",
+    "leg_weakness is missing",
+    "speech_difficulty is missing",
+    "no examination finding was recorded; no score was produced"
+   ],
+   "model_kind": "logistic_regression",
+   "model_version": "stroke-outcome-logreg+golden-train-1",
+   "priority": "elevated",
+   "score": 0.6851,
+   "suppressed": false,
+   "warnings": []
+  },
+  "suppressed_rule_assessment": {
+   "basis": [],
+   "contributions": {},
+   "data_quality_issues": [
+    "conscious_level is missing",
+    "face_weakness is missing",
+    "arm_weakness is missing",
+    "leg_weakness is missing",
+    "speech_difficulty is missing",
+    "no examination finding was recorded; no score was produced"
+   ],
+   "max_points": 17,
+   "model_kind": "points_rule",
+   "model_version": "stroke-outcome-rule-v1",
+   "points": 0,
+   "priority": "routine",
+   "score": 0.0,
+   "suppressed": true,
+   "warnings": []
+  }
+ }
+}

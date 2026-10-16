@@ -17,7 +17,7 @@ below; without tokens the LMA runs open, as before tokens existed.
 | `/health` | none |
 | `/site`, `/site/summary`, `/governance/audit:summary` | `site`, `coordinator` |
 | `/site/profile`, `/site/source:refresh`, `/site/model`, `/site/model:evaluate`, `/governance/restrictions:probe`, `/federation/jobs` | `site` |
-| `/federation/registration`, `/federation/jobs:offer`, `/federation/jobs:execute` | `coordinator` |
+| `/federation/registration`, `/federation/jobs:offer`, `/federation/jobs:execute`, `/federation/jobs:run` | `coordinator` |
 | every other route | `site` |
 """
 
@@ -27,7 +27,7 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request
 from pydantic import BaseModel, Field, TypeAdapter
 
 from agents.common.application.governance_service import GovernanceService
-from agents.common.domain.federation import FederatedJob, JobAcceptance, SiteRegistration, SiteResult
+from agents.common.domain.federation import FederatedJob, JobAcceptance, JobRun, SiteRegistration, SiteResult
 from agents.common.domain.governance import (
     DataClassification,
     GuardAuditLog,
@@ -796,6 +796,33 @@ def execute_job(job: FederatedJob, jobs: JobsDep) -> SiteResult:
 def execute_job_v1(job: FederatedJob, jobs: JobsDep) -> SiteResult:
     """Versioned alias for executing a job."""
     return execute_job(job, jobs)
+
+
+_RUN_ERRORS: dict[int | str, dict[str, Any]] = {
+    **_SITE_ERRORS,
+    409: _error("The site was already offered a job for this round (`conflict`)."),
+}
+
+
+@router.post("/federation/jobs:run", dependencies=[_COORDINATOR_SCOPE], response_model=JobRun, responses=_RUN_ERRORS)
+def run_job(job: FederatedJob, jobs: JobsDep) -> JobRun:
+    """Offer a job and, when the site accepts it, run it, in one call.
+
+    The site takes the same two steps as `jobs:offer` then `jobs:execute`:
+    it checks the job and asks its `before_train` Guard, and runs the job
+    only when it accepted it. The answer holds the acceptance and, for an
+    accepted job, the result; a refused job has no result. The GMA's HTTP
+    engine sends each site one `jobs:run` call per round.
+    """
+    return jobs.run(job)
+
+
+@router.post(
+    "/api/v1/federation/jobs:run", dependencies=[_COORDINATOR_SCOPE], response_model=JobRun, responses=_RUN_ERRORS
+)
+def run_job_v1(job: FederatedJob, jobs: JobsDep) -> JobRun:
+    """Versioned alias for running a job."""
+    return run_job(job, jobs)
 
 
 _JOB_LIMIT = Query(ge=1, le=200, description="The most entries to return, newest first. 1 to 200.")

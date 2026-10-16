@@ -344,6 +344,7 @@ NEW_PAIRS = {
         "federation_registration",
         "offer_job",
         "execute_job",
+        "run_job",
         "list_jobs",
     },
     "gma": {
@@ -361,9 +362,11 @@ NEW_PAIRS = {
 }
 
 #: Pairs whose behaviour the study below must use through both forms: the new
-#: pairs and the round routes they changed.
+#: pairs and the round routes they changed. The GMA's HTTP engine sends each
+#: site one ``jobs:run`` call, so the study does not reach ``jobs:offer`` and
+#: ``jobs:execute``; ``test_lma_federation_jobs`` compares their two forms.
 STUDY_PAIRS = {
-    "lma": NEW_PAIRS["lma"],
+    "lma": NEW_PAIRS["lma"] - {"offer_job", "execute_job"},
     "gma": NEW_PAIRS["gma"]
     | {
         "dispatch_round",
@@ -515,6 +518,7 @@ LMA_SCOPES = {
     "federation_registration": {"lma coordinator"},
     "offer_job": {"lma coordinator"},
     "execute_job": {"lma coordinator"},
+    "run_job": {"lma coordinator"},
 }
 GMA_SCOPES = {
     "health": set(CALLERS),

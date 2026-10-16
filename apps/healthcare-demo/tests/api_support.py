@@ -1,9 +1,10 @@
-"""Helpers for the API tests: a fresh consortium behind the app, and no rate limits.
+"""Helpers for the API tests: fresh app services behind the app, and no rate limits.
 
-``app.main`` builds one process-wide consortium. Each API test class swaps in
-its own, so entries and pilots in one class do not change what another class
-sees, and turns the per-client limits and the hourly caps off unless the class
-tests them.
+``app.main`` builds one process-wide ``HealthcareDemo``: the hospitals' stores,
+the Dagents agents (three LMAs and a GMA, in process), the hospital views, the
+study and the overview. Each API test class swaps in its own, so entries and
+pilots in one class do not change what another class sees, and turns the
+per-client limits and the hourly caps off unless the class tests them.
 """
 
 from __future__ import annotations
@@ -22,7 +23,7 @@ sys.path.insert(0, str(APP_ROOT.parents[1]))
 from fastapi.testclient import TestClient  # noqa: E402
 
 import app.main as main  # noqa: E402
-from app.services.consortium import Consortium  # noqa: E402
+from app.services.agents import HealthcareDemo  # noqa: E402
 
 NO_LIMITS = {"entries": 0, "probes": 0, "pilots": 0, "approvals": 0}
 NO_HOURLY_CAPS = {"probes": 0, "pilots": 0}
@@ -41,25 +42,32 @@ def default_limits() -> dict[str, int]:
     }
 
 
-class ApiTestCase(unittest.TestCase):
-    """A test class with its own consortium behind ``app.main``.
+def without_calls(body: Any) -> Any:
+    """A JSON object without its ``framework_calls`` field, for tests that compare a whole body."""
+    if isinstance(body, dict):
+        return {key: value for key, value in body.items() if key != "framework_calls"}
+    return body
 
-    Subclasses may override :meth:`make_consortium` and :attr:`limits`.
+
+class ApiTestCase(unittest.TestCase):
+    """A test class with its own app services behind ``app.main``.
+
+    Subclasses may override :meth:`make_demo` and :attr:`limits`.
     """
 
     client: TestClient
-    consortium: Consortium
+    demo: HealthcareDemo
     limits: dict[str, int] = NO_LIMITS
 
     @classmethod
-    def make_consortium(cls) -> Consortium:
-        return Consortium()
+    def make_demo(cls) -> HealthcareDemo:
+        return HealthcareDemo()
 
     @classmethod
     def setUpClass(cls) -> None:
         super().setUpClass()
-        cls.consortium = cls.make_consortium()
-        cls._patcher = mock.patch.object(main, "consortium", cls.consortium)
+        cls.demo = cls.make_demo()
+        cls._patcher = mock.patch.object(main, "demo", cls.demo)
         cls._patcher.start()
         main.rate_limits.configure(cls.limits)
         # Off by default: one test process runs more pilots than an hour allows.
@@ -72,7 +80,7 @@ class ApiTestCase(unittest.TestCase):
         cls._patcher.stop()
         main.rate_limits.configure(default_limits())
         main.hourly_caps.configure(default_hourly_caps())
-        cls.consortium.close()
+        cls.demo.close()
         super().tearDownClass()
 
     def ok(self, response: Any, status: int = 200) -> Any:

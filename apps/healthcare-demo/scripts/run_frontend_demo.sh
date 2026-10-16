@@ -1,43 +1,61 @@
 #!/usr/bin/env bash
 # Run the healthcare demo end to end: the API, the UI, and a short tour.
 #
-# One command, no Docker. Starts the API, starts the Vite dev server in front of
-# it, waits until both answer, and prints what to try on each page. Without
-# HEALTHCARE_DEMO_DATABASE_URL the API keeps each hospital's records in memory,
-# loaded from the committed International Stroke Trial extract, so no database
-# is needed.
+# One command, no Docker. Starts the API with scripts/run_local_demo.sh, starts
+# the Vite dev server in front of it, waits until both answer, and prints what
+# to try on each page. Without HEALTHCARE_DEMO_DATABASE_URL the API keeps each
+# hospital's records in memory, loaded from the committed International Stroke
+# Trial extract, so no database is needed.
 #
 #   scripts/run_frontend_demo.sh                        # start it and print the tour
 #   scripts/run_frontend_demo.sh --verify               # run the smoke test first, then start
 #   scripts/run_frontend_demo.sh --check                # run the smoke test and exit
 #   scripts/run_frontend_demo.sh --screenshots <dir>    # run the smoke test, save the README
 #                                                       # screenshots to <dir>, and exit
+#   scripts/run_frontend_demo.sh --agents network       # run the GMA and each hospital's LMA
+#                                                       # as their own processes (needs
+#                                                       # HEALTHCARE_DEMO_DATABASE_URL)
 #
-# HEALTHCARE_DEMO_API_PORT and HEALTHCARE_DEMO_UI_PORT change the ports (8080
-# and 5174 by default). Ctrl-C stops both servers.
+# --agents combines with the other options. The ports come from the environment
+# or from env/.env.healthcare-demo (HEALTHCARE_DEMO_API_PORT,
+# HEALTHCARE_DEMO_UI_PORT and, for network mode, the agents' ports). Ctrl-C
+# stops every server the script started.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP_ROOT="$(cd "${HERE}/.." && pwd)"
 DAGENTS_HOME="${DAGENTS_HOME:-$(cd "${APP_ROOT}/../.." && pwd)}"
+ENV_FILE="${APP_ROOT}/env/.env.healthcare-demo"
 
 MODE="run"
 SHOT_DIR=""
-case "${1:-}" in
-  --verify) MODE="verify" ;;
-  --check) MODE="check" ;;
-  --screenshots)
-    MODE="check"
-    SHOT_DIR="${2:-}"
-    if [[ -z "${SHOT_DIR}" ]]; then
-      echo "--screenshots needs a directory" >&2
-      exit 2
-    fi
-    mkdir -p "${SHOT_DIR}"
-    SHOT_DIR="$(cd "${SHOT_DIR}" && pwd)"
-    ;;
-  "") ;;
-  *) echo "unknown option: $1" >&2; exit 2 ;;
+AGENTS="in-process"
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --verify) MODE="verify"; shift ;;
+    --check) MODE="check"; shift ;;
+    --screenshots)
+      MODE="check"
+      SHOT_DIR="${2:-}"
+      if [[ -z "${SHOT_DIR}" ]]; then
+        echo "--screenshots needs a directory" >&2
+        exit 2
+      fi
+      mkdir -p "${SHOT_DIR}"
+      SHOT_DIR="$(cd "${SHOT_DIR}" && pwd)"
+      shift 2
+      ;;
+    --agents)
+      AGENTS="${2:-}"
+      shift 2 || { echo "--agents needs in-process or network" >&2; exit 2; }
+      ;;
+    --agents=*) AGENTS="${1#--agents=}"; shift ;;
+    *) echo "unknown option: $1" >&2; exit 2 ;;
+  esac
+done
+case "${AGENTS}" in
+  in-process|network) ;;
+  *) echo "--agents must be in-process or network, not '${AGENTS}'" >&2; exit 2 ;;
 esac
 
 bold() { printf '\033[1m%s\033[0m\n' "$*"; }
@@ -71,9 +89,28 @@ fi
 PYTHON="${PYTHON:-${DAGENTS_HOME}/.venv/bin/python}"
 [[ -x "${PYTHON}" ]] || PYTHON="$(command -v python3)"
 
-API_PORT="${HEALTHCARE_DEMO_API_PORT:-8080}"
-UI_PORT="${HEALTHCARE_DEMO_UI_PORT:-5174}"
+# A port from the environment, or else from env/.env.healthcare-demo.
+port() {
+  local value="${!1:-}"
+  if [[ -z "${value}" && -f "${ENV_FILE}" ]]; then
+    value="$(sed -n "s/^$1=//p" "${ENV_FILE}" | tail -n 1)"
+  fi
+  if [[ ! "${value}" =~ ^[0-9]+$ ]]; then
+    echo "$1 must be a port number. Set it in the environment or in env/.env.healthcare-demo." >&2
+    return 1
+  fi
+  printf '%s' "${value}"
+}
+
+API_PORT="$(port HEALTHCARE_DEMO_API_PORT)"
+UI_PORT="$(port HEALTHCARE_DEMO_UI_PORT)"
 export HEALTHCARE_DEMO_API_PORT="${API_PORT}"
+
+if [[ "${AGENTS}" == "network" && -z "${HEALTHCARE_DEMO_DATABASE_URL:-}" ]]; then
+  echo "--agents network needs HEALTHCARE_DEMO_DATABASE_URL." >&2
+  echo "Agents in separate processes cannot read another process's in-memory store." >&2
+  exit 1
+fi
 
 if [[ ! -d "${APP_ROOT}/frontend/node_modules" ]]; then
   bold "Installing frontend dependencies (first run only)"
@@ -131,11 +168,15 @@ wait_for() {
   return 1
 }
 
-bold "Starting the API on :${API_PORT}"
+if [[ "${AGENTS}" == "network" ]]; then
+  bold "Starting the GMA, one LMA per hospital, and the API on :${API_PORT}"
+else
+  bold "Starting the API on :${API_PORT}"
+fi
 (
   cd "${APP_ROOT}/backend"
-  PYTHONPATH="${DAGENTS_HOME}:${APP_ROOT}/backend" \
-    "${PYTHON}" -m uvicorn app.main:app --host 127.0.0.1 --port "${API_PORT}"
+  HEALTHCARE_DEMO_API_HOST=127.0.0.1 DAGENTS_HOME="${DAGENTS_HOME}" PYTHON="${PYTHON}" exec \
+    "${HERE}/run_local_demo.sh" --agents "${AGENTS}"
 ) >"${LOG_DIR}/backend.log" 2>&1 &
 BACKEND_PID=$!
 wait_for "http://127.0.0.1:${API_PORT}/api/v1/health" "The API" "${LOG_DIR}/backend.log"
@@ -148,12 +189,15 @@ bold "Starting the UI on :${UI_PORT}"
 FRONTEND_PID=$!
 wait_for "http://127.0.0.1:${UI_PORT}/" "The UI" "${LOG_DIR}/frontend.log"
 
-# Where the records are, as the API reports it: in memory without a database
-# URL, or one Postgres schema per hospital with one.
-STORAGE="$(curl -sf "http://127.0.0.1:${API_PORT}/api/v1/framework/status" \
-  | "${PYTHON}" -c 'import json, sys
+# Where the records are and where the agents run, as the API reports it.
+STATUS="$(curl -sf "http://127.0.0.1:${API_PORT}/api/v1/framework/status" || true)"
+STORAGE="$(printf '%s' "${STATUS}" | "${PYTHON}" -c 'import json, sys
 source = json.load(sys.stdin).get("cohort_source")
 print({"in-memory": "in memory, one store per hospital", "postgres": "in Postgres, one schema per hospital"}.get(source, source))' \
+  2>/dev/null || echo "not reported")"
+AGENT_LAYOUT="$(printf '%s' "${STATUS}" | "${PYTHON}" -c 'import json, sys
+mode = (json.load(sys.stdin).get("agents") or {}).get("mode")
+print({"in-process": "one LMA per hospital and a GMA, inside the API process", "network": "one LMA per hospital and a GMA, each in its own process"}.get(mode, mode))' \
   2>/dev/null || echo "not reported")"
 
 # --- optional verification -------------------------------------------------
@@ -186,6 +230,7 @@ $(bold "The Dagents stroke triage demo is running")
   API docs  http://127.0.0.1:${API_PORT}/docs
   planner   ${DAGENTSC_BIN:-dagentsc (on PATH)}
   records   ${STORAGE}
+  agents    ${AGENT_LAYOUT}
 
 $(dim "The records are real, de-identified patient records from the International")
 $(dim "Stroke Trial (1991-1996), from three of its hospitals. The models are")

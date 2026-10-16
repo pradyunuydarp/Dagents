@@ -7,6 +7,37 @@
 
 export type Metrics = Record<string, number>;
 
+/**
+ * One call to a Dagents agent behind a response.
+ *
+ * The backend adds `framework_calls` to every successful answer whose body is
+ * a JSON object.
+ * An entry names the route, never a host, a token or a body. `via` is `app`
+ * for a call the app made, and `gma` for a call the GMA made to a hospital's
+ * LMA while it ran a round.
+ */
+export interface FrameworkCall {
+  service: "lma" | "gma";
+  site_id: string | null;
+  method: string;
+  path: string;
+  status: number | null;
+  ms: number;
+  via: "app" | "gma";
+}
+
+/** The agent calls behind a response. Recordings made before the agents existed lack it. */
+export interface WithCalls {
+  framework_calls?: FrameworkCall[];
+}
+
+/** How the Dagents agents run behind the demo, as `/api/v1/framework/status` reports it. */
+export interface AgentsStatus {
+  mode: "in-process" | "network";
+  engine: string | null;
+  lmas: { site_id: string; reachable: boolean; source_kind: string | null }[] | null;
+}
+
 export interface Dataset {
   name: string;
   citation: string;
@@ -50,7 +81,7 @@ export interface GateDefinition {
   blocking: boolean;
 }
 
-export interface Overview {
+export interface Overview extends WithCalls {
   study_id: string;
   condition: {
     condition_id: string;
@@ -78,7 +109,7 @@ export interface StoreCount {
 }
 
 /** Where the records are stored, as the backend reports it. */
-export interface FrameworkStatus {
+export interface FrameworkStatus extends WithCalls {
   cohort_source: string;
   store_layout: string;
   dataset: Dataset;
@@ -86,6 +117,8 @@ export interface FrameworkStatus {
   ready?: boolean;
   /** Each store's counts, or null when the stores cannot be read. */
   hospitals?: StoreCount[] | null;
+  /** How the agents run. Recordings made before the agents existed lack it. */
+  agents?: AgentsStatus;
 }
 
 export interface ModelVersion {
@@ -123,7 +156,7 @@ export interface Contribution {
   submitted_at: string;
 }
 
-export interface Dashboard {
+export interface Dashboard extends WithCalls {
   site_id: string;
   display_name: string;
   country: string;
@@ -175,12 +208,12 @@ export interface ScoredRecord extends EncounterRecord {
   assessment: Assessment;
 }
 
-export interface WorklistResponse {
+export interface WorklistResponse extends WithCalls {
   site_id: string;
   worklist: ScoredRecord[];
 }
 
-export interface EnteredResponse {
+export interface EnteredResponse extends WithCalls {
   site_id: string;
   origin: string;
   encounters: ScoredRecord[];
@@ -205,7 +238,7 @@ export interface AuditRecord {
   contribution_norm_after?: number | null;
 }
 
-export interface AuditResponse {
+export interface AuditResponse extends WithCalls {
   site_id: string;
   chain_intact: boolean;
   records: AuditRecord[];
@@ -223,7 +256,7 @@ export interface FormField {
   help: string | null;
 }
 
-export interface EntryForm {
+export interface EntryForm extends WithCalls {
   site_id: string;
   display_name: string;
   fields: FormField[];
@@ -234,7 +267,7 @@ export interface EntryForm {
   notice: string;
 }
 
-export interface EntryResult {
+export interface EntryResult extends WithCalls {
   record: EncounterRecord;
   assessment: Assessment;
   counts: { total: number; entered: number; labelled: number };
@@ -256,6 +289,20 @@ export interface ChartInfo {
   notice: string;
   svg_path: string;
   version: string;
+  /** Who drew the chart, in words. Older recordings lack it. */
+  drawn_by?: string;
+  /** Where the chart's numbers come from, in words. Older recordings lack it. */
+  data_from?: string;
+}
+
+/** A list of charts, with the agent calls behind it. */
+export interface ChartList extends WithCalls {
+  charts: ChartInfo[];
+}
+
+/** An outcome recorded for an entered record. */
+export interface OutcomeResult extends WithCalls {
+  record: EncounterRecord;
 }
 
 export interface FieldRestriction {
@@ -265,7 +312,7 @@ export interface FieldRestriction {
   reason: string;
 }
 
-export interface GuardProbe {
+export interface GuardProbe extends WithCalls {
   site_id: string;
   audit_id?: string;
   permitted: boolean;
@@ -294,12 +341,42 @@ export interface SiteResult {
   metrics: Metrics;
 }
 
+/** A hospital's answer to the job the GMA offered it. */
+export interface JobAcceptance {
+  site_id: string;
+  accepted: boolean;
+  reason: string;
+}
+
+/** One call the GMA made to a hospital's LMA while it ran a round. */
+export interface DispatchCall {
+  site_id: string;
+  /**
+   * `offer`: the LMA checks the job. `execute`: the LMA runs it. `run`: both
+   * steps in one call, which is what the GMA's HTTP engine sends.
+   */
+  step: "offer" | "execute" | "run";
+  status_code: number | null;
+  ms: number;
+  /**
+   * For an offer: accepted, refused or failed. For an execute call: the
+   * participation, or failed. For a run call: the participation, refused, or
+   * failed. A call fails when the LMA answers with an error status or an
+   * answer that cannot be read, or when no answer comes (`status_code` is null).
+   */
+  outcome: string;
+}
+
 export interface RoundReport {
   round_id: string;
   phase: string;
   status: string;
   model_version?: string;
   candidate_version?: string;
+  /** Each hospital's answer to the job offer. Older recordings lack it. */
+  acceptances?: JobAcceptance[];
+  /** The GMA's calls to each LMA for this round. Older recordings lack it. */
+  dispatch?: DispatchCall[];
   plan: {
     selected_sites: string[];
     excluded_sites: { site_id: string; reason: string }[];
@@ -343,7 +420,7 @@ export interface AuditSummary {
   record_count: number;
 }
 
-export interface Pilot {
+export interface Pilot extends WithCalls {
   pilot_id: string;
   model_in_use: ModelVersion;
   rounds: {
@@ -378,7 +455,7 @@ export interface Pilot {
   notice: string;
 }
 
-export interface ApproveResult {
+export interface ApproveResult extends WithCalls {
   released: ModelVersion;
   /** The version the hospitals used before. */
   previous: string;

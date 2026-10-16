@@ -9,6 +9,7 @@ calls, with the toy extension and the real planner:
 | `GET /api/v1/federation/registration` | The site's enrolment, with its record count as the cohort size |
 | `POST /api/v1/federation/jobs:offer` | Checks the job's site, model digest and code digest, computes the round digest with the planner, then runs `LocalFederatedWorker.offer` (the `before_train` Guard) |
 | `POST /api/v1/federation/jobs:execute` | 409 for a job it did not accept; otherwise `LocalFederatedWorker.execute`, which trains through the toy model kind and sends the clipped update to the GMA's update store with the site's token |
+| `POST /api/v1/federation/jobs:run` | The offer, then, when it accepted, the execution, in one call (what the GMA's HTTP engine sends) |
 | `GET /api/v1/site`, `GET /api/v1/site/summary` | Fixed descriptions of the site and its counts |
 | `GET /api/v1/governance/audit:summary` | The site's audit chain state and length |
 
@@ -34,6 +35,7 @@ from agents.common.domain.federation import (
     FederatedJob,
     JobAcceptance,
     JobModel,
+    JobRun,
     SiteRegistration,
     UpdateUpload,
 )
@@ -66,6 +68,17 @@ CAPABILITIES = ["profile", "evaluate", "train"]
 
 def _conflict(detail: str) -> JSONResponse:
     return JSONResponse({"detail": detail, "code": "conflict"}, status_code=409)
+
+
+#: The detail of a store error that a careless site store could write.
+STORE_ERROR_DETAIL = (
+    "could not connect to postgresql://admin:hunter2@db.example.internal:5432/site "
+    "(ExampleCloud direct host; ExampleHost has IPv4 only)"
+)
+
+
+def _store_unavailable() -> JSONResponse:
+    return JSONResponse({"detail": STORE_ERROR_DETAIL, "code": "store_unavailable"}, status_code=503)
 
 
 class ConcurrencyMeter:
@@ -126,6 +139,12 @@ class FixtureLma:
     crash_on_execute: bool = False
     #: Report this update digest in the result instead of the one the upload got.
     report_update_digest: str | None = None
+    #: Seconds to wait inside the summary route, as a frozen LMA would.
+    summary_delay: float = 0.0
+    #: Answer this step ("offer", "execute" or "run") with the 503 a site store
+    #: that cannot connect gives: its detail names a host, a password and a
+    #: vendor. A ``jobs:run`` call fails at its offer or execute step too.
+    store_error_on: str | None = None
     #: The jobs offered, the payloads the runner received, and the update
     #: uploads sent to the GMA (as JSON bodies).
     offers: list[FederatedJob] = field(default_factory=list)
@@ -217,9 +236,10 @@ def build_fixture_lma(
             )
         )
 
-    @app.post("/api/v1/federation/jobs:offer", dependencies=coordinator)
-    def offer(job: FederatedJob) -> JobAcceptance:
+    def offer_job(job: FederatedJob) -> Any:
         lma.offers.append(job)
+        if lma.store_error_on == "offer":
+            return _store_unavailable()
         if lma.refuse_with:
             return refusal(job, lma.refuse_with)
         if job.site_id != site_id:
@@ -241,10 +261,11 @@ def build_fixture_lma(
                 accepted.add((job.round_id, job.manifest_digest))
         return answered(acceptance)
 
-    @app.post("/api/v1/federation/jobs:execute", dependencies=coordinator)
-    def execute(job: FederatedJob):
+    def execute_job(job: FederatedJob) -> Any:
         if lma.crash_on_execute:
             raise RuntimeError("could not reach postgresql://admin:secret@db.example.internal:5432/site")
+        if lma.store_error_on == "execute":
+            return _store_unavailable()
         with lock:
             key = (job.round_id, job.manifest_digest)
             if key not in accepted:
@@ -257,6 +278,26 @@ def build_fixture_lma(
             if lma.report_update_digest is not None:
                 result = result.model_copy(update={"update_digest": lma.report_update_digest})
             return answered(result)
+
+    @app.post("/api/v1/federation/jobs:offer", dependencies=coordinator)
+    def offer(job: FederatedJob) -> Any:
+        return offer_job(job)
+
+    @app.post("/api/v1/federation/jobs:execute", dependencies=coordinator)
+    def execute(job: FederatedJob) -> Any:
+        return execute_job(job)
+
+    @app.post("/api/v1/federation/jobs:run", dependencies=coordinator)
+    def run(job: FederatedJob) -> Any:
+        if lma.store_error_on == "run":
+            return _store_unavailable()
+        acceptance = offer_job(job)
+        if isinstance(acceptance, JSONResponse) or not acceptance.accepted:
+            return acceptance if isinstance(acceptance, JSONResponse) else JobRun(acceptance=acceptance)
+        result = execute_job(job)
+        if isinstance(result, JSONResponse):
+            return result
+        return JobRun(acceptance=acceptance, result=result)
 
     @app.get("/api/v1/site", dependencies=coordinator)
     def site() -> SiteInfo:
@@ -278,6 +319,8 @@ def build_fixture_lma(
 
     @app.get("/api/v1/site/summary", dependencies=coordinator)
     def summary() -> SiteSummary:
+        if lma.summary_delay:
+            time.sleep(lma.summary_delay)
         records = lma.source.records()
         labelled = [record for record in records if isinstance(record.get(TOY_LABEL_FIELD), bool)]
         return answered(

@@ -34,16 +34,16 @@ const PARTS = [
   },
   { part: "Planners", folder: "bindings/ocaml/", purpose: "The OCaml decision modules and the dagentsc tool" },
   { part: "Framework services", folder: "services/", purpose: "Core, pipeline and model services, and their Spring Boot versions" },
-  { part: "Stroke triage demo", folder: "apps/healthcare-demo/", purpose: "Example application: governance, federated training and per-hospital stores" },
+  { part: "Stroke triage demo", folder: "apps/healthcare-demo/", purpose: "Example application on the LMA and GMA APIs: per-hospital stores, governance and federated training" },
   { part: "NL2SQL demo", folder: "services/nl2sql-demo/", purpose: "Example application: validation and planning" },
   { part: "Documentation", folder: "docs/", purpose: "The learning guide, architecture notes and the endpoint list" }
 ];
 
 const STATUS = [
   "The agents deliver messages in memory, and the GMA keeps its enrolments and rounds in memory. With a database, an LMA keeps its audit chain and job log in Postgres, and the GMA keeps its model registry and audit chain there. With a database, the stroke demo keeps each hospital's records in its own Postgres schema; without one, in memory.",
-  "The GMA can send each round's jobs to the LMAs over their HTTP APIs and combine training updates through a model kind the application contributes. It is not a secure-aggregation protocol: the GMA sees each site's clipped update. The in-process engine is a simulator for tests and demos.",
+  "The GMA can send each round's jobs to the LMAs over their HTTP APIs and combine training updates through a model kind the application contributes. It is not a secure-aggregation protocol: the GMA sees each site's clipped update. The in-process engine is a simulator for tests and the getting-started example.",
   "The LMA and GMA accept bearer tokens with fixed scopes. The framework services check no identity, so they belong on a private network.",
-  "The stroke demo builds its hospitals' agents and its coordinator from the framework's classes in its own process. It does not call the LMA and GMA APIs yet.",
+  "The stroke demo calls one LMA per hospital and a GMA only through their HTTP APIs. On the published demo, and locally by default, the agents run inside the demo's server and are called without a socket. With the network option of the local start script, in Docker Compose and in one CI test they run as separate processes, called by the same client code.",
   "Kubernetes manifests are generated and tested, but are not yet deployed to a cluster in CI.",
   "The stroke demo's store and isolation tests run in CI against PostgreSQL 16. The tests that need the pagila sample database are skipped in CI."
 ];

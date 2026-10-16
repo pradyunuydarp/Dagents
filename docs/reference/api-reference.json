@@ -1,7 +1,7 @@
 {
  "generated_by": "scripts/api_reference.py",
  "regenerate": ".venv/bin/python scripts/api_reference.py --write",
- "endpoint_count": 222,
+ "endpoint_count": 223,
  "services": [
   {
    "name": "core-service",
@@ -4171,7 +4171,7 @@
      "method": "POST",
      "path": "/federation/rounds",
      "summary": "Plan a round and, if quorum allows, dispatch its jobs to the selected sites.",
-     "description": "A round id can be used once: a stored id is refused with 409. Without\nquorum the round is stored as `closed` and offered to no site. With the\nHTTP engine (`GMA_ENGINE=http`) each selected site's LMA is offered the\njob, then runs it, up to `GMA_DISPATCH_CONCURRENCY` sites at a time; the\nround holds the sites' answers (`acceptances`), their results and every\ncall made (`dispatch`).",
+     "description": "A round id can be used once: a stored id is refused with 409. Without\nquorum the round is stored as `closed` and offered to no site. With the\nHTTP engine (`GMA_ENGINE=http`) each selected site's LMA is offered the\njob, then runs it, up to `GMA_DISPATCH_CONCURRENCY` sites at a time; the\nround holds the sites' answers (`acceptances`), their results, every call\nmade (`dispatch`) and the planner's `readiness`, since every result is in.",
      "status_code": 200,
      "deprecated": false,
      "handler": {
@@ -4487,7 +4487,7 @@
         "class": "ModelRegistry",
         "module": "agents.gma.application.model_registry",
         "file": "agents/gma/application/model_registry.py",
-        "name": "get"
+        "name": "kind_of"
        },
        {
         "kind": "method",
@@ -7599,10 +7599,11 @@
        "type": "string",
        "enum": [
         "offer",
-        "execute"
+        "execute",
+        "run"
        ],
        "title": "Step",
-       "description": "`offer` (the site checks the job) or `execute` (the site runs it)."
+       "description": "`offer` (the site checks the job), `execute` (the site runs it), or `run` (both steps in one call: the site checks the job and runs it when it accepts)."
       },
       "status_code": {
        "anyOf": [
@@ -7633,7 +7634,7 @@
         "dropped"
        ],
        "title": "Outcome",
-       "description": "For an offer: `accepted`, `refused`, or `failed` when no answer could be read. For an execute call: the participation of the returned result (`completed`, `rejected`, `failed`, `dropped`), or `failed` when no answer could be read."
+       "description": "For an offer: `accepted`, `refused`, or `failed` when the call failed: the LMA answered with an error status or an answer that could not be read, or no answer came (`status_code` is null). For an execute call: the participation of the returned result (`completed`, `rejected`, `failed`, `dropped`), or `failed` when the call failed. For a run call: the participation of the returned result, `refused` when the site refused the job, or `failed` when the call failed."
       }
      },
      "type": "object",
@@ -9653,6 +9654,24 @@
     },
     "ReleaseGuardCheck": {
      "properties": {
+      "request_id": {
+       "type": "string",
+       "title": "Request Id",
+       "description": "`<round_id>:release:<candidate_version>`. It is the request id in the audit record.",
+       "default": ""
+      },
+      "boundary": {
+       "type": "string",
+       "enum": [
+        "before_read",
+        "before_train",
+        "before_send",
+        "before_release"
+       ],
+       "title": "Boundary",
+       "description": "Always `before_release`.",
+       "default": "before_release"
+      },
       "permitted": {
        "type": "boolean",
        "title": "Permitted",
@@ -9661,6 +9680,31 @@
       "plan": {
        "$ref": "#/components/schemas/RestrictionPlan",
        "description": "The plan the Guard applied."
+      },
+      "payload": {
+       "items": {
+        "additionalProperties": true,
+        "type": "object"
+       },
+       "type": "array",
+       "title": "Payload",
+       "description": "What the Guard released: one row whose `model_update` is the model kind's `parameter_change`, after its strategy (for example clipped). Empty when the Guard denied the release."
+      },
+      "withheld_fields": {
+       "items": {
+        "type": "string"
+       },
+       "type": "array",
+       "title": "Withheld Fields",
+       "description": "The requested fields the Guard removed."
+      },
+      "transformed_fields": {
+       "items": {
+        "type": "string"
+       },
+       "type": "array",
+       "title": "Transformed Fields",
+       "description": "The requested fields the Guard returned with changed values, such as a clipped `model_update`."
       },
       "audit_id": {
        "type": "string",
@@ -9681,7 +9725,7 @@
       "audit_id"
      ],
      "title": "ReleaseGuardCheck",
-     "description": "What the `before_release` Guard decided for a release evaluation."
+     "description": "What the `before_release` Guard decided for a release evaluation.\n\nIt holds the Guard's whole decision. The payload is one row with the size\nof the candidate's change (`model_update`), never a record or a parameter."
     },
     "Requester": {
      "properties": {
@@ -10161,7 +10205,7 @@
          "type": "null"
         }
        ],
-       "description": "The readiness check saved by the aggregate endpoint. Null before it."
+       "description": "The planner's readiness check, saved by the aggregate endpoint and, with an engine that collects every result itself (the HTTP engine), at the end of the dispatch. Null before either."
       },
       "decision": {
        "anyOf": [
@@ -10881,8 +10925,8 @@
    "role": "demo-app",
    "port": 8080,
    "title": "dagents-healthcare-stroke-demo",
-   "version": "0.3.0",
-   "description": "A Dagents demo app for federated stroke triage, on de-identified records from the International Stroke Trial. Nothing here is a validated clinical model or clinical advice.",
+   "version": "1.1.0",
+   "description": "A Dagents demo app for federated stroke triage, on de-identified records from the International Stroke Trial. Each hospital is served by a Dagents LMA and the study by a Dagents GMA, called through their HTTP APIs. Nothing here is a validated clinical model or clinical advice.",
    "app": {
     "module": "app.main",
     "attribute": "app",
@@ -10893,7 +10937,7 @@
      "id": "healthcare-demo-backend-get-api-v1-charts",
      "method": "GET",
      "path": "/api/v1/charts",
-     "summary": "The consortium charts, from site summaries and the last pilot. Never a 4xx.",
+     "summary": "The consortium charts, from what the hospitals report through the GMA and the last pilot. Never a 4xx.",
      "description": null,
      "status_code": 200,
      "deprecated": false,
@@ -10926,7 +10970,7 @@
       },
       {
        "status": "503",
-       "description": "Only with a database: a hospital's store cannot be reached, or the database is not set up for this version of the app.",
+       "description": "The demo server is busy, a Dagents agent did not answer, or, with a database, a hospital's store cannot be reached or the database is not set up for this version of the app.",
        "content_type": "application/json",
        "schema": {
         "$ref": "#/components/schemas/ErrorResponse"
@@ -11070,7 +11114,7 @@
      "id": "healthcare-demo-backend-get-api-v1-extension",
      "method": "GET",
      "path": "/api/v1/extension",
-     "summary": "What this app contributes to the framework, and what each side owns.",
+     "summary": "What this app contributes to the agents, as the GMA's extension registry describes it, and what each side owns.",
      "description": null,
      "status_code": 200,
      "deprecated": false,
@@ -11078,15 +11122,7 @@
       "function": "extension",
       "module": "app.main",
       "file": "apps/healthcare-demo/backend/app/main.py",
-      "calls": [
-       {
-        "kind": "method",
-        "class": "ExtensionRegistry",
-        "module": "agents.common.extensions.registry",
-        "file": "agents/common/extensions/registry.py",
-        "name": "describe"
-       }
-      ]
+      "calls": []
      },
      "parameters": [],
      "request_body": null,
@@ -11100,6 +11136,14 @@
         "type": "object",
         "title": "Response Extension Api V1 Extension Get"
        }
+      },
+      {
+       "status": "503",
+       "description": "The demo server is busy, a Dagents agent did not answer, or, with a database, a hospital's store cannot be reached or the database is not set up for this version of the app.",
+       "content_type": "application/json",
+       "schema": {
+        "$ref": "#/components/schemas/ErrorResponse"
+       }
       }
      ],
      "alias_of": null
@@ -11108,8 +11152,8 @@
      "id": "healthcare-demo-backend-get-api-v1-framework-status",
      "method": "GET",
      "path": "/api/v1/framework/status",
-     "summary": "Where the records are stored, which framework services answer, and the allowed origins.",
-     "description": "The page shows the storage the backend reports, so a reader can tell\nrecords in Postgres from records in memory.\n\n``rate_limit_client`` says how the rate limits identify a client. A\nrequest sent without ``X-Forwarded-For`` arrives with one entry per proxy\nthat appended to it, so ``forwarded_for_entries`` should equal\n``forwarded_for_hops`` for such a request. Fewer means every visitor is\ncounted as the proxy; more means the limits count a proxy's address.",
+     "summary": "Where the records are stored, how the Dagents agents run, which answer, and the allowed origins.",
+     "description": "The page shows the storage the hospitals' LMAs report, so a reader can tell\nrecords in Postgres from records in memory. ``agents`` says whether the\nLMAs and the GMA run inside the demo server or as their own processes.\n\n``rate_limit_client`` says how the rate limits identify a client. A\nrequest sent without ``X-Forwarded-For`` arrives with one entry per proxy\nthat appended to it, so ``forwarded_for_entries`` should equal\n``forwarded_for_hops`` for such a request. Fewer means every visitor is\ncounted as the proxy; more means the limits count a proxy's address.\n\nIt never fails because a store or an agent does not answer.",
      "status_code": 200,
      "deprecated": false,
      "handler": {
@@ -11119,17 +11163,10 @@
       "calls": [
        {
         "kind": "method",
-        "class": "Consortium",
-        "module": "app.services.consortium",
-        "file": "apps/healthcare-demo/backend/app/services/consortium.py",
-        "name": "data_source_status"
-       },
-       {
-        "kind": "method",
-        "class": "FrameworkClient",
-        "module": "app.services.framework_client",
-        "file": "apps/healthcare-demo/backend/app/services/framework_client.py",
-        "name": "service_status"
+        "class": "HealthcareDemo",
+        "module": "app.services.agents",
+        "file": "apps/healthcare-demo/backend/app/services/agents.py",
+        "name": "status"
        },
        {
         "kind": "method",
@@ -11164,107 +11201,11 @@
      "alias_of": null
     },
     {
-     "id": "healthcare-demo-backend-get-api-v1-framework-trace",
-     "method": "GET",
-     "path": "/api/v1/framework/trace",
-     "summary": "Run one hospital's records through the framework's planners, at that hospital.",
-     "description": "None of the steps knows what a stroke is. They work from the contract and\nclassification the extension declared.",
-     "status_code": 200,
-     "deprecated": false,
-     "handler": {
-      "function": "framework_trace",
-      "module": "app.main",
-      "file": "apps/healthcare-demo/backend/app/main.py",
-      "calls": [
-       {
-        "kind": "method",
-        "class": "FrameworkClient",
-        "module": "app.services.framework_client",
-        "file": "apps/healthcare-demo/backend/app/services/framework_client.py",
-        "name": "planner_trace"
-       }
-      ]
-     },
-     "parameters": [
-      {
-       "name": "site_id",
-       "in": "query",
-       "required": false,
-       "description": "The hospital whose records are traced, such as `it-002`. Without it, the first hospital.",
-       "schema": {
-        "anyOf": [
-         {
-          "type": "string",
-          "maxLength": 64
-         },
-         {
-          "type": "null"
-         }
-        ],
-        "description": "The hospital whose records are traced, such as `it-002`. Without it, the first hospital.",
-        "title": "Site Id"
-       }
-      },
-      {
-       "name": "limit",
-       "in": "query",
-       "required": false,
-       "description": "How many of the hospital's first records to trace.",
-       "schema": {
-        "type": "integer",
-        "maximum": 1000,
-        "minimum": 1,
-        "description": "How many of the hospital's first records to trace.",
-        "default": 50,
-        "title": "Limit"
-       }
-      }
-     ],
-     "request_body": null,
-     "responses": [
-      {
-       "status": "200",
-       "description": "Successful Response",
-       "content_type": "application/json",
-       "schema": {
-        "type": "object",
-        "additionalProperties": true,
-        "title": "Response Framework Trace Api V1 Framework Trace Get"
-       }
-      },
-      {
-       "status": "404",
-       "description": "No hospital has this id.",
-       "content_type": "application/json",
-       "schema": {
-        "$ref": "#/components/schemas/ErrorResponse"
-       }
-      },
-      {
-       "status": "422",
-       "description": "A parameter or a body field is not valid. The errors field names each one.",
-       "content_type": "application/json",
-       "schema": {
-        "$ref": "#/components/schemas/ValidationErrorResponse"
-       }
-      },
-      {
-       "status": "503",
-       "description": "Only with a database: a hospital's store cannot be reached, or the database is not set up for this version of the app.",
-       "content_type": "application/json",
-       "schema": {
-        "$ref": "#/components/schemas/ErrorResponse"
-       }
-      }
-     ],
-     "alias_of": null
-    },
-    {
      "id": "healthcare-demo-backend-post-api-v1-governance-probe",
      "method": "POST",
      "path": "/api/v1/governance:probe",
-     "summary": "Run one request through a hospital's Guard and report what it would release.",
-     "description": "The decision is a lookup in the typed planner, so changing the requester's\nverification, the boundary or the granularity changes it. The Guard runs at\nthe chosen hospital (the first by default), over that hospital's first\nrecords, and writes the decision to that hospital's audit chain. The\nrequester and the purpose are fixed here, so no visitor's text reaches the\nchain.\n\nThe coordinator's page calls this, so the answer holds no record: it\ncounts the released records and names their fields\n(:class:`GuardProbeResponse`).",
+     "summary": "Run one request through a hospital's Guard, at its LMA, and report what it would release.",
+     "description": "The decision is a lookup in the typed planner, so changing the requester's\nverification, the boundary or the granularity changes it. The hospital's\nLMA runs the Guard (``POST /api/v1/governance/restrictions:probe``) over\nthe hospital's first records, with the hospital's classification and\napproved purposes, and writes the decision to the hospital's audit chain.\nThe requester and the purpose are fixed here, so no visitor's text reaches\nthe chain.\n\nThe coordinator's page calls this, so the answer holds no record: it\ncounts the released records and names their fields\n(:class:`GuardProbeResponse`).",
      "status_code": 200,
      "deprecated": false,
      "handler": {
@@ -11324,7 +11265,7 @@
       },
       {
        "status": "503",
-       "description": "Only with a database: a hospital's store cannot be reached, or the database is not set up for this version of the app.",
+       "description": "The demo server is busy, a Dagents agent did not answer, or, with a database, a hospital's store cannot be reached or the database is not set up for this version of the app.",
        "content_type": "application/json",
        "schema": {
         "$ref": "#/components/schemas/ErrorResponse"
@@ -11364,9 +11305,7 @@
        "description": "Successful Response",
        "content_type": "application/json",
        "schema": {
-        "additionalProperties": {
-         "type": "string"
-        },
+        "additionalProperties": true,
         "type": "object",
         "title": "Response Health V1 Api V1 Health Get"
        }
@@ -11382,7 +11321,7 @@
      "id": "healthcare-demo-backend-get-api-v1-hospitals",
      "method": "GET",
      "path": "/api/v1/hospitals",
-     "summary": "What each hospital reports about its records: counts and an outcome rate.",
+     "summary": "What each hospital reports about its records through the GMA: counts and an outcome rate.",
      "description": null,
      "status_code": 200,
      "deprecated": false,
@@ -11410,7 +11349,7 @@
       },
       {
        "status": "503",
-       "description": "Only with a database: a hospital's store cannot be reached, or the database is not set up for this version of the app.",
+       "description": "The demo server is busy, a Dagents agent did not answer, or, with a database, a hospital's store cannot be reached or the database is not set up for this version of the app.",
        "content_type": "application/json",
        "schema": {
         "$ref": "#/components/schemas/ErrorResponse"
@@ -11423,7 +11362,7 @@
      "id": "healthcare-demo-backend-get-api-v1-hospitals-site-id",
      "method": "GET",
      "path": "/api/v1/hospitals/{site_id}",
-     "summary": "One hospital's own view: its store, statistics, local metrics and what it sent.",
+     "summary": "One hospital's own view: its store, what its LMA reports, local metrics and what it sent.",
      "description": null,
      "status_code": 200,
      "deprecated": false,
@@ -11434,9 +11373,9 @@
       "calls": [
        {
         "kind": "method",
-        "class": "Hospital",
-        "module": "app.services.hospital",
-        "file": "apps/healthcare-demo/backend/app/services/hospital.py",
+        "class": "HospitalView",
+        "module": "app.services.hospital_views",
+        "file": "apps/healthcare-demo/backend/app/services/hospital_views.py",
         "name": "dashboard"
        }
       ]
@@ -11484,7 +11423,7 @@
       },
       {
        "status": "503",
-       "description": "Only with a database: a hospital's store cannot be reached, or the database is not set up for this version of the app.",
+       "description": "The demo server is busy, a Dagents agent did not answer, or, with a database, a hospital's store cannot be reached or the database is not set up for this version of the app.",
        "content_type": "application/json",
        "schema": {
         "$ref": "#/components/schemas/ErrorResponse"
@@ -11497,7 +11436,7 @@
      "id": "healthcare-demo-backend-get-api-v1-hospitals-site-id-audit",
      "method": "GET",
      "path": "/api/v1/hospitals/{site_id}/audit",
-     "summary": "One hospital's Guard decisions, newest first, and whether its audit chain verifies.",
+     "summary": "One hospital's Guard decisions, newest first, and whether its audit chain verifies, from its LMA.",
      "description": null,
      "status_code": 200,
      "deprecated": false,
@@ -11508,9 +11447,9 @@
       "calls": [
        {
         "kind": "method",
-        "class": "Hospital",
-        "module": "app.services.hospital",
-        "file": "apps/healthcare-demo/backend/app/services/hospital.py",
+        "class": "HospitalView",
+        "module": "app.services.hospital_views",
+        "file": "apps/healthcare-demo/backend/app/services/hospital_views.py",
         "name": "audit_trail"
        }
       ]
@@ -11572,7 +11511,7 @@
       },
       {
        "status": "503",
-       "description": "Only with a database: a hospital's store cannot be reached, or the database is not set up for this version of the app.",
+       "description": "The demo server is busy, a Dagents agent did not answer, or, with a database, a hospital's store cannot be reached or the database is not set up for this version of the app.",
        "content_type": "application/json",
        "schema": {
         "$ref": "#/components/schemas/ErrorResponse"
@@ -11646,7 +11585,7 @@
       },
       {
        "status": "503",
-       "description": "Only with a database: a hospital's store cannot be reached, or the database is not set up for this version of the app.",
+       "description": "The demo server is busy, a Dagents agent did not answer, or, with a database, a hospital's store cannot be reached or the database is not set up for this version of the app.",
        "content_type": "application/json",
        "schema": {
         "$ref": "#/components/schemas/ErrorResponse"
@@ -11851,7 +11790,7 @@
       },
       {
        "status": "503",
-       "description": "Only with a database: a hospital's store cannot be reached, or the database is not set up for this version of the app.",
+       "description": "The demo server is busy, a Dagents agent did not answer, or, with a database, a hospital's store cannot be reached or the database is not set up for this version of the app.",
        "content_type": "application/json",
        "schema": {
         "$ref": "#/components/schemas/ErrorResponse"
@@ -11864,7 +11803,7 @@
      "id": "healthcare-demo-backend-post-api-v1-hospitals-site-id-encounters",
      "method": "POST",
      "path": "/api/v1/hospitals/{site_id}/encounters",
-     "summary": "Store a new record at one hospital, as that hospital, and update its running statistics.",
+     "summary": "Store a new record at one hospital, as that hospital, and have its LMA read the store again.",
      "description": "Returns ``{record, assessment, counts, profile}``. The next round, worklist,\nchart and probe at this hospital include the record.",
      "status_code": 201,
      "deprecated": false,
@@ -11875,9 +11814,9 @@
       "calls": [
        {
         "kind": "method",
-        "class": "Hospital",
-        "module": "app.services.hospital",
-        "file": "apps/healthcare-demo/backend/app/services/hospital.py",
+        "class": "HospitalView",
+        "module": "app.services.hospital_views",
+        "file": "apps/healthcare-demo/backend/app/services/hospital_views.py",
         "name": "enter"
        }
       ]
@@ -11967,7 +11906,7 @@
       },
       {
        "status": "503",
-       "description": "Only with a database: a hospital's store cannot be reached, or the database is not set up for this version of the app.",
+       "description": "The demo server is busy, a Dagents agent did not answer, or, with a database, a hospital's store cannot be reached or the database is not set up for this version of the app.",
        "content_type": "application/json",
        "schema": {
         "$ref": "#/components/schemas/ErrorResponse"
@@ -11991,9 +11930,9 @@
       "calls": [
        {
         "kind": "method",
-        "class": "Hospital",
-        "module": "app.services.hospital",
-        "file": "apps/healthcare-demo/backend/app/services/hospital.py",
+        "class": "HospitalView",
+        "module": "app.services.hospital_views",
+        "file": "apps/healthcare-demo/backend/app/services/hospital_views.py",
         "name": "set_outcome"
        }
       ]
@@ -12074,7 +12013,7 @@
       },
       {
        "status": "503",
-       "description": "Only with a database: a hospital's store cannot be reached, or the database is not set up for this version of the app.",
+       "description": "The demo server is busy, a Dagents agent did not answer, or, with a database, a hospital's store cannot be reached or the database is not set up for this version of the app.",
        "content_type": "application/json",
        "schema": {
         "$ref": "#/components/schemas/ErrorResponse"
@@ -12148,7 +12087,7 @@
       },
       {
        "status": "503",
-       "description": "Only with a database: a hospital's store cannot be reached, or the database is not set up for this version of the app.",
+       "description": "The demo server is busy, a Dagents agent did not answer, or, with a database, a hospital's store cannot be reached or the database is not set up for this version of the app.",
        "content_type": "application/json",
        "schema": {
         "$ref": "#/components/schemas/ErrorResponse"
@@ -12172,9 +12111,9 @@
       "calls": [
        {
         "kind": "method",
-        "class": "Hospital",
-        "module": "app.services.hospital",
-        "file": "apps/healthcare-demo/backend/app/services/hospital.py",
+        "class": "HospitalView",
+        "module": "app.services.hospital_views",
+        "file": "apps/healthcare-demo/backend/app/services/hospital_views.py",
         "name": "threshold_sweep"
        }
       ]
@@ -12222,7 +12161,7 @@
       },
       {
        "status": "503",
-       "description": "Only with a database: a hospital's store cannot be reached, or the database is not set up for this version of the app.",
+       "description": "The demo server is busy, a Dagents agent did not answer, or, with a database, a hospital's store cannot be reached or the database is not set up for this version of the app.",
        "content_type": "application/json",
        "schema": {
         "$ref": "#/components/schemas/ErrorResponse"
@@ -12235,7 +12174,7 @@
      "id": "healthcare-demo-backend-get-api-v1-hospitals-site-id-worklist",
      "method": "GET",
      "path": "/api/v1/hospitals/{site_id}/worklist",
-     "summary": "One hospital's records ranked by the model in use. The list stays at the hospital.",
+     "summary": "One hospital's records ranked by the model its LMA reports in use. The list stays at the hospital.",
      "description": null,
      "status_code": 200,
      "deprecated": false,
@@ -12246,9 +12185,9 @@
       "calls": [
        {
         "kind": "method",
-        "class": "Hospital",
-        "module": "app.services.hospital",
-        "file": "apps/healthcare-demo/backend/app/services/hospital.py",
+        "class": "HospitalView",
+        "module": "app.services.hospital_views",
+        "file": "apps/healthcare-demo/backend/app/services/hospital_views.py",
         "name": "worklist"
        }
       ]
@@ -12310,7 +12249,7 @@
       },
       {
        "status": "503",
-       "description": "Only with a database: a hospital's store cannot be reached, or the database is not set up for this version of the app.",
+       "description": "The demo server is busy, a Dagents agent did not answer, or, with a database, a hospital's store cannot be reached or the database is not set up for this version of the app.",
        "content_type": "application/json",
        "schema": {
         "$ref": "#/components/schemas/ErrorResponse"
@@ -12375,7 +12314,7 @@
      "id": "healthcare-demo-backend-get-api-v1-models",
      "method": "GET",
      "path": "/api/v1/models",
-     "summary": "The model the hospitals use, and the 20 newest registered versions, oldest first.",
+     "summary": "The model the hospitals use, and the 20 newest registered versions, oldest first, from the GMA.",
      "description": null,
      "status_code": 200,
      "deprecated": false,
@@ -12383,22 +12322,7 @@
       "function": "models",
       "module": "app.main",
       "file": "apps/healthcare-demo/backend/app/main.py",
-      "calls": [
-       {
-        "kind": "method",
-        "class": "Consortium",
-        "module": "app.services.consortium",
-        "file": "apps/healthcare-demo/backend/app/services/consortium.py",
-        "name": "model_in_use"
-       },
-       {
-        "kind": "method",
-        "class": "Consortium",
-        "module": "app.services.consortium",
-        "file": "apps/healthcare-demo/backend/app/services/consortium.py",
-        "name": "models"
-       }
-      ]
+      "calls": []
      },
      "parameters": [],
      "request_body": null,
@@ -12415,7 +12339,7 @@
       },
       {
        "status": "503",
-       "description": "Only with a database: a hospital's store cannot be reached, or the database is not set up for this version of the app.",
+       "description": "The demo server is busy, a Dagents agent did not answer, or, with a database, a hospital's store cannot be reached or the database is not set up for this version of the app.",
        "content_type": "application/json",
        "schema": {
         "$ref": "#/components/schemas/ErrorResponse"
@@ -12428,7 +12352,7 @@
      "id": "healthcare-demo-backend-post-api-v1-models-version-approve",
      "method": "POST",
      "path": "/api/v1/models/{version}:approve",
-     "summary": "Release a candidate whose last release decision was ``release``.",
+     "summary": "Release a candidate whose last release decision was ``release``, through the GMA.",
      "description": "Returns ``{released, previous}``. 409 when the gates or the release Guard\ndid not allow it, or the version is no longer a candidate.",
      "status_code": 200,
      "deprecated": false,
@@ -12436,15 +12360,7 @@
       "function": "approve_model",
       "module": "app.main",
       "file": "apps/healthcare-demo/backend/app/main.py",
-      "calls": [
-       {
-        "kind": "method",
-        "class": "Consortium",
-        "module": "app.services.consortium",
-        "file": "apps/healthcare-demo/backend/app/services/consortium.py",
-        "name": "approve"
-       }
-      ]
+      "calls": []
      },
      "parameters": [
       {
@@ -12505,7 +12421,7 @@
       },
       {
        "status": "503",
-       "description": "Only with a database: a hospital's store cannot be reached, or the database is not set up for this version of the app.",
+       "description": "The demo server is busy, a Dagents agent did not answer, or, with a database, a hospital's store cannot be reached or the database is not set up for this version of the app.",
        "content_type": "application/json",
        "schema": {
         "$ref": "#/components/schemas/ErrorResponse"
@@ -12518,7 +12434,7 @@
      "id": "healthcare-demo-backend-get-api-v1-overview",
      "method": "GET",
      "path": "/api/v1/overview",
-     "summary": "The consortium, the numbers each hospital reports, and the release gates.",
+     "summary": "The consortium, the numbers each hospital reports through the GMA, and the release gates.",
      "description": null,
      "status_code": 200,
      "deprecated": false,
@@ -12526,15 +12442,7 @@
       "function": "overview",
       "module": "app.main",
       "file": "apps/healthcare-demo/backend/app/main.py",
-      "calls": [
-       {
-        "kind": "method",
-        "class": "Consortium",
-        "module": "app.services.consortium",
-        "file": "apps/healthcare-demo/backend/app/services/consortium.py",
-        "name": "overview"
-       }
-      ]
+      "calls": []
      },
      "parameters": [],
      "request_body": null,
@@ -12551,7 +12459,7 @@
       },
       {
        "status": "503",
-       "description": "Only with a database: a hospital's store cannot be reached, or the database is not set up for this version of the app.",
+       "description": "The demo server is busy, a Dagents agent did not answer, or, with a database, a hospital's store cannot be reached or the database is not set up for this version of the app.",
        "content_type": "application/json",
        "schema": {
         "$ref": "#/components/schemas/ErrorResponse"
@@ -12564,7 +12472,7 @@
      "id": "healthcare-demo-backend-post-api-v1-pilot-run",
      "method": "POST",
      "path": "/api/v1/pilot:run",
-     "summary": "Run the federated pilot across every hospital and return its evidence.",
+     "summary": "Run the federated pilot across every hospital, through the GMA, and return its evidence.",
      "description": "Analytics, then evaluation of the model in use, then training rounds, then\nvalidation of the candidate, then the release Guard and gates. One pilot\nruns at a time; a request while one runs gets 409. Beyond the hourly cap\non pilots, a request gets 429.",
      "status_code": 200,
      "deprecated": false,
@@ -12586,13 +12494,6 @@
         "module": "app.api.limits",
         "file": "apps/healthcare-demo/backend/app/api/limits.py",
         "name": "take"
-       },
-       {
-        "kind": "method",
-        "class": "Consortium",
-        "module": "app.services.consortium",
-        "file": "apps/healthcare-demo/backend/app/services/consortium.py",
-        "name": "run_pilot"
        },
        {
         "kind": "method",
@@ -12646,7 +12547,7 @@
       },
       {
        "status": "503",
-       "description": "The planner cannot be run, or, with a database, a store cannot be reached.",
+       "description": "The planner cannot be run, an agent did not answer, or, with a database, a store cannot be reached.",
        "content_type": "application/json",
        "schema": {
         "$ref": "#/components/schemas/ErrorResponse"
@@ -12763,7 +12664,7 @@
      "id": "healthcare-demo-backend-get-health",
      "method": "GET",
      "path": "/health",
-     "summary": "Liveness. Reads no store.",
+     "summary": "Liveness. Reads no store and calls no agent.",
      "description": null,
      "status_code": 200,
      "deprecated": false,
@@ -12789,9 +12690,7 @@
        "description": "Successful Response",
        "content_type": "application/json",
        "schema": {
-        "additionalProperties": {
-         "type": "string"
-        },
+        "additionalProperties": true,
         "type": "object",
         "title": "Response Health Health Get"
        }
@@ -13025,6 +12924,79 @@
      "title": "FieldRestriction",
      "description": "The strategy selected for one requested field.\n\n``strategy`` keeps its parameter in the string (``\"clip_contribution:1\"``,\n``\"aggregate_only:20\"``) so an audit record shows the bound that was\napplied, not only the strategy's name."
     },
+    "FrameworkCall": {
+     "properties": {
+      "service": {
+       "type": "string",
+       "enum": [
+        "lma",
+        "gma"
+       ],
+       "title": "Service",
+       "description": "The agent called: a hospital's `lma` or the study's `gma`."
+      },
+      "site_id": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Site Id",
+       "description": "The hospital whose LMA was called. Null for the GMA."
+      },
+      "method": {
+       "type": "string",
+       "title": "Method",
+       "description": "The HTTP method, such as `GET` or `POST`."
+      },
+      "path": {
+       "type": "string",
+       "title": "Path",
+       "description": "The route as the agent declares it, such as `/api/v1/federation/rounds/{round_id}`. Never a host."
+      },
+      "status": {
+       "anyOf": [
+        {
+         "type": "integer"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Status",
+       "description": "The status the agent answered with. Null when no answer came."
+      },
+      "ms": {
+       "type": "number",
+       "title": "Ms",
+       "description": "How long the call took, in milliseconds."
+      },
+      "via": {
+       "type": "string",
+       "enum": [
+        "app",
+        "gma"
+       ],
+       "title": "Via",
+       "description": "`app` for a call the app made. `gma` for a call the GMA made to an LMA while it dispatched a round; it follows the GMA call that made it."
+      }
+     },
+     "type": "object",
+     "required": [
+      "service",
+      "site_id",
+      "method",
+      "path",
+      "status",
+      "ms",
+      "via"
+     ],
+     "title": "FrameworkCall",
+     "description": "One call to a Dagents agent behind a response, as ``framework_calls`` lists it.\n\nThe app adds the list to every successful (2xx) answer whose body is a\nJSON object. Errors, a JSON list and an SVG have none. It names the route,\nnever a host, a token or a body."
+    },
     "GuardProbeRequest": {
      "properties": {
       "site_id": {
@@ -13138,7 +13110,7 @@
       "request_id": {
        "type": "string",
        "title": "Request Id",
-       "description": "`probe:<site_id>:<boundary>:<granularity>`. It is the request id in the plan and the audit record."
+       "description": "`probe:<site_id>:<random hex>`, given by the hospital's LMA. It is the request id in the audit record."
       },
       "boundary": {
        "type": "string",
@@ -13199,6 +13171,14 @@
        "type": "string",
        "title": "Message",
        "description": "The Guard's decision in words, such as `permitted with restrictions`."
+      },
+      "framework_calls": {
+       "items": {
+        "$ref": "#/components/schemas/FrameworkCall"
+       },
+       "type": "array",
+       "title": "Framework Calls",
+       "description": "The calls to the hospital's LMA behind this answer: `POST /api/v1/governance/restrictions:probe`."
       }
      },
      "type": "object",
@@ -13216,7 +13196,7 @@
       "message"
      ],
      "title": "GuardProbeResponse",
-     "description": "What a hospital's Guard would release for a probe, without the records.\n\nThe coordinator's page calls the probe, and no patient row reaches the\ncoordinator. So the answer counts the released records and names their\nfields; the values stay at the hospital. A key the hospital's report adds\nthat is not listed here is dropped from the response."
+     "description": "What a hospital's Guard would release for a probe, without the records.\n\nThe coordinator's page calls the probe, and no patient row reaches the\ncoordinator. So the answer counts the released records and names their\nfields; the values stay at the hospital. The hospital's LMA runs the Guard\n(``POST /api/v1/governance/restrictions:probe``). A key the LMA's answer\nadds that is not listed here is dropped from the response."
     },
     "KyuAssessment": {
      "properties": {
@@ -13879,6 +13859,101 @@
       "method": "POST",
       "path": "/federation/jobs:offer",
       "id": "lma-post-federation-jobs-offer"
+     }
+    },
+    {
+     "id": "lma-post-api-v1-federation-jobs-run",
+     "method": "POST",
+     "path": "/api/v1/federation/jobs:run",
+     "summary": "Versioned alias for running a job.",
+     "description": null,
+     "status_code": 200,
+     "deprecated": false,
+     "handler": {
+      "function": "run_job_v1",
+      "module": "agents.lma.routes",
+      "file": "agents/lma/routes.py",
+      "calls": [
+       {
+        "kind": "route",
+        "class": null,
+        "module": "agents.lma.routes",
+        "file": "agents/lma/routes.py",
+        "name": "run_job",
+        "endpoint": "lma-post-federation-jobs-run"
+       }
+      ]
+     },
+     "parameters": [],
+     "request_body": {
+      "required": true,
+      "content_type": "application/json",
+      "schema": {
+       "$ref": "#/components/schemas/FederatedJob"
+      }
+     },
+     "responses": [
+      {
+       "status": "200",
+       "description": "Successful Response",
+       "content_type": "application/json",
+       "schema": {
+        "$ref": "#/components/schemas/JobRun"
+       }
+      },
+      {
+       "status": "401",
+       "description": "Tokens are configured, and the request has no bearer token or one the LMA does not accept (`unauthorized`).",
+       "content_type": "application/json",
+       "schema": {
+        "$ref": "#/components/schemas/AgentErrorBody"
+       }
+      },
+      {
+       "status": "403",
+       "description": "The token's scope may not call this route (`forbidden`).",
+       "content_type": "application/json",
+       "schema": {
+        "$ref": "#/components/schemas/AgentErrorBody"
+       }
+      },
+      {
+       "status": "404",
+       "description": "The LMA was started without a site (`not_found`).",
+       "content_type": "application/json",
+       "schema": {
+        "$ref": "#/components/schemas/AgentErrorBody"
+       }
+      },
+      {
+       "status": "503",
+       "description": "The site's store could not be read (`store_unavailable` or `store_not_set_up`).",
+       "content_type": "application/json",
+       "schema": {
+        "$ref": "#/components/schemas/AgentErrorBody"
+       }
+      },
+      {
+       "status": "409",
+       "description": "The site was already offered a job for this round (`conflict`).",
+       "content_type": "application/json",
+       "schema": {
+        "$ref": "#/components/schemas/AgentErrorBody"
+       }
+      },
+      {
+       "status": "422",
+       "description": "Validation Error",
+       "content_type": "application/json",
+       "schema": {
+        "$ref": "#/components/schemas/HTTPValidationError"
+       }
+      }
+     ],
+     "alias_of": {
+      "method": "POST",
+      "path": "/federation/jobs:run",
+      "id": "lma-post-federation-jobs-run"
      }
     },
     {
@@ -16047,6 +16122,96 @@
        "content_type": "application/json",
        "schema": {
         "$ref": "#/components/schemas/JobAcceptance"
+       }
+      },
+      {
+       "status": "401",
+       "description": "Tokens are configured, and the request has no bearer token or one the LMA does not accept (`unauthorized`).",
+       "content_type": "application/json",
+       "schema": {
+        "$ref": "#/components/schemas/AgentErrorBody"
+       }
+      },
+      {
+       "status": "403",
+       "description": "The token's scope may not call this route (`forbidden`).",
+       "content_type": "application/json",
+       "schema": {
+        "$ref": "#/components/schemas/AgentErrorBody"
+       }
+      },
+      {
+       "status": "404",
+       "description": "The LMA was started without a site (`not_found`).",
+       "content_type": "application/json",
+       "schema": {
+        "$ref": "#/components/schemas/AgentErrorBody"
+       }
+      },
+      {
+       "status": "503",
+       "description": "The site's store could not be read (`store_unavailable` or `store_not_set_up`).",
+       "content_type": "application/json",
+       "schema": {
+        "$ref": "#/components/schemas/AgentErrorBody"
+       }
+      },
+      {
+       "status": "409",
+       "description": "The site was already offered a job for this round (`conflict`).",
+       "content_type": "application/json",
+       "schema": {
+        "$ref": "#/components/schemas/AgentErrorBody"
+       }
+      },
+      {
+       "status": "422",
+       "description": "Validation Error",
+       "content_type": "application/json",
+       "schema": {
+        "$ref": "#/components/schemas/HTTPValidationError"
+       }
+      }
+     ],
+     "alias_of": null
+    },
+    {
+     "id": "lma-post-federation-jobs-run",
+     "method": "POST",
+     "path": "/federation/jobs:run",
+     "summary": "Offer a job and, when the site accepts it, run it, in one call.",
+     "description": "The site takes the same two steps as `jobs:offer` then `jobs:execute`:\nit checks the job and asks its `before_train` Guard, and runs the job\nonly when it accepted it. The answer holds the acceptance and, for an\naccepted job, the result; a refused job has no result. The GMA's HTTP\nengine sends each site one `jobs:run` call per round.",
+     "status_code": 200,
+     "deprecated": false,
+     "handler": {
+      "function": "run_job",
+      "module": "agents.lma.routes",
+      "file": "agents/lma/routes.py",
+      "calls": [
+       {
+        "kind": "method",
+        "class": "FederationJobService",
+        "module": "agents.lma.application.federation_jobs",
+        "file": "agents/lma/application/federation_jobs.py",
+        "name": "run"
+       }
+      ]
+     },
+     "parameters": [],
+     "request_body": {
+      "required": true,
+      "content_type": "application/json",
+      "schema": {
+       "$ref": "#/components/schemas/FederatedJob"
+      }
+     },
+     "responses": [
+      {
+       "status": "200",
+       "description": "Successful Response",
+       "content_type": "application/json",
+       "schema": {
+        "$ref": "#/components/schemas/JobRun"
        }
       },
       {
@@ -18446,6 +18611,62 @@
      "title": "FieldRestriction",
      "description": "The strategy selected for one requested field.\n\n``strategy`` keeps its parameter in the string (``\"clip_contribution:1\"``,\n``\"aggregate_only:20\"``) so an audit record shows the bound that was\napplied, not only the strategy's name."
     },
+    "GateResult": {
+     "properties": {
+      "gate_id": {
+       "type": "string",
+       "title": "Gate Id",
+       "description": "The gate's id."
+      },
+      "outcome": {
+       "type": "string",
+       "enum": [
+        "passed",
+        "failed",
+        "not_evaluated"
+       ],
+       "title": "Outcome",
+       "description": "`passed`, `failed`, or `not_evaluated` when the candidate has no such metric (or, for `improves_on_baseline`, the baseline has none)."
+      },
+      "observed": {
+       "anyOf": [
+        {
+         "type": "number"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Observed",
+       "description": "The candidate's value for the metric. Null when it has none."
+      },
+      "threshold": {
+       "anyOf": [
+        {
+         "type": "number"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Threshold",
+       "description": "The value `observed` was compared with: the gate's `value`, or the baseline plus the margin. Null when an improvement gate has no baseline value."
+      },
+      "detail": {
+       "type": "string",
+       "title": "Detail",
+       "description": "The comparison in words, such as `accuracy=0.84 required >= 0.8`.",
+       "default": ""
+      }
+     },
+     "type": "object",
+     "required": [
+      "gate_id",
+      "outcome"
+     ],
+     "title": "GateResult",
+     "description": "Evaluation of one release gate against a candidate's metrics.\n\n``threshold`` is the value the planner compared ``observed`` with: the\ngate's value for ``at_least`` and ``at_most``, and baseline + margin for\n``improves_on_baseline``. It is ``None`` when an improvement gate has no\nbaseline metric. Read it from here; do not recompute it."
+    },
     "GuardAuditLog": {
      "properties": {
       "chain_intact": {
@@ -18832,6 +19053,31 @@
      "title": "JobLogEntry",
      "description": "One federated job, as the site's LMA recorded it in its job log."
     },
+    "JobRun": {
+     "properties": {
+      "acceptance": {
+       "$ref": "#/components/schemas/JobAcceptance",
+       "description": "The site's answer to the job offer."
+      },
+      "result": {
+       "anyOf": [
+        {
+         "$ref": "#/components/schemas/SiteResult"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "What the job produced, as `jobs:execute` returns it. Null when the site refused the job."
+      }
+     },
+     "type": "object",
+     "required": [
+      "acceptance"
+     ],
+     "title": "JobRun",
+     "description": "A site's answer to ``jobs:run``: the job offer and, when the site accepted, the job's result.\n\nThe site takes the same two steps as for ``jobs:offer`` then\n``jobs:execute``, in one call: it checks the job and asks its Guard, and\nruns the job only when it accepted it."
+    },
     "KyuAssessment": {
      "properties": {
       "requester_id": {
@@ -19148,6 +19394,41 @@
        "type": "object",
        "title": "Params",
        "description": "The parameters, in the form the model kind reads."
+      },
+      "parent_version": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Parent Version",
+       "description": "The version the training round that made it started from, as the GMA's registry records it. Null for a registered version."
+      },
+      "created_at": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Created At",
+       "description": "When the GMA's registry stored the version, in ISO 8601. Null when the GMA sent none."
+      },
+      "release_decision": {
+       "anyOf": [
+        {
+         "$ref": "#/components/schemas/ModelReleaseDecision"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The release decision the GMA stored with the version. Null for a version released without one."
       }
      },
      "type": "object",
@@ -19160,6 +19441,86 @@
      ],
      "title": "ModelInUse",
      "description": "The released model, as the site's LMA reads it from the GMA."
+    },
+    "ModelReleaseDecision": {
+     "properties": {
+      "action": {
+       "type": "string",
+       "enum": [
+        "release",
+        "another_round",
+        "reject"
+       ],
+       "title": "Action",
+       "description": "What the release gates decided: `release`, `another_round` or `reject`."
+      },
+      "guard_permitted": {
+       "type": "boolean",
+       "title": "Guard Permitted",
+       "description": "Whether the `before_release` Guard permitted the release."
+      },
+      "gate_results": {
+       "items": {
+        "$ref": "#/components/schemas/GateResult"
+       },
+       "type": "array",
+       "title": "Gate Results",
+       "description": "One result per gate, in gate order."
+      },
+      "round_id": {
+       "type": "string",
+       "title": "Round Id",
+       "description": "The training round the candidate came from."
+      },
+      "baseline_version": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Baseline Version",
+       "description": "The version the gates compared the candidate with: the version the baseline round measured, or the version released at the time. An approval is refused once another version is released."
+      },
+      "metrics_source": {
+       "anyOf": [
+        {
+         "type": "string",
+         "enum": [
+          "rounds",
+          "request"
+         ]
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Metrics Source",
+       "description": "`rounds` when the gates read the stored aggregates of rounds whose results the GMA's HTTP engine collected from the sites, `request` when they read metrics a caller sent or posted. Only `rounds` can lead to an approval. Null for an older decision."
+      },
+      "decided_at": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Decided At",
+       "description": "When the decision was stored, in ISO 8601. Set by the store."
+      }
+     },
+     "type": "object",
+     "required": [
+      "action",
+      "guard_permitted",
+      "round_id"
+     ],
+     "title": "ModelReleaseDecision",
+     "description": "The latest release decision for a model version, stored with the version.\n\nAn approval reads it. Decisions stored before ``baseline_version`` or\n``metrics_source`` existed lack them; the lifecycle rule refuses to approve\nsuch a decision."
     },
     "ModelRunRecord": {
      "properties": {
@@ -29228,6 +29589,99 @@
    }
   },
   {
+   "service": "healthcare-demo-backend",
+   "class": "app.models.AgentsStatus",
+   "name": "AgentsStatus",
+   "module": "app.models",
+   "file": "apps/healthcare-demo/backend/app/models.py",
+   "summary": "How the Dagents agents run behind the demo, as ``GET /api/v1/framework/status`` reports it.",
+   "description": null,
+   "schema": {
+    "description": "How the Dagents agents run behind the demo, as ``GET /api/v1/framework/status`` reports it.",
+    "properties": {
+     "mode": {
+      "description": "`in-process` when the three LMAs and the GMA run inside the demo server and are called through their routes without a socket; `network` when they run as their own processes.",
+      "enum": [
+       "in-process",
+       "network"
+      ],
+      "title": "Mode",
+      "type": "string"
+     },
+     "engine": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "The GMA's round engine, such as `http`. Null when the GMA did not answer.",
+      "title": "Engine"
+     },
+     "lmas": {
+      "anyOf": [
+       {
+        "items": {
+         "$ref": "#/$defs/AgentReach"
+        },
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Each hospital's LMA, from the GMA. Null when the GMA did not answer.",
+      "title": "Lmas"
+     }
+    },
+    "required": [
+     "mode",
+     "engine",
+     "lmas"
+    ],
+    "title": "AgentsStatus",
+    "type": "object"
+   },
+   "defs": {
+    "AgentReach": {
+     "description": "One hospital's LMA, as the GMA reaches it.",
+     "properties": {
+      "site_id": {
+       "description": "The hospital.",
+       "title": "Site Id",
+       "type": "string"
+      },
+      "reachable": {
+       "description": "Whether the LMA answered the GMA.",
+       "title": "Reachable",
+       "type": "boolean"
+      },
+      "source_kind": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The kind of store the LMA reports it reads: `postgres` or `in-memory`. Null when it did not answer.",
+       "title": "Source Kind"
+      }
+     },
+     "required": [
+      "site_id",
+      "reachable",
+      "source_kind"
+     ],
+     "title": "AgentReach",
+     "type": "object"
+    }
+   }
+  },
+  {
    "service": "gma",
    "class": "agents.common.domain.federation.AggregationMethod",
    "name": "AggregationMethod",
@@ -31114,10 +31568,11 @@
       "type": "string"
      },
      "step": {
-      "description": "`offer` (the site checks the job) or `execute` (the site runs it).",
+      "description": "`offer` (the site checks the job), `execute` (the site runs it), or `run` (both steps in one call: the site checks the job and runs it when it accepts).",
       "enum": [
        "offer",
-       "execute"
+       "execute",
+       "run"
       ],
       "title": "Step",
       "type": "string"
@@ -31142,7 +31597,7 @@
       "type": "number"
      },
      "outcome": {
-      "description": "For an offer: `accepted`, `refused`, or `failed` when no answer could be read. For an execute call: the participation of the returned result (`completed`, `rejected`, `failed`, `dropped`), or `failed` when no answer could be read.",
+      "description": "For an offer: `accepted`, `refused`, or `failed` when the call failed: the LMA answered with an error status or an answer that could not be read, or no answer came (`status_code` is null). For an execute call: the participation of the returned result (`completed`, `rejected`, `failed`, `dropped`), or `failed` when the call failed. For a run call: the participation of the returned result, `refused` when the site refused the job, or `failed` when the call failed.",
       "enum": [
        "accepted",
        "refused",
@@ -31719,6 +32174,89 @@
      "dispatched_runs"
     ],
     "title": "FleetOverview",
+    "type": "object"
+   },
+   "defs": {}
+  },
+  {
+   "service": "healthcare-demo-backend",
+   "class": "app.models.FrameworkCall",
+   "name": "FrameworkCall",
+   "module": "app.models",
+   "file": "apps/healthcare-demo/backend/app/models.py",
+   "summary": "One call to a Dagents agent behind a response, as ``framework_calls`` lists it.",
+   "description": "The app adds the list to every successful (2xx) answer whose body is a\nJSON object. Errors, a JSON list and an SVG have none. It names the route,\nnever a host, a token or a body.",
+   "schema": {
+    "description": "One call to a Dagents agent behind a response, as ``framework_calls`` lists it.\n\nThe app adds the list to every successful (2xx) answer whose body is a\nJSON object. Errors, a JSON list and an SVG have none. It names the route,\nnever a host, a token or a body.",
+    "properties": {
+     "service": {
+      "description": "The agent called: a hospital's `lma` or the study's `gma`.",
+      "enum": [
+       "lma",
+       "gma"
+      ],
+      "title": "Service",
+      "type": "string"
+     },
+     "site_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "The hospital whose LMA was called. Null for the GMA.",
+      "title": "Site Id"
+     },
+     "method": {
+      "description": "The HTTP method, such as `GET` or `POST`.",
+      "title": "Method",
+      "type": "string"
+     },
+     "path": {
+      "description": "The route as the agent declares it, such as `/api/v1/federation/rounds/{round_id}`. Never a host.",
+      "title": "Path",
+      "type": "string"
+     },
+     "status": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "The status the agent answered with. Null when no answer came.",
+      "title": "Status"
+     },
+     "ms": {
+      "description": "How long the call took, in milliseconds.",
+      "title": "Ms",
+      "type": "number"
+     },
+     "via": {
+      "description": "`app` for a call the app made. `gma` for a call the GMA made to an LMA while it dispatched a round; it follows the GMA call that made it.",
+      "enum": [
+       "app",
+       "gma"
+      ],
+      "title": "Via",
+      "type": "string"
+     }
+    },
+    "required": [
+     "service",
+     "site_id",
+     "method",
+     "path",
+     "status",
+     "ms",
+     "via"
+    ],
+    "title": "FrameworkCall",
     "type": "object"
    },
    "defs": {}
@@ -32454,9 +32992,9 @@
    "module": "app.models",
    "file": "apps/healthcare-demo/backend/app/models.py",
    "summary": "What a hospital's Guard would release for a probe, without the records.",
-   "description": "The coordinator's page calls the probe, and no patient row reaches the\ncoordinator. So the answer counts the released records and names their\nfields; the values stay at the hospital. A key the hospital's report adds\nthat is not listed here is dropped from the response.",
+   "description": "The coordinator's page calls the probe, and no patient row reaches the\ncoordinator. So the answer counts the released records and names their\nfields; the values stay at the hospital. The hospital's LMA runs the Guard\n(``POST /api/v1/governance/restrictions:probe``). A key the LMA's answer\nadds that is not listed here is dropped from the response.",
    "schema": {
-    "description": "What a hospital's Guard would release for a probe, without the records.\n\nThe coordinator's page calls the probe, and no patient row reaches the\ncoordinator. So the answer counts the released records and names their\nfields; the values stay at the hospital. A key the hospital's report adds\nthat is not listed here is dropped from the response.",
+    "description": "What a hospital's Guard would release for a probe, without the records.\n\nThe coordinator's page calls the probe, and no patient row reaches the\ncoordinator. So the answer counts the released records and names their\nfields; the values stay at the hospital. The hospital's LMA runs the Guard\n(``POST /api/v1/governance/restrictions:probe``). A key the LMA's answer\nadds that is not listed here is dropped from the response.",
     "properties": {
      "site_id": {
       "description": "The hospital whose Guard answered.",
@@ -32464,7 +33002,7 @@
       "type": "string"
      },
      "request_id": {
-      "description": "`probe:<site_id>:<boundary>:<granularity>`. It is the request id in the plan and the audit record.",
+      "description": "`probe:<site_id>:<random hex>`, given by the hospital's LMA. It is the request id in the audit record.",
       "title": "Request Id",
       "type": "string"
      },
@@ -32527,6 +33065,14 @@
       "description": "The Guard's decision in words, such as `permitted with restrictions`.",
       "title": "Message",
       "type": "string"
+     },
+     "framework_calls": {
+      "description": "The calls to the hospital's LMA behind this answer: `POST /api/v1/governance/restrictions:probe`.",
+      "items": {
+       "$ref": "#/$defs/FrameworkCall"
+      },
+      "title": "Framework Calls",
+      "type": "array"
      }
     },
     "required": [
@@ -32582,6 +33128,79 @@
       "reason"
      ],
      "title": "FieldRestriction",
+     "type": "object"
+    },
+    "FrameworkCall": {
+     "description": "One call to a Dagents agent behind a response, as ``framework_calls`` lists it.\n\nThe app adds the list to every successful (2xx) answer whose body is a\nJSON object. Errors, a JSON list and an SVG have none. It names the route,\nnever a host, a token or a body.",
+     "properties": {
+      "service": {
+       "description": "The agent called: a hospital's `lma` or the study's `gma`.",
+       "enum": [
+        "lma",
+        "gma"
+       ],
+       "title": "Service",
+       "type": "string"
+      },
+      "site_id": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The hospital whose LMA was called. Null for the GMA.",
+       "title": "Site Id"
+      },
+      "method": {
+       "description": "The HTTP method, such as `GET` or `POST`.",
+       "title": "Method",
+       "type": "string"
+      },
+      "path": {
+       "description": "The route as the agent declares it, such as `/api/v1/federation/rounds/{round_id}`. Never a host.",
+       "title": "Path",
+       "type": "string"
+      },
+      "status": {
+       "anyOf": [
+        {
+         "type": "integer"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The status the agent answered with. Null when no answer came.",
+       "title": "Status"
+      },
+      "ms": {
+       "description": "How long the call took, in milliseconds.",
+       "title": "Ms",
+       "type": "number"
+      },
+      "via": {
+       "description": "`app` for a call the app made. `gma` for a call the GMA made to an LMA while it dispatched a round; it follows the GMA call that made it.",
+       "enum": [
+        "app",
+        "gma"
+       ],
+       "title": "Via",
+       "type": "string"
+      }
+     },
+     "required": [
+      "service",
+      "site_id",
+      "method",
+      "path",
+      "status",
+      "ms",
+      "via"
+     ],
+     "title": "FrameworkCall",
      "type": "object"
     },
     "KyuAssessment": {
@@ -33080,6 +33699,207 @@
     "type": "object"
    },
    "defs": {}
+  },
+  {
+   "service": "lma",
+   "class": "agents.common.domain.federation.JobRun",
+   "name": "JobRun",
+   "module": "agents.common.domain.federation",
+   "file": "agents/common/domain/federation.py",
+   "summary": "A site's answer to ``jobs:run``: the job offer and, when the site accepted, the job's result.",
+   "description": "The site takes the same two steps as for ``jobs:offer`` then\n``jobs:execute``, in one call: it checks the job and asks its Guard, and\nruns the job only when it accepted it.",
+   "schema": {
+    "description": "A site's answer to ``jobs:run``: the job offer and, when the site accepted, the job's result.\n\nThe site takes the same two steps as for ``jobs:offer`` then\n``jobs:execute``, in one call: it checks the job and asks its Guard, and\nruns the job only when it accepted it.",
+    "properties": {
+     "acceptance": {
+      "$ref": "#/$defs/JobAcceptance",
+      "description": "The site's answer to the job offer."
+     },
+     "result": {
+      "anyOf": [
+       {
+        "$ref": "#/$defs/SiteResult"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "What the job produced, as `jobs:execute` returns it. Null when the site refused the job."
+     }
+    },
+    "required": [
+     "acceptance"
+    ],
+    "title": "JobRun",
+    "type": "object"
+   },
+   "defs": {
+    "JobAcceptance": {
+     "description": "A site's answer to an offered job.\n\nA site may always refuse, and the reason is recorded. Refusal before code\nruns is the point of distributing a signed job at all.",
+     "properties": {
+      "round_id": {
+       "description": "The round the job belongs to.",
+       "title": "Round Id",
+       "type": "string"
+      },
+      "site_id": {
+       "description": "The site that answered.",
+       "title": "Site Id",
+       "type": "string"
+      },
+      "accepted": {
+       "description": "Whether the site accepted the job. A site that refuses reads no data.",
+       "title": "Accepted",
+       "type": "boolean"
+      },
+      "reason": {
+       "default": "",
+       "description": "Why the site accepted or refused the job, in words.",
+       "title": "Reason",
+       "type": "string"
+      },
+      "verified_digest": {
+       "default": false,
+       "description": "Whether the job's digest matched the digest the site computed for the manifest.",
+       "title": "Verified Digest",
+       "type": "boolean"
+      },
+      "feature_contract_version": {
+       "default": "",
+       "description": "The feature contract version the site produces.",
+       "title": "Feature Contract Version",
+       "type": "string"
+      }
+     },
+     "required": [
+      "round_id",
+      "site_id",
+      "accepted"
+     ],
+     "title": "JobAcceptance",
+     "type": "object"
+    },
+    "SiteResult": {
+     "description": "What one site returns from a round.\n\nDeliberately minimal. No subject identifier, row, image, note, or\nper-subject prediction has a place in this contract; detailed local\nevidence stays at the site behind ``local_evidence_pointer``.\n\nA model update is not carried here either. Results are stored with the\nround and shown to the coordinator, so a site that trains sends its clipped\nupdate through an update channel and reports only its norm\n(``update_norm``) and the digest the channel returned (``update_digest``).\nThe runtime that aggregates checks each update against that digest.",
+     "properties": {
+      "round_id": {
+       "description": "The round the result belongs to.",
+       "title": "Round Id",
+       "type": "string"
+      },
+      "site_id": {
+       "description": "The site that sends it. A later result from the same site replaces this one.",
+       "title": "Site Id",
+       "type": "string"
+      },
+      "job_digest": {
+       "default": "",
+       "description": "The round digest the site received with its job. A completed result counts only when it equals the plan's `round_digest`.",
+       "title": "Job Digest",
+       "type": "string"
+      },
+      "participation": {
+       "description": "`accepted` (not finished yet), `completed`, `rejected` (the site refused the job), `failed` or `dropped`. Only a `completed` result can count.",
+       "enum": [
+        "accepted",
+        "completed",
+        "rejected",
+        "failed",
+        "dropped"
+       ],
+       "title": "Participation",
+       "type": "string"
+      },
+      "code_verified": {
+       "default": false,
+       "description": "Whether the site checked the training code digest. A completed result counts only when it is true.",
+       "title": "Code Verified",
+       "type": "boolean"
+      },
+      "privacy_checks_passed": {
+       "default": false,
+       "description": "Whether the site's privacy checks passed. A completed result counts only when it is true.",
+       "title": "Privacy Checks Passed",
+       "type": "boolean"
+      },
+      "contributed_examples": {
+       "default": 0,
+       "description": "How many examples the site used. A completed result counts only when it is at least the manifest's `minimum_cohort_per_site`. It sets the site's weight. At least 0.",
+       "minimum": 0,
+       "title": "Contributed Examples",
+       "type": "integer"
+      },
+      "update_norm": {
+       "anyOf": [
+        {
+         "type": "number"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "description": "The L2 norm (length) of the site's clipped model update, when it sent one. Under `secure_aggregation` it is required and must be at most 10.",
+       "title": "Update Norm"
+      },
+      "update_digest": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "description": "The digest the update channel returned for the site's update. Stored; no planner rule reads it.",
+       "title": "Update Digest"
+      },
+      "metrics": {
+       "additionalProperties": {
+        "type": "number"
+       },
+       "description": "Named measurements the site reports, such as `accuracy`.",
+       "title": "Metrics",
+       "type": "object"
+      },
+      "local_evidence_pointer": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "description": "Where the site keeps its detailed evidence. Stored; the GMA never follows it.",
+       "title": "Local Evidence Pointer"
+      },
+      "refusal_reason": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "description": "Why the site refused or could not finish the job, in words, such as `the guard withheld the outbound model update`. Present only when there is a reason: a result without one leaves the key out. Stored; no planner rule reads it.",
+       "title": "Refusal Reason"
+      }
+     },
+     "required": [
+      "round_id",
+      "site_id",
+      "participation"
+     ],
+     "title": "SiteResult",
+     "type": "object"
+    }
+   }
   },
   {
    "service": "lma",
@@ -34976,6 +35796,44 @@
       "description": "The parameters, in the form the model kind reads.",
       "title": "Params",
       "type": "object"
+     },
+     "parent_version": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "The version the training round that made it started from, as the GMA's registry records it. Null for a registered version.",
+      "title": "Parent Version"
+     },
+     "created_at": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "When the GMA's registry stored the version, in ISO 8601. Null when the GMA sent none.",
+      "title": "Created At"
+     },
+     "release_decision": {
+      "anyOf": [
+       {
+        "$ref": "#/$defs/ModelReleaseDecision"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "The release decision the GMA stored with the version. Null for a version released without one."
      }
     },
     "required": [
@@ -34988,7 +35846,149 @@
     "title": "ModelInUse",
     "type": "object"
    },
-   "defs": {}
+   "defs": {
+    "GateResult": {
+     "description": "Evaluation of one release gate against a candidate's metrics.\n\n``threshold`` is the value the planner compared ``observed`` with: the\ngate's value for ``at_least`` and ``at_most``, and baseline + margin for\n``improves_on_baseline``. It is ``None`` when an improvement gate has no\nbaseline metric. Read it from here; do not recompute it.",
+     "properties": {
+      "gate_id": {
+       "description": "The gate's id.",
+       "title": "Gate Id",
+       "type": "string"
+      },
+      "outcome": {
+       "description": "`passed`, `failed`, or `not_evaluated` when the candidate has no such metric (or, for `improves_on_baseline`, the baseline has none).",
+       "enum": [
+        "passed",
+        "failed",
+        "not_evaluated"
+       ],
+       "title": "Outcome",
+       "type": "string"
+      },
+      "observed": {
+       "anyOf": [
+        {
+         "type": "number"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "description": "The candidate's value for the metric. Null when it has none.",
+       "title": "Observed"
+      },
+      "threshold": {
+       "anyOf": [
+        {
+         "type": "number"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "description": "The value `observed` was compared with: the gate's `value`, or the baseline plus the margin. Null when an improvement gate has no baseline value.",
+       "title": "Threshold"
+      },
+      "detail": {
+       "default": "",
+       "description": "The comparison in words, such as `accuracy=0.84 required >= 0.8`.",
+       "title": "Detail",
+       "type": "string"
+      }
+     },
+     "required": [
+      "gate_id",
+      "outcome"
+     ],
+     "title": "GateResult",
+     "type": "object"
+    },
+    "ModelReleaseDecision": {
+     "description": "The latest release decision for a model version, stored with the version.\n\nAn approval reads it. Decisions stored before ``baseline_version`` or\n``metrics_source`` existed lack them; the lifecycle rule refuses to approve\nsuch a decision.",
+     "properties": {
+      "action": {
+       "description": "What the release gates decided: `release`, `another_round` or `reject`.",
+       "enum": [
+        "release",
+        "another_round",
+        "reject"
+       ],
+       "title": "Action",
+       "type": "string"
+      },
+      "guard_permitted": {
+       "description": "Whether the `before_release` Guard permitted the release.",
+       "title": "Guard Permitted",
+       "type": "boolean"
+      },
+      "gate_results": {
+       "description": "One result per gate, in gate order.",
+       "items": {
+        "$ref": "#/$defs/GateResult"
+       },
+       "title": "Gate Results",
+       "type": "array"
+      },
+      "round_id": {
+       "description": "The training round the candidate came from.",
+       "title": "Round Id",
+       "type": "string"
+      },
+      "baseline_version": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "description": "The version the gates compared the candidate with: the version the baseline round measured, or the version released at the time. An approval is refused once another version is released.",
+       "title": "Baseline Version"
+      },
+      "metrics_source": {
+       "anyOf": [
+        {
+         "enum": [
+          "rounds",
+          "request"
+         ],
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "description": "`rounds` when the gates read the stored aggregates of rounds whose results the GMA's HTTP engine collected from the sites, `request` when they read metrics a caller sent or posted. Only `rounds` can lead to an approval. Null for an older decision.",
+       "title": "Metrics Source"
+      },
+      "decided_at": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "description": "When the decision was stored, in ISO 8601. Set by the store.",
+       "title": "Decided At"
+      }
+     },
+     "required": [
+      "action",
+      "guard_permitted",
+      "round_id"
+     ],
+     "title": "ModelReleaseDecision",
+     "type": "object"
+    }
+   }
   },
   {
    "service": "model-service",
@@ -38326,8 +39326,26 @@
      "type": "object"
     },
     "ReleaseGuardCheck": {
-     "description": "What the `before_release` Guard decided for a release evaluation.",
+     "description": "What the `before_release` Guard decided for a release evaluation.\n\nIt holds the Guard's whole decision. The payload is one row with the size\nof the candidate's change (`model_update`), never a record or a parameter.",
      "properties": {
+      "request_id": {
+       "default": "",
+       "description": "`<round_id>:release:<candidate_version>`. It is the request id in the audit record.",
+       "title": "Request Id",
+       "type": "string"
+      },
+      "boundary": {
+       "default": "before_release",
+       "description": "Always `before_release`.",
+       "enum": [
+        "before_read",
+        "before_train",
+        "before_send",
+        "before_release"
+       ],
+       "title": "Boundary",
+       "type": "string"
+      },
       "permitted": {
        "description": "Whether the Guard permitted the release.",
        "title": "Permitted",
@@ -38336,6 +39354,31 @@
       "plan": {
        "$ref": "#/$defs/RestrictionPlan",
        "description": "The plan the Guard applied."
+      },
+      "payload": {
+       "description": "What the Guard released: one row whose `model_update` is the model kind's `parameter_change`, after its strategy (for example clipped). Empty when the Guard denied the release.",
+       "items": {
+        "additionalProperties": true,
+        "type": "object"
+       },
+       "title": "Payload",
+       "type": "array"
+      },
+      "withheld_fields": {
+       "description": "The requested fields the Guard removed.",
+       "items": {
+        "type": "string"
+       },
+       "title": "Withheld Fields",
+       "type": "array"
+      },
+      "transformed_fields": {
+       "description": "The requested fields the Guard returned with changed values, such as a clipped `model_update`.",
+       "items": {
+        "type": "string"
+       },
+       "title": "Transformed Fields",
+       "type": "array"
       },
       "audit_id": {
        "description": "The id of the record in the GMA's audit chain.",
@@ -38856,10 +39899,28 @@
    "module": "agents.common.domain.federation",
    "file": "agents/common/domain/federation.py",
    "summary": "What the `before_release` Guard decided for a release evaluation.",
-   "description": null,
+   "description": "It holds the Guard's whole decision. The payload is one row with the size\nof the candidate's change (`model_update`), never a record or a parameter.",
    "schema": {
-    "description": "What the `before_release` Guard decided for a release evaluation.",
+    "description": "What the `before_release` Guard decided for a release evaluation.\n\nIt holds the Guard's whole decision. The payload is one row with the size\nof the candidate's change (`model_update`), never a record or a parameter.",
     "properties": {
+     "request_id": {
+      "default": "",
+      "description": "`<round_id>:release:<candidate_version>`. It is the request id in the audit record.",
+      "title": "Request Id",
+      "type": "string"
+     },
+     "boundary": {
+      "default": "before_release",
+      "description": "Always `before_release`.",
+      "enum": [
+       "before_read",
+       "before_train",
+       "before_send",
+       "before_release"
+      ],
+      "title": "Boundary",
+      "type": "string"
+     },
      "permitted": {
       "description": "Whether the Guard permitted the release.",
       "title": "Permitted",
@@ -38868,6 +39929,31 @@
      "plan": {
       "$ref": "#/$defs/RestrictionPlan",
       "description": "The plan the Guard applied."
+     },
+     "payload": {
+      "description": "What the Guard released: one row whose `model_update` is the model kind's `parameter_change`, after its strategy (for example clipped). Empty when the Guard denied the release.",
+      "items": {
+       "additionalProperties": true,
+       "type": "object"
+      },
+      "title": "Payload",
+      "type": "array"
+     },
+     "withheld_fields": {
+      "description": "The requested fields the Guard removed.",
+      "items": {
+       "type": "string"
+      },
+      "title": "Withheld Fields",
+      "type": "array"
+     },
+     "transformed_fields": {
+      "description": "The requested fields the Guard returned with changed values, such as a clipped `model_update`.",
+      "items": {
+       "type": "string"
+      },
+      "title": "Transformed Fields",
+      "type": "array"
      },
      "audit_id": {
       "description": "The id of the record in the GMA's audit chain.",
@@ -39892,7 +40978,7 @@
        }
       ],
       "default": null,
-      "description": "The readiness check saved by the aggregate endpoint. Null before it."
+      "description": "The planner's readiness check, saved by the aggregate endpoint and, with an engine that collects every result itself (the HTTP engine), at the end of the dispatch. Null before either."
      },
      "decision": {
       "anyOf": [
@@ -40222,10 +41308,11 @@
        "type": "string"
       },
       "step": {
-       "description": "`offer` (the site checks the job) or `execute` (the site runs it).",
+       "description": "`offer` (the site checks the job), `execute` (the site runs it), or `run` (both steps in one call: the site checks the job and runs it when it accepts).",
        "enum": [
         "offer",
-        "execute"
+        "execute",
+        "run"
        ],
        "title": "Step",
        "type": "string"
@@ -40250,7 +41337,7 @@
        "type": "number"
       },
       "outcome": {
-       "description": "For an offer: `accepted`, `refused`, or `failed` when no answer could be read. For an execute call: the participation of the returned result (`completed`, `rejected`, `failed`, `dropped`), or `failed` when no answer could be read.",
+       "description": "For an offer: `accepted`, `refused`, or `failed` when the call failed: the LMA answered with an error status or an answer that could not be read, or no answer came (`status_code` is null). For an execute call: the participation of the returned result (`completed`, `rejected`, `failed`, `dropped`), or `failed` when the call failed. For a run call: the participation of the returned result, `refused` when the site refused the job, or `failed` when the call failed.",
        "enum": [
         "accepted",
         "refused",

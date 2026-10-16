@@ -1,7 +1,7 @@
 {
   "framework": "dagents",
   "generated_by": "scripts/service_inventory.py",
-  "endpoint_count": 222,
+  "endpoint_count": 223,
   "services": [
     {
       "name": "core-service",
@@ -856,7 +856,7 @@
           "path": "/api/v1/charts",
           "handler": "consortium_charts",
           "status_code": null,
-          "summary": "The consortium charts, from site summaries and the last pilot. Never a 4xx.",
+          "summary": "The consortium charts, from what the hospitals report through the GMA and the last pilot. Never a 4xx.",
           "alias_of": null
         },
         {
@@ -880,7 +880,7 @@
           "path": "/api/v1/extension",
           "handler": "extension",
           "status_code": null,
-          "summary": "What this app contributes to the framework, and what each side owns.",
+          "summary": "What this app contributes to the agents, as the GMA's extension registry describes it, and what each side owns.",
           "alias_of": null
         },
         {
@@ -888,15 +888,7 @@
           "path": "/api/v1/framework/status",
           "handler": "framework_status",
           "status_code": null,
-          "summary": "Where the records are stored, which framework services answer, and the allowed origins.",
-          "alias_of": null
-        },
-        {
-          "method": "GET",
-          "path": "/api/v1/framework/trace",
-          "handler": "framework_trace",
-          "status_code": null,
-          "summary": "Run one hospital's records through the framework's planners, at that hospital.",
+          "summary": "Where the records are stored, how the Dagents agents run, which answer, and the allowed origins.",
           "alias_of": null
         },
         {
@@ -904,7 +896,7 @@
           "path": "/api/v1/governance:probe",
           "handler": "governance_probe",
           "status_code": null,
-          "summary": "Run one request through a hospital's Guard and report what it would release.",
+          "summary": "Run one request through a hospital's Guard, at its LMA, and report what it would release.",
           "alias_of": null
         },
         {
@@ -923,7 +915,7 @@
           "path": "/api/v1/hospitals",
           "handler": "hospitals",
           "status_code": null,
-          "summary": "What each hospital reports about its records: counts and an outcome rate.",
+          "summary": "What each hospital reports about its records through the GMA: counts and an outcome rate.",
           "alias_of": null
         },
         {
@@ -931,7 +923,7 @@
           "path": "/api/v1/hospitals/{site_id}",
           "handler": "hospital_dashboard",
           "status_code": null,
-          "summary": "One hospital's own view: its store, statistics, local metrics and what it sent.",
+          "summary": "One hospital's own view: its store, what its LMA reports, local metrics and what it sent.",
           "alias_of": null
         },
         {
@@ -939,7 +931,7 @@
           "path": "/api/v1/hospitals/{site_id}/audit",
           "handler": "hospital_audit",
           "status_code": null,
-          "summary": "One hospital's Guard decisions, newest first, and whether its audit chain verifies.",
+          "summary": "One hospital's Guard decisions, newest first, and whether its audit chain verifies, from its LMA.",
           "alias_of": null
         },
         {
@@ -971,7 +963,7 @@
           "path": "/api/v1/hospitals/{site_id}/encounters",
           "handler": "hospital_enter",
           "status_code": 201,
-          "summary": "Store a new record at one hospital, as that hospital, and update its running statistics.",
+          "summary": "Store a new record at one hospital, as that hospital, and have its LMA read the store again.",
           "alias_of": null
         },
         {
@@ -1003,7 +995,7 @@
           "path": "/api/v1/hospitals/{site_id}/worklist",
           "handler": "hospital_worklist",
           "status_code": null,
-          "summary": "One hospital's records ranked by the model in use. The list stays at the hospital.",
+          "summary": "One hospital's records ranked by the model its LMA reports in use. The list stays at the hospital.",
           "alias_of": null
         },
         {
@@ -1019,7 +1011,7 @@
           "path": "/api/v1/models",
           "handler": "models",
           "status_code": null,
-          "summary": "The model the hospitals use, and the 20 newest registered versions, oldest first.",
+          "summary": "The model the hospitals use, and the 20 newest registered versions, oldest first, from the GMA.",
           "alias_of": null
         },
         {
@@ -1027,7 +1019,7 @@
           "path": "/api/v1/models/{version}:approve",
           "handler": "approve_model",
           "status_code": null,
-          "summary": "Release a candidate whose last release decision was ``release``.",
+          "summary": "Release a candidate whose last release decision was ``release``, through the GMA.",
           "alias_of": null
         },
         {
@@ -1035,7 +1027,7 @@
           "path": "/api/v1/overview",
           "handler": "overview",
           "status_code": null,
-          "summary": "The consortium, the numbers each hospital reports, and the release gates.",
+          "summary": "The consortium, the numbers each hospital reports through the GMA, and the release gates.",
           "alias_of": null
         },
         {
@@ -1043,7 +1035,7 @@
           "path": "/api/v1/pilot:run",
           "handler": "run_pilot",
           "status_code": null,
-          "summary": "Run the federated pilot across every hospital and return its evidence.",
+          "summary": "Run the federated pilot across every hospital, through the GMA, and return its evidence.",
           "alias_of": null
         },
         {
@@ -1067,7 +1059,7 @@
           "path": "/health",
           "handler": "health",
           "status_code": null,
-          "summary": "Liveness. Reads no store.",
+          "summary": "Liveness. Reads no store and calls no agent.",
           "alias_of": null
         }
       ]
@@ -1133,6 +1125,17 @@
           "alias_of": {
             "method": "POST",
             "path": "/federation/jobs:offer"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/federation/jobs:run",
+          "handler": "run_job_v1",
+          "status_code": null,
+          "summary": "Versioned alias for running a job.",
+          "alias_of": {
+            "method": "POST",
+            "path": "/federation/jobs:run"
           }
         },
         {
@@ -1408,6 +1411,14 @@
           "handler": "offer_job",
           "status_code": null,
           "summary": "Let the site check a job before it reads any data, and accept or refuse it.",
+          "alias_of": null
+        },
+        {
+          "method": "POST",
+          "path": "/federation/jobs:run",
+          "handler": "run_job",
+          "status_code": null,
+          "summary": "Offer a job and, when the site accepts it, run it, in one call.",
           "alias_of": null
         },
         {

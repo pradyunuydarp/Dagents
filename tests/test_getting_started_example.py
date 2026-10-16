@@ -248,7 +248,8 @@ class ExampleRunTests(unittest.TestCase):
                 ran_here = [line for line in in_process.splitlines() if line.startswith(f"  {site_id}: completed")]
                 self.assertEqual(1, len(ran_here))
                 self.assertIn(ran_here[0], output.splitlines())
-                self.assertRegex(output, rf"{site_id} offer 200 accepted, execute 200 completed")
+                # One jobs:run call per store: the offer and the execution.
+                self.assertRegex(output, rf"{site_id} run 200 completed")
         self.assertIn("Aggregation permitted: True", output)
         self.assertIn("store-east, which the round did not select: 403 forbidden", output)
         # The GMA and the caller see counts and metrics, never an order.

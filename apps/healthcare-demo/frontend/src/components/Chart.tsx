@@ -79,6 +79,22 @@ export function ChartFigure({ chart }: { chart: ChartInfo }) {
       ) : (
         <p className="chart-unavailable">{chart.reason ?? "This chart has no data yet."}</p>
       )}
+      {(chart.drawn_by || chart.data_from) && (
+        <dl className="chart-source">
+          {chart.drawn_by && (
+            <div>
+              <dt>Drawn by</dt>
+              <dd data-drawn-by>{chart.drawn_by}</dd>
+            </div>
+          )}
+          {chart.data_from && (
+            <div>
+              <dt>Numbers from</dt>
+              <dd data-data-from>{chart.data_from}</dd>
+            </div>
+          )}
+        </dl>
+      )}
     </figure>
   );
 }

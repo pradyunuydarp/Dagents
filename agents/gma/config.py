@@ -17,6 +17,7 @@ application runs in its own process.
 | `GMA_SITE_TOKENS` | none | `SITE=TOKEN,...`: each LMA's token for its update uploads and the released model (`site` scope, bound to the site) |
 | `GMA_DISPATCH_CONCURRENCY` | `3` | How many sites a round's jobs run at at once |
 | `GMA_SUMMARY_TTL_SECONDS` | `2` | How long the site directory keeps the sites' summaries |
+| `GMA_SUMMARY_TIMEOUT_SECONDS` | `30` | How long the site directory waits for each LMA's summary, audit state and site description; an LMA that takes longer is reported as not reachable |
 | `GMA_EXTENSIONS` | none | `module:attribute,...`: extensions for this GMA's own registry. Without it the GMA reads the default registry |
 | `GMA_DATABASE_URL` | none | The coordinator database. Never shown in a log or a response |
 | `GMA_DATABASE_ROLE` | none | The role every coordinator query runs as. Needed with `GMA_DATABASE_URL` |
@@ -94,6 +95,7 @@ class Settings:
     site_tokens: Mapping[str, str] = field(default_factory=dict, repr=False)
     dispatch_concurrency: int = 3
     summary_ttl_seconds: float = 2.0
+    summary_timeout_seconds: float = 30.0
     extensions: str = ""
     database_url: str | None = field(default=None, repr=False)
     database_role: str | None = None
@@ -112,6 +114,8 @@ class Settings:
             raise ValueError("GMA_DISPATCH_CONCURRENCY must be from 1 to 64")
         if not self.summary_ttl_seconds >= 0:
             raise ValueError("GMA_SUMMARY_TTL_SECONDS must be 0 or more")
+        if not self.summary_timeout_seconds > 0:
+            raise ValueError("GMA_SUMMARY_TIMEOUT_SECONDS must be more than 0")
 
     @property
     def site_ids(self) -> list[str]:
@@ -144,6 +148,7 @@ class Settings:
             site_tokens=parse_site_map(environ.get("GMA_SITE_TOKENS"), setting="GMA_SITE_TOKENS"),
             dispatch_concurrency=int(_number(environ, "GMA_DISPATCH_CONCURRENCY", 3, int)),
             summary_ttl_seconds=float(_number(environ, "GMA_SUMMARY_TTL_SECONDS", 2.0, float)),
+            summary_timeout_seconds=float(_number(environ, "GMA_SUMMARY_TIMEOUT_SECONDS", 30.0, float)),
             extensions=_text(environ, "GMA_EXTENSIONS") or "",
             database_url=_text(environ, "GMA_DATABASE_URL"),
             database_role=_text(environ, "GMA_DATABASE_ROLE"),

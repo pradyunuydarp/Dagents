@@ -20,9 +20,12 @@ The stroke triage demo uses real, de-identified records from the
 [International Stroke Trial](https://doi.org/10.7488/ds/104) (IST-1, 1991-1996):
 1,014 patients from three hospitals in the United Kingdom, Italy and Switzerland.
 Each hospital keeps its records in its own store, and the page has a view for
-each hospital, with a form to enter a new record. The published page calls the
-demo's deployed API, which makes every governance and federation decision with
-the OCaml planner in its image, and it shows the data source the API reports.
+each hospital, with a form to enter a new record. Each hospital is served by a
+Dagents LMA and the study by a Dagents GMA, and the demo calls them only through
+their HTTP APIs; the page lists the agent calls behind each answer. The published page
+calls the demo's deployed API, which runs the agents in its own process. The
+agents make every governance and federation decision with the OCaml planner in
+its image, and the page shows the data source the API reports.
 The API sleeps when idle, so the first request takes about 20 seconds, and the
 page shows a banner while it waits. If, when the site is built, the API does not
 answer, is not reading Postgres, has a hospital store without records, or
@@ -103,9 +106,9 @@ These are the two parts an application would otherwise build itself:
   candidate model, never a release.
 
 Applications use both through `agents/common/extensions`, by registering feature
-contracts, data classifications, condition packs, pipeline steps and model
-adapters. [`apps/healthcare-demo/`](apps/healthcare-demo/README.md) is a worked
-example.
+contracts, data classifications, condition packs, model kinds, site sources,
+pipeline steps and model adapters, and call the LMA and GMA through their APIs.
+[`apps/healthcare-demo/`](apps/healthcare-demo/README.md) is a worked example.
 
 ## Run it
 
