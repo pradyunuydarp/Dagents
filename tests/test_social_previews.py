@@ -14,6 +14,8 @@ browser and no fonts. These tests check:
 - the Pages workflow gives each build its published address, and its three
   checks (`scripts/check_link_previews.py`) fail on broken addresses, broken
   built pages and a published image that does not load;
+- the Pages deploy tries a failed deploy once more, fails when no attempt
+  succeeded, and checks the published pages only after a successful deploy;
 - each card is 1200 x 630 and under 300 KB, each icon has its size, and every
   output is current with the files it was made from (`design/social/rendered.json`);
 - the cards and descriptions show no number that can change, as a digit or as
@@ -578,6 +580,85 @@ class PagesWorkflowTests(unittest.TestCase):
         self.assertLess(checkout, step, "the step runs a script from the repository")
         # The deploy job installs nothing, so the script needs only the runner's python3.
         self.assertEqual("python3 scripts/check_link_previews.py published", self.deploy[step]["run"].strip())
+
+    # --- the deploy and its one retry
+
+    DEPLOY_GUARD = "One deploy attempt succeeded"
+    AFTER_DEPLOY = (
+        "The published pages answer at the addresses the docs give",
+        "Each published page's link preview image loads",
+    )
+
+    def deploy_steps(self) -> list[int]:
+        return [index for index, item in enumerate(self.deploy) if "actions/deploy-pages" in item.get("uses", "")]
+
+    def test_a_failed_deploy_is_tried_once_more(self) -> None:
+        """GitHub's side can stall a deploy (run 41), so a failed first attempt gets one more."""
+        first, second = self.deploy_steps()
+        self.assertEqual(self.deploy[first]["uses"], self.deploy[second]["uses"], "both attempts use the same action")
+        self.assertEqual(self.deploy[first].get("with"), self.deploy[second].get("with"))
+        self.assertEqual("deployment", self.deploy[first].get("id"))
+        # The first attempt may fail without failing the job, so the second can run.
+        self.assertIs(True, self.deploy[first].get("continue-on-error"))
+        # The second runs only after a failed first attempt, and its failure fails the job.
+        self.assertEqual("retry", self.deploy[second].get("id"))
+        self.assertEqual("${{ steps.deployment.outcome == 'failure' }}", self.deploy[second].get("if"))
+        self.assertNotIn("continue-on-error", self.deploy[second])
+        wait = self.step_index(self.deploy, "Wait before the second attempt")
+        self.assertTrue(first < wait < second)
+        self.assertEqual(self.deploy[second]["if"], self.deploy[wait].get("if"))
+        # The environment links the page whichever attempt published it.
+        url = self.workflow["jobs"]["deploy"]["environment"]["url"]
+        self.assertEqual("${{ steps.retry.outputs.page_url || steps.deployment.outputs.page_url }}", url)
+
+    def test_the_checks_after_the_deploy_need_a_successful_attempt(self) -> None:
+        """A green deploy job means the site was published; nothing after the deploy runs otherwise."""
+        guard = self.step_index(self.deploy, self.DEPLOY_GUARD)
+        self.assertLess(max(self.deploy_steps()), guard)
+        step = self.deploy[guard]
+        self.assertEqual(
+            {"FIRST": "${{ steps.deployment.outcome }}", "SECOND": "${{ steps.retry.outcome }}"}, step.get("env")
+        )
+        self.assertNotIn("${{", step["run"])
+        for name in (self.DEPLOY_GUARD, *self.AFTER_DEPLOY):
+            with self.subTest(step=name):
+                index = self.step_index(self.deploy, name)
+                self.assertLessEqual(guard, index)
+                # No `if:` and no continue-on-error: the default success() skips
+                # the step after a failed guard, and its own failure fails the job.
+                self.assertNotIn("if", self.deploy[index])
+                self.assertNotIn("continue-on-error", self.deploy[index])
+
+    def run_deploy_guard(self, first: str, second: str) -> tuple[subprocess.CompletedProcess, str]:
+        script = self.deploy[self.step_index(self.deploy, self.DEPLOY_GUARD)]["run"]
+        with tempfile.TemporaryDirectory() as directory:
+            summary = Path(directory) / "summary"
+            summary.touch()
+            completed = subprocess.run(
+                ["bash", "-e", "-c", script],
+                capture_output=True,
+                text=True,
+                timeout=30,
+                env={"PATH": "/usr/bin:/bin", "FIRST": first, "SECOND": second, "GITHUB_STEP_SUMMARY": str(summary)},
+            )
+            return completed, summary.read_text(encoding="utf-8")
+
+    def test_the_guard_passes_only_when_an_attempt_succeeded(self) -> None:
+        completed, summary = self.run_deploy_guard("success", "skipped")
+        self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
+        self.assertEqual("", summary)
+
+        completed, summary = self.run_deploy_guard("failure", "success")
+        self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
+        self.assertIn("::warning::", completed.stdout, "a deploy that needed the retry is reported")
+        self.assertIn("second attempt", summary)
+
+        refused = [("failure", "failure"), ("failure", "skipped"), ("cancelled", "skipped"), ("", "")]
+        for first, second in refused:
+            with self.subTest(first=first, second=second):
+                completed, _ = self.run_deploy_guard(first, second)
+                self.assertEqual(1, completed.returncode, completed.stdout + completed.stderr)
+                self.assertIn("::error::", completed.stdout)
 
     def test_no_new_step_pastes_an_expression_into_its_script(self) -> None:
         """Values reach a script through env:, never through ${{ }} inside run: (the ci skill)."""

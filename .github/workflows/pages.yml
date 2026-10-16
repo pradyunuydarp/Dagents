@@ -438,10 +438,58 @@ jobs:
     needs: build
     environment:
       name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+      url: ${{ steps.retry.outputs.page_url || steps.deployment.outputs.page_url }}
     steps:
-      - id: deployment
+      # A deploy can stall on GitHub's side. Run 41 stayed at `updating_pages`
+      # for ten minutes, the action's limit, and re-running the job deployed the
+      # same artifact in under 15 seconds. So a failed first attempt gets one
+      # more, 30 seconds later. Each attempt waits at most ten minutes and
+      # cancels the deployment it gives up on, so the second attempt starts
+      # clean. A second failure fails the job. The checks below run only after
+      # a deploy succeeded.
+      - name: Deploy to Pages
+        id: deployment
+        continue-on-error: true
         uses: actions/deploy-pages@v4
+
+      - name: Wait before the second attempt
+        if: ${{ steps.deployment.outcome == 'failure' }}
+        run: sleep 30
+
+      - name: Deploy to Pages again after a failed first attempt
+        id: retry
+        if: ${{ steps.deployment.outcome == 'failure' }}
+        uses: actions/deploy-pages@v4
+
+      - name: One deploy attempt succeeded
+        # The first attempt may fail without failing the job, so this step
+        # checks the outcome itself: it passes only when the first attempt
+        # succeeded, or when it failed and the second succeeded. A retry that
+        # stopped running would otherwise leave a green job with nothing
+        # deployed. tests/test_social_previews.py runs this script on the two
+        # passing combinations of outcomes and on failing ones.
+        env:
+          FIRST: ${{ steps.deployment.outcome }}
+          SECOND: ${{ steps.retry.outcome }}
+        run: |
+          case "${FIRST}/${SECOND}" in
+            success/skipped)
+              echo "deployed on the first attempt"
+              ;;
+            failure/success)
+              echo "::warning::The first deploy attempt failed and the second succeeded." \
+                   "The first attempt's log shows why."
+              {
+                echo "### Pages: deployed on the second attempt"
+                echo
+                echo "The first attempt failed. Its log in the Deploy to Pages job shows why."
+              } >> "$GITHUB_STEP_SUMMARY"
+              ;;
+            *)
+              echo "::error::No deploy attempt succeeded (first: ${FIRST:-none}, second: ${SECOND:-none})."
+              exit 1
+              ;;
+          esac
 
       - uses: actions/checkout@v4
 
