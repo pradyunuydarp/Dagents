@@ -318,7 +318,7 @@ def _slot(series_slot: Any) -> int | None:
     """A one-based colour slot, checked; returned 0-based. ``None`` stays ``None``.
 
     ``None`` is for an entity that has no series colour, such as a fourth
-    hospital when the design system has three series colours. It is drawn in
+    site when the design system has three series colours. It is drawn in
     neutral ink (``--ds-ink-2``), which marks no identity.
     """
     if series_slot is None:
@@ -1485,7 +1485,7 @@ def histogram_panels(
     """Small multiples: one histogram panel per category, stacked, all in one series colour.
 
     Use it when the categories are not entities, such as the outcomes recorded
-    at one hospital. A series colour marks an entity, so the categories get a
+    at one site. A series colour marks an entity, so the categories get a
     panel each, named above it, and every panel uses the entity's slot. The
     panels share the bins and one count scale.
 

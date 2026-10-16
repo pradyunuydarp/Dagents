@@ -7196,7 +7196,7 @@
       "run_id": {
        "type": "string",
        "title": "Run Id",
-       "description": "`<role>-<scope_id>-<start time in seconds>`, for example `lma-hospital-a-1760000000`. Two runs for one scope in the same second get the same id."
+       "description": "`<role>-<scope_id>-<start time in seconds>`, for example `lma-site-a-1760000000`. Two runs for one scope in the same second get the same id."
       },
       "agent_role": {
        "type": "string",
@@ -14929,7 +14929,7 @@
       "run_id": {
        "type": "string",
        "title": "Run Id",
-       "description": "`<role>-<scope_id>-<start time in seconds>`, for example `lma-hospital-a-1760000000`. Two runs for one scope in the same second get the same id."
+       "description": "`<role>-<scope_id>-<start time in seconds>`, for example `lma-site-a-1760000000`. Two runs for one scope in the same second get the same id."
       },
       "agent_role": {
        "type": "string",
@@ -30043,7 +30043,7 @@
      "description": "One recorded model run.",
      "properties": {
       "run_id": {
-       "description": "`<role>-<scope_id>-<start time in seconds>`, for example `lma-hospital-a-1760000000`. Two runs for one scope in the same second get the same id.",
+       "description": "`<role>-<scope_id>-<start time in seconds>`, for example `lma-site-a-1760000000`. Two runs for one scope in the same second get the same id.",
        "title": "Run Id",
        "type": "string"
       },
@@ -30583,7 +30583,7 @@
     "description": "One recorded model run.",
     "properties": {
      "run_id": {
-      "description": "`<role>-<scope_id>-<start time in seconds>`, for example `lma-hospital-a-1760000000`. Two runs for one scope in the same second get the same id.",
+      "description": "`<role>-<scope_id>-<start time in seconds>`, for example `lma-site-a-1760000000`. Two runs for one scope in the same second get the same id.",
       "title": "Run Id",
       "type": "string"
      },
