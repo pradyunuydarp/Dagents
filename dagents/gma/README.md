@@ -17,6 +17,11 @@ export DAGENTSC_BIN=$PWD/bindings/ocaml/_build/default/bin/dagentsc.exe
 PYTHONPATH=. .venv/bin/uvicorn dagents.gma.main:app --port 8020
 ```
 
+`PYTHONPATH=. .venv/bin/python -m dagents.gma` does the same. It listens on
+`--host` and `--port`, else `GMA_API_HOST` and `GMA_API_PORT`, else
+`127.0.0.1:8020`. An installed `dagents` package also provides it as the
+`dagents-gma` command.
+
 `dagents/gma/main.py` builds the app with `create_app(Settings.from_env())`. A
 GMA with nothing configured behaves as it did before these settings existed:
 the in-process simulator engine, no tokens, the default extension registry,
@@ -44,12 +49,15 @@ store, a coordinator database lease and an audit sink.
 The Docker image (`dagents/gma/Dockerfile`) builds `dagentsc` in a first stage
 and copies it onto `PATH`. Round plans, readiness, release gates and the model
 lifecycle rule come from the planner, and the release Guard fails closed
-without it.
+without it. A GMA built without a planner logs a warning that says so.
 
 ## Settings
 
 `Settings.from_env()` loads `env/.env.shared` and `env/.env.gma` without
-replacing variables already set, then reads:
+replacing variables already set, then reads the variables below. It loads the
+files only from a source tree: a checkout, or an image that copies `dagents/`
+and `env/` side by side. An installed `dagents` package reads only the process
+environment.
 
 | Variable | Default | Meaning |
 |---|---|---|

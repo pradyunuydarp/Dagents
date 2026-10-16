@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+- The Python package is now `dagents` (it was `agents`), so every import and
+  `uvicorn` module path of the framework starts with `dagents.`:
+  `uvicorn dagents.lma.main:app`. So does any `LMA_EXTENSIONS` entry that
+  named a module inside the framework; an application's own extension, such as
+  `app.extension:HealthcareStrokeExtension`, keeps its path. The name `agents`
+  belongs to another project on PyPI. The routes and settings are unchanged.
+- `python -m dagents.lma`, and the `dagents-lma` command of an installed
+  package, serve the LMA on `--host` and `--port`, else `LMA_API_HOST` and
+  `LMA_API_PORT`, else `127.0.0.1:8010`.
+- The planner runner also looks for the planner a platform wheel bundles at
+  `dagents/_bin/dagentsc`, after `DAGENTSC_BIN` and before `dagentsc` on PATH.
+- When the LMA is built and the runner cannot start a planner (none is
+  found, or `DAGENTSC_BIN` names a file it cannot run), it logs one warning
+  that names the reason, `DAGENTSC_BIN` and `python -m dagents`. Before, it
+  started without a word and its Guard denied every request.
+- An installed `dagents` package reads no env file: `Settings.from_env()`
+  loads `env/.env.shared` and `env/.env.lma` only from a source tree (a
+  checkout, or an image that copies `dagents/` and `env/` side by side). In
+  `site-packages` another distribution could install an `env/` folder and so
+  change the LMA's settings.
 - `POST /federation/jobs:run` and `POST /api/v1/federation/jobs:run` offer a
   job and, when the site accepts it, run it, in one call. The answer is a
   `JobRun`: the acceptance and, for an accepted job, the result. The checks,

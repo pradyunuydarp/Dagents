@@ -28,7 +28,8 @@ services/
 
 Current scope by area:
 
-- `dagents/`: reusable `lma` and `gma` ML-orchestration services with layered application boundaries
+- `dagents/`: reusable `lma` and `gma` ML-orchestration services with layered application boundaries; the
+  Python package `dagents` (`pyproject.toml`, built with hatchling), released to PyPI from a tag
 - `dagents/common/extensions/`: the interface consumer apps contribute domain semantics through
 - `apps/healthcare-demo/`: a self-contained consumer app, extractable into its own repository
 - `bindings/ocaml/`: the typed planning layer, including governance and federation compilers
@@ -421,6 +422,28 @@ This keeps failure isolation, upgrade independence, explicit contracts, and simp
   (`.claude/skills/docs-sync/SKILL.md`) maps each code area to its docs and gives the regenerate
   commands. CI's `docs-impact` job fails a change to a code area that changes none of its docs,
   unless a commit message says `Docs-Impact: none [area] (reason)` for that area.
+
+## Releasing
+
+Maintainers release the Python framework to PyPI from a tag; nobody uploads by hand. The full steps
+are in the "Releasing" section of `CLAUDE.md`. In short:
+
+- `__version__` in `dagents/__init__.py` is the only place the version is written. Versions are
+  PEP 440 pre-releases until 1.0: `0.1.0a1` (alpha), then `0.x.0bN` (beta), `1.0.0rcN` and `1.0.0`.
+  The `Development Status` classifier in `pyproject.toml` follows the stage. The README is the PyPI
+  description, which PyPI never lets a release change, so it must be right before the tag.
+- Pushing the tag `v<version>` runs `.github/workflows/release.yml`. It stops when the tag differs
+  from the version or the tagged commit is not on `main`, builds the planner on Linux x86_64, Linux aarch64 and macOS arm64, builds the
+  sdist and one wheel per platform with that planner inside, checks and smoke-tests every wheel in
+  a clean environment, publishes to TestPyPI first and then to PyPI, and creates a GitHub Release
+  (a pre-release for `a`, `b` and `rc` versions) with the planner binaries and their checksums.
+- Publishing uses Trusted Publishing: PyPI trusts the workflow through OpenID Connect, so no token
+  exists to leak. The owner registers the publisher on pypi.org and test.pypi.org once, both
+  environments accept only `v*` tags, and the `pypi` environment needs a reviewer's approval.
+- Every build uses the hatchling version pinned in `.github/build-constraints.txt`.
+- A manual run of the workflow is a dry run that builds and checks everything and publishes nothing.
+  CI's `packaging` job builds and smoke-tests a Linux wheel on every pull request, and runs the agent
+  suite on the newest FastAPI and uvicorn the `lma` and `gma` extras allow.
 
 ## Learning Guide
 

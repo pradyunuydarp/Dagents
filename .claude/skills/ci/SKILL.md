@@ -23,10 +23,13 @@ Each layer of Dagents has its own job and its own test loop:
 | **Demo apps**: healthcare, NL2SQL | `apps/`, `services/nl2sql-demo/` | Python 3.11 + `dagentsc` + a PostgreSQL 16 service | their own suites |
 | **Frontends**: the site and the two demo UIs | `site/`, `*/frontend/` | Node 22 + a browser | `npm run build`, `npm run check`, `npm run smoke` |
 | **Cross-service contracts**: the endpoint inventory and API conventions | `tests/` | every Python service's dependencies | `tests/` |
+| **Python package**: the `dagents` sdist and wheels | `pyproject.toml`, `hatch_build.py`, `dagents/` | Python 3.11 to 3.13 + a static `dagentsc` | `packaging` job: build, `scripts/check_dist.py`, clean-venv smoke, `dagents/tests` on the newest versions the extras allow |
 
 Python calls the planners through `dagentsc`, so the planner binary is a **build
 artifact that most jobs need**. The `planners` job builds it once and uploads
 it; `agents`, `framework-services`, `demo-apps` and `frontends` download it.
+It also builds the planner with `--profile static` and uploads it as
+`dagentsc-static`, which the `packaging` job puts into a Linux wheel.
 
 ## 2. Ways a green run has been wrong, and the defence for each
 
@@ -348,6 +351,37 @@ Pages artifact is kept for one day; after that, re-run the whole run. A new run
 of the same commit also publishes, but it adds a green check beside the red
 one, and the commit keeps showing the failure.
 
+### n. A package that works in the checkout but not when installed
+
+Every suite imports `dagents` from the checkout and sets `DAGENTSC_BIN`. None
+of them can see a wheel that lacks a module, ships a second top-level package,
+or cannot find the planner it bundles. The agents job also pins the lowest
+FastAPI and uvicorn the `lma` and `gma` extras accept, while pip gives a user
+the newest. FastAPI 0.143 keeps an included router as one entry in
+`app.routes`, so nine tests that read `app.routes` found no routes and failed
+there, while the agents job passed. `dagents/tests/fastapi_routes.py` now
+lists the routes on both versions.
+
+Defence: the `packaging` job builds the sdist, builds a Linux wheel from it
+with the static planner inside, and runs `scripts/check_dist.py` (only
+`dagents/` and its `.dist-info`, no tests, a correct `RECORD`, the planner
+present, executable and matching the tag, exactly one `Development Status`
+classifier and the one for the stage, a description that shows `pip install
+dagents`, and the hatchling version pinned in `.github/build-constraints.txt`).
+It then installs the wheel into a clean virtual environment for each supported
+Python, outside the checkout, with no `PYTHONPATH` and no `DAGENTSC_BIN`, and
+runs `scripts/smoke_installed_package.py --expect-planner bundled`: the
+runner must find the bundled planner, the installed package must read no
+`env/` file, the Guard must get real decisions, the getting-started example
+must print the guide's outputs, and the LMA and GMA must answer `/health`
+without a planner warning. A wheel built from the sdist without a planner must
+make the Guard deny and each agent log that it has no planner
+(`--expect-planner none`). Last, the job installs the wheel with all its
+extras on Python 3.13, removes the package, and runs
+`dagents/tests` from the checkout on those newest versions, with the planner
+and chart skips forbidden. The release workflow runs the build and smoke
+checks on each platform before it publishes.
+
 ## 3. The test loop
 
 CI runs the same commands a contributor runs. Write the failing test first,
@@ -387,6 +421,10 @@ cd site && npm run build && npm run check && cd -
 
 # 7. the docs changed with the code (the docs-sync skill)
 .venv/bin/python scripts/check_docs_impact.py --base origin/main
+
+# 8. the package, if you changed pyproject.toml, hatch_build.py, the runner or
+#    the package layout: the commands under "Releasing" in CLAUDE.md
+.venv/bin/python -m unittest tests.test_packaging tests.test_release_workflow
 ```
 
 `dune` is not on PATH, so always use `opam exec --`. Python tests import as
@@ -431,9 +469,37 @@ tests skipped is not a pass.
   contributor can reproduce one job locally.
 - Pin actions to a major version (`actions/checkout@v4`,
   `ocaml/setup-ocaml@v3`) and cache per ecosystem (`pip`, `npm`, `maven`,
-  `dune-cache`).
+  `dune-cache`). **`release.yml` is the exception:** its publish jobs can mint
+  a PyPI upload credential, so every action there is pinned to a full commit
+  SHA with its version in a comment (`@df4cb1c... # v6.0.3`), and
+  `tests/test_release_workflow.py` fails on any other form. To update one,
+  read the commit of the new tag (`git ls-remote --tags
+  https://github.com/actions/checkout`, the `^{}` line for an annotated tag)
+  and change the SHA and the comment together. The build backend is pinned the
+  same way: every `python -m build` step in both workflows sets
+  `PIP_CONSTRAINT` and `PIP_BUILD_CONSTRAINT` to `.github/build-constraints.txt`,
+  and the test fails on a build step without them.
+- **Only a publish job gets `id-token: write`**, and only when the run is a
+  tag push. In `release.yml` those are `publish-testpypi`, `publish-pypi` and
+  `github-release`; every other job has `contents: read`. Never add a PyPI
+  token or password; publishing uses Trusted Publishing.
 
-## 5. Known limits
+## 5. Releasing
+
+`.github/workflows/release.yml` publishes the `dagents` package. A tag
+`v<version>` starts it; a manual run is a dry run that publishes nothing. The
+order is fixed: the tag must equal `__version__` and the tagged commit must
+be on `main` (`scripts/release_version.py`), the planners build on their own
+platforms, the wheels build from the sdist,
+every file is checked and every wheel is smoke-tested on its platform, then
+TestPyPI, a hash check of what TestPyPI serves
+(`scripts/check_published_files.py`), PyPI, the same check against PyPI, and
+the GitHub Release. Never reorder these steps, never publish from another
+workflow, and never upload by hand. The steps for a maintainer, including the
+one-time Trusted Publisher setup, are in the "Releasing" section of
+`CLAUDE.md`.
+
+## 6. Known limits
 
 - **Pages must be enabled by a repository admin.** The workflow token can deploy
   to an existing Pages site but cannot create one, so `configure-pages` may fail

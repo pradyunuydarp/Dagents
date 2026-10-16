@@ -49,12 +49,14 @@ its own, and keeps the Kubernetes deployment simple.
 ## Repository map
 
 ```text
-dagents/
+dagents/         the Python framework, packaged for PyPI as `dagents`
   common/        shared domain contracts, the extension registry, dagents_runner (the dagentsc
                  bridge), and agent_client and agent_auth (how agents call each other)
   lma/           Local Monitoring Agent service
   gma/           Global Monitoring Agent service
-  tests/         agent + control-plane + runner tests
+  tests/         agent + control-plane + runner tests (not in the wheel)
+pyproject.toml   the package's metadata, built with hatchling
+hatch_build.py   the build hook that puts the planner into a platform wheel
 bindings/ocaml/  the planners (dune workspace)
   lib/common_ir           shared typed IR + JSON codecs
   lib/dataset_compiler    source validation, profiling, schema contracts, quality, transforms
@@ -86,7 +88,7 @@ tests/           checks that span more than one service
 docs/
   learn/          the learning guide, rendered by the site (Markdown + Mermaid)
   guide/          the guide to building an application on Dagents, rendered at #/guide
-  dagents/         LMA/GMA architecture
+  agents/         LMA/GMA architecture
   architecture/   OCaml adoption plan, Python-vs-OCaml comparison
   demo/           demo scripts + recorded inputs and expected outputs
   presentation/   teaching decks (.pptx) and their notes, resources.json (the list
@@ -186,17 +188,23 @@ both store implementations are tested. The same holds for the agents' twins:
 ### CI
 
 `.github/workflows/ci.yml` runs the same commands, one job per layer: `planners`
-(builds OCaml, runs `dune test`, and uploads `dagentsc` for the other jobs),
-`agents`, `framework-services` (core-service twice, with and without
-`DAGENTSC_BIN`), `contracts`, `spring`, `demo-apps`, `frontends`,
-`deploy-smoke` (the healthcare UI in network mode with `--deploy` against
-PostgreSQL 16, where the smoke test adds Hospital 290 from the page),
-`docs-impact`, and a `ci` gate job that is the single required check.
+(builds OCaml, runs `dune test`, and uploads `dagentsc` for the other jobs and
+a statically linked `dagentsc-static` for `packaging`), `agents`,
+`framework-services` (core-service twice, with and without `DAGENTSC_BIN`),
+`contracts`, `spring`, `demo-apps`, `frontends`, `deploy-smoke` (the
+healthcare UI in network mode with `--deploy` against PostgreSQL 16, where the
+smoke test adds Hospital 290 from the page), `packaging` (builds the sdist and
+a Linux wheel with the planner, installs the wheel into clean environments,
+and runs the agent suite on the newest versions the package's extras allow;
+see **Releasing**), `docs-impact`, and a `ci` gate job that is the single
+required check.
 
 `docs-impact` runs `scripts/check_docs_impact.py` on pull requests and pushes
 to `main`. It fails when a change touches a code area (`dagents/`, `services/`,
 `bindings/ocaml/`, `apps/`, `contracts/`, `scripts/`, `examples/`, `env/`, the
-compose file, a workflow, or a deck) and none of the docs that area feeds,
+compose file, a workflow, `pyproject.toml`, `hatch_build.py` or
+`.github/build-constraints.txt`, or a deck) and
+none of the docs that area feeds,
 unless a commit message has a line `Docs-Impact: none [area] (reason)` that
 names the area. Run it before pushing:
 
@@ -349,6 +357,126 @@ Look at the new PDF, then commit it with `resources.json`.
 step, or when a deck or note under `docs/presentation/` is neither listed nor
 excluded with a reason.
 
+### Releasing
+
+The Python framework (`dagents/`) is released to PyPI as `dagents`, from a
+tag on `main`, by the release workflow; nobody uploads by hand. The services
+in `services/`, the Spring services and the demos are not in the package.
+
+**Versions.** `__version__` in `dagents/__init__.py` is the only place the
+version is written; the build reads it. Versions follow PEP 440 and the
+project's stages: `0.1.0a1`, `0.1.0a2` for alphas, `0.x.0b1` for betas,
+`1.0.0rc1` for a release candidate and `1.0.0` for general availability. One
+distribution name, `dagents`, serves every stage. Every version before 1.0.0
+is a pre-release, so `scripts/release_version.py` refuses a final `0.Y.Z`.
+While only pre-releases exist, `pip install dagents` installs the newest one;
+once 1.0.0 exists, a pre-release needs `--pre` or an exact version. The
+`Development Status` classifier in `pyproject.toml` must be the one for the
+stage: `3 - Alpha` for an `a` version, `4 - Beta` for a `b` or `rc` version,
+and `5 - Production/Stable` for a final version. `scripts/check_dist.py` fails
+when the built metadata has another one, or more than one.
+
+**The PyPI page.** The README is the package's description on PyPI, and PyPI
+never lets a release's description change after the upload. So the README on
+the tagged commit must be right for that release: its status line and its
+install section. `scripts/check_dist.py` fails when the description does not
+show `pip install dagents`.
+
+**What a release builds.** One sdist and three platform wheels: Linux x86_64,
+Linux aarch64 and macOS arm64. Each wheel bundles the planner for its platform
+at `dagents/_bin/dagentsc`. The Linux planners link statically (`dune build
+--profile static`), so one wheel covers glibc and musl distributions. Other
+platforms (Windows, macOS on Intel) install from the sdist and get no planner,
+and the Guard denies every request until `DAGENTSC_BIN` or `dagentsc` on PATH
+provides one. The build prints a notice, but pip shows a build's output only
+with `-v`, so `python -m dagents` and the warning an LMA or GMA logs when it is
+built are what tell the user. The GitHub Release also carries the three
+planner binaries with `SHA256SUMS`.
+
+Every build uses the backend versions pinned in `.github/build-constraints.txt`
+(hatchling and its dependencies): the workflows pass the file as
+`PIP_CONSTRAINT` and `PIP_BUILD_CONSTRAINT`, and `scripts/check_dist.py
+--build-constraints` fails unless each wheel names the pinned hatchling. Update
+the pins on purpose, as with the action pins.
+
+The `lma` and `gma` extras accept FastAPI from 0.115.0 and uvicorn from
+0.30.6, the versions the agents job pins, to below 1.0. The `packaging` job
+runs `dagents/tests` again on the newest versions those ranges allow, on
+Python 3.13.
+
+**Make a release:**
+
+1. Change `__version__` (and the classifier when the stage changes), check
+   that the README's status line and install section are right for this
+   release, and land the change on `main` through a pull request.
+2. Tag the merge commit and push the tag:
+
+   ```bash
+   git tag -a v0.1.0a1 -m "dagents 0.1.0a1"
+   git push origin v0.1.0a1
+   ```
+
+3. `.github/workflows/release.yml` runs: it stops unless the tag is `v` plus
+   the version and the tagged commit is on `main`
+   (`scripts/release_version.py`), builds the planners on their
+   own platforms, builds the sdist and the wheels from it, checks every file
+   (`scripts/check_dist.py`, `twine check`), installs each wheel into clean
+   environments on its platform (`scripts/smoke_installed_package.py`),
+   publishes to TestPyPI, checks that TestPyPI serves the same files
+   (`scripts/check_published_files.py`), publishes to PyPI, checks PyPI the
+   same way and creates the GitHub Release. An `a`, `b` or `rc` version is
+   marked as a pre-release.
+
+A manual run of the workflow (Actions, Release, Run workflow) is a dry run: it
+builds and checks everything and publishes nothing.
+
+**Trusted Publishing.** The workflow holds no token. PyPI and TestPyPI trust
+this repository's `release.yml` through OpenID Connect, and each upload
+carries a PEP 740 attestation. Once, before the first release, the owner:
+
+1. On <https://pypi.org/manage/account/publishing/>, adds a pending publisher:
+   project `dagents`, owner `pradyunuydarp`, repository `Dagents`, workflow
+   `release.yml`, environment `pypi`.
+2. Does the same on <https://test.pypi.org/manage/account/publishing/> with
+   environment `testpypi`.
+3. In the repository settings (Environments), creates the environments
+   `testpypi` and `pypi`. On each, sets the deployment branches and tags rule
+   to selected tags with the pattern `v*`, and adds a required reviewer to
+   `pypi`, so a person approves each upload.
+4. In the repository settings (Rules, Rulesets), adds a tag ruleset that
+   targets `v*`, restricts creations, updates and deletions, and lets only
+   the repository admins bypass it. Then only an admin can push a release
+   tag, and nobody can move one to another commit.
+
+Only the publish jobs get `id-token: write`, and every action in
+`release.yml` is pinned to a commit; `tests/test_release_workflow.py` checks
+both.
+
+**Build and check locally**, without publishing. The static build replaces
+the planner in `_build/default/bin/`; it is the same code, so the suites can
+keep using it.
+
+```bash
+.venv/bin/python -m pip install build twine
+export PIP_CONSTRAINT=$PWD/.github/build-constraints.txt PIP_BUILD_CONSTRAINT=$PWD/.github/build-constraints.txt
+.venv/bin/python -m build --sdist --outdir dist                       # the sdist
+cd bindings/ocaml && opam exec -- dune build --profile static ./bin/dagentsc.exe && cd -
+mkdir -p /tmp/dagents-sdist && tar -xzf dist/dagents-*.tar.gz -C /tmp/dagents-sdist
+DAGENTS_PLANNER_BINARY=$PWD/bindings/ocaml/_build/default/bin/dagentsc.exe \
+DAGENTS_WHEEL_PLATFORM=manylinux_2_17_x86_64.manylinux2014_x86_64.musllinux_1_1_x86_64 \
+  .venv/bin/python -m build --wheel --outdir dist /tmp/dagents-sdist/dagents-*   # the wheel, from the sdist
+unset PIP_CONSTRAINT PIP_BUILD_CONSTRAINT
+.venv/bin/python scripts/check_dist.py dist --list --build-constraints .github/build-constraints.txt
+.venv/bin/python -m twine check --strict dist/*
+python3.11 -m venv /tmp/dagents-smoke
+/tmp/dagents-smoke/bin/pip install "$(ls dist/*.whl)[lma,gma]"
+REPO=$PWD; (cd /tmp && env -u PYTHONPATH -u DAGENTSC_BIN /tmp/dagents-smoke/bin/python -I \
+  "$REPO/scripts/smoke_installed_package.py" --repo "$REPO" --expect-planner bundled)
+```
+
+Without the two `DAGENTS_*` variables the wheel is pure Python (`py3-none-any`)
+and has no planner, which is what pip builds from the sdist.
+
 ### Full stack
 
 ```bash
@@ -457,7 +585,10 @@ and a bundle only prove that the app compiles. The smoke test exits 2 and prints
 
 Configuration comes from `env/.env.shared` plus a file per service. Never
 hardcode URLs or ports. Each service has a `*_PUBLIC_URL` (host) and a
-`*_INTERNAL_URL` (compose network).
+`*_INTERNAL_URL` (compose network). The env files are read only from a source
+tree (a checkout, or an image that copies `dagents/` and `env/` side by side);
+an installed `dagents` package reads only the process environment
+(`dagents/common/env.py`).
 
 ## Conventions
 
@@ -488,9 +619,14 @@ can be replaced by a message broker and a database without restructuring.
 ### Calling the OCaml layer from Python
 
 Use `dagents/common/infrastructure/dagents_runner.py`. It converts keys between
-snake_case and camelCase and runs the subprocess. The binary comes from
-`DAGENTSC_BIN`, or from `dagentsc` on PATH (containers install it there; local
-runs point at the dune build).
+snake_case and camelCase and runs the subprocess. It looks for the binary in
+this order: `DAGENTSC_BIN` (local runs point it at the dune build), the planner
+a platform wheel bundles at `dagents/_bin/dagentsc`, then `dagentsc` on PATH
+(containers install it there). A `DAGENTSC_BIN` that names a missing file is
+used as it is, so a wrong setting fails instead of running another planner.
+When nothing is found the runner raises `PlannerUnavailableError` and the Guard
+denies. `python -m dagents` prints which planner it found, and an LMA or GMA
+that cannot start one logs a warning when it is built (`warn_if_no_planner`).
 
 An image whose service calls the planner builds it in an `ocaml/opam` stage and
 copies it to `/usr/local/bin/dagentsc`. Copy that stage from

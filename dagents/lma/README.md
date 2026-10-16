@@ -26,6 +26,11 @@ export DAGENTSC_BIN=$PWD/bindings/ocaml/_build/default/bin/dagentsc.exe
 PYTHONPATH=. .venv/bin/uvicorn dagents.lma.main:app --port 8010
 ```
 
+`PYTHONPATH=. .venv/bin/python -m dagents.lma` does the same. It listens on
+`--host` and `--port`, else `LMA_API_HOST` and `LMA_API_PORT`, else
+`127.0.0.1:8010`. An installed `dagents` package also provides it as the
+`dagents-lma` command.
+
 `dagents/lma/main.py` builds the app with `create_app(Settings.from_env())`.
 Nothing reads the environment when a module is imported, so one process can
 build several LMAs, one per site:
@@ -51,12 +56,16 @@ settings are closed when it shuts down under uvicorn.
 
 The Docker image (`dagents/lma/Dockerfile`) builds `dagentsc` in a first stage
 and copies it onto `PATH`. Without the planner the Guard denies every request
-and every federated job is refused.
+and every federated job is refused, and the LMA logs a warning when it is
+built.
 
 ## Settings
 
 `Settings.from_env()` loads `env/.env.shared` and `env/.env.lma` without
-replacing variables already set, then reads:
+replacing variables already set, then reads the variables below. It loads the
+files only from a source tree: a checkout, or an image that copies `dagents/`
+and `env/` side by side. An installed `dagents` package reads only the process
+environment.
 
 | Variable | Default | Meaning |
 |---|---|---|

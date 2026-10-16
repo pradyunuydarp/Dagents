@@ -34,8 +34,17 @@ The two agents:
 Python calls OCaml through the `dagentsc` command-line program, sending JSON on
 standard input. **Never** link the languages directly (FFI). Always go through
 `dagents/common/infrastructure/dagents_runner.py`, which converts between
-snake_case and camelCase and runs the subprocess. The binary comes from
-`DAGENTSC_BIN`, or from `dagentsc` on PATH.
+snake_case and camelCase and runs the subprocess. It looks for the binary in
+`DAGENTSC_BIN`, then in the planner a platform wheel bundles at
+`dagents/_bin/dagentsc`, then `dagentsc` on PATH. When none is found it raises
+`PlannerUnavailableError`, and the Guard denies. **Never** add a lookup that
+falls through from a configured `DAGENTSC_BIN` that does not exist to another
+planner. An agent built without a planner it can start logs one warning
+(`warn_if_no_planner`), because it still answers `/health`.
+
+**An installed package reads no env file.** `dagents/common/env.py` reads
+`env/.env.*` only next to a source tree's `dagents/` folder, never from
+`site-packages`, where another distribution could install an `env/` folder.
 
 **Every image whose service calls the planner must contain it.** Build it in an
 `ocaml/opam` stage and copy it to `/usr/local/bin/dagentsc`, as

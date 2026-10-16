@@ -422,6 +422,13 @@ opam exec -- dune build ./bin/dagentsc.exe
 opam exec -- dune test
 ```
 
+`opam exec -- dune build --profile static ./bin/dagentsc.exe` links the
+binary statically and strips it, so one Linux build runs on any distribution,
+glibc or musl. The profile is defined in `bindings/ocaml/dune`. The release
+workflow builds the planner this way for the Linux wheels of the `dagents`
+Python package, and CI's `planners` job uploads it as `dagentsc-static`. macOS
+cannot link statically, so the macOS planner uses `--profile release`.
+
 ## Conservative Defaults in the Codecs
 
 The governance and federation codecs default toward refusal, because a field a caller forgot is

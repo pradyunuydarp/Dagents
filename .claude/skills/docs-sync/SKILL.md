@@ -43,7 +43,7 @@ its captured examples in `docs/reference/api/examples/`, and
 | `scripts` | `scripts/` | the commands in `CLAUDE.md`; the skill that names the script; `docs/reference/api/README.md`; guide page 09; learning guide page 05; `docs/demo/README.md`; the files the script generates |
 | `example` | `examples/` | every block in `docs/guide/` with a `source` or `output` marker; `examples/getting-started/README.md` |
 | `config` | `env/`, `docker-compose.yml`, `.github/workflows/` | the port table and the CI section of `CLAUDE.md`; the `ci` skill; `docs/guide/01-setup.md`, `08-deploy.md` and `09-test-your-integration.md`; `docs/learn/05-hands-on.md`; `apps/healthcare-demo/docs/deployment.md` |
-| `package` | `pyproject.toml`, `hatch_build.py`, `.github/build-constraints.txt` | the "Releasing" section and the repository map of `CLAUDE.md`; `AGENTS.md`; `README.md` (the status line and the install section, which become the PyPI page); the `ci` skill (sections 2m and 5) |
+| `package` | `pyproject.toml`, `hatch_build.py`, `.github/build-constraints.txt` | the "Releasing" section and the repository map of `CLAUDE.md`; `AGENTS.md`; `README.md` (the status line and the install section, which become the PyPI page); the `ci` skill (sections 2n and 5) |
 | `decks` | `docs/presentation/**/*.pptx` | the Resources page (`#/resources`): the deck's entry in `docs/presentation/resources.json` (its description, audience and note) and its PDF and preview in `docs/presentation/exports/` |
 
 Every area also feeds `README.md`, `CLAUDE.md` and `AGENTS.md` when the change

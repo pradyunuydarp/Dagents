@@ -13,6 +13,26 @@
   No answer repeats an address. The GMA refuses to start with a joinable site
   that is also configured, has a bad address, lacks its tokens or has no HTTP
   network to join.
+- The Python package is now `dagents` (it was `agents`), so every import and
+  `uvicorn` module path of the framework starts with `dagents.`:
+  `uvicorn dagents.gma.main:app`. So does any `GMA_EXTENSIONS` entry that
+  named a module inside the framework; an application's own extension, such as
+  `app.extension:HealthcareStrokeExtension`, keeps its path. The name `agents`
+  belongs to another project on PyPI. The routes and settings are unchanged.
+- `python -m dagents.gma`, and the `dagents-gma` command of an installed
+  package, serve the GMA on `--host` and `--port`, else `GMA_API_HOST` and
+  `GMA_API_PORT`, else `127.0.0.1:8020`.
+- The planner runner also looks for the planner a platform wheel bundles at
+  `dagents/_bin/dagentsc`, after `DAGENTSC_BIN` and before `dagentsc` on PATH.
+- When the GMA is built and the runner cannot start a planner (none is
+  found, or `DAGENTSC_BIN` names a file it cannot run), it logs one warning
+  that names the reason, `DAGENTSC_BIN` and `python -m dagents`. Before, it
+  started without a word and its Guard denied every request.
+- An installed `dagents` package reads no env file: `Settings.from_env()`
+  loads `env/.env.shared` and `env/.env.gma` only from a source tree (a
+  checkout, or an image that copies `dagents/` and `env/` side by side). In
+  `site-packages` another distribution could install an `env/` folder and so
+  change the GMA's settings.
 - The HTTP engine sends each selected site one `POST /api/v1/federation/jobs:run`
   call per round instead of `jobs:offer` then `jobs:execute`. A round's
   dispatch has one row per site, with the step `run`. A run call that fails
