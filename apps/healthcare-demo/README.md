@@ -330,7 +330,9 @@ replay cannot start.
 Select **Add Hospital 290**. The button is disabled until the app has
 finished, which takes a few seconds. Meanwhile the panel says that it is adding
 the hospital and hides the last attempt, so an earlier failure is not read as
-the new one. The panel then lists the seven steps of
+the new one. When the app answers, keyboard focus moves to the attempt's
+heading, and a live region says whether the hospital joined. The panel then
+lists the seven steps of
 [Add a hospital while the demo runs](#add-a-hospital-while-the-demo-runs),
 each with its status in words (Done, Skipped, Failed, Undone or Not run), what
 happened and how many seconds it took. **Compose file from core-service**

@@ -245,7 +245,9 @@ backend and replays.
   replay. Otherwise it shows the backend's `reason`, or the replay's note, and
   no button; a 404 means the server does not offer the action. The button
   sits under the table, never in a table cell, so the table's scroll box
-  cannot hide it on a 375 px screen. The steps
+  cannot hide it on a 375 px screen. When a request ends, focus moves to the
+  attempt's heading (or back to the button after an error), and a live region
+  that stays mounted says how it ended. The steps
   (`data-step`, `data-status`) show their status as words, never as colours:
   a step is not a permit, narrow or deny decision. The page never decides
   whether a hospital can join or whether the next round selects it; it shows

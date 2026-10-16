@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { ApiError, isRecorded, postJson } from "../api";
 import { count, plannerReason } from "../format";
@@ -59,7 +59,10 @@ function Attempt({ deployment, name }: { deployment: Deployment; name: string })
   return (
     <div className="round deploy-attempt" data-deployment={deployment.deployment_id}>
       <div className="round-head">
-        <h3>{deployment.status === "joined" ? `${name} joined` : `${name} did not join`}</h3>
+        {/* Focus moves here when an attempt the visitor started returns. */}
+        <h3 id={`attempt-${deployment.deployment_id}`} tabIndex={-1}>
+          {deployment.status === "joined" ? `${name} joined` : `${name} did not join`}
+        </h3>
         <span className="digest mono">{deployment.deployment_id}</span>
       </div>
       <ol className="deploy-steps" data-role="steps">
@@ -113,6 +116,16 @@ export function DeployPanel({ onJoined }: { onJoined: () => void }) {
   const [adding, setAdding] = useState<string | null>(null);
   const [result, setResult] = useState<Deployment | null>(null);
   const [error, setError] = useState<unknown>(null);
+  // What the live region says when a request ends, and where focus goes then.
+  // The button is disabled while the app works, so focus would otherwise
+  // fall to the page and stay there. The effect runs after React has drawn
+  // the answer and enabled the buttons again.
+  const [announcement, setAnnouncement] = useState("");
+  const [focusNext, setFocusNext] = useState<{ id: string; at: number } | null>(null);
+
+  useEffect(() => {
+    if (focusNext !== null) document.getElementById(focusNext.id)?.focus();
+  }, [focusNext]);
 
   const data = view.data;
   const notOffered = view.error instanceof ApiError && view.error.status === 404;
@@ -125,12 +138,22 @@ export function DeployPanel({ onJoined }: { onJoined: () => void }) {
   const add = async (hospital: JoinableHospital) => {
     setAdding(hospital.site_id);
     setError(null);
+    setAnnouncement("");
     try {
       const deployment = await postJson<Deployment>("/api/v1/deployments", { site_id: hospital.site_id });
       setResult(deployment);
+      setAnnouncement(
+        deployment.status === "joined"
+          ? `${hospital.display_name} joined the consortium.`
+          : `${hospital.display_name} did not join. The steps below say why.`
+      );
+      setFocusNext({ id: `attempt-${deployment.deployment_id}`, at: Date.now() });
       if (deployment.status === "joined") onJoined();
     } catch (exc) {
       setError(exc);
+      // The error note under the panel gives the reason, as an alert.
+      setAnnouncement(`${hospital.display_name} was not added.`);
+      setFocusNext({ id: `deploy-${hospital.site_id}`, at: Date.now() });
     } finally {
       setAdding(null);
       view.reload();
@@ -196,6 +219,7 @@ export function DeployPanel({ onJoined }: { onJoined: () => void }) {
           {startable.map((hospital) => (
             <button
               key={hospital.site_id}
+              id={`deploy-${hospital.site_id}`}
               type="button"
               className="ds-btn ds-btn--primary"
               data-action="deploy"
@@ -209,11 +233,16 @@ export function DeployPanel({ onJoined }: { onJoined: () => void }) {
         </div>
       )}
 
-      {adding && (
-        <p className="note ds-note" role="status" data-deploy-running>
-          Adding {nameOf(adding)}. The steps appear when the app has finished.
-        </p>
-      )}
+      {/* The live region stays on the page, so the end of a request is announced. */}
+      <div role="status" data-role="deploy-status">
+        {adding ? (
+          <p className="note ds-note" data-deploy-running>
+            Adding {nameOf(adding)}. The steps appear when the app has finished.
+          </p>
+        ) : (
+          <span className="visually-hidden">{announcement}</span>
+        )}
+      </div>
       <ErrorNote error={error} />
       {/* While a request runs, the last attempt is hidden: its steps would read as the new one's. */}
       {latest && !adding && <Attempt deployment={latest} name={nameOf(latest.site_id)} />}

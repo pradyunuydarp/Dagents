@@ -1098,6 +1098,17 @@ try {
       shownWhileAdding === 0,
       `${shownWhileAdding} earlier attempt(s) shown under the running note`
     );
+    //    The button is disabled while the app works, so focus would fall to
+    //    the page. It moves to the new attempt's heading, and the live region,
+    //    which stays on the page, says how the attempt ended.
+    await deployPage.waitForTimeout(300);
+    const focused = await deployPage.evaluate(() => document.activeElement?.id ?? document.activeElement?.tagName ?? "");
+    const announced = ((await deployPage.locator('[data-panel="deploy"] [data-role="deploy-status"]').textContent().catch(() => "")) ?? "").trim();
+    check(
+      "focus moves to the attempt that returned, and its end is announced",
+      focused === `attempt-${second.deployment_id}` && announced.includes(`${joining.display_name} did not join`),
+      `focus on ${focused || "nothing"}; live region: ${announced || "empty"}`
+    );
   } finally {
     await deployPage.unrouteAll({ behavior: "ignoreErrors" });
     await deployPage.close();
