@@ -21,7 +21,7 @@ All three are React 19 + Vite 7 + TypeScript, built with `tsc -b && vite build`.
 The healthcare demo and the site use `playwright-core` for browser checks.
 
 `apps/healthcare-demo/` can be extracted into its own repository with
-`scripts/extract_repo.sh`. So its frontend must **never** import from `agents/`,
+`scripts/extract_repo.sh`. So its frontend must **never** import from `dagents/`,
 `services/` or anything else outside `apps/healthcare-demo/`.
 
 ## 2. The design system

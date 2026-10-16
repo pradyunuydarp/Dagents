@@ -9,7 +9,7 @@ test passed, and in the compose stack the Guard denied every request.
 CI does not build images, so this check reads the Dockerfiles. For each Python
 image it starts at the module that uvicorn runs and follows the imports through
 the code the image copies. If the walk reaches
-`agents.common.infrastructure.dagents_runner`, the module that starts the
+`dagents.common.infrastructure.dagents_runner`, the module that starts the
 planner, the image must build `dagentsc.exe` in an earlier stage and copy it to
 `/usr/local/bin/dagentsc` in its final stage.
 
@@ -33,7 +33,7 @@ import unittest
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 #: The only module that starts `dagentsc`. Services call the planner through it.
-PLANNER_RUNNER = "agents.common.infrastructure.dagents_runner"
+PLANNER_RUNNER = "dagents.common.infrastructure.dagents_runner"
 #: Where the images put the planner. `dagents_runner` finds it on PATH there.
 PLANNER_IN_IMAGE = "/usr/local/bin/dagentsc"
 BUILDS_THE_PLANNER = re.compile(r"\bdune build\s+\./bin/dagentsc\.exe\b")
@@ -45,8 +45,8 @@ SKIPPED_DIRECTORIES = {".git", ".venv", "venv", "node_modules", "_build", "targe
 #: Images known to call the planner. The walk must find at least these, so the
 #: check cannot pass because the walk stopped following imports.
 KNOWN_PLANNER_IMAGES = {
-    "agents/gma/Dockerfile",
-    "agents/lma/Dockerfile",
+    "dagents/gma/Dockerfile",
+    "dagents/lma/Dockerfile",
     "apps/healthcare-demo/backend/Dockerfile",
     "services/core-service/Dockerfile",
     "services/nl2sql-demo/backend/Dockerfile",
@@ -331,12 +331,12 @@ class PlannerInImagesTests(unittest.TestCase):
     def test_the_guard_and_the_round_controller_reach_the_planner(self) -> None:
         # A service that uses either one needs the planner, even if it never
         # imports the runner itself.
-        for module in ("agents.common.application.governance_service", "agents.common.application.federation"):
+        for module in ("dagents.common.application.governance_service", "dagents.common.application.federation"):
             with self.subTest(module=module):
                 stages = parse_dockerfile("\n".join([
                     "FROM python:3.11-slim",
                     "WORKDIR /app",
-                    "COPY agents ./agents",
+                    "COPY dagents ./dagents",
                     f'CMD ["uvicorn", "{module}:app"]',
                 ]))
                 chain = planner_import_chain(stages)
@@ -347,7 +347,7 @@ class PlannerInImagesTests(unittest.TestCase):
 class PlannerProblemTests(unittest.TestCase):
     """The check refuses each way an image can lose the planner."""
 
-    AGENT_IMAGES = ("agents/lma/Dockerfile", "agents/gma/Dockerfile")
+    AGENT_IMAGES = ("dagents/lma/Dockerfile", "dagents/gma/Dockerfile")
 
     def read(self, name: str) -> str:
         return (REPO_ROOT / name).read_text(encoding="utf-8")
@@ -382,7 +382,7 @@ class PlannerProblemTests(unittest.TestCase):
             "FROM python:3.11-slim AS middle",
             "COPY --from=ocaml-builder /src/_build/default/bin/dagentsc.exe /usr/local/bin/dagentsc",
             "FROM python:3.11-slim",
-            "COPY agents ./agents",
+            "COPY dagents ./dagents",
         ])
         self.assertEqual(1, len(planner_problems(parse_dockerfile(text))))
 

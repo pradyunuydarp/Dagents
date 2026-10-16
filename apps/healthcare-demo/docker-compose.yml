@@ -120,7 +120,7 @@ services:
     command:
       - sh
       - -c
-      - set -a && . /run/agent-settings/gma.env && set +a && exec uvicorn agents.gma.main:app --host 0.0.0.0 --port "$$PORT" --log-level warning
+      - set -a && . /run/agent-settings/gma.env && set +a && exec uvicorn dagents.gma.main:app --host 0.0.0.0 --port "$$PORT" --log-level warning
 
   lma-uk-134:
     <<: *agent
@@ -129,7 +129,7 @@ services:
     command:
       - sh
       - -c
-      - set -a && . /run/agent-settings/lma-uk-134.env && set +a && exec uvicorn agents.lma.main:app --host 0.0.0.0 --port "$$PORT" --log-level warning
+      - set -a && . /run/agent-settings/lma-uk-134.env && set +a && exec uvicorn dagents.lma.main:app --host 0.0.0.0 --port "$$PORT" --log-level warning
 
   lma-it-002:
     <<: *agent
@@ -138,7 +138,7 @@ services:
     command:
       - sh
       - -c
-      - set -a && . /run/agent-settings/lma-it-002.env && set +a && exec uvicorn agents.lma.main:app --host 0.0.0.0 --port "$$PORT" --log-level warning
+      - set -a && . /run/agent-settings/lma-it-002.env && set +a && exec uvicorn dagents.lma.main:app --host 0.0.0.0 --port "$$PORT" --log-level warning
 
   lma-ch-245:
     <<: *agent
@@ -147,7 +147,7 @@ services:
     command:
       - sh
       - -c
-      - set -a && . /run/agent-settings/lma-ch-245.env && set +a && exec uvicorn agents.lma.main:app --host 0.0.0.0 --port "$$PORT" --log-level warning
+      - set -a && . /run/agent-settings/lma-ch-245.env && set +a && exec uvicorn dagents.lma.main:app --host 0.0.0.0 --port "$$PORT" --log-level warning
 
   healthcare-demo-backend:
     <<: *agent

@@ -75,7 +75,7 @@ esac
 # that is three directories up; extracted into its own repository, DAGENTS_HOME
 # says where it is.
 DAGENTS_HOME="${DAGENTS_HOME:-$(cd "${APP_ROOT}/../.." && pwd)}"
-if [[ ! -d "${DAGENTS_HOME}/agents/common" ]]; then
+if [[ ! -d "${DAGENTS_HOME}/dagents/common" ]]; then
   echo "Could not find the Dagents framework." >&2
   echo "Set DAGENTS_HOME to your Dagents checkout, for example:" >&2
   echo "  DAGENTS_HOME=~/src/Dagents $0" >&2
@@ -369,7 +369,7 @@ fi
     export GMA_JOINABLE_SITE_ENDPOINTS="${JOINABLE}"
     export GMA_DISPATCH_CONCURRENCY="${SITE_COUNT}"
   fi
-  exec "${PYTHON}" -m uvicorn agents.gma.main:app --host 127.0.0.1 --port "${GMA_PORT}" --log-level warning
+  exec "${PYTHON}" -m uvicorn dagents.gma.main:app --host 127.0.0.1 --port "${GMA_PORT}" --log-level warning
 ) >"${LOG_DIR}/gma.log" 2>&1 &
 PIDS+=("$!")
 echo "  gma          http://127.0.0.1:${GMA_PORT}"
@@ -390,7 +390,7 @@ for site in ${SITES}; do
     export LMA_GMA_TOKEN="${!gma_site_name}"
     export LMA_SITE_TOKEN="${!site_token_name}"
     export LMA_COORDINATOR_TOKEN="${!coordinator_name}"
-    exec "${PYTHON}" -m uvicorn agents.lma.main:app --host 127.0.0.1 --port "${!port_name}" --log-level warning
+    exec "${PYTHON}" -m uvicorn dagents.lma.main:app --host 127.0.0.1 --port "${!port_name}" --log-level warning
   ) >"${LOG_DIR}/lma-${site}.log" 2>&1 &
   PIDS+=("$!")
   printf '  lma-%-8s http://127.0.0.1:%s\n' "${site}" "${!port_name}"

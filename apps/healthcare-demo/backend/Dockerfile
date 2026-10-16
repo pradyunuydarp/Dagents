@@ -29,7 +29,7 @@ COPY apps/healthcare-demo/backend/app ./app
 # The committed IST extract. A run without a database loads each hospital's
 # records from it; app.domain.dataset looks for /app/data/ist/.
 COPY apps/healthcare-demo/data ./data
-COPY agents ./agents
+COPY dagents ./dagents
 COPY env ./env
 COPY apps/healthcare-demo/env ./apps/healthcare-demo/env
 

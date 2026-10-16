@@ -2,7 +2,7 @@ services:
   gma:
     build:
       context: .
-      dockerfile: agents/gma/Dockerfile
+      dockerfile: dagents/gma/Dockerfile
     container_name: dagents-gma
     env_file:
       - ./env/.env.shared
@@ -21,7 +21,7 @@ services:
   lma:
     build:
       context: .
-      dockerfile: agents/lma/Dockerfile
+      dockerfile: dagents/lma/Dockerfile
     container_name: dagents-lma
     env_file:
       - ./env/.env.shared

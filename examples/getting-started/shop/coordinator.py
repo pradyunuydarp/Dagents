@@ -6,17 +6,17 @@ This is the role the GMA (global agent) plays. It sees what the stores report
 
 from __future__ import annotations
 
-from agents.common.application.federation import FederatedRoundController, InProcessFederationEngine
-from agents.common.application.governance_service import GovernanceService
-from agents.common.domain.federation import (
+from dagents.common.application.federation import FederatedRoundController, InProcessFederationEngine
+from dagents.common.application.governance_service import GovernanceService
+from dagents.common.domain.federation import (
     AggregationMethod,
     CandidateModel,
     ReleaseDecision,
     RoundManifest,
     RoundRecord,
 )
-from agents.common.domain.governance import GuardDecision, KyuAttribute, Requester, RestrictionRequest
-from agents.common.extensions import default_registry
+from dagents.common.domain.governance import GuardDecision, KyuAttribute, Requester, RestrictionRequest
+from dagents.common.extensions import default_registry
 
 from shop import rule
 from shop.contract import APPROVED_PURPOSES, CLASSIFICATION, CONTRACT_VERSION

@@ -230,8 +230,8 @@ class GmaFailureBehindAnLmaTests(ApiTestCase):
     PATHS = ("/api/v1/hospitals/uk-134", "/api/v1/hospitals/uk-134/worklist", "/api/v1/hospitals/uk-134/thresholds")
 
     def test_a_hospital_page_is_a_plain_503(self) -> None:
-        from agents.common.domain.errors import StoreUnavailableError
-        from agents.gma.application.model_registry import ModelRegistry
+        from dagents.common.domain.errors import StoreUnavailableError
+        from dagents.gma.application.model_registry import ModelRegistry
 
         self.demo.ready()  # the app's model versions are registered before the store fails
         error = StoreUnavailableError(f"could not connect to {CONNECTION_STRING}")
@@ -255,8 +255,8 @@ class StatusLogTests(ApiTestCase):
     """The status report logs why the GMA could not report, with the address removed."""
 
     def test_a_gma_error_detail_is_logged_without_its_address(self) -> None:
-        from agents.common.domain.errors import StoreUnavailableError
-        from agents.gma.application.site_directory import SiteDirectory
+        from dagents.common.domain.errors import StoreUnavailableError
+        from dagents.gma.application.site_directory import SiteDirectory
 
         error = StoreUnavailableError(f"could not connect to {CONNECTION_STRING}")
         with mock.patch.object(SiteDirectory, "summaries", side_effect=error), self.assertLogs(level="WARNING") as logged:
@@ -286,8 +286,8 @@ class PilotAgentDetailTests(ApiTestCase):
 
     def test_a_store_error_at_offer_or_execute_stays_out_of_the_report(self) -> None:
         """The GMA's one jobs:run call reaches both steps; a failure at either fails the call."""
-        from agents.common.domain.errors import StoreUnavailableError
-        from agents.lma.application import federation_jobs
+        from dagents.common.domain.errors import StoreUnavailableError
+        from dagents.lma.application import federation_jobs
 
         message = self.MESSAGE
         for step in ("offer", "execute"):

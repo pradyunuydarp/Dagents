@@ -318,7 +318,7 @@ Deliver:
 
 - `bindings/ocaml/dataset-compiler`
 - `bindings/ocaml/model-router`
-- integration hooks from `agents/lma` and `agents/gma`
+- integration hooks from `dagents/lma` and `dagents/gma`
 
 Exit criteria:
 

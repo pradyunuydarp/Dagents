@@ -160,7 +160,7 @@
        "default_checkpoint": null,
        "extra_requirements": [],
        "requires_download": false,
-       "notes": "`custom` is the planner's escape hatch: a consumer app registers a named model adapter through agents.common.extensions, so the framework has nothing to implement here."
+       "notes": "`custom` is the planner's escape hatch: a consumer app registers a named model adapter through dagents.common.extensions, so the framework has nothing to implement here."
       },
       {
        "family": "custom",
@@ -171,7 +171,7 @@
        "default_checkpoint": null,
        "extra_requirements": [],
        "requires_download": false,
-       "notes": "`custom` is the planner's escape hatch: a consumer app registers a named model adapter through agents.common.extensions, so the framework has nothing to implement here."
+       "notes": "`custom` is the planner's escape hatch: a consumer app registers a named model adapter through dagents.common.extensions, so the framework has nothing to implement here."
       },
       {
        "family": "custom",
@@ -182,7 +182,7 @@
        "default_checkpoint": null,
        "extra_requirements": [],
        "requires_download": false,
-       "notes": "`custom` is the planner's escape hatch: a consumer app registers a named model adapter through agents.common.extensions, so the framework has nothing to implement here."
+       "notes": "`custom` is the planner's escape hatch: a consumer app registers a named model adapter through dagents.common.extensions, so the framework has nothing to implement here."
       },
       {
        "family": "custom",
@@ -193,7 +193,7 @@
        "default_checkpoint": null,
        "extra_requirements": [],
        "requires_download": false,
-       "notes": "`custom` is the planner's escape hatch: a consumer app registers a named model adapter through agents.common.extensions, so the framework has nothing to implement here."
+       "notes": "`custom` is the planner's escape hatch: a consumer app registers a named model adapter through dagents.common.extensions, so the framework has nothing to implement here."
       },
       {
        "family": "custom",
@@ -204,7 +204,7 @@
        "default_checkpoint": null,
        "extra_requirements": [],
        "requires_download": false,
-       "notes": "`custom` is the planner's escape hatch: a consumer app registers a named model adapter through agents.common.extensions, so the framework has nothing to implement here."
+       "notes": "`custom` is the planner's escape hatch: a consumer app registers a named model adapter through dagents.common.extensions, so the framework has nothing to implement here."
       },
       {
        "family": "gru",
@@ -261,7 +261,7 @@
        "default_checkpoint": null,
        "extra_requirements": [],
        "requires_download": false,
-       "notes": "`custom` is the planner's escape hatch: a consumer app registers a named model adapter through agents.common.extensions, so the framework has nothing to implement here."
+       "notes": "`custom` is the planner's escape hatch: a consumer app registers a named model adapter through dagents.common.extensions, so the framework has nothing to implement here."
       },
       {
        "family": "custom",
@@ -272,7 +272,7 @@
        "default_checkpoint": null,
        "extra_requirements": [],
        "requires_download": false,
-       "notes": "`custom` is the planner's escape hatch: a consumer app registers a named model adapter through agents.common.extensions, so the framework has nothing to implement here."
+       "notes": "`custom` is the planner's escape hatch: a consumer app registers a named model adapter through dagents.common.extensions, so the framework has nothing to implement here."
       },
       {
        "family": "custom",
@@ -283,7 +283,7 @@
        "default_checkpoint": null,
        "extra_requirements": [],
        "requires_download": false,
-       "notes": "`custom` is the planner's escape hatch: a consumer app registers a named model adapter through agents.common.extensions, so the framework has nothing to implement here."
+       "notes": "`custom` is the planner's escape hatch: a consumer app registers a named model adapter through dagents.common.extensions, so the framework has nothing to implement here."
       },
       {
        "family": "custom",
@@ -294,7 +294,7 @@
        "default_checkpoint": null,
        "extra_requirements": [],
        "requires_download": false,
-       "notes": "`custom` is the planner's escape hatch: a consumer app registers a named model adapter through agents.common.extensions, so the framework has nothing to implement here."
+       "notes": "`custom` is the planner's escape hatch: a consumer app registers a named model adapter through dagents.common.extensions, so the framework has nothing to implement here."
       },
       {
        "family": "custom",
@@ -305,7 +305,7 @@
        "default_checkpoint": null,
        "extra_requirements": [],
        "requires_download": false,
-       "notes": "`custom` is the planner's escape hatch: a consumer app registers a named model adapter through agents.common.extensions, so the framework has nothing to implement here."
+       "notes": "`custom` is the planner's escape hatch: a consumer app registers a named model adapter through dagents.common.extensions, so the framework has nothing to implement here."
       },
       {
        "family": "random_forest",

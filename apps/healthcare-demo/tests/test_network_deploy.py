@@ -42,7 +42,7 @@ FRAMEWORK_ROOT = Path(os.environ.get("DAGENTS_HOME") or APP_ROOT.parents[1]).res
 sys.path.insert(0, str(APP_ROOT / "backend"))
 sys.path.insert(0, str(FRAMEWORK_ROOT))
 
-from agents.common.infrastructure.compose_apply import parse_env_file  # noqa: E402
+from dagents.common.infrastructure.compose_apply import parse_env_file  # noqa: E402
 
 from app.core.config import lma_token_variable, lma_url_variable  # noqa: E402
 from app.domain.dataset import JOINING_SITES, SITES  # noqa: E402
@@ -254,11 +254,11 @@ class NetworkScriptDeployTests(unittest.TestCase):
             entry = json.loads(line)
             app = entry["app"]
             name = {
-                "agents.gma.main:app": "gma",
+                "dagents.gma.main:app": "gma",
                 "app.main:app": "api" if Path(entry["cwd"]).name != "core-service" else "core-service",
                 "npm": "ui",
             }.get(app)
-            if app == "agents.lma.main:app":
+            if app == "dagents.lma.main:app":
                 name = f"lma-{entry['env']['LMA_SITE_ID']}"
             found[name or app] = entry
         return found

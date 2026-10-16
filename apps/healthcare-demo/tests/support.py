@@ -11,7 +11,7 @@ from typing import Any, Iterator
 from unittest import mock
 import warnings
 
-from agents.common.infrastructure.dagents_runner import dagentsc_binary
+from dagents.common.infrastructure.dagents_runner import dagentsc_binary
 
 #: Where ``dune build`` puts the planner, relative to the Dagents checkout.
 #:

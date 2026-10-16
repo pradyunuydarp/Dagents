@@ -5,8 +5,8 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from pydantic import TypeAdapter
 
-from agents.common.domain.models import SourceSpec
-from agents.common.domain.sources import SourceValidationResult
+from dagents.common.domain.models import SourceSpec
+from dagents.common.domain.sources import SourceValidationResult
 from app.core.config import Settings, settings
 from app.models import (
     ClassificationCheckResponse,

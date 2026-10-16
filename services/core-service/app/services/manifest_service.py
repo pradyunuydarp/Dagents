@@ -93,7 +93,7 @@ class ManifestService:
         a pure planner with no clock, so it can only fall back to a fixed
         default — which would make every unnamed plan collide in the repository.
         """
-        from agents.common.infrastructure.dagents_runner import run_dagentsc
+        from dagents.common.infrastructure.dagents_runner import run_dagentsc
 
         plan_id = request.plan_id or f"workload-plan-{int(time.time() * 1000)}"
         request = request.model_copy(update={"plan_id": plan_id})
@@ -174,7 +174,7 @@ class ManifestService:
         a number does not fit in the planner's 63-bit integers. The Python
         port refuses the same numbers with a ValueError, which is also a 500.
         """
-        from agents.common.infrastructure.dagents_runner import PlannerUnavailableError, run_dagentsc
+        from dagents.common.infrastructure.dagents_runner import PlannerUnavailableError, run_dagentsc
 
         payload = planner_payload(request)
         try:

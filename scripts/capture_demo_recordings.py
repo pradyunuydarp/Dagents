@@ -152,8 +152,8 @@ HEALTHCARE_SERVICES = (
 NL2SQL_SERVICES = (
     Service(name="core-service", module="app.main:app", port=8040, python_path=(".", "services/core-service")),
     Service(name="pipeline-service", module="app.main:app", port=8030, python_path=(".", "services/pipeline-service")),
-    Service(name="lma", module="agents.lma.main:app", port=8010, python_path=(".",), health_path="/health"),
-    Service(name="gma", module="agents.gma.main:app", port=8020, python_path=(".",), health_path="/health"),
+    Service(name="lma", module="dagents.lma.main:app", port=8010, python_path=(".",), health_path="/health"),
+    Service(name="gma", module="dagents.gma.main:app", port=8020, python_path=(".",), health_path="/health"),
     Service(
         name="model-service",
         module="app.main:app",

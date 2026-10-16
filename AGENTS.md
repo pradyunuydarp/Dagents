@@ -18,7 +18,7 @@ This repository is the generic home for:
 Top-level areas:
 
 ```text
-agents/
+dagents/
 apps/
 bindings/
 contracts/
@@ -28,8 +28,8 @@ services/
 
 Current scope by area:
 
-- `agents/`: reusable `lma` and `gma` ML-orchestration services with layered application boundaries
-- `agents/common/extensions/`: the interface consumer apps contribute domain semantics through
+- `dagents/`: reusable `lma` and `gma` ML-orchestration services with layered application boundaries
+- `dagents/common/extensions/`: the interface consumer apps contribute domain semantics through
 - `apps/healthcare-demo/`: a self-contained consumer app, extractable into its own repository
 - `bindings/ocaml/`: the typed planning layer, including governance and federation compilers
 - `services/core-service/`: framework service catalog, topology endpoint, and Kubernetes manifest and Docker Compose file generation
@@ -75,7 +75,7 @@ Current implementation includes:
   execute, job log). A site's LMA reads records only from its configured source
   and refuses request-supplied databases, roles, credentials and SQL
 
-`agents/lma/README.md` lists the settings and routes.
+`dagents/lma/README.md` lists the settings and routes.
 
 ### GMA Responsibilities
 
@@ -107,7 +107,7 @@ Current implementation includes:
   an `ETag`, and approval, with every status change decided by the planner's
   lifecycle rule; in memory or in Postgres
 
-`agents/gma/README.md` lists the settings and routes.
+`dagents/gma/README.md` lists the settings and routes.
 
 ## Shared Run Flow
 
@@ -134,7 +134,7 @@ calls.
 
 ## Layering Conventions
 
-Agent scaffolds under `agents/` follow the same layered shape:
+Agent scaffolds under `dagents/` follow the same layered shape:
 
 - `domain/`: pure typed models
 - `application/`: orchestration and use-cases
@@ -147,7 +147,7 @@ This layout is intended to keep the framework portable across products while pre
 Repository shape for the agent layer:
 
 ```text
-agents/
+dagents/
 ├── gma/
 │   ├── domain/
 │   ├── application/
@@ -274,7 +274,7 @@ Implemented framework capabilities currently include:
 - a consumer extension registry, so an app contributes feature contracts, data classifications,
   condition packs, model kinds, site sources, pipeline steps, and model adapters without forking
   the framework
-- calls between agents through one client (`agents/common/infrastructure/agent_client.py`), in
+- calls between agents through one client (`dagents/common/infrastructure/agent_client.py`), in
   one process through `httpx.ASGITransport` or over HTTP, with bearer tokens of fixed scopes
   (`agent_auth.py`: LMA `site` and `coordinator`, GMA `admin` and a per-site `site` token) and
   typed `{detail, code}` errors that never hold a host, a token or a connection string
@@ -282,7 +282,7 @@ Implemented framework capabilities currently include:
   every image whose service calls the planner contains `dagentsc`, and
   `tests/test_planner_in_images.py` checks the Dockerfiles for it
 - top-level `docker-compose.yml` for multi-container local or cloud-like deployment
-- role-scoped Postgres access (`agents/common/infrastructure/postgres_roles.py`): every operation
+- role-scoped Postgres access (`dagents/common/infrastructure/postgres_roles.py`): every operation
   runs in one transaction that starts with `SET LOCAL ROLE` and checks `current_user`, and a
   Postgres audit sink keeps each site's digest chain in its own table
 - vector-aware contribution controls in the Ethical Guard: `clip_contribution` and `add_noise`
@@ -291,7 +291,7 @@ Implemented framework capabilities currently include:
   `UpdateChannel` and puts only its digest and norm in the `SiteResult`
 - incremental per-field statistics (`RunningProfile`), so a site updates its summary with each new
   record instead of recomputing it
-- a server-side SVG chart renderer (`agents/common/infrastructure/charts.py`, matplotlib) that
+- a server-side SVG chart renderer (`dagents/common/infrastructure/charts.py`, matplotlib) that
   uses the design system's tokens and returns a table view with every chart
 - a published site at <https://pradyunuydarp.github.io/Dagents/> carrying the documentation, the
   generated API reference, and both demos. The stroke demo calls a deployed healthcare API that
@@ -390,8 +390,8 @@ This keeps failure isolation, upgrade independence, explicit contracts, and simp
 
 - Preserve the LMA/GMA split: local execution belongs in LMA, fleet-wide assimilation and coordination belongs in GMA.
 - Keep product-specific logic out of Dagents unless it is truly reusable across consumers. The test
-  to apply: if a capability would need a domain word in `agents/`, it belongs in the consumer,
-  reached through `agents/common/extensions`.
+  to apply: if a capability would need a domain word in `dagents/`, it belongs in the consumer,
+  reached through `dagents/common/extensions`.
 - Keep deciding separate from enforcing. A deterministic rule belongs in an OCaml planner; applying
   it to real data, with an audit record, belongs in Python. Do not re-derive a planning rule in a
   service because calling out to `dagentsc` felt inconvenient.
@@ -449,15 +449,15 @@ Two consumers in this repository show the boundary, and both are published:
   regression (contributed as a model kind, including how an update is checked and combined),
   the study sequence, the FHIR mapping and the intended-use statement. It calls one LMA per
   hospital and a GMA only through their HTTP APIs, with
-  `agents/common/infrastructure/agent_client.py`: in its own process through
+  `dagents/common/infrastructure/agent_client.py`: in its own process through
   `httpx.ASGITransport` on the published demo, or over HTTP when the agents run as separate
   processes (`scripts/run_local_demo.sh --agents network`, its compose file). A network-mode
   run on one machine can add a fourth hospital while it runs (`--deploy`, or
   `docker-compose.deploy.yml`): core-service renders the new LMA's Compose file, an applier
-  from `agents/common/infrastructure/compose_apply.py` starts it, and the GMA accepts only the
+  from `dagents/common/infrastructure/compose_apply.py` starts it, and the GMA accepts only the
   address its `GMA_JOINABLE_SITE_ENDPOINTS` lists. Every successful
   answer whose body is a JSON object lists the agent calls behind it (`framework_calls`); errors,
-  the hospital list and the SVG charts do not. Nothing in `agents/` knows what a stroke
+  the hospital list and the SVG charts do not. Nothing in `dagents/` knows what a stroke
   is, and nothing in the app re-implements a quorum rule.
 - [`services/nl2sql-demo/`](services/nl2sql-demo/README.md) — validation, planning, service checks
   and workload compilation. Live: <https://pradyunuydarp.github.io/Dagents/nl2sql-demo/>. The app

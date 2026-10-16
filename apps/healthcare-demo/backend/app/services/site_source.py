@@ -1,7 +1,7 @@
 """How a hospital's LMA reads the hospital's store.
 
 The framework's LMA reads a site's records through a site record source
-(``agents.common.application.ports.SiteRecordSource``). :class:`StoreSiteSource`
+(``dagents.common.application.ports.SiteRecordSource``). :class:`StoreSiteSource`
 is that source for this app: it reads the hospital's own store
 (:mod:`app.services.site_store`), so the LMA and the app's hospital views read
 the same rows through the same code, acting as the same role.
@@ -126,7 +126,7 @@ def site_store_source(lease: Any, role: str, site_id: str) -> StoreSiteSource:
 
     Params:
     - `lease`: the LMA's kept connection
-      (``agents.common.infrastructure.postgres_lease.KeptConnection``). The
+      (``dagents.common.infrastructure.postgres_lease.KeptConnection``). The
       store runs on it and leaves it open; the LMA closes it.
     - `role`: the LMA's ``LMA_SITE_ROLE``. It must be the hospital's own role.
     - `site_id`: the LMA's ``LMA_SITE_ID``, one of the demo hospitals, or a

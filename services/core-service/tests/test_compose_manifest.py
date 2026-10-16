@@ -29,7 +29,7 @@ from unittest import mock
 
 from fastapi.testclient import TestClient
 
-from agents.common.infrastructure.dagents_runner import PlannerUnavailableError, run_dagentsc
+from dagents.common.infrastructure.dagents_runner import PlannerUnavailableError, run_dagentsc
 from app.main import app
 from app.models import ComposeIssue, ComposeManifestRequest
 from app.services.compose_renderer import quote, render_compose_plan
@@ -78,7 +78,7 @@ LMA_REQUEST: dict[str, typing.Any] = {
         {
             "name": "lma-hospital-d",
             "image": "dagents/healthcare-demo-backend:local",
-            "args": ["uvicorn", "agents.lma.main:app", "--host", "0.0.0.0", "--port", "8085"],
+            "args": ["uvicorn", "dagents.lma.main:app", "--host", "0.0.0.0", "--port", "8085"],
             "env_files": ["../../env/.env.shared", "lma-hospital-d.env"],
             "env": [
                 {"name": "LMA_SITE_ID", "value": "hospital-d"},

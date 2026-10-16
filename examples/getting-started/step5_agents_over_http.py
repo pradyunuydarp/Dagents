@@ -1,7 +1,7 @@
 """Step 5: run the round of step 4 again, this time through the LMA and GMA APIs."""
 
-from agents.common.domain.federation import AggregationMethod, ModelVersionRegistration, RoundManifest, SiteResult
-from agents.common.infrastructure.agent_client import AgentError, CallLog
+from dagents.common.domain.federation import AggregationMethod, ModelVersionRegistration, RoundManifest, SiteResult
+from dagents.common.infrastructure.agent_client import AgentError, CallLog
 
 from shop import rule
 from shop.agents import build_agents

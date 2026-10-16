@@ -36,7 +36,7 @@ DUNE_BUILT_BINARY = REPO_ROOT / "bindings" / "ocaml" / "_build" / "default" / "b
 MARKER = re.compile(r"^<!--\s*(source|output):\s*(\S+)\s*-->$")
 FENCE = re.compile(r"^(`{3,})(\w*)\s*$")
 
-#: Identifiers that belong to the example's domain. None may appear in agents/.
+#: Identifiers that belong to the example's domain. None may appear in dagents/.
 DOMAIN_WORDS = ("example-retail-returns", "retail-orders", "order_returns", "store-north", "store-south")
 
 
@@ -164,8 +164,8 @@ class GuideBlockTests(unittest.TestCase):
                 self.assertIn(name, shown, "the guide never shows this file")
 
     def test_the_example_adds_no_domain_word_to_the_framework(self) -> None:
-        """CLAUDE.md: nothing in agents/ knows the application's domain."""
-        for path in sorted((REPO_ROOT / "agents").rglob("*.py")):
+        """CLAUDE.md: nothing in dagents/ knows the application's domain."""
+        for path in sorted((REPO_ROOT / "dagents").rglob("*.py")):
             text = path.read_text(encoding="utf-8")
             for word in DOMAIN_WORDS:
                 with self.subTest(file=str(path.relative_to(REPO_ROOT)), word=word):

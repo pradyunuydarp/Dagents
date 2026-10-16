@@ -3,7 +3,7 @@
 The app never writes Compose. It sends a workload spec
 (:func:`app.services.deployment.lma_compose_request`) to core-service's
 ``POST /api/v1/manifests/compose``, where the OCaml manifest compiler renders
-it. The new hospital's LMA is a stock Dagents LMA (``agents.lma.main:app``)
+it. The new hospital's LMA is a stock Dagents LMA (``dagents.lma.main:app``)
 started from ``LMA_*`` settings. Its secrets (its tokens, its database address
 and the GMA's address) are in an env file the file names, so the request and
 the rendered file hold no token, no connection string and no agent address.
@@ -35,7 +35,7 @@ sys.path.insert(0, str(FRAMEWORK_ROOT))
 
 import httpx  # noqa: E402
 
-from agents.common.infrastructure.compose_apply import (  # noqa: E402
+from dagents.common.infrastructure.compose_apply import (  # noqa: E402
     CommandResult,
     DockerComposeApplier,
     LocalProcessApplier,
@@ -199,7 +199,7 @@ class ComposeRequestShapeTests(unittest.TestCase):
                         "image": "dagents/healthcare-demo-backend:local",
                         "kind": "Deployment",
                         "args": [
-                            sys.executable, "-m", "uvicorn", "agents.lma.main:app",
+                            sys.executable, "-m", "uvicorn", "dagents.lma.main:app",
                             "--host", "127.0.0.1", "--port", "8085", "--log-level", "warning",
                         ],
                         "env_files": [str(ENV_DIR / "lma-pl-290.env")],
@@ -226,7 +226,7 @@ class ComposeRequestShapeTests(unittest.TestCase):
                         "image": "dagents/healthcare-demo-backend:local",
                         "kind": "Deployment",
                         "args": [
-                            "uvicorn", "agents.lma.main:app", "--host", "0.0.0.0", "--port", "8085",
+                            "uvicorn", "dagents.lma.main:app", "--host", "0.0.0.0", "--port", "8085",
                             "--log-level", "warning",
                         ],
                         "env_files": [str(ENV_DIR / "lma-pl-290.env")],
@@ -262,7 +262,7 @@ class ComposeRequestShapeTests(unittest.TestCase):
                 self.assertTrue(names, "the request carries the LMA's settings")
 
     def test_the_process_runs_from_the_framework_checkout(self) -> None:
-        self.assertTrue((framework_root() / "agents" / "lma" / "main.py").is_file())
+        self.assertTrue((framework_root() / "dagents" / "lma" / "main.py").is_file())
 
     def test_the_new_service_name_differs_from_every_service_of_the_demo(self) -> None:
         import yaml
@@ -328,7 +328,7 @@ def planner_style_file(port: str, env_dir: str = "") -> str:
         "services:\n"
         '  "lma-pl-290":\n'
         '    image: "registry.example:1' + port + '/healthcare-demo-backend:local"\n'
-        f'    command: ["{sys.executable}", "-m", "uvicorn", "agents.lma.main:app", "--host", "127.0.0.1", '
+        f'    command: ["{sys.executable}", "-m", "uvicorn", "dagents.lma.main:app", "--host", "127.0.0.1", '
         f'"--port", "{port}", "--log-level", "warning"]\n'
         "    env_file:\n"
         f'      - "{env_dir}/lma-pl-290.env"\n'
@@ -359,7 +359,7 @@ class ShownComposeFileTests(unittest.TestCase):
         assert shown is not None
         service = compose_service(shown, "lma-pl-290")
         self.assertEqual(
-            ["<python>", "-m", "uvicorn", "agents.lma.main:app", "--host", "127.0.0.1", "--port", "<port>",
+            ["<python>", "-m", "uvicorn", "dagents.lma.main:app", "--host", "127.0.0.1", "--port", "<port>",
              "--log-level", "warning"],
             service["command"],
         )

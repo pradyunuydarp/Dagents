@@ -17,7 +17,7 @@ Each layer of Dagents has its own job and its own test loop:
 | Layer | Path | Runner needs | Suite |
 |---|---|---|---|
 | **OCaml planners**: pure validate, compile, route, render | `bindings/ocaml/` | opam + OCaml 5.1 | `dune test` |
-| **Python agents**: LMA, GMA, control plane, governance, federation | `agents/` | Python 3.11 + `dagentsc` | `agents/tests` |
+| **Python agents**: LMA, GMA, control plane, governance, federation | `dagents/` | Python 3.11 + `dagentsc` | `dagents/tests` |
 | **Framework services**: core, pipeline, model | `services/` | Python 3.11 (+ torch for model) | `services/<name>/tests` |
 | **Spring services**: JVM control and core APIs | `services/spring-services/` | JDK 21 + Maven | `mvn verify` |
 | **Demo apps**: healthcare, NL2SQL | `apps/`, `services/nl2sql-demo/` | Python 3.11 + `dagentsc` + a PostgreSQL 16 service | their own suites |
@@ -58,9 +58,9 @@ reason no pattern matches. On success the guard prints each allowed skip reason
 with a count (the pagila suites and the deployed-API tests).
 
 ```bash
-python -m unittest discover -s agents/tests -t . -v 2>&1 | tee agents-suite.log
+python -m unittest discover -s dagents/tests -t . -v 2>&1 | tee agents-suite.log
 python scripts/ci_no_skipped_tests.py --forbid planner --forbid charts \
-  --require-ran agents.tests.test_governance.EthicalGuardTests agents-suite.log
+  --require-ran dagents.tests.test_governance.EthicalGuardTests agents-suite.log
 ```
 
 `scripts/ci_no_skipped_planner_tests.py LOG` still works; it runs the guard with
@@ -310,7 +310,7 @@ denied every request and every round plan failed.
 Defence: `tests/test_planner_in_images.py`, run by the `contracts` job. CI
 builds no images, so it reads the Dockerfiles. For each Python image it follows
 the imports from the module uvicorn runs, through the code the image copies.
-If they reach `agents/common/infrastructure/dagents_runner.py`, the image must
+If they reach `dagents/common/infrastructure/dagents_runner.py`, the image must
 build `dagentsc.exe` in an earlier stage and copy it to
 `/usr/local/bin/dagentsc` in its final stage. The test also fails if the walk
 stops finding the images known to call the planner, or if a Python image starts
@@ -360,7 +360,7 @@ cd bindings/ocaml && opam exec -- dune build ./bin/dagentsc.exe && opam exec -- 
 
 # 2. agents, with the planner available so nothing skips
 DAGENTSC_BIN=$PWD/bindings/ocaml/_build/default/bin/dagentsc.exe \
-  .venv/bin/python -m unittest discover -s agents/tests -t . -v
+  .venv/bin/python -m unittest discover -s dagents/tests -t . -v
 
 # 3. the service suite you changed; core-service both ways
 PYTHONPATH=.:services/core-service .venv/bin/python \
@@ -390,7 +390,7 @@ cd site && npm run build && npm run check && cd -
 ```
 
 `dune` is not on PATH, so always use `opam exec --`. Python tests import as
-`agents.common...`, so run them from the repository root with the gitignored
+`dagents.common...`, so run them from the repository root with the gitignored
 `.venv/`. Each service has its own `requirements.txt` and there is no root-level
 one, so CI installs dependencies per job.
 

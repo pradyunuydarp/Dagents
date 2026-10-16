@@ -12,7 +12,7 @@ COPY services/model-service/requirements.txt .
 RUN pip install --no-cache-dir --no-compile -r requirements.txt
 
 COPY services/model-service/app ./app
-COPY agents ./agents
+COPY dagents ./dagents
 COPY services/model-service/artifacts ./artifacts
 COPY services/model-service/data ./data
 

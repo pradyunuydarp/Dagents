@@ -38,7 +38,7 @@ try:
 except ModuleNotFoundError:  # pragma: no cover - psycopg is in the app's requirements
     psycopg = None
 
-from agents.common.infrastructure.postgres_roles import acting_as, connect  # noqa: E402
+from dagents.common.infrastructure.postgres_roles import acting_as, connect  # noqa: E402
 
 ADMIN_DSN_VARIABLE = "HEALTHCARE_DEMO_TEST_DATABASE_URL"
 #: Every skip in the database tests starts with this, so CI can fail on it.

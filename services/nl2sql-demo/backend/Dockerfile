@@ -26,7 +26,7 @@ RUN pip install --no-cache-dir -r requirements.txt \
     && if [ "$INSTALL_OPTIONAL_MODELS" = "true" ]; then pip install --no-cache-dir -r requirements-optional-models.txt; fi
 
 COPY services/nl2sql-demo/backend/app ./app
-COPY agents ./agents
+COPY dagents ./dagents
 COPY env ./env
 
 USER appuser

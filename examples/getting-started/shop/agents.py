@@ -21,15 +21,15 @@ import secrets
 from dataclasses import dataclass, field
 from typing import Any
 
-from agents.common.extensions import ExtensionRegistry
-from agents.common.infrastructure.agent_client import GMA_AGENT, AgentNetwork, GmaClient, LmaClient, lma_agent
-from agents.gma.app_factory import GmaDeps
-from agents.gma.app_factory import create_app as create_gma
-from agents.gma.config import Settings as GmaSettings
-from agents.lma.app_factory import LmaDeps
-from agents.lma.app_factory import create_app as create_lma
-from agents.lma.config import Settings as LmaSettings
-from agents.lma.domain.site_config import SiteConfig
+from dagents.common.extensions import ExtensionRegistry
+from dagents.common.infrastructure.agent_client import GMA_AGENT, AgentNetwork, GmaClient, LmaClient, lma_agent
+from dagents.gma.app_factory import GmaDeps
+from dagents.gma.app_factory import create_app as create_gma
+from dagents.gma.config import Settings as GmaSettings
+from dagents.lma.app_factory import LmaDeps
+from dagents.lma.app_factory import create_app as create_lma
+from dagents.lma.config import Settings as LmaSettings
+from dagents.lma.domain.site_config import SiteConfig
 
 from shop.contract import CONDITION
 from shop.coordinator import STUDY_ID

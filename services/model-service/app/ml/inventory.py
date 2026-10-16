@@ -21,7 +21,7 @@ The provider axis is the point. A model family is backed by one of:
   and the adapter contract in this module makes them explicit rather than
   letting a request block on a several-gigabyte fetch.
 - ``extension`` — supplied by a consumer app through
-  `agents.common.extensions`, which is how ``custom`` is meant to be served.
+  `dagents.common.extensions`, which is how ``custom`` is meant to be served.
 
 Nothing in this module imports torch, transformers or scikit-learn. Listing the
 families a service supports must not cost a framework import, so the entrypoints
@@ -586,7 +586,7 @@ def build_default_inventory() -> ModelInventory:
                 status=CapabilityStatus.PLANNED,
                 notes=(
                     "`custom` is the planner's escape hatch: a consumer app registers a named "
-                    "model adapter through agents.common.extensions, so the framework has "
+                    "model adapter through dagents.common.extensions, so the framework has "
                     "nothing to implement here."
                 ),
             )

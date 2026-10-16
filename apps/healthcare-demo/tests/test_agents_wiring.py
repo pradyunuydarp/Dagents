@@ -28,7 +28,7 @@ from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 from starlette.routing import Mount
 
-from agents.common.infrastructure.agent_client import AgentNetwork
+from dagents.common.infrastructure.agent_client import AgentNetwork
 
 from app.core.config import settings as app_settings
 from app.domain.dataset import SITES, load_site_records
@@ -79,7 +79,7 @@ def reachable(root: Any) -> Iterator[Any]:
                     pass
         else:
             module = type(obj).__module__ or ""
-            if not (module == "agents" or module.startswith(("agents.", "app."))):
+            if not (module == "dagents" or module.startswith(("dagents.", "app."))):
                 continue
             stack.extend(getattr(obj, "__dict__", {}).values())
             for cls in type(obj).__mro__:
@@ -575,7 +575,7 @@ class JoiningSiteTests(unittest.TestCase):
 
     def _forgetful_gma(self, calls: list[str], *, takes_address: bool = True) -> Any:
         """A GMA that knows the configured hospitals and learns a joined one only from its address."""
-        from agents.common.domain.site import SiteDirectoryEntry, SiteSummary
+        from dagents.common.domain.site import SiteDirectoryEntry, SiteSummary
 
         known = set(SITE_IDS)
 

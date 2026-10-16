@@ -119,9 +119,9 @@ AREAS: tuple[Area, ...] = (
     ),
     Area(
         name="agents",
-        code=("agents/**",),
+        code=("dagents/**",),
         docs=(
-            "agents/**/*.md",
+            "dagents/**/*.md",
             "docs/reference/api/agents.md",
             "docs/reference/api/examples/lma.*",
             "docs/reference/api/examples/gma.*",

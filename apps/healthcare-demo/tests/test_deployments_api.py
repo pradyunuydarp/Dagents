@@ -32,8 +32,8 @@ sys.path.insert(0, str(FRAMEWORK_ROOT))
 from fastapi import FastAPI  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
-from agents.common.domain.federation import SiteAddressList, SiteAddressState  # noqa: E402
-from agents.common.infrastructure.agent_client import (  # noqa: E402
+from dagents.common.domain.federation import SiteAddressList, SiteAddressState  # noqa: E402
+from dagents.common.infrastructure.agent_client import (  # noqa: E402
     GMA_AGENT,
     AgentNetwork,
     AgentUnavailableError,
@@ -839,7 +839,7 @@ class BuiltApplierTests(unittest.TestCase):
         )
 
     def test_process_mode_builds_a_process_applier_in_the_framework_checkout(self) -> None:
-        from agents.common.infrastructure.compose_apply import LocalProcessApplier
+        from dagents.common.infrastructure.compose_apply import LocalProcessApplier
         from app.services.deployment import child_environment, framework_root
 
         applier = self.deployer("process")._applier
@@ -847,10 +847,10 @@ class BuiltApplierTests(unittest.TestCase):
         self.assertEqual(child_environment(self.ENVIRON), applier._base_env)
         self.assertEqual(framework_root(), applier._cwd)
         self.assertEqual(frozenset({sys.executable}), applier._programs)
-        self.assertTrue((framework_root() / "agents" / "lma" / "main.py").is_file())
+        self.assertTrue((framework_root() / "dagents" / "lma" / "main.py").is_file())
 
     def test_compose_mode_builds_a_compose_applier(self) -> None:
-        from agents.common.infrastructure.compose_apply import DockerComposeApplier
+        from dagents.common.infrastructure.compose_apply import DockerComposeApplier
 
         self.assertIsInstance(self.deployer("compose")._applier, DockerComposeApplier)
 

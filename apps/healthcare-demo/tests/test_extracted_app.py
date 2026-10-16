@@ -54,7 +54,7 @@ class ExtractedAppTests(unittest.TestCase):
 
         Two directories up is the framework only inside the Dagents tree. In an
         extracted copy, a path built from it names no framework, and the
-        subprocess fails with ``ModuleNotFoundError: No module named 'agents'``.
+        subprocess fails with ``ModuleNotFoundError: No module named 'dagents'``.
         """
         for path in sorted((APP_ROOT / "tests").glob("test_*.py")):
             text = path.read_text(encoding="utf-8")

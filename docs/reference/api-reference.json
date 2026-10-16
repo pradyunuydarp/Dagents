@@ -1264,9 +1264,9 @@
    "version": "0.1.0",
    "description": null,
    "app": {
-    "module": "agents.gma.main",
+    "module": "dagents.gma.main",
     "attribute": "app",
-    "file": "agents/gma/main.py"
+    "file": "dagents/gma/main.py"
    },
    "endpoints": [
     {
@@ -1279,14 +1279,14 @@
      "deprecated": false,
      "handler": {
       "function": "list_agents",
-      "module": "agents.gma.routes",
-      "file": "agents/gma/routes.py",
+      "module": "dagents.gma.routes",
+      "file": "dagents/gma/routes.py",
       "calls": [
        {
         "kind": "method",
         "class": "AggregationService",
-        "module": "agents.gma.application.aggregation_service",
-        "file": "agents/gma/application/aggregation_service.py",
+        "module": "dagents.gma.application.aggregation_service",
+        "file": "dagents/gma/application/aggregation_service.py",
         "name": "list_agents"
        }
       ]
@@ -1319,14 +1319,14 @@
      "deprecated": false,
      "handler": {
       "function": "list_agents_v1",
-      "module": "agents.gma.routes",
-      "file": "agents/gma/routes.py",
+      "module": "dagents.gma.routes",
+      "file": "dagents/gma/routes.py",
       "calls": [
        {
         "kind": "route",
         "class": null,
-        "module": "agents.gma.routes",
-        "file": "agents/gma/routes.py",
+        "module": "dagents.gma.routes",
+        "file": "dagents/gma/routes.py",
         "name": "list_agents",
         "endpoint": "gma-get-agents"
        }
@@ -1364,14 +1364,14 @@
      "deprecated": false,
      "handler": {
       "function": "get_agent_v1",
-      "module": "agents.gma.routes",
-      "file": "agents/gma/routes.py",
+      "module": "dagents.gma.routes",
+      "file": "dagents/gma/routes.py",
       "calls": [
        {
         "kind": "method",
         "class": "AggregationService",
-        "module": "agents.gma.application.aggregation_service",
-        "file": "agents/gma/application/aggregation_service.py",
+        "module": "dagents.gma.application.aggregation_service",
+        "file": "dagents/gma/application/aggregation_service.py",
         "name": "get_agent"
        }
       ]
@@ -1428,14 +1428,14 @@
      "deprecated": false,
      "handler": {
       "function": "sync_deployment_v1",
-      "module": "agents.gma.routes",
-      "file": "agents/gma/routes.py",
+      "module": "dagents.gma.routes",
+      "file": "dagents/gma/routes.py",
       "calls": [
        {
         "kind": "route",
         "class": null,
-        "module": "agents.gma.routes",
-        "file": "agents/gma/routes.py",
+        "module": "dagents.gma.routes",
+        "file": "dagents/gma/routes.py",
         "name": "sync_deployment",
         "endpoint": "gma-post-deployments-sync"
        }
@@ -1503,14 +1503,14 @@
      "deprecated": false,
      "handler": {
       "function": "plan_deployment_v1",
-      "module": "agents.gma.routes",
-      "file": "agents/gma/routes.py",
+      "module": "dagents.gma.routes",
+      "file": "dagents/gma/routes.py",
       "calls": [
        {
         "kind": "route",
         "class": null,
-        "module": "agents.gma.routes",
-        "file": "agents/gma/routes.py",
+        "module": "dagents.gma.routes",
+        "file": "dagents/gma/routes.py",
         "name": "plan_deployment",
         "endpoint": "gma-post-deployments-plan"
        }
@@ -1570,14 +1570,14 @@
      "deprecated": false,
      "handler": {
       "function": "heartbeat_v1",
-      "module": "agents.gma.routes",
-      "file": "agents/gma/routes.py",
+      "module": "dagents.gma.routes",
+      "file": "dagents/gma/routes.py",
       "calls": [
        {
         "kind": "route",
         "class": null,
-        "module": "agents.gma.routes",
-        "file": "agents/gma/routes.py",
+        "module": "dagents.gma.routes",
+        "file": "dagents/gma/routes.py",
         "name": "heartbeat",
         "endpoint": "gma-post-heartbeat"
        }
@@ -1645,14 +1645,14 @@
      "deprecated": false,
      "handler": {
       "function": "register_v1",
-      "module": "agents.gma.routes",
-      "file": "agents/gma/routes.py",
+      "module": "dagents.gma.routes",
+      "file": "dagents/gma/routes.py",
       "calls": [
        {
         "kind": "route",
         "class": null,
-        "module": "agents.gma.routes",
-        "file": "agents/gma/routes.py",
+        "module": "dagents.gma.routes",
+        "file": "dagents/gma/routes.py",
         "name": "register",
         "endpoint": "gma-post-register"
        }
@@ -1720,14 +1720,14 @@
      "deprecated": false,
      "handler": {
       "function": "telemetry_v1",
-      "module": "agents.gma.routes",
-      "file": "agents/gma/routes.py",
+      "module": "dagents.gma.routes",
+      "file": "dagents/gma/routes.py",
       "calls": [
        {
         "kind": "route",
         "class": null,
-        "module": "agents.gma.routes",
-        "file": "agents/gma/routes.py",
+        "module": "dagents.gma.routes",
+        "file": "dagents/gma/routes.py",
         "name": "telemetry",
         "endpoint": "gma-post-telemetry"
        }
@@ -1795,14 +1795,14 @@
      "deprecated": false,
      "handler": {
       "function": "profile_assimilated_dataset_v1",
-      "module": "agents.gma.routes",
-      "file": "agents/gma/routes.py",
+      "module": "dagents.gma.routes",
+      "file": "dagents/gma/routes.py",
       "calls": [
        {
         "kind": "route",
         "class": null,
-        "module": "agents.gma.routes",
-        "file": "agents/gma/routes.py",
+        "module": "dagents.gma.routes",
+        "file": "dagents/gma/routes.py",
         "name": "profile_assimilated_dataset",
         "endpoint": "gma-post-datasets-profile"
        }
@@ -1866,14 +1866,14 @@
      "deprecated": false,
      "handler": {
       "function": "list_extensions_v1",
-      "module": "agents.gma.routes",
-      "file": "agents/gma/routes.py",
+      "module": "dagents.gma.routes",
+      "file": "dagents/gma/routes.py",
       "calls": [
        {
         "kind": "route",
         "class": null,
-        "module": "agents.gma.routes",
-        "file": "agents/gma/routes.py",
+        "module": "dagents.gma.routes",
+        "file": "dagents/gma/routes.py",
         "name": "list_extensions",
         "endpoint": "gma-get-extensions"
        }
@@ -1907,14 +1907,14 @@
      "deprecated": false,
      "handler": {
       "function": "list_rounds_v1",
-      "module": "agents.gma.routes",
-      "file": "agents/gma/routes.py",
+      "module": "dagents.gma.routes",
+      "file": "dagents/gma/routes.py",
       "calls": [
        {
         "kind": "route",
         "class": null,
-        "module": "agents.gma.routes",
-        "file": "agents/gma/routes.py",
+        "module": "dagents.gma.routes",
+        "file": "dagents/gma/routes.py",
         "name": "list_rounds",
         "endpoint": "gma-get-federation-rounds"
        }
@@ -1973,14 +1973,14 @@
      "deprecated": false,
      "handler": {
       "function": "dispatch_round_v1",
-      "module": "agents.gma.routes",
-      "file": "agents/gma/routes.py",
+      "module": "dagents.gma.routes",
+      "file": "dagents/gma/routes.py",
       "calls": [
        {
         "kind": "route",
         "class": null,
-        "module": "agents.gma.routes",
-        "file": "agents/gma/routes.py",
+        "module": "dagents.gma.routes",
+        "file": "dagents/gma/routes.py",
         "name": "dispatch_round",
         "endpoint": "gma-post-federation-rounds"
        }
@@ -2044,14 +2044,14 @@
      "deprecated": false,
      "handler": {
       "function": "get_round_v1",
-      "module": "agents.gma.routes",
-      "file": "agents/gma/routes.py",
+      "module": "dagents.gma.routes",
+      "file": "dagents/gma/routes.py",
       "calls": [
        {
         "kind": "route",
         "class": null,
-        "module": "agents.gma.routes",
-        "file": "agents/gma/routes.py",
+        "module": "dagents.gma.routes",
+        "file": "dagents/gma/routes.py",
         "name": "get_round",
         "endpoint": "gma-get-federation-rounds-round-id"
        }
@@ -2113,14 +2113,14 @@
      "deprecated": false,
      "handler": {
       "function": "round_readiness_v1",
-      "module": "agents.gma.routes",
-      "file": "agents/gma/routes.py",
+      "module": "dagents.gma.routes",
+      "file": "dagents/gma/routes.py",
       "calls": [
        {
         "kind": "route",
         "class": null,
-        "module": "agents.gma.routes",
-        "file": "agents/gma/routes.py",
+        "module": "dagents.gma.routes",
+        "file": "dagents/gma/routes.py",
         "name": "round_readiness",
         "endpoint": "gma-get-federation-rounds-round-id-readiness"
        }
@@ -2190,14 +2190,14 @@
      "deprecated": false,
      "handler": {
       "function": "submit_result_v1",
-      "module": "agents.gma.routes",
-      "file": "agents/gma/routes.py",
+      "module": "dagents.gma.routes",
+      "file": "dagents/gma/routes.py",
       "calls": [
        {
         "kind": "route",
         "class": null,
-        "module": "agents.gma.routes",
-        "file": "agents/gma/routes.py",
+        "module": "dagents.gma.routes",
+        "file": "dagents/gma/routes.py",
         "name": "submit_result",
         "endpoint": "gma-post-federation-rounds-round-id-results"
        }
@@ -2289,14 +2289,14 @@
      "deprecated": false,
      "handler": {
       "function": "upload_update_v1",
-      "module": "agents.gma.routes",
-      "file": "agents/gma/routes.py",
+      "module": "dagents.gma.routes",
+      "file": "dagents/gma/routes.py",
       "calls": [
        {
         "kind": "route",
         "class": null,
-        "module": "agents.gma.routes",
-        "file": "agents/gma/routes.py",
+        "module": "dagents.gma.routes",
+        "file": "dagents/gma/routes.py",
         "name": "upload_update",
         "endpoint": "gma-put-federation-rounds-round-id-updates-site-id"
        }
@@ -2391,14 +2391,14 @@
      "deprecated": false,
      "handler": {
       "function": "aggregate_round_v1",
-      "module": "agents.gma.routes",
-      "file": "agents/gma/routes.py",
+      "module": "dagents.gma.routes",
+      "file": "dagents/gma/routes.py",
       "calls": [
        {
         "kind": "route",
         "class": null,
-        "module": "agents.gma.routes",
-        "file": "agents/gma/routes.py",
+        "module": "dagents.gma.routes",
+        "file": "dagents/gma/routes.py",
         "name": "aggregate_round",
         "endpoint": "gma-post-federation-rounds-round-id-aggregate"
        }
@@ -2476,14 +2476,14 @@
      "deprecated": false,
      "handler": {
       "function": "discard_round_v1",
-      "module": "agents.gma.routes",
-      "file": "agents/gma/routes.py",
+      "module": "dagents.gma.routes",
+      "file": "dagents/gma/routes.py",
       "calls": [
        {
         "kind": "route",
         "class": null,
-        "module": "agents.gma.routes",
-        "file": "agents/gma/routes.py",
+        "module": "dagents.gma.routes",
+        "file": "dagents/gma/routes.py",
         "name": "discard_round",
         "endpoint": "gma-post-federation-rounds-round-id-discard"
        }
@@ -2549,14 +2549,14 @@
      "deprecated": false,
      "handler": {
       "function": "evaluate_release_v1",
-      "module": "agents.gma.routes",
-      "file": "agents/gma/routes.py",
+      "module": "dagents.gma.routes",
+      "file": "dagents/gma/routes.py",
       "calls": [
        {
         "kind": "route",
         "class": null,
-        "module": "agents.gma.routes",
-        "file": "agents/gma/routes.py",
+        "module": "dagents.gma.routes",
+        "file": "dagents/gma/routes.py",
         "name": "evaluate_release",
         "endpoint": "gma-post-federation-rounds-round-id-evaluate-release"
        }
@@ -2647,14 +2647,14 @@
      "deprecated": false,
      "handler": {
       "function": "plan_round_v1",
-      "module": "agents.gma.routes",
-      "file": "agents/gma/routes.py",
+      "module": "dagents.gma.routes",
+      "file": "dagents/gma/routes.py",
       "calls": [
        {
         "kind": "route",
         "class": null,
-        "module": "agents.gma.routes",
-        "file": "agents/gma/routes.py",
+        "module": "dagents.gma.routes",
+        "file": "dagents/gma/routes.py",
         "name": "plan_round",
         "endpoint": "gma-post-federation-rounds-plan"
        }
@@ -2710,14 +2710,14 @@
      "deprecated": false,
      "handler": {
       "function": "list_site_addresses_v1",
-      "module": "agents.gma.routes",
-      "file": "agents/gma/routes.py",
+      "module": "dagents.gma.routes",
+      "file": "dagents/gma/routes.py",
       "calls": [
        {
         "kind": "route",
         "class": null,
-        "module": "agents.gma.routes",
-        "file": "agents/gma/routes.py",
+        "module": "dagents.gma.routes",
+        "file": "dagents/gma/routes.py",
         "name": "list_site_addresses",
         "endpoint": "gma-get-federation-site-addresses"
        }
@@ -2751,14 +2751,14 @@
      "deprecated": false,
      "handler": {
       "function": "list_sites_v1",
-      "module": "agents.gma.routes",
-      "file": "agents/gma/routes.py",
+      "module": "dagents.gma.routes",
+      "file": "dagents/gma/routes.py",
       "calls": [
        {
         "kind": "route",
         "class": null,
-        "module": "agents.gma.routes",
-        "file": "agents/gma/routes.py",
+        "module": "dagents.gma.routes",
+        "file": "dagents/gma/routes.py",
         "name": "list_sites",
         "endpoint": "gma-get-federation-sites"
        }
@@ -2796,14 +2796,14 @@
      "deprecated": false,
      "handler": {
       "function": "site_summaries_v1",
-      "module": "agents.gma.routes",
-      "file": "agents/gma/routes.py",
+      "module": "dagents.gma.routes",
+      "file": "dagents/gma/routes.py",
       "calls": [
        {
         "kind": "route",
         "class": null,
-        "module": "agents.gma.routes",
-        "file": "agents/gma/routes.py",
+        "module": "dagents.gma.routes",
+        "file": "dagents/gma/routes.py",
         "name": "site_summaries",
         "endpoint": "gma-get-federation-sites-summaries"
        }
@@ -2869,14 +2869,14 @@
      "deprecated": false,
      "handler": {
       "function": "register_site_v1",
-      "module": "agents.gma.routes",
-      "file": "agents/gma/routes.py",
+      "module": "dagents.gma.routes",
+      "file": "dagents/gma/routes.py",
       "calls": [
        {
         "kind": "route",
         "class": null,
-        "module": "agents.gma.routes",
-        "file": "agents/gma/routes.py",
+        "module": "dagents.gma.routes",
+        "file": "dagents/gma/routes.py",
         "name": "register_site",
         "endpoint": "gma-put-federation-sites-site-id"
        }
@@ -2944,14 +2944,14 @@
      "deprecated": false,
      "handler": {
       "function": "remove_site_address_v1",
-      "module": "agents.gma.routes",
-      "file": "agents/gma/routes.py",
+      "module": "dagents.gma.routes",
+      "file": "dagents/gma/routes.py",
       "calls": [
        {
         "kind": "route",
         "class": null,
-        "module": "agents.gma.routes",
-        "file": "agents/gma/routes.py",
+        "module": "dagents.gma.routes",
+        "file": "dagents/gma/routes.py",
         "name": "remove_site_address",
         "endpoint": "gma-delete-federation-sites-site-id-address"
        }
@@ -3019,14 +3019,14 @@
      "deprecated": false,
      "handler": {
       "function": "register_site_address_v1",
-      "module": "agents.gma.routes",
-      "file": "agents/gma/routes.py",
+      "module": "dagents.gma.routes",
+      "file": "dagents/gma/routes.py",
       "calls": [
        {
         "kind": "route",
         "class": null,
-        "module": "agents.gma.routes",
-        "file": "agents/gma/routes.py",
+        "module": "dagents.gma.routes",
+        "file": "dagents/gma/routes.py",
         "name": "register_site_address",
         "endpoint": "gma-put-federation-sites-site-id-address"
        }
@@ -3109,14 +3109,14 @@
      "deprecated": false,
      "handler": {
       "function": "refresh_sites_v1",
-      "module": "agents.gma.routes",
-      "file": "agents/gma/routes.py",
+      "module": "dagents.gma.routes",
+      "file": "dagents/gma/routes.py",
       "calls": [
        {
         "kind": "route",
         "class": null,
-        "module": "agents.gma.routes",
-        "file": "agents/gma/routes.py",
+        "module": "dagents.gma.routes",
+        "file": "dagents/gma/routes.py",
         "name": "refresh_sites",
         "endpoint": "gma-post-federation-sites-refresh"
        }
@@ -3154,14 +3154,14 @@
      "deprecated": false,
      "handler": {
       "function": "governance_audit_v1",
-      "module": "agents.gma.routes",
-      "file": "agents/gma/routes.py",
+      "module": "dagents.gma.routes",
+      "file": "dagents/gma/routes.py",
       "calls": [
        {
         "kind": "route",
         "class": null,
-        "module": "agents.gma.routes",
-        "file": "agents/gma/routes.py",
+        "module": "dagents.gma.routes",
+        "file": "dagents/gma/routes.py",
         "name": "governance_audit",
         "endpoint": "gma-get-governance-audit"
        }
@@ -3216,14 +3216,14 @@
      "deprecated": false,
      "handler": {
       "function": "governance_audit_summary_v1",
-      "module": "agents.gma.routes",
-      "file": "agents/gma/routes.py",
+      "module": "dagents.gma.routes",
+      "file": "dagents/gma/routes.py",
       "calls": [
        {
         "kind": "route",
         "class": null,
-        "module": "agents.gma.routes",
-        "file": "agents/gma/routes.py",
+        "module": "dagents.gma.routes",
+        "file": "dagents/gma/routes.py",
         "name": "governance_audit_summary",
         "endpoint": "gma-get-governance-audit-summary"
        }
@@ -3257,14 +3257,14 @@
      "deprecated": false,
      "handler": {
       "function": "list_classifications_v1",
-      "module": "agents.gma.routes",
-      "file": "agents/gma/routes.py",
+      "module": "dagents.gma.routes",
+      "file": "dagents/gma/routes.py",
       "calls": [
        {
         "kind": "route",
         "class": null,
-        "module": "agents.gma.routes",
-        "file": "agents/gma/routes.py",
+        "module": "dagents.gma.routes",
+        "file": "dagents/gma/routes.py",
         "name": "list_classifications",
         "endpoint": "gma-get-governance-classifications"
        }
@@ -3302,14 +3302,14 @@
      "deprecated": false,
      "handler": {
       "function": "register_classification_v1",
-      "module": "agents.gma.routes",
-      "file": "agents/gma/routes.py",
+      "module": "dagents.gma.routes",
+      "file": "dagents/gma/routes.py",
       "calls": [
        {
         "kind": "route",
         "class": null,
-        "module": "agents.gma.routes",
-        "file": "agents/gma/routes.py",
+        "module": "dagents.gma.routes",
+        "file": "dagents/gma/routes.py",
         "name": "register_classification",
         "endpoint": "gma-put-governance-classifications-classification-id"
        }
@@ -3385,14 +3385,14 @@
      "deprecated": false,
      "handler": {
       "function": "enforce_restriction_v1",
-      "module": "agents.gma.routes",
-      "file": "agents/gma/routes.py",
+      "module": "dagents.gma.routes",
+      "file": "dagents/gma/routes.py",
       "calls": [
        {
         "kind": "route",
         "class": null,
-        "module": "agents.gma.routes",
-        "file": "agents/gma/routes.py",
+        "module": "dagents.gma.routes",
+        "file": "dagents/gma/routes.py",
         "name": "enforce_restriction",
         "endpoint": "gma-post-governance-restrictions-enforce"
        }
@@ -3448,14 +3448,14 @@
      "deprecated": false,
      "handler": {
       "function": "plan_restriction_v1",
-      "module": "agents.gma.routes",
-      "file": "agents/gma/routes.py",
+      "module": "dagents.gma.routes",
+      "file": "dagents/gma/routes.py",
       "calls": [
        {
         "kind": "route",
         "class": null,
-        "module": "agents.gma.routes",
-        "file": "agents/gma/routes.py",
+        "module": "dagents.gma.routes",
+        "file": "dagents/gma/routes.py",
         "name": "plan_restriction",
         "endpoint": "gma-post-governance-restrictions-plan"
        }
@@ -3519,14 +3519,14 @@
      "deprecated": false,
      "handler": {
       "function": "health_v1",
-      "module": "agents.gma.routes",
-      "file": "agents/gma/routes.py",
+      "module": "dagents.gma.routes",
+      "file": "dagents/gma/routes.py",
       "calls": [
        {
         "kind": "route",
         "class": null,
-        "module": "agents.gma.routes",
-        "file": "agents/gma/routes.py",
+        "module": "dagents.gma.routes",
+        "file": "dagents/gma/routes.py",
         "name": "health",
         "endpoint": "gma-get-health"
        }
@@ -3565,14 +3565,14 @@
      "deprecated": false,
      "handler": {
       "function": "list_model_runs_v1",
-      "module": "agents.gma.routes",
-      "file": "agents/gma/routes.py",
+      "module": "dagents.gma.routes",
+      "file": "dagents/gma/routes.py",
       "calls": [
        {
         "kind": "route",
         "class": null,
-        "module": "agents.gma.routes",
-        "file": "agents/gma/routes.py",
+        "module": "dagents.gma.routes",
+        "file": "dagents/gma/routes.py",
         "name": "list_model_runs",
         "endpoint": "gma-get-models-runs"
        }
@@ -3639,14 +3639,14 @@
      "deprecated": false,
      "handler": {
       "function": "run_assimilated_model_v1",
-      "module": "agents.gma.routes",
-      "file": "agents/gma/routes.py",
+      "module": "dagents.gma.routes",
+      "file": "dagents/gma/routes.py",
       "calls": [
        {
         "kind": "route",
         "class": null,
-        "module": "agents.gma.routes",
-        "file": "agents/gma/routes.py",
+        "module": "dagents.gma.routes",
+        "file": "dagents/gma/routes.py",
         "name": "run_assimilated_model",
         "endpoint": "gma-post-models-run"
        }
@@ -3710,14 +3710,14 @@
      "deprecated": false,
      "handler": {
       "function": "list_model_versions_v1",
-      "module": "agents.gma.routes",
-      "file": "agents/gma/routes.py",
+      "module": "dagents.gma.routes",
+      "file": "dagents/gma/routes.py",
       "calls": [
        {
         "kind": "route",
         "class": null,
-        "module": "agents.gma.routes",
-        "file": "agents/gma/routes.py",
+        "module": "dagents.gma.routes",
+        "file": "dagents/gma/routes.py",
         "name": "list_model_versions",
         "endpoint": "gma-get-model-versions"
        }
@@ -3774,14 +3774,14 @@
      "deprecated": false,
      "handler": {
       "function": "get_model_version_v1",
-      "module": "agents.gma.routes",
-      "file": "agents/gma/routes.py",
+      "module": "dagents.gma.routes",
+      "file": "dagents/gma/routes.py",
       "calls": [
        {
         "kind": "route",
         "class": null,
-        "module": "agents.gma.routes",
-        "file": "agents/gma/routes.py",
+        "module": "dagents.gma.routes",
+        "file": "dagents/gma/routes.py",
         "name": "get_model_version",
         "endpoint": "gma-get-model-versions-version"
        }
@@ -3843,14 +3843,14 @@
      "deprecated": false,
      "handler": {
       "function": "register_model_version_v1",
-      "module": "agents.gma.routes",
-      "file": "agents/gma/routes.py",
+      "module": "dagents.gma.routes",
+      "file": "dagents/gma/routes.py",
       "calls": [
        {
         "kind": "route",
         "class": null,
-        "module": "agents.gma.routes",
-        "file": "agents/gma/routes.py",
+        "module": "dagents.gma.routes",
+        "file": "dagents/gma/routes.py",
         "name": "register_model_version",
         "endpoint": "gma-put-model-versions-version"
        }
@@ -3941,14 +3941,14 @@
      "deprecated": false,
      "handler": {
       "function": "approve_model_version_v1",
-      "module": "agents.gma.routes",
-      "file": "agents/gma/routes.py",
+      "module": "dagents.gma.routes",
+      "file": "dagents/gma/routes.py",
       "calls": [
        {
         "kind": "route",
         "class": null,
-        "module": "agents.gma.routes",
-        "file": "agents/gma/routes.py",
+        "module": "dagents.gma.routes",
+        "file": "dagents/gma/routes.py",
         "name": "approve_model_version",
         "endpoint": "gma-post-model-versions-version-approve"
        }
@@ -4026,14 +4026,14 @@
      "deprecated": false,
      "handler": {
       "function": "released_model_version_v1",
-      "module": "agents.gma.routes",
-      "file": "agents/gma/routes.py",
+      "module": "dagents.gma.routes",
+      "file": "dagents/gma/routes.py",
       "calls": [
        {
         "kind": "route",
         "class": null,
-        "module": "agents.gma.routes",
-        "file": "agents/gma/routes.py",
+        "module": "dagents.gma.routes",
+        "file": "dagents/gma/routes.py",
         "name": "released_model_version",
         "endpoint": "gma-get-model-versions-released"
        }
@@ -4116,21 +4116,21 @@
      "deprecated": false,
      "handler": {
       "function": "list_sources",
-      "module": "agents.gma.routes",
-      "file": "agents/gma/routes.py",
+      "module": "dagents.gma.routes",
+      "file": "dagents/gma/routes.py",
       "calls": [
        {
         "kind": "function",
         "class": null,
-        "module": "agents.common.infrastructure.sources",
-        "file": "agents/common/infrastructure/sources.py",
+        "module": "dagents.common.infrastructure.sources",
+        "file": "dagents/common/infrastructure/sources.py",
         "name": "redact_source"
        },
        {
         "kind": "method",
         "class": "AggregationService",
-        "module": "agents.gma.application.aggregation_service",
-        "file": "agents/gma/application/aggregation_service.py",
+        "module": "dagents.gma.application.aggregation_service",
+        "file": "dagents/gma/application/aggregation_service.py",
         "name": "list_sources"
        }
       ]
@@ -4193,21 +4193,21 @@
      "deprecated": false,
      "handler": {
       "function": "register_source",
-      "module": "agents.gma.routes",
-      "file": "agents/gma/routes.py",
+      "module": "dagents.gma.routes",
+      "file": "dagents/gma/routes.py",
       "calls": [
        {
         "kind": "function",
         "class": null,
-        "module": "agents.common.infrastructure.sources",
-        "file": "agents/common/infrastructure/sources.py",
+        "module": "dagents.common.infrastructure.sources",
+        "file": "dagents/common/infrastructure/sources.py",
         "name": "redact_source"
        },
        {
         "kind": "method",
         "class": "AggregationService",
-        "module": "agents.gma.application.aggregation_service",
-        "file": "agents/gma/application/aggregation_service.py",
+        "module": "dagents.gma.application.aggregation_service",
+        "file": "dagents/gma/application/aggregation_service.py",
         "name": "register_source"
        }
       ]
@@ -4314,21 +4314,21 @@
      "deprecated": false,
      "handler": {
       "function": "get_source",
-      "module": "agents.gma.routes",
-      "file": "agents/gma/routes.py",
+      "module": "dagents.gma.routes",
+      "file": "dagents/gma/routes.py",
       "calls": [
        {
         "kind": "method",
         "class": "AggregationService",
-        "module": "agents.gma.application.aggregation_service",
-        "file": "agents/gma/application/aggregation_service.py",
+        "module": "dagents.gma.application.aggregation_service",
+        "file": "dagents/gma/application/aggregation_service.py",
         "name": "get_source"
        },
        {
         "kind": "function",
         "class": null,
-        "module": "agents.common.infrastructure.sources",
-        "file": "agents/common/infrastructure/sources.py",
+        "module": "dagents.common.infrastructure.sources",
+        "file": "dagents/common/infrastructure/sources.py",
         "name": "redact_source"
        }
       ]
@@ -4415,14 +4415,14 @@
      "deprecated": false,
      "handler": {
       "function": "validate_source",
-      "module": "agents.gma.routes",
-      "file": "agents/gma/routes.py",
+      "module": "dagents.gma.routes",
+      "file": "dagents/gma/routes.py",
       "calls": [
        {
         "kind": "method",
         "class": "AggregationService",
-        "module": "agents.gma.application.aggregation_service",
-        "file": "agents/gma/application/aggregation_service.py",
+        "module": "dagents.gma.application.aggregation_service",
+        "file": "dagents/gma/application/aggregation_service.py",
         "name": "validate_source"
        }
       ]
@@ -4487,14 +4487,14 @@
      "deprecated": false,
      "handler": {
       "function": "profile_assimilated_dataset",
-      "module": "agents.gma.routes",
-      "file": "agents/gma/routes.py",
+      "module": "dagents.gma.routes",
+      "file": "dagents/gma/routes.py",
       "calls": [
        {
         "kind": "method",
         "class": "AggregationService",
-        "module": "agents.gma.application.aggregation_service",
-        "file": "agents/gma/application/aggregation_service.py",
+        "module": "dagents.gma.application.aggregation_service",
+        "file": "dagents/gma/application/aggregation_service.py",
         "name": "profile_assimilated_dataset"
        }
       ]
@@ -4553,14 +4553,14 @@
      "deprecated": false,
      "handler": {
       "function": "list_deployments",
-      "module": "agents.gma.routes",
-      "file": "agents/gma/routes.py",
+      "module": "dagents.gma.routes",
+      "file": "dagents/gma/routes.py",
       "calls": [
        {
         "kind": "method",
         "class": "AggregationService",
-        "module": "agents.gma.application.aggregation_service",
-        "file": "agents/gma/application/aggregation_service.py",
+        "module": "dagents.gma.application.aggregation_service",
+        "file": "dagents/gma/application/aggregation_service.py",
         "name": "list_deployments"
        }
       ]
@@ -4593,14 +4593,14 @@
      "deprecated": false,
      "handler": {
       "function": "plan_deployment",
-      "module": "agents.gma.routes",
-      "file": "agents/gma/routes.py",
+      "module": "dagents.gma.routes",
+      "file": "dagents/gma/routes.py",
       "calls": [
        {
         "kind": "method",
         "class": "AggregationService",
-        "module": "agents.gma.application.aggregation_service",
-        "file": "agents/gma/application/aggregation_service.py",
+        "module": "dagents.gma.application.aggregation_service",
+        "file": "dagents/gma/application/aggregation_service.py",
         "name": "plan_deployment"
        }
       ]
@@ -4643,14 +4643,14 @@
      "deprecated": false,
      "handler": {
       "function": "sync_deployment",
-      "module": "agents.gma.routes",
-      "file": "agents/gma/routes.py",
+      "module": "dagents.gma.routes",
+      "file": "dagents/gma/routes.py",
       "calls": [
        {
         "kind": "method",
         "class": "AggregationService",
-        "module": "agents.gma.application.aggregation_service",
-        "file": "agents/gma/application/aggregation_service.py",
+        "module": "dagents.gma.application.aggregation_service",
+        "file": "dagents/gma/application/aggregation_service.py",
         "name": "sync_deployment"
        }
       ]
@@ -4701,14 +4701,14 @@
      "deprecated": false,
      "handler": {
       "function": "list_extensions",
-      "module": "agents.gma.routes",
-      "file": "agents/gma/routes.py",
+      "module": "dagents.gma.routes",
+      "file": "dagents/gma/routes.py",
       "calls": [
        {
         "kind": "method",
         "class": "ExtensionRegistry",
-        "module": "agents.common.extensions.registry",
-        "file": "agents/common/extensions/registry.py",
+        "module": "dagents.common.extensions.registry",
+        "file": "dagents/common/extensions/registry.py",
         "name": "describe"
        }
       ]
@@ -4737,14 +4737,14 @@
      "deprecated": false,
      "handler": {
       "function": "list_rounds",
-      "module": "agents.gma.routes",
-      "file": "agents/gma/routes.py",
+      "module": "dagents.gma.routes",
+      "file": "dagents/gma/routes.py",
       "calls": [
        {
         "kind": "method",
         "class": "FederatedRoundController",
-        "module": "agents.common.application.federation",
-        "file": "agents/common/application/federation.py",
+        "module": "dagents.common.application.federation",
+        "file": "dagents/common/application/federation.py",
         "name": "list_rounds"
        }
       ]
@@ -4798,14 +4798,14 @@
      "deprecated": false,
      "handler": {
       "function": "dispatch_round",
-      "module": "agents.gma.routes",
-      "file": "agents/gma/routes.py",
+      "module": "dagents.gma.routes",
+      "file": "dagents/gma/routes.py",
       "calls": [
        {
         "kind": "method",
         "class": "FederatedRoundController",
-        "module": "agents.common.application.federation",
-        "file": "agents/common/application/federation.py",
+        "module": "dagents.common.application.federation",
+        "file": "dagents/common/application/federation.py",
         "name": "dispatch_round"
        }
       ]
@@ -4864,14 +4864,14 @@
      "deprecated": false,
      "handler": {
       "function": "get_round",
-      "module": "agents.gma.routes",
-      "file": "agents/gma/routes.py",
+      "module": "dagents.gma.routes",
+      "file": "dagents/gma/routes.py",
       "calls": [
        {
         "kind": "method",
         "class": "FederatedRoundController",
-        "module": "agents.common.application.federation",
-        "file": "agents/common/application/federation.py",
+        "module": "dagents.common.application.federation",
+        "file": "dagents/common/application/federation.py",
         "name": "get_round"
        }
       ]
@@ -4928,14 +4928,14 @@
      "deprecated": false,
      "handler": {
       "function": "round_readiness",
-      "module": "agents.gma.routes",
-      "file": "agents/gma/routes.py",
+      "module": "dagents.gma.routes",
+      "file": "dagents/gma/routes.py",
       "calls": [
        {
         "kind": "method",
         "class": "FederatedRoundController",
-        "module": "agents.common.application.federation",
-        "file": "agents/common/application/federation.py",
+        "module": "dagents.common.application.federation",
+        "file": "dagents/common/application/federation.py",
         "name": "evaluate_readiness"
        }
       ]
@@ -5000,14 +5000,14 @@
      "deprecated": false,
      "handler": {
       "function": "submit_result",
-      "module": "agents.gma.routes",
-      "file": "agents/gma/routes.py",
+      "module": "dagents.gma.routes",
+      "file": "dagents/gma/routes.py",
       "calls": [
        {
         "kind": "method",
         "class": "FederatedRoundController",
-        "module": "agents.common.application.federation",
-        "file": "agents/common/application/federation.py",
+        "module": "dagents.common.application.federation",
+        "file": "dagents/common/application/federation.py",
         "name": "submit_result"
        }
       ]
@@ -5094,42 +5094,42 @@
      "deprecated": false,
      "handler": {
       "function": "upload_update",
-      "module": "agents.gma.routes",
-      "file": "agents/gma/routes.py",
+      "module": "dagents.gma.routes",
+      "file": "dagents/gma/routes.py",
       "calls": [
        {
         "kind": "method",
         "class": "FederatedRoundController",
-        "module": "agents.common.application.federation",
-        "file": "agents/common/application/federation.py",
+        "module": "dagents.common.application.federation",
+        "file": "dagents/common/application/federation.py",
         "name": "get_round"
        },
        {
         "kind": "method",
         "class": "ModelRegistry",
-        "module": "agents.gma.application.model_registry",
-        "file": "agents/gma/application/model_registry.py",
+        "module": "dagents.gma.application.model_registry",
+        "file": "dagents/gma/application/model_registry.py",
         "name": "kind_of"
        },
        {
         "kind": "method",
         "class": "InMemoryUpdateStore",
-        "module": "agents.gma.infrastructure.update_store",
-        "file": "agents/gma/infrastructure/update_store.py",
+        "module": "dagents.gma.infrastructure.update_store",
+        "file": "dagents/gma/infrastructure/update_store.py",
         "name": "put"
        },
        {
         "kind": "method",
         "class": "ModelRegistry",
-        "module": "agents.gma.application.model_registry",
-        "file": "agents/gma/application/model_registry.py",
+        "module": "dagents.gma.application.model_registry",
+        "file": "dagents/gma/application/model_registry.py",
         "name": "kind"
        },
        {
         "kind": "method",
         "class": "HandlerThreads",
-        "module": "agents.gma.app_factory",
-        "file": "agents/gma/app_factory.py",
+        "module": "dagents.gma.app_factory",
+        "file": "dagents/gma/app_factory.py",
         "name": "run"
        }
       ]
@@ -5219,14 +5219,14 @@
      "deprecated": false,
      "handler": {
       "function": "aggregate_round",
-      "module": "agents.gma.routes",
-      "file": "agents/gma/routes.py",
+      "module": "dagents.gma.routes",
+      "file": "dagents/gma/routes.py",
       "calls": [
        {
         "kind": "method",
         "class": "FederatedRoundController",
-        "module": "agents.common.application.federation",
-        "file": "agents/common/application/federation.py",
+        "module": "dagents.common.application.federation",
+        "file": "dagents/common/application/federation.py",
         "name": "aggregate"
        }
       ]
@@ -5299,14 +5299,14 @@
      "deprecated": false,
      "handler": {
       "function": "discard_round",
-      "module": "agents.gma.routes",
-      "file": "agents/gma/routes.py",
+      "module": "dagents.gma.routes",
+      "file": "dagents/gma/routes.py",
       "calls": [
        {
         "kind": "method",
         "class": "FederatedRoundController",
-        "module": "agents.common.application.federation",
-        "file": "agents/common/application/federation.py",
+        "module": "dagents.common.application.federation",
+        "file": "dagents/common/application/federation.py",
         "name": "discard"
        }
       ]
@@ -5367,14 +5367,14 @@
      "deprecated": false,
      "handler": {
       "function": "evaluate_release",
-      "module": "agents.gma.routes",
-      "file": "agents/gma/routes.py",
+      "module": "dagents.gma.routes",
+      "file": "dagents/gma/routes.py",
       "calls": [
        {
         "kind": "method",
         "class": "ReleaseService",
-        "module": "agents.gma.application.release_service",
-        "file": "agents/gma/application/release_service.py",
+        "module": "dagents.gma.application.release_service",
+        "file": "dagents/gma/application/release_service.py",
         "name": "evaluate"
        }
       ]
@@ -5460,14 +5460,14 @@
      "deprecated": false,
      "handler": {
       "function": "plan_round",
-      "module": "agents.gma.routes",
-      "file": "agents/gma/routes.py",
+      "module": "dagents.gma.routes",
+      "file": "dagents/gma/routes.py",
       "calls": [
        {
         "kind": "method",
         "class": "FederatedRoundController",
-        "module": "agents.common.application.federation",
-        "file": "agents/common/application/federation.py",
+        "module": "dagents.common.application.federation",
+        "file": "dagents/common/application/federation.py",
         "name": "plan_round"
        }
       ]
@@ -5518,14 +5518,14 @@
      "deprecated": false,
      "handler": {
       "function": "list_site_addresses",
-      "module": "agents.gma.routes",
-      "file": "agents/gma/routes.py",
+      "module": "dagents.gma.routes",
+      "file": "dagents/gma/routes.py",
       "calls": [
        {
         "kind": "method",
         "class": "SiteAddressBook",
-        "module": "agents.gma.application.site_addresses",
-        "file": "agents/gma/application/site_addresses.py",
+        "module": "dagents.gma.application.site_addresses",
+        "file": "dagents/gma/application/site_addresses.py",
         "name": "listing"
        }
       ]
@@ -5554,14 +5554,14 @@
      "deprecated": false,
      "handler": {
       "function": "list_sites",
-      "module": "agents.gma.routes",
-      "file": "agents/gma/routes.py",
+      "module": "dagents.gma.routes",
+      "file": "dagents/gma/routes.py",
       "calls": [
        {
         "kind": "method",
         "class": "FederatedRoundController",
-        "module": "agents.common.application.federation",
-        "file": "agents/common/application/federation.py",
+        "module": "dagents.common.application.federation",
+        "file": "dagents/common/application/federation.py",
         "name": "list_sites"
        }
       ]
@@ -5594,14 +5594,14 @@
      "deprecated": false,
      "handler": {
       "function": "site_summaries",
-      "module": "agents.gma.routes",
-      "file": "agents/gma/routes.py",
+      "module": "dagents.gma.routes",
+      "file": "dagents/gma/routes.py",
       "calls": [
        {
         "kind": "method",
         "class": "SiteDirectory",
-        "module": "agents.gma.application.site_directory",
-        "file": "agents/gma/application/site_directory.py",
+        "module": "dagents.gma.application.site_directory",
+        "file": "dagents/gma/application/site_directory.py",
         "name": "summaries"
        }
       ]
@@ -5662,14 +5662,14 @@
      "deprecated": false,
      "handler": {
       "function": "register_site",
-      "module": "agents.gma.routes",
-      "file": "agents/gma/routes.py",
+      "module": "dagents.gma.routes",
+      "file": "dagents/gma/routes.py",
       "calls": [
        {
         "kind": "method",
         "class": "FederatedRoundController",
-        "module": "agents.common.application.federation",
-        "file": "agents/common/application/federation.py",
+        "module": "dagents.common.application.federation",
+        "file": "dagents/common/application/federation.py",
         "name": "register_site"
        }
       ]
@@ -5732,14 +5732,14 @@
      "deprecated": false,
      "handler": {
       "function": "remove_site_address",
-      "module": "agents.gma.routes",
-      "file": "agents/gma/routes.py",
+      "module": "dagents.gma.routes",
+      "file": "dagents/gma/routes.py",
       "calls": [
        {
         "kind": "method",
         "class": "SiteAddressBook",
-        "module": "agents.gma.application.site_addresses",
-        "file": "agents/gma/application/site_addresses.py",
+        "module": "dagents.gma.application.site_addresses",
+        "file": "dagents/gma/application/site_addresses.py",
         "name": "detach"
        }
       ]
@@ -5802,14 +5802,14 @@
      "deprecated": false,
      "handler": {
       "function": "register_site_address",
-      "module": "agents.gma.routes",
-      "file": "agents/gma/routes.py",
+      "module": "dagents.gma.routes",
+      "file": "dagents/gma/routes.py",
       "calls": [
        {
         "kind": "method",
         "class": "SiteAddressBook",
-        "module": "agents.gma.application.site_addresses",
-        "file": "agents/gma/application/site_addresses.py",
+        "module": "dagents.gma.application.site_addresses",
+        "file": "dagents/gma/application/site_addresses.py",
         "name": "attach"
        }
       ]
@@ -5887,14 +5887,14 @@
      "deprecated": false,
      "handler": {
       "function": "refresh_sites",
-      "module": "agents.gma.routes",
-      "file": "agents/gma/routes.py",
+      "module": "dagents.gma.routes",
+      "file": "dagents/gma/routes.py",
       "calls": [
        {
         "kind": "method",
         "class": "SiteDirectory",
-        "module": "agents.gma.application.site_directory",
-        "file": "agents/gma/application/site_directory.py",
+        "module": "dagents.gma.application.site_directory",
+        "file": "dagents/gma/application/site_directory.py",
         "name": "refresh"
        }
       ]
@@ -5927,21 +5927,21 @@
      "deprecated": false,
      "handler": {
       "function": "governance_audit",
-      "module": "agents.gma.routes",
-      "file": "agents/gma/routes.py",
+      "module": "dagents.gma.routes",
+      "file": "dagents/gma/routes.py",
       "calls": [
        {
         "kind": "method",
         "class": "GovernanceService",
-        "module": "agents.common.application.governance_service",
-        "file": "agents/common/application/governance_service.py",
+        "module": "dagents.common.application.governance_service",
+        "file": "dagents/common/application/governance_service.py",
         "name": "audit_chain_intact"
        },
        {
         "kind": "method",
         "class": "GovernanceService",
-        "module": "agents.common.application.governance_service",
-        "file": "agents/common/application/governance_service.py",
+        "module": "dagents.common.application.governance_service",
+        "file": "dagents/common/application/governance_service.py",
         "name": "recent_audit"
        }
       ]
@@ -5991,21 +5991,21 @@
      "deprecated": false,
      "handler": {
       "function": "governance_audit_summary",
-      "module": "agents.gma.routes",
-      "file": "agents/gma/routes.py",
+      "module": "dagents.gma.routes",
+      "file": "dagents/gma/routes.py",
       "calls": [
        {
         "kind": "method",
         "class": "GovernanceService",
-        "module": "agents.common.application.governance_service",
-        "file": "agents/common/application/governance_service.py",
+        "module": "dagents.common.application.governance_service",
+        "file": "dagents/common/application/governance_service.py",
         "name": "audit_chain_intact"
        },
        {
         "kind": "method",
         "class": "GovernanceService",
-        "module": "agents.common.application.governance_service",
-        "file": "agents/common/application/governance_service.py",
+        "module": "dagents.common.application.governance_service",
+        "file": "dagents/common/application/governance_service.py",
         "name": "audit_record_count"
        }
       ]
@@ -6034,14 +6034,14 @@
      "deprecated": false,
      "handler": {
       "function": "list_classifications",
-      "module": "agents.gma.routes",
-      "file": "agents/gma/routes.py",
+      "module": "dagents.gma.routes",
+      "file": "dagents/gma/routes.py",
       "calls": [
        {
         "kind": "method",
         "class": "GovernanceService",
-        "module": "agents.common.application.governance_service",
-        "file": "agents/common/application/governance_service.py",
+        "module": "dagents.common.application.governance_service",
+        "file": "dagents/common/application/governance_service.py",
         "name": "list_classifications"
        }
       ]
@@ -6074,14 +6074,14 @@
      "deprecated": false,
      "handler": {
       "function": "register_classification",
-      "module": "agents.gma.routes",
-      "file": "agents/gma/routes.py",
+      "module": "dagents.gma.routes",
+      "file": "dagents/gma/routes.py",
       "calls": [
        {
         "kind": "method",
         "class": "GovernanceService",
-        "module": "agents.common.application.governance_service",
-        "file": "agents/common/application/governance_service.py",
+        "module": "dagents.common.application.governance_service",
+        "file": "dagents/common/application/governance_service.py",
         "name": "register_classification"
        }
       ]
@@ -6152,14 +6152,14 @@
      "deprecated": false,
      "handler": {
       "function": "enforce_restriction",
-      "module": "agents.gma.routes",
-      "file": "agents/gma/routes.py",
+      "module": "dagents.gma.routes",
+      "file": "dagents/gma/routes.py",
       "calls": [
        {
         "kind": "method",
         "class": "GovernanceService",
-        "module": "agents.common.application.governance_service",
-        "file": "agents/common/application/governance_service.py",
+        "module": "dagents.common.application.governance_service",
+        "file": "dagents/common/application/governance_service.py",
         "name": "enforce"
        }
       ]
@@ -6210,14 +6210,14 @@
      "deprecated": false,
      "handler": {
       "function": "plan_restriction",
-      "module": "agents.gma.routes",
-      "file": "agents/gma/routes.py",
+      "module": "dagents.gma.routes",
+      "file": "dagents/gma/routes.py",
       "calls": [
        {
         "kind": "method",
         "class": "GovernanceService",
-        "module": "agents.common.application.governance_service",
-        "file": "agents/common/application/governance_service.py",
+        "module": "dagents.common.application.governance_service",
+        "file": "dagents/common/application/governance_service.py",
         "name": "plan"
        }
       ]
@@ -6276,14 +6276,14 @@
      "deprecated": false,
      "handler": {
       "function": "health",
-      "module": "agents.gma.routes",
-      "file": "agents/gma/routes.py",
+      "module": "dagents.gma.routes",
+      "file": "dagents/gma/routes.py",
       "calls": [
        {
         "kind": "method",
         "class": "AggregationService",
-        "module": "agents.gma.application.aggregation_service",
-        "file": "agents/gma/application/aggregation_service.py",
+        "module": "dagents.gma.application.aggregation_service",
+        "file": "dagents/gma/application/aggregation_service.py",
         "name": "health_payload"
        }
       ]
@@ -6317,14 +6317,14 @@
      "deprecated": false,
      "handler": {
       "function": "heartbeat",
-      "module": "agents.gma.routes",
-      "file": "agents/gma/routes.py",
+      "module": "dagents.gma.routes",
+      "file": "dagents/gma/routes.py",
       "calls": [
        {
         "kind": "method",
         "class": "AggregationService",
-        "module": "agents.gma.application.aggregation_service",
-        "file": "agents/gma/application/aggregation_service.py",
+        "module": "dagents.gma.application.aggregation_service",
+        "file": "dagents/gma/application/aggregation_service.py",
         "name": "heartbeat"
        }
       ]
@@ -6375,14 +6375,14 @@
      "deprecated": false,
      "handler": {
       "function": "list_model_versions",
-      "module": "agents.gma.routes",
-      "file": "agents/gma/routes.py",
+      "module": "dagents.gma.routes",
+      "file": "dagents/gma/routes.py",
       "calls": [
        {
         "kind": "method",
         "class": "ModelRegistry",
-        "module": "agents.gma.application.model_registry",
-        "file": "agents/gma/application/model_registry.py",
+        "module": "dagents.gma.application.model_registry",
+        "file": "dagents/gma/application/model_registry.py",
         "name": "list"
        }
       ]
@@ -6434,14 +6434,14 @@
      "deprecated": false,
      "handler": {
       "function": "get_model_version",
-      "module": "agents.gma.routes",
-      "file": "agents/gma/routes.py",
+      "module": "dagents.gma.routes",
+      "file": "dagents/gma/routes.py",
       "calls": [
        {
         "kind": "method",
         "class": "ModelRegistry",
-        "module": "agents.gma.application.model_registry",
-        "file": "agents/gma/application/model_registry.py",
+        "module": "dagents.gma.application.model_registry",
+        "file": "dagents/gma/application/model_registry.py",
         "name": "require"
        }
       ]
@@ -6498,14 +6498,14 @@
      "deprecated": false,
      "handler": {
       "function": "register_model_version",
-      "module": "agents.gma.routes",
-      "file": "agents/gma/routes.py",
+      "module": "dagents.gma.routes",
+      "file": "dagents/gma/routes.py",
       "calls": [
        {
         "kind": "method",
         "class": "ModelRegistry",
-        "module": "agents.gma.application.model_registry",
-        "file": "agents/gma/application/model_registry.py",
+        "module": "dagents.gma.application.model_registry",
+        "file": "dagents/gma/application/model_registry.py",
         "name": "register"
        }
       ]
@@ -6591,14 +6591,14 @@
      "deprecated": false,
      "handler": {
       "function": "approve_model_version",
-      "module": "agents.gma.routes",
-      "file": "agents/gma/routes.py",
+      "module": "dagents.gma.routes",
+      "file": "dagents/gma/routes.py",
       "calls": [
        {
         "kind": "method",
         "class": "ModelRegistry",
-        "module": "agents.gma.application.model_registry",
-        "file": "agents/gma/application/model_registry.py",
+        "module": "dagents.gma.application.model_registry",
+        "file": "dagents/gma/application/model_registry.py",
         "name": "approve"
        }
       ]
@@ -6671,14 +6671,14 @@
      "deprecated": false,
      "handler": {
       "function": "released_model_version",
-      "module": "agents.gma.routes",
-      "file": "agents/gma/routes.py",
+      "module": "dagents.gma.routes",
+      "file": "dagents/gma/routes.py",
       "calls": [
        {
         "kind": "method",
         "class": "ModelRegistry",
-        "module": "agents.gma.application.model_registry",
-        "file": "agents/gma/application/model_registry.py",
+        "module": "dagents.gma.application.model_registry",
+        "file": "dagents/gma/application/model_registry.py",
         "name": "released"
        }
       ]
@@ -6756,14 +6756,14 @@
      "deprecated": false,
      "handler": {
       "function": "run_assimilated_model",
-      "module": "agents.gma.routes",
-      "file": "agents/gma/routes.py",
+      "module": "dagents.gma.routes",
+      "file": "dagents/gma/routes.py",
       "calls": [
        {
         "kind": "method",
         "class": "AggregationService",
-        "module": "agents.gma.application.aggregation_service",
-        "file": "agents/gma/application/aggregation_service.py",
+        "module": "dagents.gma.application.aggregation_service",
+        "file": "dagents/gma/application/aggregation_service.py",
         "name": "run_assimilated_model"
        }
       ]
@@ -6822,14 +6822,14 @@
      "deprecated": false,
      "handler": {
       "function": "list_model_runs",
-      "module": "agents.gma.routes",
-      "file": "agents/gma/routes.py",
+      "module": "dagents.gma.routes",
+      "file": "dagents/gma/routes.py",
       "calls": [
        {
         "kind": "method",
         "class": "AggregationService",
-        "module": "agents.gma.application.aggregation_service",
-        "file": "agents/gma/application/aggregation_service.py",
+        "module": "dagents.gma.application.aggregation_service",
+        "file": "dagents/gma/application/aggregation_service.py",
         "name": "list_model_runs"
        }
       ]
@@ -6891,14 +6891,14 @@
      "deprecated": false,
      "handler": {
       "function": "overview",
-      "module": "agents.gma.routes",
-      "file": "agents/gma/routes.py",
+      "module": "dagents.gma.routes",
+      "file": "dagents/gma/routes.py",
       "calls": [
        {
         "kind": "method",
         "class": "AggregationService",
-        "module": "agents.gma.application.aggregation_service",
-        "file": "agents/gma/application/aggregation_service.py",
+        "module": "dagents.gma.application.aggregation_service",
+        "file": "dagents/gma/application/aggregation_service.py",
         "name": "overview"
        }
       ]
@@ -6927,14 +6927,14 @@
      "deprecated": false,
      "handler": {
       "function": "register",
-      "module": "agents.gma.routes",
-      "file": "agents/gma/routes.py",
+      "module": "dagents.gma.routes",
+      "file": "dagents/gma/routes.py",
       "calls": [
        {
         "kind": "method",
         "class": "AggregationService",
-        "module": "agents.gma.application.aggregation_service",
-        "file": "agents/gma/application/aggregation_service.py",
+        "module": "dagents.gma.application.aggregation_service",
+        "file": "dagents/gma/application/aggregation_service.py",
         "name": "register"
        }
       ]
@@ -6985,14 +6985,14 @@
      "deprecated": false,
      "handler": {
       "function": "list_dispatched_runs",
-      "module": "agents.gma.routes",
-      "file": "agents/gma/routes.py",
+      "module": "dagents.gma.routes",
+      "file": "dagents/gma/routes.py",
       "calls": [
        {
         "kind": "method",
         "class": "AggregationService",
-        "module": "agents.gma.application.aggregation_service",
-        "file": "agents/gma/application/aggregation_service.py",
+        "module": "dagents.gma.application.aggregation_service",
+        "file": "dagents/gma/application/aggregation_service.py",
         "name": "list_dispatched_runs"
        }
       ]
@@ -7046,14 +7046,14 @@
      "deprecated": false,
      "handler": {
       "function": "dispatch_run",
-      "module": "agents.gma.routes",
-      "file": "agents/gma/routes.py",
+      "module": "dagents.gma.routes",
+      "file": "dagents/gma/routes.py",
       "calls": [
        {
         "kind": "method",
         "class": "AggregationService",
-        "module": "agents.gma.application.aggregation_service",
-        "file": "agents/gma/application/aggregation_service.py",
+        "module": "dagents.gma.application.aggregation_service",
+        "file": "dagents/gma/application/aggregation_service.py",
         "name": "dispatch_run"
        }
       ]
@@ -7096,14 +7096,14 @@
      "deprecated": false,
      "handler": {
       "function": "telemetry",
-      "module": "agents.gma.routes",
-      "file": "agents/gma/routes.py",
+      "module": "dagents.gma.routes",
+      "file": "dagents/gma/routes.py",
       "calls": [
        {
         "kind": "method",
         "class": "AggregationService",
-        "module": "agents.gma.application.aggregation_service",
-        "file": "agents/gma/application/aggregation_service.py",
+        "module": "dagents.gma.application.aggregation_service",
+        "file": "dagents/gma/application/aggregation_service.py",
         "name": "ingest_telemetry"
        }
       ]
@@ -7154,14 +7154,14 @@
      "deprecated": false,
      "handler": {
       "function": "recent_telemetry",
-      "module": "agents.gma.routes",
-      "file": "agents/gma/routes.py",
+      "module": "dagents.gma.routes",
+      "file": "dagents/gma/routes.py",
       "calls": [
        {
         "kind": "method",
         "class": "AggregationService",
-        "module": "agents.gma.application.aggregation_service",
-        "file": "agents/gma/application/aggregation_service.py",
+        "module": "dagents.gma.application.aggregation_service",
+        "file": "dagents/gma/application/aggregation_service.py",
         "name": "recent_telemetry"
        }
       ]
@@ -7215,14 +7215,14 @@
      "deprecated": false,
      "handler": {
       "function": "telemetry_summary",
-      "module": "agents.gma.routes",
-      "file": "agents/gma/routes.py",
+      "module": "dagents.gma.routes",
+      "file": "dagents/gma/routes.py",
       "calls": [
        {
         "kind": "method",
         "class": "AggregationService",
-        "module": "agents.gma.application.aggregation_service",
-        "file": "agents/gma/application/aggregation_service.py",
+        "module": "dagents.gma.application.aggregation_service",
+        "file": "dagents/gma/application/aggregation_service.py",
         "name": "telemetry_summary"
        }
       ]
@@ -14811,9 +14811,9 @@
    "version": "0.1.0",
    "description": null,
    "app": {
-    "module": "agents.lma.main",
+    "module": "dagents.lma.main",
     "attribute": "app",
-    "file": "agents/lma/main.py"
+    "file": "dagents/lma/main.py"
    },
    "endpoints": [
     {
@@ -14826,14 +14826,14 @@
      "deprecated": false,
      "handler": {
       "function": "profile_source_dataset_v1",
-      "module": "agents.lma.routes",
-      "file": "agents/lma/routes.py",
+      "module": "dagents.lma.routes",
+      "file": "dagents/lma/routes.py",
       "calls": [
        {
         "kind": "route",
         "class": null,
-        "module": "agents.lma.routes",
-        "file": "agents/lma/routes.py",
+        "module": "dagents.lma.routes",
+        "file": "dagents/lma/routes.py",
         "name": "profile_source_dataset",
         "endpoint": "lma-post-datasets-profile"
        }
@@ -14905,14 +14905,14 @@
      "deprecated": false,
      "handler": {
       "function": "list_extensions_v1",
-      "module": "agents.lma.routes",
-      "file": "agents/lma/routes.py",
+      "module": "dagents.lma.routes",
+      "file": "dagents/lma/routes.py",
       "calls": [
        {
         "kind": "route",
         "class": null,
-        "module": "agents.lma.routes",
-        "file": "agents/lma/routes.py",
+        "module": "dagents.lma.routes",
+        "file": "dagents/lma/routes.py",
         "name": "list_extensions",
         "endpoint": "lma-get-extensions"
        }
@@ -14962,14 +14962,14 @@
      "deprecated": false,
      "handler": {
       "function": "list_jobs_v1",
-      "module": "agents.lma.routes",
-      "file": "agents/lma/routes.py",
+      "module": "dagents.lma.routes",
+      "file": "dagents/lma/routes.py",
       "calls": [
        {
         "kind": "route",
         "class": null,
-        "module": "agents.lma.routes",
-        "file": "agents/lma/routes.py",
+        "module": "dagents.lma.routes",
+        "file": "dagents/lma/routes.py",
         "name": "list_jobs",
         "endpoint": "lma-get-federation-jobs"
        }
@@ -15062,14 +15062,14 @@
      "deprecated": false,
      "handler": {
       "function": "execute_job_v1",
-      "module": "agents.lma.routes",
-      "file": "agents/lma/routes.py",
+      "module": "dagents.lma.routes",
+      "file": "dagents/lma/routes.py",
       "calls": [
        {
         "kind": "route",
         "class": null,
-        "module": "agents.lma.routes",
-        "file": "agents/lma/routes.py",
+        "module": "dagents.lma.routes",
+        "file": "dagents/lma/routes.py",
         "name": "execute_job",
         "endpoint": "lma-post-federation-jobs-execute"
        }
@@ -15157,14 +15157,14 @@
      "deprecated": false,
      "handler": {
       "function": "offer_job_v1",
-      "module": "agents.lma.routes",
-      "file": "agents/lma/routes.py",
+      "module": "dagents.lma.routes",
+      "file": "dagents/lma/routes.py",
       "calls": [
        {
         "kind": "route",
         "class": null,
-        "module": "agents.lma.routes",
-        "file": "agents/lma/routes.py",
+        "module": "dagents.lma.routes",
+        "file": "dagents/lma/routes.py",
         "name": "offer_job",
         "endpoint": "lma-post-federation-jobs-offer"
        }
@@ -15252,14 +15252,14 @@
      "deprecated": false,
      "handler": {
       "function": "run_job_v1",
-      "module": "agents.lma.routes",
-      "file": "agents/lma/routes.py",
+      "module": "dagents.lma.routes",
+      "file": "dagents/lma/routes.py",
       "calls": [
        {
         "kind": "route",
         "class": null,
-        "module": "agents.lma.routes",
-        "file": "agents/lma/routes.py",
+        "module": "dagents.lma.routes",
+        "file": "dagents/lma/routes.py",
         "name": "run_job",
         "endpoint": "lma-post-federation-jobs-run"
        }
@@ -15347,14 +15347,14 @@
      "deprecated": false,
      "handler": {
       "function": "federation_registration_v1",
-      "module": "agents.lma.routes",
-      "file": "agents/lma/routes.py",
+      "module": "dagents.lma.routes",
+      "file": "dagents/lma/routes.py",
       "calls": [
        {
         "kind": "route",
         "class": null,
-        "module": "agents.lma.routes",
-        "file": "agents/lma/routes.py",
+        "module": "dagents.lma.routes",
+        "file": "dagents/lma/routes.py",
         "name": "federation_registration",
         "endpoint": "lma-get-federation-registration"
        }
@@ -15420,14 +15420,14 @@
      "deprecated": false,
      "handler": {
       "function": "governance_audit_v1",
-      "module": "agents.lma.routes",
-      "file": "agents/lma/routes.py",
+      "module": "dagents.lma.routes",
+      "file": "dagents/lma/routes.py",
       "calls": [
        {
         "kind": "route",
         "class": null,
-        "module": "agents.lma.routes",
-        "file": "agents/lma/routes.py",
+        "module": "dagents.lma.routes",
+        "file": "dagents/lma/routes.py",
         "name": "governance_audit",
         "endpoint": "lma-get-governance-audit"
        }
@@ -15498,14 +15498,14 @@
      "deprecated": false,
      "handler": {
       "function": "governance_audit_summary_v1",
-      "module": "agents.lma.routes",
-      "file": "agents/lma/routes.py",
+      "module": "dagents.lma.routes",
+      "file": "dagents/lma/routes.py",
       "calls": [
        {
         "kind": "route",
         "class": null,
-        "module": "agents.lma.routes",
-        "file": "agents/lma/routes.py",
+        "module": "dagents.lma.routes",
+        "file": "dagents/lma/routes.py",
         "name": "governance_audit_summary",
         "endpoint": "lma-get-governance-audit-summary"
        }
@@ -15571,14 +15571,14 @@
      "deprecated": false,
      "handler": {
       "function": "list_classifications_v1",
-      "module": "agents.lma.routes",
-      "file": "agents/lma/routes.py",
+      "module": "dagents.lma.routes",
+      "file": "dagents/lma/routes.py",
       "calls": [
        {
         "kind": "route",
         "class": null,
-        "module": "agents.lma.routes",
-        "file": "agents/lma/routes.py",
+        "module": "dagents.lma.routes",
+        "file": "dagents/lma/routes.py",
         "name": "list_classifications",
         "endpoint": "lma-get-governance-classifications"
        }
@@ -15632,14 +15632,14 @@
      "deprecated": false,
      "handler": {
       "function": "register_classification_v1",
-      "module": "agents.lma.routes",
-      "file": "agents/lma/routes.py",
+      "module": "dagents.lma.routes",
+      "file": "dagents/lma/routes.py",
       "calls": [
        {
         "kind": "route",
         "class": null,
-        "module": "agents.lma.routes",
-        "file": "agents/lma/routes.py",
+        "module": "dagents.lma.routes",
+        "file": "dagents/lma/routes.py",
         "name": "register_classification",
         "endpoint": "lma-put-governance-classifications-classification-id"
        }
@@ -15731,14 +15731,14 @@
      "deprecated": false,
      "handler": {
       "function": "enforce_restriction_v1",
-      "module": "agents.lma.routes",
-      "file": "agents/lma/routes.py",
+      "module": "dagents.lma.routes",
+      "file": "dagents/lma/routes.py",
       "calls": [
        {
         "kind": "route",
         "class": null,
-        "module": "agents.lma.routes",
-        "file": "agents/lma/routes.py",
+        "module": "dagents.lma.routes",
+        "file": "dagents/lma/routes.py",
         "name": "enforce_restriction",
         "endpoint": "lma-post-governance-restrictions-enforce"
        }
@@ -15810,14 +15810,14 @@
      "deprecated": false,
      "handler": {
       "function": "plan_restriction_v1",
-      "module": "agents.lma.routes",
-      "file": "agents/lma/routes.py",
+      "module": "dagents.lma.routes",
+      "file": "dagents/lma/routes.py",
       "calls": [
        {
         "kind": "route",
         "class": null,
-        "module": "agents.lma.routes",
-        "file": "agents/lma/routes.py",
+        "module": "dagents.lma.routes",
+        "file": "dagents/lma/routes.py",
         "name": "plan_restriction",
         "endpoint": "lma-post-governance-restrictions-plan"
        }
@@ -15897,14 +15897,14 @@
      "deprecated": false,
      "handler": {
       "function": "probe_restriction_v1",
-      "module": "agents.lma.routes",
-      "file": "agents/lma/routes.py",
+      "module": "dagents.lma.routes",
+      "file": "dagents/lma/routes.py",
       "calls": [
        {
         "kind": "route",
         "class": null,
-        "module": "agents.lma.routes",
-        "file": "agents/lma/routes.py",
+        "module": "dagents.lma.routes",
+        "file": "dagents/lma/routes.py",
         "name": "probe_restriction",
         "endpoint": "lma-post-governance-restrictions-probe"
        }
@@ -15984,14 +15984,14 @@
      "deprecated": false,
      "handler": {
       "function": "health_v1",
-      "module": "agents.lma.routes",
-      "file": "agents/lma/routes.py",
+      "module": "dagents.lma.routes",
+      "file": "dagents/lma/routes.py",
       "calls": [
        {
         "kind": "route",
         "class": null,
-        "module": "agents.lma.routes",
-        "file": "agents/lma/routes.py",
+        "module": "dagents.lma.routes",
+        "file": "dagents/lma/routes.py",
         "name": "health",
         "endpoint": "lma-get-health"
        }
@@ -16028,14 +16028,14 @@
      "deprecated": false,
      "handler": {
       "function": "list_model_runs_v1",
-      "module": "agents.lma.routes",
-      "file": "agents/lma/routes.py",
+      "module": "dagents.lma.routes",
+      "file": "dagents/lma/routes.py",
       "calls": [
        {
         "kind": "route",
         "class": null,
-        "module": "agents.lma.routes",
-        "file": "agents/lma/routes.py",
+        "module": "dagents.lma.routes",
+        "file": "dagents/lma/routes.py",
         "name": "list_model_runs",
         "endpoint": "lma-get-models-runs"
        }
@@ -16110,14 +16110,14 @@
      "deprecated": false,
      "handler": {
       "function": "run_source_model_v1",
-      "module": "agents.lma.routes",
-      "file": "agents/lma/routes.py",
+      "module": "dagents.lma.routes",
+      "file": "dagents/lma/routes.py",
       "calls": [
        {
         "kind": "route",
         "class": null,
-        "module": "agents.lma.routes",
-        "file": "agents/lma/routes.py",
+        "module": "dagents.lma.routes",
+        "file": "dagents/lma/routes.py",
         "name": "run_source_model",
         "endpoint": "lma-post-models-run"
        }
@@ -16189,14 +16189,14 @@
      "deprecated": false,
      "handler": {
       "function": "site_info_v1",
-      "module": "agents.lma.routes",
-      "file": "agents/lma/routes.py",
+      "module": "dagents.lma.routes",
+      "file": "dagents/lma/routes.py",
       "calls": [
        {
         "kind": "route",
         "class": null,
-        "module": "agents.lma.routes",
-        "file": "agents/lma/routes.py",
+        "module": "dagents.lma.routes",
+        "file": "dagents/lma/routes.py",
         "name": "site_info",
         "endpoint": "lma-get-site"
        }
@@ -16262,14 +16262,14 @@
      "deprecated": false,
      "handler": {
       "function": "site_model_v1",
-      "module": "agents.lma.routes",
-      "file": "agents/lma/routes.py",
+      "module": "dagents.lma.routes",
+      "file": "dagents/lma/routes.py",
       "calls": [
        {
         "kind": "route",
         "class": null,
-        "module": "agents.lma.routes",
-        "file": "agents/lma/routes.py",
+        "module": "dagents.lma.routes",
+        "file": "dagents/lma/routes.py",
         "name": "site_model",
         "endpoint": "lma-get-site-model"
        }
@@ -16351,14 +16351,14 @@
      "deprecated": false,
      "handler": {
       "function": "evaluate_site_model_v1",
-      "module": "agents.lma.routes",
-      "file": "agents/lma/routes.py",
+      "module": "dagents.lma.routes",
+      "file": "dagents/lma/routes.py",
       "calls": [
        {
         "kind": "route",
         "class": null,
-        "module": "agents.lma.routes",
-        "file": "agents/lma/routes.py",
+        "module": "dagents.lma.routes",
+        "file": "dagents/lma/routes.py",
         "name": "evaluate_site_model",
         "endpoint": "lma-post-site-model-evaluate"
        }
@@ -16440,14 +16440,14 @@
      "deprecated": false,
      "handler": {
       "function": "site_profile_v1",
-      "module": "agents.lma.routes",
-      "file": "agents/lma/routes.py",
+      "module": "dagents.lma.routes",
+      "file": "dagents/lma/routes.py",
       "calls": [
        {
         "kind": "route",
         "class": null,
-        "module": "agents.lma.routes",
-        "file": "agents/lma/routes.py",
+        "module": "dagents.lma.routes",
+        "file": "dagents/lma/routes.py",
         "name": "site_profile",
         "endpoint": "lma-get-site-profile"
        }
@@ -16515,14 +16515,14 @@
      "deprecated": false,
      "handler": {
       "function": "refresh_site_source_v1",
-      "module": "agents.lma.routes",
-      "file": "agents/lma/routes.py",
+      "module": "dagents.lma.routes",
+      "file": "dagents/lma/routes.py",
       "calls": [
        {
         "kind": "route",
         "class": null,
-        "module": "agents.lma.routes",
-        "file": "agents/lma/routes.py",
+        "module": "dagents.lma.routes",
+        "file": "dagents/lma/routes.py",
         "name": "refresh_site_source",
         "endpoint": "lma-post-site-source-refresh"
        }
@@ -16588,14 +16588,14 @@
      "deprecated": false,
      "handler": {
       "function": "site_summary_v1",
-      "module": "agents.lma.routes",
-      "file": "agents/lma/routes.py",
+      "module": "dagents.lma.routes",
+      "file": "dagents/lma/routes.py",
       "calls": [
        {
         "kind": "route",
         "class": null,
-        "module": "agents.lma.routes",
-        "file": "agents/lma/routes.py",
+        "module": "dagents.lma.routes",
+        "file": "dagents/lma/routes.py",
         "name": "site_summary",
         "endpoint": "lma-get-site-summary"
        }
@@ -16661,14 +16661,14 @@
      "deprecated": false,
      "handler": {
       "function": "list_sources",
-      "module": "agents.lma.routes",
-      "file": "agents/lma/routes.py",
+      "module": "dagents.lma.routes",
+      "file": "dagents/lma/routes.py",
       "calls": [
        {
         "kind": "method",
         "class": "MonitoringService",
-        "module": "agents.lma.application.monitoring_service",
-        "file": "agents/lma/application/monitoring_service.py",
+        "module": "dagents.lma.application.monitoring_service",
+        "file": "dagents/lma/application/monitoring_service.py",
         "name": "list_sources"
        }
       ]
@@ -16739,14 +16739,14 @@
      "deprecated": false,
      "handler": {
       "function": "register_source",
-      "module": "agents.lma.routes",
-      "file": "agents/lma/routes.py",
+      "module": "dagents.lma.routes",
+      "file": "dagents/lma/routes.py",
       "calls": [
        {
         "kind": "method",
         "class": "MonitoringService",
-        "module": "agents.lma.application.monitoring_service",
-        "file": "agents/lma/application/monitoring_service.py",
+        "module": "dagents.lma.application.monitoring_service",
+        "file": "dagents/lma/application/monitoring_service.py",
         "name": "register_source"
        }
       ]
@@ -16861,14 +16861,14 @@
      "deprecated": false,
      "handler": {
       "function": "get_source",
-      "module": "agents.lma.routes",
-      "file": "agents/lma/routes.py",
+      "module": "dagents.lma.routes",
+      "file": "dagents/lma/routes.py",
       "calls": [
        {
         "kind": "method",
         "class": "MonitoringService",
-        "module": "agents.lma.application.monitoring_service",
-        "file": "agents/lma/application/monitoring_service.py",
+        "module": "dagents.lma.application.monitoring_service",
+        "file": "dagents/lma/application/monitoring_service.py",
         "name": "get_source"
        }
       ]
@@ -16963,14 +16963,14 @@
      "deprecated": false,
      "handler": {
       "function": "validate_source",
-      "module": "agents.lma.routes",
-      "file": "agents/lma/routes.py",
+      "module": "dagents.lma.routes",
+      "file": "dagents/lma/routes.py",
       "calls": [
        {
         "kind": "method",
         "class": "MonitoringService",
-        "module": "agents.lma.application.monitoring_service",
-        "file": "agents/lma/application/monitoring_service.py",
+        "module": "dagents.lma.application.monitoring_service",
+        "file": "dagents/lma/application/monitoring_service.py",
         "name": "validate_source"
        }
       ]
@@ -17043,14 +17043,14 @@
      "deprecated": false,
      "handler": {
       "function": "list_bundles",
-      "module": "agents.lma.routes",
-      "file": "agents/lma/routes.py",
+      "module": "dagents.lma.routes",
+      "file": "dagents/lma/routes.py",
       "calls": [
        {
         "kind": "method",
         "class": "MonitoringService",
-        "module": "agents.lma.application.monitoring_service",
-        "file": "agents/lma/application/monitoring_service.py",
+        "module": "dagents.lma.application.monitoring_service",
+        "file": "dagents/lma/application/monitoring_service.py",
         "name": "list_bundles"
        }
       ]
@@ -17099,14 +17099,14 @@
      "deprecated": false,
      "handler": {
       "function": "deploy_bundle",
-      "module": "agents.lma.routes",
-      "file": "agents/lma/routes.py",
+      "module": "dagents.lma.routes",
+      "file": "dagents/lma/routes.py",
       "calls": [
        {
         "kind": "method",
         "class": "MonitoringService",
-        "module": "agents.lma.application.monitoring_service",
-        "file": "agents/lma/application/monitoring_service.py",
+        "module": "dagents.lma.application.monitoring_service",
+        "file": "dagents/lma/application/monitoring_service.py",
         "name": "deploy_bundle"
        }
       ]
@@ -17165,14 +17165,14 @@
      "deprecated": false,
      "handler": {
       "function": "profile_source_dataset",
-      "module": "agents.lma.routes",
-      "file": "agents/lma/routes.py",
+      "module": "dagents.lma.routes",
+      "file": "dagents/lma/routes.py",
       "calls": [
        {
         "kind": "method",
         "class": "MonitoringService",
-        "module": "agents.lma.application.monitoring_service",
-        "file": "agents/lma/application/monitoring_service.py",
+        "module": "dagents.lma.application.monitoring_service",
+        "file": "dagents/lma/application/monitoring_service.py",
         "name": "profile_source_dataset"
        }
       ]
@@ -17239,14 +17239,14 @@
      "deprecated": false,
      "handler": {
       "function": "list_extensions",
-      "module": "agents.lma.routes",
-      "file": "agents/lma/routes.py",
+      "module": "dagents.lma.routes",
+      "file": "dagents/lma/routes.py",
       "calls": [
        {
         "kind": "method",
         "class": "ExtensionRegistry",
-        "module": "agents.common.extensions.registry",
-        "file": "agents/common/extensions/registry.py",
+        "module": "dagents.common.extensions.registry",
+        "file": "dagents/common/extensions/registry.py",
         "name": "describe"
        }
       ]
@@ -17291,14 +17291,14 @@
      "deprecated": false,
      "handler": {
       "function": "list_jobs",
-      "module": "agents.lma.routes",
-      "file": "agents/lma/routes.py",
+      "module": "dagents.lma.routes",
+      "file": "dagents/lma/routes.py",
       "calls": [
        {
         "kind": "method",
         "class": "FederationJobService",
-        "module": "agents.lma.application.federation_jobs",
-        "file": "agents/lma/application/federation_jobs.py",
+        "module": "dagents.lma.application.federation_jobs",
+        "file": "dagents/lma/application/federation_jobs.py",
         "name": "recent"
        }
       ]
@@ -17386,14 +17386,14 @@
      "deprecated": false,
      "handler": {
       "function": "execute_job",
-      "module": "agents.lma.routes",
-      "file": "agents/lma/routes.py",
+      "module": "dagents.lma.routes",
+      "file": "dagents/lma/routes.py",
       "calls": [
        {
         "kind": "method",
         "class": "FederationJobService",
-        "module": "agents.lma.application.federation_jobs",
-        "file": "agents/lma/application/federation_jobs.py",
+        "module": "dagents.lma.application.federation_jobs",
+        "file": "dagents/lma/application/federation_jobs.py",
         "name": "execute"
        }
       ]
@@ -17476,14 +17476,14 @@
      "deprecated": false,
      "handler": {
       "function": "offer_job",
-      "module": "agents.lma.routes",
-      "file": "agents/lma/routes.py",
+      "module": "dagents.lma.routes",
+      "file": "dagents/lma/routes.py",
       "calls": [
        {
         "kind": "method",
         "class": "FederationJobService",
-        "module": "agents.lma.application.federation_jobs",
-        "file": "agents/lma/application/federation_jobs.py",
+        "module": "dagents.lma.application.federation_jobs",
+        "file": "dagents/lma/application/federation_jobs.py",
         "name": "offer"
        }
       ]
@@ -17566,14 +17566,14 @@
      "deprecated": false,
      "handler": {
       "function": "run_job",
-      "module": "agents.lma.routes",
-      "file": "agents/lma/routes.py",
+      "module": "dagents.lma.routes",
+      "file": "dagents/lma/routes.py",
       "calls": [
        {
         "kind": "method",
         "class": "FederationJobService",
-        "module": "agents.lma.application.federation_jobs",
-        "file": "agents/lma/application/federation_jobs.py",
+        "module": "dagents.lma.application.federation_jobs",
+        "file": "dagents/lma/application/federation_jobs.py",
         "name": "run"
        }
       ]
@@ -17656,14 +17656,14 @@
      "deprecated": false,
      "handler": {
       "function": "federation_registration",
-      "module": "agents.lma.routes",
-      "file": "agents/lma/routes.py",
+      "module": "dagents.lma.routes",
+      "file": "dagents/lma/routes.py",
       "calls": [
        {
         "kind": "method",
         "class": "SiteService",
-        "module": "agents.lma.application.site_service",
-        "file": "agents/lma/application/site_service.py",
+        "module": "dagents.lma.application.site_service",
+        "file": "dagents/lma/application/site_service.py",
         "name": "registration"
        }
       ]
@@ -17724,21 +17724,21 @@
      "deprecated": false,
      "handler": {
       "function": "governance_audit",
-      "module": "agents.lma.routes",
-      "file": "agents/lma/routes.py",
+      "module": "dagents.lma.routes",
+      "file": "dagents/lma/routes.py",
       "calls": [
        {
         "kind": "method",
         "class": "GovernanceService",
-        "module": "agents.common.application.governance_service",
-        "file": "agents/common/application/governance_service.py",
+        "module": "dagents.common.application.governance_service",
+        "file": "dagents/common/application/governance_service.py",
         "name": "audit_chain_intact"
        },
        {
         "kind": "method",
         "class": "GovernanceService",
-        "module": "agents.common.application.governance_service",
-        "file": "agents/common/application/governance_service.py",
+        "module": "dagents.common.application.governance_service",
+        "file": "dagents/common/application/governance_service.py",
         "name": "recent_audit"
        }
       ]
@@ -17804,14 +17804,14 @@
      "deprecated": false,
      "handler": {
       "function": "governance_audit_summary",
-      "module": "agents.lma.routes",
-      "file": "agents/lma/routes.py",
+      "module": "dagents.lma.routes",
+      "file": "dagents/lma/routes.py",
       "calls": [
        {
         "kind": "method",
         "class": "SiteService",
-        "module": "agents.lma.application.site_service",
-        "file": "agents/lma/application/site_service.py",
+        "module": "dagents.lma.application.site_service",
+        "file": "dagents/lma/application/site_service.py",
         "name": "audit_summary"
        }
       ]
@@ -17872,14 +17872,14 @@
      "deprecated": false,
      "handler": {
       "function": "list_classifications",
-      "module": "agents.lma.routes",
-      "file": "agents/lma/routes.py",
+      "module": "dagents.lma.routes",
+      "file": "dagents/lma/routes.py",
       "calls": [
        {
         "kind": "method",
         "class": "GovernanceService",
-        "module": "agents.common.application.governance_service",
-        "file": "agents/common/application/governance_service.py",
+        "module": "dagents.common.application.governance_service",
+        "file": "dagents/common/application/governance_service.py",
         "name": "list_classifications"
        }
       ]
@@ -17928,14 +17928,14 @@
      "deprecated": false,
      "handler": {
       "function": "register_classification",
-      "module": "agents.lma.routes",
-      "file": "agents/lma/routes.py",
+      "module": "dagents.lma.routes",
+      "file": "dagents/lma/routes.py",
       "calls": [
        {
         "kind": "method",
         "class": "GovernanceService",
-        "module": "agents.common.application.governance_service",
-        "file": "agents/common/application/governance_service.py",
+        "module": "dagents.common.application.governance_service",
+        "file": "dagents/common/application/governance_service.py",
         "name": "register_classification"
        }
       ]
@@ -18022,14 +18022,14 @@
      "deprecated": false,
      "handler": {
       "function": "enforce_restriction",
-      "module": "agents.lma.routes",
-      "file": "agents/lma/routes.py",
+      "module": "dagents.lma.routes",
+      "file": "dagents/lma/routes.py",
       "calls": [
        {
         "kind": "method",
         "class": "GovernanceService",
-        "module": "agents.common.application.governance_service",
-        "file": "agents/common/application/governance_service.py",
+        "module": "dagents.common.application.governance_service",
+        "file": "dagents/common/application/governance_service.py",
         "name": "enforce"
        }
       ]
@@ -18096,14 +18096,14 @@
      "deprecated": false,
      "handler": {
       "function": "plan_restriction",
-      "module": "agents.lma.routes",
-      "file": "agents/lma/routes.py",
+      "module": "dagents.lma.routes",
+      "file": "dagents/lma/routes.py",
       "calls": [
        {
         "kind": "method",
         "class": "GovernanceService",
-        "module": "agents.common.application.governance_service",
-        "file": "agents/common/application/governance_service.py",
+        "module": "dagents.common.application.governance_service",
+        "file": "dagents/common/application/governance_service.py",
         "name": "plan"
        }
       ]
@@ -18178,14 +18178,14 @@
      "deprecated": false,
      "handler": {
       "function": "probe_restriction",
-      "module": "agents.lma.routes",
-      "file": "agents/lma/routes.py",
+      "module": "dagents.lma.routes",
+      "file": "dagents/lma/routes.py",
       "calls": [
        {
         "kind": "method",
         "class": "SiteService",
-        "module": "agents.lma.application.site_service",
-        "file": "agents/lma/application/site_service.py",
+        "module": "dagents.lma.application.site_service",
+        "file": "dagents/lma/application/site_service.py",
         "name": "probe"
        }
       ]
@@ -18260,14 +18260,14 @@
      "deprecated": false,
      "handler": {
       "function": "health",
-      "module": "agents.lma.routes",
-      "file": "agents/lma/routes.py",
+      "module": "dagents.lma.routes",
+      "file": "dagents/lma/routes.py",
       "calls": [
        {
         "kind": "method",
         "class": "MonitoringService",
-        "module": "agents.lma.application.monitoring_service",
-        "file": "agents/lma/application/monitoring_service.py",
+        "module": "dagents.lma.application.monitoring_service",
+        "file": "dagents/lma/application/monitoring_service.py",
         "name": "health_payload"
        }
       ]
@@ -18299,14 +18299,14 @@
      "deprecated": false,
      "handler": {
       "function": "run_source_model",
-      "module": "agents.lma.routes",
-      "file": "agents/lma/routes.py",
+      "module": "dagents.lma.routes",
+      "file": "dagents/lma/routes.py",
       "calls": [
        {
         "kind": "method",
         "class": "MonitoringService",
-        "module": "agents.lma.application.monitoring_service",
-        "file": "agents/lma/application/monitoring_service.py",
+        "module": "dagents.lma.application.monitoring_service",
+        "file": "dagents/lma/application/monitoring_service.py",
         "name": "run_source_model"
        }
       ]
@@ -18373,14 +18373,14 @@
      "deprecated": false,
      "handler": {
       "function": "list_model_runs",
-      "module": "agents.lma.routes",
-      "file": "agents/lma/routes.py",
+      "module": "dagents.lma.routes",
+      "file": "dagents/lma/routes.py",
       "calls": [
        {
         "kind": "method",
         "class": "MonitoringService",
-        "module": "agents.lma.application.monitoring_service",
-        "file": "agents/lma/application/monitoring_service.py",
+        "module": "dagents.lma.application.monitoring_service",
+        "file": "dagents/lma/application/monitoring_service.py",
         "name": "list_model_runs"
        }
       ]
@@ -18450,14 +18450,14 @@
      "deprecated": false,
      "handler": {
       "function": "run_monitoring",
-      "module": "agents.lma.routes",
-      "file": "agents/lma/routes.py",
+      "module": "dagents.lma.routes",
+      "file": "dagents/lma/routes.py",
       "calls": [
        {
         "kind": "method",
         "class": "MonitoringService",
-        "module": "agents.lma.application.monitoring_service",
-        "file": "agents/lma/application/monitoring_service.py",
+        "module": "dagents.lma.application.monitoring_service",
+        "file": "dagents/lma/application/monitoring_service.py",
         "name": "run"
        }
       ]
@@ -18516,14 +18516,14 @@
      "deprecated": false,
      "handler": {
       "function": "list_runs",
-      "module": "agents.lma.routes",
-      "file": "agents/lma/routes.py",
+      "module": "dagents.lma.routes",
+      "file": "dagents/lma/routes.py",
       "calls": [
        {
         "kind": "method",
         "class": "MonitoringService",
-        "module": "agents.lma.application.monitoring_service",
-        "file": "agents/lma/application/monitoring_service.py",
+        "module": "dagents.lma.application.monitoring_service",
+        "file": "dagents/lma/application/monitoring_service.py",
         "name": "list_runs"
        }
       ]
@@ -18593,14 +18593,14 @@
      "deprecated": false,
      "handler": {
       "function": "site_info",
-      "module": "agents.lma.routes",
-      "file": "agents/lma/routes.py",
+      "module": "dagents.lma.routes",
+      "file": "dagents/lma/routes.py",
       "calls": [
        {
         "kind": "method",
         "class": "SiteService",
-        "module": "agents.lma.application.site_service",
-        "file": "agents/lma/application/site_service.py",
+        "module": "dagents.lma.application.site_service",
+        "file": "dagents/lma/application/site_service.py",
         "name": "info"
        }
       ]
@@ -18661,14 +18661,14 @@
      "deprecated": false,
      "handler": {
       "function": "site_model",
-      "module": "agents.lma.routes",
-      "file": "agents/lma/routes.py",
+      "module": "dagents.lma.routes",
+      "file": "dagents/lma/routes.py",
       "calls": [
        {
         "kind": "method",
         "class": "SiteService",
-        "module": "agents.lma.application.site_service",
-        "file": "agents/lma/application/site_service.py",
+        "module": "dagents.lma.application.site_service",
+        "file": "dagents/lma/application/site_service.py",
         "name": "model_in_use"
        }
       ]
@@ -18745,14 +18745,14 @@
      "deprecated": false,
      "handler": {
       "function": "evaluate_site_model",
-      "module": "agents.lma.routes",
-      "file": "agents/lma/routes.py",
+      "module": "dagents.lma.routes",
+      "file": "dagents/lma/routes.py",
       "calls": [
        {
         "kind": "method",
         "class": "SiteService",
-        "module": "agents.lma.application.site_service",
-        "file": "agents/lma/application/site_service.py",
+        "module": "dagents.lma.application.site_service",
+        "file": "dagents/lma/application/site_service.py",
         "name": "evaluate_model"
        }
       ]
@@ -18829,14 +18829,14 @@
      "deprecated": false,
      "handler": {
       "function": "site_profile",
-      "module": "agents.lma.routes",
-      "file": "agents/lma/routes.py",
+      "module": "dagents.lma.routes",
+      "file": "dagents/lma/routes.py",
       "calls": [
        {
         "kind": "method",
         "class": "SiteService",
-        "module": "agents.lma.application.site_service",
-        "file": "agents/lma/application/site_service.py",
+        "module": "dagents.lma.application.site_service",
+        "file": "dagents/lma/application/site_service.py",
         "name": "profile"
        }
       ]
@@ -18899,14 +18899,14 @@
      "deprecated": false,
      "handler": {
       "function": "refresh_site_source",
-      "module": "agents.lma.routes",
-      "file": "agents/lma/routes.py",
+      "module": "dagents.lma.routes",
+      "file": "dagents/lma/routes.py",
       "calls": [
        {
         "kind": "method",
         "class": "SiteService",
-        "module": "agents.lma.application.site_service",
-        "file": "agents/lma/application/site_service.py",
+        "module": "dagents.lma.application.site_service",
+        "file": "dagents/lma/application/site_service.py",
         "name": "refresh"
        }
       ]
@@ -18967,14 +18967,14 @@
      "deprecated": false,
      "handler": {
       "function": "site_summary",
-      "module": "agents.lma.routes",
-      "file": "agents/lma/routes.py",
+      "module": "dagents.lma.routes",
+      "file": "dagents/lma/routes.py",
       "calls": [
        {
         "kind": "method",
         "class": "SiteService",
-        "module": "agents.lma.application.site_service",
-        "file": "agents/lma/application/site_service.py",
+        "module": "dagents.lma.application.site_service",
+        "file": "dagents/lma/application/site_service.py",
         "name": "summary"
        }
       ]
@@ -19035,14 +19035,14 @@
      "deprecated": false,
      "handler": {
       "function": "list_telemetry",
-      "module": "agents.lma.routes",
-      "file": "agents/lma/routes.py",
+      "module": "dagents.lma.routes",
+      "file": "dagents/lma/routes.py",
       "calls": [
        {
         "kind": "method",
         "class": "MonitoringService",
-        "module": "agents.lma.application.monitoring_service",
-        "file": "agents/lma/application/monitoring_service.py",
+        "module": "dagents.lma.application.monitoring_service",
+        "file": "dagents/lma/application/monitoring_service.py",
         "name": "recent_telemetry"
        }
       ]
@@ -30794,10 +30794,10 @@
   },
   {
    "service": "gma",
-   "class": "agents.common.domain.control.AgentSnapshot",
+   "class": "dagents.common.domain.control.AgentSnapshot",
    "name": "AgentSnapshot",
-   "module": "agents.common.domain.control",
-   "file": "agents/common/domain/control.py",
+   "module": "dagents.common.domain.control",
+   "file": "dagents/common/domain/control.py",
    "summary": "What the GMA knows about one agent.",
    "description": null,
    "schema": {
@@ -31064,10 +31064,10 @@
   },
   {
    "service": "gma",
-   "class": "agents.common.domain.federation.AggregationMethod",
+   "class": "dagents.common.domain.federation.AggregationMethod",
    "name": "AggregationMethod",
-   "module": "agents.common.domain.federation",
-   "file": "agents/common/domain/federation.py",
+   "module": "dagents.common.domain.federation",
+   "file": "dagents/common/domain/federation.py",
    "summary": "How permitted contributions are combined.",
    "description": "``threshold`` applies to ``secure_aggregation`` and is the number of sites\nbelow which the coordinator must not be able to resolve any single site's\nupdate. The planner treats it as a floor on participation, not a hint.",
    "schema": {
@@ -31133,10 +31133,10 @@
   },
   {
    "service": "gma",
-   "class": "agents.common.domain.federation.AggregationReadiness",
+   "class": "dagents.common.domain.federation.AggregationReadiness",
    "name": "AggregationReadiness",
-   "module": "agents.common.domain.federation",
-   "file": "agents/common/domain/federation.py",
+   "module": "dagents.common.domain.federation",
+   "file": "dagents/common/domain/federation.py",
    "summary": "Whether aggregation may proceed, and on whose contributions.",
    "description": "``site_weights`` follow accepted example counts, the FedAvg convention. They\nare reported rather than applied: applying them is the federated runtime's\njob, not the control plane's.",
    "schema": {
@@ -31294,10 +31294,10 @@
   },
   {
    "service": "gma",
-   "class": "agents.common.domain.federation.ApprovalResult",
+   "class": "dagents.common.domain.federation.ApprovalResult",
    "name": "ApprovalResult",
-   "module": "agents.common.domain.federation",
-   "file": "agents/common/domain/federation.py",
+   "module": "dagents.common.domain.federation",
+   "file": "dagents/common/domain/federation.py",
    "summary": "What an approval changed.",
    "description": null,
    "schema": {
@@ -31564,10 +31564,10 @@
   },
   {
    "service": "lma",
-   "class": "agents.common.domain.governance.AuditRecord",
+   "class": "dagents.common.domain.governance.AuditRecord",
    "name": "AuditRecord",
-   "module": "agents.common.domain.governance",
-   "file": "agents/common/domain/governance.py",
+   "module": "dagents.common.domain.governance",
+   "file": "dagents/common/domain/governance.py",
    "summary": "One entry in the Guard's audit log, linked to the entry before it by a digest.",
    "description": "``previous_digest`` and ``digest`` chain entries together, so removing or\nediting an entry breaks every digest after it. This is a deterministic\ncontent chain for local integrity checking, not a cryptographic signature;\nsigning and immutable storage are separate production controls.\n\nThe ``contribution_*`` fields are the privacy accounting the planner asks\nfor when it bounds a contribution with ``clip_contribution`` or\n``add_noise``. ``contribution_norm_before`` and ``contribution_norm_after``\nare L2 norms (the absolute value for a single number). When a payload holds\nseveral contributions, they record the largest norm before and the largest\nnorm after. ``contribution_strategies`` lists the strategies applied, with\ntheir parameters. All three stay empty for a decision that bounded nothing.",
    "schema": {
@@ -31738,10 +31738,10 @@
   },
   {
    "service": "lma",
-   "class": "agents.common.domain.site.AuditSummary",
+   "class": "dagents.common.domain.site.AuditSummary",
    "name": "AuditSummary",
-   "module": "agents.common.domain.site",
-   "file": "agents/common/domain/site.py",
+   "module": "dagents.common.domain.site",
+   "file": "dagents/common/domain/site.py",
    "summary": "The state of an agent's Guard audit chain, without its records.",
    "description": null,
    "schema": {
@@ -31770,10 +31770,10 @@
   },
   {
    "service": "lma",
-   "class": "agents.common.domain.control.BundleRecord",
+   "class": "dagents.common.domain.control.BundleRecord",
    "name": "BundleRecord",
-   "module": "agents.common.domain.control",
-   "file": "agents/common/domain/control.py",
+   "module": "dagents.common.domain.control",
+   "file": "dagents/common/domain/control.py",
    "summary": "A monitoring bundle the LMA has stored.",
    "description": null,
    "schema": {
@@ -31826,10 +31826,10 @@
   },
   {
    "service": "gma",
-   "class": "agents.common.domain.federation.CandidateModel",
+   "class": "dagents.common.domain.federation.CandidateModel",
    "name": "CandidateModel",
-   "module": "agents.common.domain.federation",
-   "file": "agents/common/domain/federation.py",
+   "module": "dagents.common.domain.federation",
+   "file": "dagents/common/domain/federation.py",
    "summary": "The model an aggregation produced, before any release decision.",
    "description": "Named \"candidate\" throughout on purpose. Aggregation produces this; it does\nnot produce a release. The path from here to a deployed model runs through\ncross-site evaluation and a human committee.\n\n``artifact_digest`` identifies the parameters at ``artifact_uri``. A\nruntime that produces real parameters sets it, so the next round's manifest\ncan name them in ``model_artifact_digest``. The in-process simulator\nproduces no parameters and leaves it empty.",
    "schema": {
@@ -32444,10 +32444,10 @@
   },
   {
    "service": "lma",
-   "class": "agents.common.domain.governance.DataClassification",
+   "class": "dagents.common.domain.governance.DataClassification",
    "name": "DataClassification",
-   "module": "agents.common.domain.governance",
-   "file": "agents/common/domain/governance.py",
+   "module": "dagents.common.domain.governance",
+   "file": "dagents/common/domain/governance.py",
    "summary": "How sensitive each field is, and which regulations cover the data.",
    "description": "This is the data-side half of a restriction decision. It is configuration, not code: policy changes far more often than the\nframework does. ``default_sensitivity`` is ``\"high\"`` so an unclassified\nfield is treated as the most protected until someone classifies it.",
    "schema": {
@@ -32508,10 +32508,10 @@
   },
   {
    "service": "lma",
-   "class": "agents.common.domain.sources.DatasetInput",
+   "class": "dagents.common.domain.sources.DatasetInput",
    "name": "DatasetInput",
-   "module": "agents.common.domain.sources",
-   "file": "agents/common/domain/sources.py",
+   "module": "dagents.common.domain.sources",
+   "file": "dagents/common/domain/sources.py",
    "summary": "Where a request's records come from. At least one of the three fields must be set.",
    "description": null,
    "schema": {
@@ -33081,10 +33081,10 @@
   },
   {
    "service": "lma",
-   "class": "agents.common.domain.datasets.DatasetProfile",
+   "class": "dagents.common.domain.datasets.DatasetProfile",
    "name": "DatasetProfile",
-   "module": "agents.common.domain.datasets",
-   "file": "agents/common/domain/datasets.py",
+   "module": "dagents.common.domain.datasets",
+   "file": "dagents/common/domain/datasets.py",
    "summary": "What a profile found in a set of records: their count, their fields and the models that suit them.",
    "description": null,
    "schema": {
@@ -33505,10 +33505,10 @@
   },
   {
    "service": "gma",
-   "class": "agents.common.domain.control.DeploymentPlan",
+   "class": "dagents.common.domain.control.DeploymentPlan",
    "name": "DeploymentPlan",
-   "module": "agents.common.domain.control",
-   "file": "agents/common/domain/control.py",
+   "module": "dagents.common.domain.control",
+   "file": "dagents/common/domain/control.py",
    "summary": "A stored desired deployment for one agent.",
    "description": null,
    "schema": {
@@ -33601,10 +33601,10 @@
   },
   {
    "service": "gma",
-   "class": "agents.common.domain.control.DeploymentSyncResponse",
+   "class": "dagents.common.domain.control.DeploymentSyncResponse",
    "name": "DeploymentSyncResponse",
-   "module": "agents.common.domain.control",
-   "file": "agents/common/domain/control.py",
+   "module": "dagents.common.domain.control",
+   "file": "dagents/common/domain/control.py",
    "summary": "Whether the agent runs the bundle the GMA wants it to run.",
    "description": null,
    "schema": {
@@ -34130,10 +34130,10 @@
   },
   {
    "service": "gma",
-   "class": "agents.gma.domain.models.DiscardRequest",
+   "class": "dagents.gma.domain.models.DiscardRequest",
    "name": "DiscardRequest",
-   "module": "agents.gma.domain.models",
-   "file": "agents/gma/domain/models.py",
+   "module": "dagents.gma.domain.models",
+   "file": "dagents/gma/domain/models.py",
    "summary": "Why a round is given up. The GMA stores the reason on the round.",
    "description": null,
    "schema": {
@@ -34159,10 +34159,10 @@
   },
   {
    "service": "gma",
-   "class": "agents.common.domain.federation.DispatchCall",
+   "class": "dagents.common.domain.federation.DispatchCall",
    "name": "DispatchCall",
-   "module": "agents.common.domain.federation",
-   "file": "agents/common/domain/federation.py",
+   "module": "dagents.common.domain.federation",
+   "file": "dagents/common/domain/federation.py",
    "summary": "One call the GMA made to an LMA while it dispatched a round.",
    "description": null,
    "schema": {
@@ -34229,10 +34229,10 @@
   },
   {
    "service": "gma",
-   "class": "agents.common.domain.control.DispatchedRun",
+   "class": "dagents.common.domain.control.DispatchedRun",
    "name": "DispatchedRun",
-   "module": "agents.common.domain.control",
-   "file": "agents/common/domain/control.py",
+   "module": "dagents.common.domain.control",
+   "file": "dagents/common/domain/control.py",
    "summary": "A run dispatch the GMA has recorded.",
    "description": null,
    "schema": {
@@ -34493,10 +34493,10 @@
   },
   {
    "service": "lma",
-   "class": "agents.common.domain.federation.FederatedJob",
+   "class": "dagents.common.domain.federation.FederatedJob",
    "name": "FederatedJob",
-   "module": "agents.common.domain.federation",
-   "file": "agents/common/domain/federation.py",
+   "module": "dagents.common.domain.federation",
+   "file": "dagents/common/domain/federation.py",
    "summary": "The work one site is asked to perform in a round.",
    "description": "``manifest_digest`` is what the site checks before it accepts: a job whose\ndigest does not match the manifest it was given is not the approved job.",
    "schema": {
@@ -34737,10 +34737,10 @@
   },
   {
    "service": "gma",
-   "class": "agents.common.domain.control.FleetOverview",
+   "class": "dagents.common.domain.control.FleetOverview",
    "name": "FleetOverview",
-   "module": "agents.common.domain.control",
-   "file": "agents/common/domain/control.py",
+   "module": "dagents.common.domain.control",
+   "file": "dagents/common/domain/control.py",
    "summary": "Counts of what the GMA holds.",
    "description": null,
    "schema": {
@@ -34869,10 +34869,10 @@
   },
   {
    "service": "gma",
-   "class": "agents.common.domain.federation.GateResult",
+   "class": "dagents.common.domain.federation.GateResult",
    "name": "GateResult",
-   "module": "agents.common.domain.federation",
-   "file": "agents/common/domain/federation.py",
+   "module": "dagents.common.domain.federation",
+   "file": "dagents/common/domain/federation.py",
    "summary": "Evaluation of one release gate against a candidate's metrics.",
    "description": "``threshold`` is the value the planner compared ``observed`` with: the\ngate's value for ``at_least`` and ``at_most``, and baseline + margin for\n``improves_on_baseline``. It is ``None`` when an improvement gate has no\nbaseline metric. Read it from here; do not recompute it.",
    "schema": {
@@ -34937,10 +34937,10 @@
   },
   {
    "service": "lma",
-   "class": "agents.common.domain.governance.GuardDecision",
+   "class": "dagents.common.domain.governance.GuardDecision",
    "name": "GuardDecision",
-   "module": "agents.common.domain.governance",
-   "file": "agents/common/domain/governance.py",
+   "module": "dagents.common.domain.governance",
+   "file": "dagents/common/domain/governance.py",
    "summary": "What the Ethical Guard did with a request after the planner decided.",
    "description": "The plan says what should happen; this says what happened. ``permitted`` is\nthe answer the caller acts on, ``payload`` is what survived enforcement, and\n``withheld_fields`` names what did not, so a narrowed response is never\nmistaken for a complete one.",
    "schema": {
@@ -35187,10 +35187,10 @@
   },
   {
    "service": "lma",
-   "class": "agents.lma.routes.GuardEnforcementRequest",
+   "class": "dagents.lma.routes.GuardEnforcementRequest",
    "name": "GuardEnforcementRequest",
-   "module": "agents.lma.routes",
-   "file": "agents/lma/routes.py",
+   "module": "dagents.lma.routes",
+   "file": "dagents/lma/routes.py",
    "summary": "A restriction request plus the payload the Guard should enforce against.",
    "description": null,
    "schema": {
@@ -35939,10 +35939,10 @@
   },
   {
    "service": "lma",
-   "class": "agents.common.domain.sources.InlineSourceSpec",
+   "class": "dagents.common.domain.sources.InlineSourceSpec",
    "name": "InlineSourceSpec",
-   "module": "agents.common.domain.sources",
-   "file": "agents/common/domain/sources.py",
+   "module": "dagents.common.domain.sources",
+   "file": "dagents/common/domain/sources.py",
    "summary": "Records sent inside the source definition itself.",
    "description": null,
    "schema": {
@@ -36087,10 +36087,10 @@
   },
   {
    "service": "lma",
-   "class": "agents.common.domain.federation.JobAcceptance",
+   "class": "dagents.common.domain.federation.JobAcceptance",
    "name": "JobAcceptance",
-   "module": "agents.common.domain.federation",
-   "file": "agents/common/domain/federation.py",
+   "module": "dagents.common.domain.federation",
+   "file": "dagents/common/domain/federation.py",
    "summary": "A site's answer to an offered job.",
    "description": "A site may always refuse, and the reason is recorded. Refusal before code\nruns is the point of distributing a signed job at all.",
    "schema": {
@@ -36142,10 +36142,10 @@
   },
   {
    "service": "lma",
-   "class": "agents.common.domain.site.JobLogEntry",
+   "class": "dagents.common.domain.site.JobLogEntry",
    "name": "JobLogEntry",
-   "module": "agents.common.domain.site",
-   "file": "agents/common/domain/site.py",
+   "module": "dagents.common.domain.site",
+   "file": "dagents/common/domain/site.py",
    "summary": "One federated job, as the site's LMA recorded it in its job log.",
    "description": null,
    "schema": {
@@ -36264,10 +36264,10 @@
   },
   {
    "service": "lma",
-   "class": "agents.common.domain.federation.JobModel",
+   "class": "dagents.common.domain.federation.JobModel",
    "name": "JobModel",
-   "module": "agents.common.domain.federation",
-   "file": "agents/common/domain/federation.py",
+   "module": "dagents.common.domain.federation",
+   "file": "dagents/common/domain/federation.py",
    "summary": "The model a round's jobs start from, sent to each site with the job.",
    "description": "The GMA's HTTP engine reads it from its model registry and puts it in\n``FederatedJob.parameters[\"model\"]``. Before it accepts the job, a site\nchecks that ``digest`` equals the manifest's ``model_artifact_digest`` and\nthat its own model kind computes the same digest from ``params``.",
    "schema": {
@@ -36308,10 +36308,10 @@
   },
   {
    "service": "lma",
-   "class": "agents.common.domain.federation.JobRun",
+   "class": "dagents.common.domain.federation.JobRun",
    "name": "JobRun",
-   "module": "agents.common.domain.federation",
-   "file": "agents/common/domain/federation.py",
+   "module": "dagents.common.domain.federation",
+   "file": "dagents/common/domain/federation.py",
    "summary": "A site's answer to ``jobs:run``: the job offer and, when the site accepted, the job's result.",
    "description": "The site takes the same two steps as for ``jobs:offer`` then\n``jobs:execute``, in one call: it checks the job and asks its Guard, and\nruns the job only when it accepted it.",
    "schema": {
@@ -36509,10 +36509,10 @@
   },
   {
    "service": "lma",
-   "class": "agents.common.domain.site.LocalEvaluation",
+   "class": "dagents.common.domain.site.LocalEvaluation",
    "name": "LocalEvaluation",
-   "module": "agents.common.domain.site",
-   "file": "agents/common/domain/site.py",
+   "module": "dagents.common.domain.site",
+   "file": "dagents/common/domain/site.py",
    "summary": "The released model measured on the site's own labelled records. The records stay at the site.",
    "description": null,
    "schema": {
@@ -37447,10 +37447,10 @@
   },
   {
    "service": "lma",
-   "class": "agents.common.domain.datasets.ModelExecutionRequest",
+   "class": "dagents.common.domain.datasets.ModelExecutionRequest",
    "name": "ModelExecutionRequest",
-   "module": "agents.common.domain.datasets",
-   "file": "agents/common/domain/datasets.py",
+   "module": "dagents.common.domain.datasets",
+   "file": "dagents/common/domain/datasets.py",
    "summary": "A request to run a model over a set of records and record the run.",
    "description": null,
    "schema": {
@@ -38136,10 +38136,10 @@
   },
   {
    "service": "lma",
-   "class": "agents.common.domain.datasets.ModelExecutionResponse",
+   "class": "dagents.common.domain.datasets.ModelExecutionResponse",
    "name": "ModelExecutionResponse",
-   "module": "agents.common.domain.datasets",
-   "file": "agents/common/domain/datasets.py",
+   "module": "dagents.common.domain.datasets",
+   "file": "dagents/common/domain/datasets.py",
    "summary": "The result of a model run: the profile of its records and the run record.",
    "description": null,
    "schema": {
@@ -38362,10 +38362,10 @@
   },
   {
    "service": "lma",
-   "class": "agents.common.domain.site.ModelInUse",
+   "class": "dagents.common.domain.site.ModelInUse",
    "name": "ModelInUse",
-   "module": "agents.common.domain.site",
-   "file": "agents/common/domain/site.py",
+   "module": "dagents.common.domain.site",
+   "file": "dagents/common/domain/site.py",
    "summary": "The released model, as the site's LMA reads it from the GMA.",
    "description": null,
    "schema": {
@@ -39020,10 +39020,10 @@
   },
   {
    "service": "gma",
-   "class": "agents.common.domain.federation.ModelReleaseDecision",
+   "class": "dagents.common.domain.federation.ModelReleaseDecision",
    "name": "ModelReleaseDecision",
-   "module": "agents.common.domain.federation",
-   "file": "agents/common/domain/federation.py",
+   "module": "dagents.common.domain.federation",
+   "file": "dagents/common/domain/federation.py",
    "summary": "The latest release decision for a model version, stored with the version.",
    "description": "An approval reads it. Decisions stored before ``baseline_version`` or\n``metrics_source`` existed lack them; the lifecycle rule refuses to approve\nsuch a decision.",
    "schema": {
@@ -39172,10 +39172,10 @@
   },
   {
    "service": "lma",
-   "class": "agents.common.domain.datasets.ModelRunRecord",
+   "class": "dagents.common.domain.datasets.ModelRunRecord",
    "name": "ModelRunRecord",
-   "module": "agents.common.domain.datasets",
-   "file": "agents/common/domain/datasets.py",
+   "module": "dagents.common.domain.datasets",
+   "file": "dagents/common/domain/datasets.py",
    "summary": "One recorded model run.",
    "description": null,
    "schema": {
@@ -39290,10 +39290,10 @@
   },
   {
    "service": "gma",
-   "class": "agents.common.domain.federation.ModelVersion",
+   "class": "dagents.common.domain.federation.ModelVersion",
    "name": "ModelVersion",
-   "module": "agents.common.domain.federation",
-   "file": "agents/common/domain/federation.py",
+   "module": "dagents.common.domain.federation",
+   "file": "dagents/common/domain/federation.py",
    "summary": "One model version in the GMA's model registry.",
    "description": null,
    "schema": {
@@ -39533,10 +39533,10 @@
   },
   {
    "service": "gma",
-   "class": "agents.common.domain.federation.ModelVersionList",
+   "class": "dagents.common.domain.federation.ModelVersionList",
    "name": "ModelVersionList",
-   "module": "agents.common.domain.federation",
-   "file": "agents/common/domain/federation.py",
+   "module": "dagents.common.domain.federation",
+   "file": "dagents/common/domain/federation.py",
    "summary": "The model versions the GMA's registry holds, without their parameters.",
    "description": null,
    "schema": {
@@ -39803,10 +39803,10 @@
   },
   {
    "service": "gma",
-   "class": "agents.common.domain.federation.ModelVersionRegistration",
+   "class": "dagents.common.domain.federation.ModelVersionRegistration",
    "name": "ModelVersionRegistration",
-   "module": "agents.common.domain.federation",
-   "file": "agents/common/domain/federation.py",
+   "module": "dagents.common.domain.federation",
+   "file": "dagents/common/domain/federation.py",
    "summary": "A request to register a model version under a name the caller chooses.",
    "description": null,
    "schema": {
@@ -39848,10 +39848,10 @@
   },
   {
    "service": "lma",
-   "class": "agents.common.domain.sources.MongoSourceSpec",
+   "class": "dagents.common.domain.sources.MongoSourceSpec",
    "name": "MongoSourceSpec",
-   "module": "agents.common.domain.sources",
-   "file": "agents/common/domain/sources.py",
+   "module": "dagents.common.domain.sources",
+   "file": "dagents/common/domain/sources.py",
    "summary": "A MongoDB collection. This version returns fixed documents instead of querying a server.",
    "description": null,
    "schema": {
@@ -40270,10 +40270,10 @@
   },
   {
    "service": "lma",
-   "class": "agents.common.domain.sources.ObjectStorageSourceSpec",
+   "class": "dagents.common.domain.sources.ObjectStorageSourceSpec",
    "name": "ObjectStorageSourceSpec",
-   "module": "agents.common.domain.sources",
-   "file": "agents/common/domain/sources.py",
+   "module": "dagents.common.domain.sources",
+   "file": "dagents/common/domain/sources.py",
    "summary": "A file of records. This version reads local paths and `file://` URIs only.",
    "description": null,
    "schema": {
@@ -40809,10 +40809,10 @@
   },
   {
    "service": "lma",
-   "class": "agents.common.domain.sources.PostgresSourceSpec",
+   "class": "dagents.common.domain.sources.PostgresSourceSpec",
    "name": "PostgresSourceSpec",
-   "module": "agents.common.domain.sources",
-   "file": "agents/common/domain/sources.py",
+   "module": "dagents.common.domain.sources",
+   "file": "dagents/common/domain/sources.py",
    "summary": "A PostgreSQL table or query, read through psycopg.",
    "description": null,
    "schema": {
@@ -40994,10 +40994,10 @@
   },
   {
    "service": "lma",
-   "class": "agents.common.domain.site.ProbeRequest",
+   "class": "dagents.common.domain.site.ProbeRequest",
    "name": "ProbeRequest",
-   "module": "agents.common.domain.site",
-   "file": "agents/common/domain/site.py",
+   "module": "dagents.common.domain.site",
+   "file": "dagents/common/domain/site.py",
    "summary": "A question for the site's Guard, run over the site's first records.",
    "description": "The LMA adds the site's classification and approved purposes itself, so a\nbody that names its own is refused.",
    "schema": {
@@ -41193,10 +41193,10 @@
   },
   {
    "service": "lma",
-   "class": "agents.common.domain.site.ProbeResponse",
+   "class": "dagents.common.domain.site.ProbeResponse",
    "name": "ProbeResponse",
-   "module": "agents.common.domain.site",
-   "file": "agents/common/domain/site.py",
+   "module": "dagents.common.domain.site",
+   "file": "dagents/common/domain/site.py",
    "summary": "What the site's Guard would release for a probe. Never the records themselves.",
    "description": null,
    "schema": {
@@ -41449,10 +41449,10 @@
   },
   {
    "service": "gma",
-   "class": "agents.common.domain.control.RegisterRequest",
+   "class": "dagents.common.domain.control.RegisterRequest",
    "name": "RegisterRequest",
-   "module": "agents.common.domain.control",
-   "file": "agents/common/domain/control.py",
+   "module": "dagents.common.domain.control",
+   "file": "dagents/common/domain/control.py",
    "summary": "An agent's registration with the GMA.",
    "description": null,
    "schema": {
@@ -41529,10 +41529,10 @@
   },
   {
    "service": "gma",
-   "class": "agents.common.domain.federation.ReleaseDecision",
+   "class": "dagents.common.domain.federation.ReleaseDecision",
    "name": "ReleaseDecision",
-   "module": "agents.common.domain.federation",
-   "file": "agents/common/domain/federation.py",
+   "module": "dagents.common.domain.federation",
+   "file": "dagents/common/domain/federation.py",
    "summary": "The governed verdict on a candidate model.",
    "description": "A ``release`` action is a recommendation to a human committee, never an\nautomatic deployment.",
    "schema": {
@@ -41659,10 +41659,10 @@
   },
   {
    "service": "gma",
-   "class": "agents.common.domain.federation.ReleaseEvaluation",
+   "class": "dagents.common.domain.federation.ReleaseEvaluation",
    "name": "ReleaseEvaluation",
-   "module": "agents.common.domain.federation",
-   "file": "agents/common/domain/federation.py",
+   "module": "dagents.common.domain.federation",
+   "file": "dagents/common/domain/federation.py",
    "summary": "The GMA's answer to a release evaluation.",
    "description": null,
    "schema": {
@@ -42096,10 +42096,10 @@
   },
   {
    "service": "gma",
-   "class": "agents.common.domain.federation.ReleaseEvaluationRequest",
+   "class": "dagents.common.domain.federation.ReleaseEvaluationRequest",
    "name": "ReleaseEvaluationRequest",
-   "module": "agents.common.domain.federation",
-   "file": "agents/common/domain/federation.py",
+   "module": "dagents.common.domain.federation",
+   "file": "dagents/common/domain/federation.py",
    "summary": "A request to decide on a round's candidate.",
    "description": "Two flows use it:\n\n- **Round flow**: ``condition_id`` names a condition pack. The GMA reads\n  the gates from the pack, the candidate's metrics from\n  ``metrics_from_round`` and the baseline from ``baseline_from_round``,\n  and runs the ``before_release`` Guard for ``release_requester`` before\n  the gates. Gates in the body are refused.\n- **Bare flow**: no ``condition_id``. The GMA evaluates ``gates`` against\n  ``candidate_metrics`` and ``baseline_metrics`` as sent, and runs no Guard.",
    "schema": {
@@ -42411,10 +42411,10 @@
   },
   {
    "service": "gma",
-   "class": "agents.common.domain.federation.ReleaseGate",
+   "class": "dagents.common.domain.federation.ReleaseGate",
    "name": "ReleaseGate",
-   "module": "agents.common.domain.federation",
-   "file": "agents/common/domain/federation.py",
+   "module": "dagents.common.domain.federation",
+   "file": "dagents/common/domain/federation.py",
    "summary": "One condition a candidate must satisfy before it may be released.",
    "description": "``blocking`` defaults to ``True``: a gate whose severity nobody stated must\nnot be treated as advisory.",
    "schema": {
@@ -42500,10 +42500,10 @@
   },
   {
    "service": "gma",
-   "class": "agents.common.domain.federation.ReleaseGuardCheck",
+   "class": "dagents.common.domain.federation.ReleaseGuardCheck",
    "name": "ReleaseGuardCheck",
-   "module": "agents.common.domain.federation",
-   "file": "agents/common/domain/federation.py",
+   "module": "dagents.common.domain.federation",
+   "file": "dagents/common/domain/federation.py",
    "summary": "What the `before_release` Guard decided for a release evaluation.",
    "description": "It holds the Guard's whole decision. The payload is one row with the size\nof the candidate's change (`model_update`), never a record or a parameter.",
    "schema": {
@@ -42750,10 +42750,10 @@
   },
   {
    "service": "lma",
-   "class": "agents.common.domain.governance.RestrictionPlan",
+   "class": "dagents.common.domain.governance.RestrictionPlan",
    "name": "RestrictionPlan",
-   "module": "agents.common.domain.governance",
-   "file": "agents/common/domain/governance.py",
+   "module": "dagents.common.domain.governance",
+   "file": "dagents/common/domain/governance.py",
    "summary": "The planner's decision for one request: a strategy for each field, and a verdict.",
    "description": "``filtering_score`` is GRAILS' measure of how much protection was actually\napplied, so the amount of filtering can be reported rather than asserted:\n0.0 means nothing was withheld, 1.0 means the request was fully refused.",
    "schema": {
@@ -42925,10 +42925,10 @@
   },
   {
    "service": "lma",
-   "class": "agents.common.domain.governance.RestrictionRequest",
+   "class": "dagents.common.domain.governance.RestrictionRequest",
    "name": "RestrictionRequest",
-   "module": "agents.common.domain.governance",
-   "file": "agents/common/domain/governance.py",
+   "module": "dagents.common.domain.governance",
+   "file": "dagents/common/domain/governance.py",
    "summary": "One request for data, an update or a release, as the governance planner reads it.",
    "description": "The planner's governance rules are the Ethical-Restriction Rails.",
    "schema": {
@@ -43180,10 +43180,10 @@
   },
   {
    "service": "gma",
-   "class": "agents.common.domain.federation.RoundManifest",
+   "class": "dagents.common.domain.federation.RoundManifest",
    "name": "RoundManifest",
-   "module": "agents.common.domain.federation",
-   "file": "agents/common/domain/federation.py",
+   "module": "dagents.common.domain.federation",
+   "file": "dagents/common/domain/federation.py",
    "summary": "The round contract distributed to every approved site.",
    "description": "A site verifies this before any code touches local data: the digests say\nwhich model and which training code were approved, and\n``feature_contract_version`` says which fields the round may read.",
    "schema": {
@@ -43367,10 +43367,10 @@
   },
   {
    "service": "gma",
-   "class": "agents.common.domain.federation.RoundPlan",
+   "class": "dagents.common.domain.federation.RoundPlan",
    "name": "RoundPlan",
-   "module": "agents.common.domain.federation",
-   "file": "agents/common/domain/federation.py",
+   "module": "dagents.common.domain.federation",
+   "file": "dagents/common/domain/federation.py",
    "summary": "The compiled, reviewable plan for one round.",
    "description": "``required_participants`` is the effective floor, which may exceed the\nmanifest's stated minimum when a secure-aggregation threshold is stricter.",
    "schema": {
@@ -43549,10 +43549,10 @@
   },
   {
    "service": "gma",
-   "class": "agents.common.domain.federation.RoundRecord",
+   "class": "dagents.common.domain.federation.RoundRecord",
    "name": "RoundRecord",
-   "module": "agents.common.domain.federation",
-   "file": "agents/common/domain/federation.py",
+   "module": "dagents.common.domain.federation",
+   "file": "dagents/common/domain/federation.py",
    "summary": "The GMA's stored lineage for one round.",
    "description": "Kept so the path from seed model to round to candidate to release can be\nreconstructed later without reading any site's local evidence.",
    "schema": {
@@ -44481,10 +44481,10 @@
   },
   {
    "service": "lma",
-   "class": "agents.common.domain.control.RunRecord",
+   "class": "dagents.common.domain.control.RunRecord",
    "name": "RunRecord",
-   "module": "agents.common.domain.control",
-   "file": "agents/common/domain/control.py",
+   "module": "dagents.common.domain.control",
+   "file": "dagents/common/domain/control.py",
    "summary": "One recorded monitoring run.",
    "description": null,
    "schema": {
@@ -44672,10 +44672,10 @@
   },
   {
    "service": "gma",
-   "class": "agents.common.domain.federation.SiteAddressList",
+   "class": "dagents.common.domain.federation.SiteAddressList",
    "name": "SiteAddressList",
-   "module": "agents.common.domain.federation",
-   "file": "agents/common/domain/federation.py",
+   "module": "dagents.common.domain.federation",
+   "file": "dagents/common/domain/federation.py",
    "summary": "The sites a GMA can call, and the sites that may join while it runs. No address is listed.",
    "description": null,
    "schema": {
@@ -44735,10 +44735,10 @@
   },
   {
    "service": "gma",
-   "class": "agents.common.domain.federation.SiteAddressState",
+   "class": "dagents.common.domain.federation.SiteAddressState",
    "name": "SiteAddressState",
-   "module": "agents.common.domain.federation",
-   "file": "agents/common/domain/federation.py",
+   "module": "dagents.common.domain.federation",
+   "file": "dagents/common/domain/federation.py",
    "summary": "Where a GMA's address for one site's LMA came from. It never holds the address.",
    "description": null,
    "schema": {
@@ -44770,10 +44770,10 @@
   },
   {
    "service": "gma",
-   "class": "agents.common.domain.site.SiteDirectoryEntry",
+   "class": "dagents.common.domain.site.SiteDirectoryEntry",
    "name": "SiteDirectoryEntry",
-   "module": "agents.common.domain.site",
-   "file": "agents/common/domain/site.py",
+   "module": "dagents.common.domain.site",
+   "file": "dagents/common/domain/site.py",
    "summary": "One site, as the GMA's site directory reports it from the site's LMA.",
    "description": null,
    "schema": {
@@ -44936,10 +44936,10 @@
   },
   {
    "service": "lma",
-   "class": "agents.common.domain.site.SiteInfo",
+   "class": "dagents.common.domain.site.SiteInfo",
    "name": "SiteInfo",
-   "module": "agents.common.domain.site",
-   "file": "agents/common/domain/site.py",
+   "module": "dagents.common.domain.site",
+   "file": "dagents/common/domain/site.py",
    "summary": "Who a site is and what its LMA serves.",
    "description": null,
    "schema": {
@@ -45068,10 +45068,10 @@
   },
   {
    "service": "gma",
-   "class": "agents.common.domain.federation.SiteRegistration",
+   "class": "dagents.common.domain.federation.SiteRegistration",
    "name": "SiteRegistration",
-   "module": "agents.common.domain.federation",
-   "file": "agents/common/domain/federation.py",
+   "module": "dagents.common.domain.federation",
+   "file": "dagents/common/domain/federation.py",
    "summary": "One site's standing enrolment in a study.",
    "description": "``enrolled`` defaults to ``False``: taking part has to be stated, never\ninferred from the presence of a record.",
    "schema": {
@@ -45134,10 +45134,10 @@
   },
   {
    "service": "gma",
-   "class": "agents.common.domain.federation.SiteResult",
+   "class": "dagents.common.domain.federation.SiteResult",
    "name": "SiteResult",
-   "module": "agents.common.domain.federation",
-   "file": "agents/common/domain/federation.py",
+   "module": "dagents.common.domain.federation",
+   "file": "dagents/common/domain/federation.py",
    "summary": "What one site returns from a round.",
    "description": "Deliberately minimal. No subject identifier, row, image, note, or\nper-subject prediction has a place in this contract; detailed local\nevidence stays at the site behind ``local_evidence_pointer``.\n\nA model update is not carried here either. Results are stored with the\nround and shown to the coordinator, so a site that trains sends its clipped\nupdate through an update channel and reports only its norm\n(``update_norm``) and the digest the channel returned (``update_digest``).\nThe runtime that aggregates checks each update against that digest.",
    "schema": {
@@ -45263,10 +45263,10 @@
   },
   {
    "service": "lma",
-   "class": "agents.common.domain.site.SiteSummary",
+   "class": "dagents.common.domain.site.SiteSummary",
    "name": "SiteSummary",
-   "module": "agents.common.domain.site",
-   "file": "agents/common/domain/site.py",
+   "module": "dagents.common.domain.site",
+   "file": "dagents/common/domain/site.py",
    "summary": "What a site reports to the coordinator about its records: counts and a permitted rate.",
    "description": null,
    "schema": {
@@ -45505,10 +45505,10 @@
   },
   {
    "service": "lma",
-   "class": "agents.common.domain.site.SourceState",
+   "class": "dagents.common.domain.site.SourceState",
    "name": "SourceState",
-   "module": "agents.common.domain.site",
-   "file": "agents/common/domain/site.py",
+   "module": "dagents.common.domain.site",
+   "file": "dagents/common/domain/site.py",
    "summary": "The source's record count and version, after the LMA has read them again.",
    "description": null,
    "schema": {
@@ -45537,10 +45537,10 @@
   },
   {
    "service": "lma",
-   "class": "agents.common.domain.sources.SourceValidationResult",
+   "class": "dagents.common.domain.sources.SourceValidationResult",
    "name": "SourceValidationResult",
-   "module": "agents.common.domain.sources",
-   "file": "agents/common/domain/sources.py",
+   "module": "dagents.common.domain.sources",
+   "file": "dagents/common/domain/sources.py",
    "summary": "What a source's adapter found when it checked the stored definition.",
    "description": null,
    "schema": {
@@ -45633,10 +45633,10 @@
   },
   {
    "service": "lma",
-   "class": "agents.common.domain.control.TelemetryEnvelope",
+   "class": "dagents.common.domain.control.TelemetryEnvelope",
    "name": "TelemetryEnvelope",
-   "module": "agents.common.domain.control",
-   "file": "agents/common/domain/control.py",
+   "module": "dagents.common.domain.control",
+   "file": "dagents/common/domain/control.py",
    "summary": "The telemetry one run or one agent sends: who sent it, the values, and pointers to the evidence.",
    "description": null,
    "schema": {
@@ -45742,10 +45742,10 @@
   },
   {
    "service": "gma",
-   "class": "agents.common.domain.control.TelemetrySummary",
+   "class": "dagents.common.domain.control.TelemetrySummary",
    "name": "TelemetrySummary",
-   "module": "agents.common.domain.control",
-   "file": "agents/common/domain/control.py",
+   "module": "dagents.common.domain.control",
+   "file": "dagents/common/domain/control.py",
    "summary": "The telemetry one agent has sent, added up.",
    "description": null,
    "schema": {
@@ -46709,10 +46709,10 @@
   },
   {
    "service": "gma",
-   "class": "agents.common.domain.federation.UpdateReceipt",
+   "class": "dagents.common.domain.federation.UpdateReceipt",
    "name": "UpdateReceipt",
-   "module": "agents.common.domain.federation",
-   "file": "agents/common/domain/federation.py",
+   "module": "dagents.common.domain.federation",
+   "file": "dagents/common/domain/federation.py",
    "summary": "What the update store answers when it has stored an update.",
    "description": null,
    "schema": {
@@ -46734,10 +46734,10 @@
   },
   {
    "service": "gma",
-   "class": "agents.common.domain.federation.UpdateUpload",
+   "class": "dagents.common.domain.federation.UpdateUpload",
    "name": "UpdateUpload",
-   "module": "agents.common.domain.federation",
-   "file": "agents/common/domain/federation.py",
+   "module": "dagents.common.domain.federation",
+   "file": "dagents/common/domain/federation.py",
    "summary": "One site's clipped model update, as its LMA sends it to the GMA's update store.",
    "description": "The store keeps it until the round is aggregated or discarded. No route\nreads an update back.",
    "schema": {

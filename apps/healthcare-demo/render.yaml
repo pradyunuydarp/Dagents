@@ -23,7 +23,7 @@ services:
     runtime: docker
     plan: free
     region: oregon
-    # Build from the repository root, because the Dockerfile copies `agents/`
+    # Build from the repository root, because the Dockerfile copies `dagents/`
     # and `env/` from there as well as the app itself.
     dockerfilePath: ./apps/healthcare-demo/backend/Dockerfile
     dockerContext: .

@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Any
 from unittest import mock
 
-from agents.common.domain.federation import GateComparison, ReleaseGate
+from dagents.common.domain.federation import GateComparison, ReleaseGate
 
 from app.domain import stroke_model, stroke_rule
 from app.domain.conditions import STROKE_FEATURE_CONTRACT, STROKE_FEATURE_CONTRACT_VERSION, STROKE_RELEASE_GATES
@@ -442,7 +442,7 @@ class RoundTests(DemoCase):
         """The GMA checks the stored parameters against their digest before it sends a job.
 
         Each LMA also checks the digest of the model it receives
-        (``agents/tests/test_lma_federation_jobs.py``).
+        (``dagents/tests/test_lma_federation_jobs.py``).
         """
         demo, agents = self.demo_and_agents()
         gma = demo.agents.gma()

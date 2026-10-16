@@ -106,7 +106,7 @@ class HospitalChartTests(ApiTestCase):
         """A hospital's charts use the slot it has on the consortium charts, and no other series colour."""
         import re
 
-        from agents.common.infrastructure import charts as renderer
+        from dagents.common.infrastructure import charts as renderer
 
         for slot, site in enumerate(SITES, start=1):
             for theme in ("light", "dark"):
@@ -222,14 +222,14 @@ def _colours(svg: str) -> set[str]:
 
 
 def _series_colours(theme: str) -> set[str]:
-    from agents.common.infrastructure import charts as renderer
+    from dagents.common.infrastructure import charts as renderer
 
     tokens = renderer.TOKENS[theme]
     return {tokens[f"--ds-series-{n}"].lower() for n in (1, 2, 3)}
 
 
 def _neutral_ink(theme: str) -> str:
-    from agents.common.infrastructure import charts as renderer
+    from dagents.common.infrastructure import charts as renderer
 
     return renderer.TOKENS[theme]["--ds-ink-2"].lower()
 

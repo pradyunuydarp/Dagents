@@ -24,12 +24,12 @@ from fastapi.testclient import TestClient
 from tests.api_support import ApiTestCase
 from tests.support import dagentsc_available
 
-from agents.common.domain.governance import KyuAttribute, Requester
-from agents.common.extensions import ExtensionRegistry
-from agents.common.infrastructure.site_sources import StaticSiteSource
-from agents.lma.app_factory import LmaDeps, create_app
-from agents.lma.config import Settings
-from agents.lma.domain.site_config import SiteConfig
+from dagents.common.domain.governance import KyuAttribute, Requester
+from dagents.common.extensions import ExtensionRegistry
+from dagents.common.infrastructure.site_sources import StaticSiteSource
+from dagents.lma.app_factory import LmaDeps, create_app
+from dagents.lma.config import Settings
+from dagents.lma.domain.site_config import SiteConfig
 
 from app.domain.conditions import (
     STROKE_CLASSIFICATION,

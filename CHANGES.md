@@ -36,12 +36,12 @@ point a consumer app needs to use them, plus the demo app that does.
 - `bindings/ocaml/lib/federation_compiler` — round manifests, site eligibility, quorum,
   aggregation readiness, and release gates. Pure and replayable, because a round has to be
   explicable during an audit months later.
-- `agents/common/application/ethical_guard.py` — the enforcing half, with a digest-chained audit
+- `dagents/common/application/ethical_guard.py` — the enforcing half, with a digest-chained audit
   log. It fails closed.
-- `agents/common/application/federation.py` and `federation_worker.py` — the GMA-side round
+- `dagents/common/application/federation.py` and `federation_worker.py` — the GMA-side round
   lifecycle and the LMA-side worker, with an adapter seam (`FederationEngine`) for a specialist
   federated runtime and an in-process simulator behind it.
-- `agents/common/extensions/` — how a consumer contributes feature contracts, data
+- `dagents/common/extensions/` — how a consumer contributes feature contracts, data
   classifications, condition packs, pipeline steps, and model adapters without forking anything.
 - New dual-form routes on both agents, following the existing legacy + `/api/v1` convention.
 

@@ -81,7 +81,7 @@ class OutcomeRateReleaseTests(unittest.TestCase):
 
     def test_a_denial_for_another_reason_is_not_reported_as_a_small_cohort(self) -> None:
         """The status comes from the planner's own reason, not from comparing the count."""
-        from agents.common.domain.governance import RestrictionPlan
+        from dagents.common.domain.governance import RestrictionPlan
 
         consortium, site_id = self.consortium_with(25)
         governance = built_demo(consortium)[f"lma:{site_id}"].state.site.governance

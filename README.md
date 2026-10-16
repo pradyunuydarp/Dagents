@@ -72,8 +72,8 @@ test checks that the two match.
 
 | Folder | Contents |
 |---|---|
-| `agents/` | The LMA (one per data source) and GMA (coordinator) services |
-| `agents/common/extensions/` | The interface applications use to extend the framework |
+| `dagents/` | The LMA (one per data source) and GMA (coordinator) services |
+| `dagents/common/extensions/` | The interface applications use to extend the framework |
 | `bindings/ocaml/` | The planners: validation, DAG planning, model routing, Kubernetes manifests and Docker Compose files, governance, federated rounds |
 | `services/core-service/` | Service catalog, topology, workload compilation, Kubernetes manifests and Docker Compose files |
 | `services/pipeline-service/` | Pipeline registry, validation and runs |
@@ -105,7 +105,7 @@ These are the two parts an application would otherwise build itself:
   dedicated federated learning runtime behind an adapter. Aggregation produces a
   candidate model, never a release.
 
-Applications use both through `agents/common/extensions`, by registering feature
+Applications use both through `dagents/common/extensions`, by registering feature
 contracts, data classifications, condition packs, model kinds, site sources,
 pipeline steps and model adapters, and call the LMA and GMA through their APIs.
 [`apps/healthcare-demo/`](apps/healthcare-demo/README.md) is a worked example.

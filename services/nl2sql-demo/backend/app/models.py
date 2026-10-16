@@ -6,7 +6,7 @@ from typing import Any, Literal
 
 from pydantic import Field
 
-from agents.common.domain.base import DagentsModel
+from dagents.common.domain.base import DagentsModel
 
 
 class HealthResponse(DagentsModel):

@@ -51,8 +51,8 @@
     "apps/healthcare-demo/frontend/public/social-preview.png": {
       "output": "apps/healthcare-demo/frontend/public/social-preview.png",
       "from": "design/social/healthcare.html",
-      "bytes": 93733,
-      "sha256": "e7eb1e5e5f190b8f3a8df9b4a2716ac4d73f935471c4cd8b14afbc34418f82d1",
+      "bytes": 92803,
+      "sha256": "e188706840638ee17b9b6b6d0b109f73f46ba91f5d45033a1c90f975869e9a4a",
       "width": 1200,
       "height": 630,
       "fonts": {
@@ -63,7 +63,7 @@
         "HEALTHCARE_DEMO_PUBLIC_SITE_URL": "https://pradyunuydarp.github.io/Dagents/healthcare-demo/"
       },
       "sources": {
-        "design/dagents-design-system.css": "b1af1599890e013f850f279c36256ece1ecdddab424d66bfde82f81549a93836",
+        "design/dagents-design-system.css": "c141d8b185a6affd1a5e5302790c7acc9081412cf72fef74c87809b5afee0955",
         "design/social/card.css": "419cf6e97c864892ad71c45cf9969137df5b0a70621b2995ffb597453da92ec8",
         "design/social/healthcare.html": "1dc53cbb57a3ce75daf13d251a1d81528688cf209a13a6ab830a68196518d10f",
         "design/social/mark.svg": "d7d22e9a71fad284d6f0ab600176da0942072decf2480e2d4d40e034203bcaf6",
@@ -120,8 +120,8 @@
     "services/nl2sql-demo/frontend/public/social-preview.png": {
       "output": "services/nl2sql-demo/frontend/public/social-preview.png",
       "from": "design/social/nl2sql.html",
-      "bytes": 88384,
-      "sha256": "2ef74406aa9c66e8b44859078406b868f8035bcea93159cf67aab5b41cb3f67d",
+      "bytes": 87516,
+      "sha256": "bba6acc77b2e0be3bd2556e3f10db67237f9f959a4b8c86f13a8b6b79941675c",
       "width": 1200,
       "height": 630,
       "fonts": {
@@ -132,7 +132,7 @@
         "NL2SQL_DEMO_PUBLIC_SITE_URL": "https://pradyunuydarp.github.io/Dagents/nl2sql-demo/"
       },
       "sources": {
-        "design/dagents-design-system.css": "b1af1599890e013f850f279c36256ece1ecdddab424d66bfde82f81549a93836",
+        "design/dagents-design-system.css": "c141d8b185a6affd1a5e5302790c7acc9081412cf72fef74c87809b5afee0955",
         "design/social/card.css": "419cf6e97c864892ad71c45cf9969137df5b0a70621b2995ffb597453da92ec8",
         "design/social/mark.svg": "d7d22e9a71fad284d6f0ab600176da0942072decf2480e2d4d40e034203bcaf6",
         "design/social/nl2sql.html": "88dccce137f142879b4ac5e5644bf9167def434020b48b51a4402a0440fb63f8",
@@ -189,8 +189,8 @@
     "site/public/social-preview.png": {
       "output": "site/public/social-preview.png",
       "from": "design/social/framework.html",
-      "bytes": 96856,
-      "sha256": "9083b0e70b0e0acb9fde955e4eb48baaec3b67fc3cbba93599a5bed9dcedc0aa",
+      "bytes": 96321,
+      "sha256": "103df22b8ceced3e5d578c51689d2004ce1e164921bcf1ffaa6fde6a67ab2237",
       "width": 1200,
       "height": 630,
       "fonts": {
@@ -201,7 +201,7 @@
         "DAGENTS_PUBLIC_SITE_URL": "https://pradyunuydarp.github.io/Dagents/"
       },
       "sources": {
-        "design/dagents-design-system.css": "b1af1599890e013f850f279c36256ece1ecdddab424d66bfde82f81549a93836",
+        "design/dagents-design-system.css": "c141d8b185a6affd1a5e5302790c7acc9081412cf72fef74c87809b5afee0955",
         "design/social/card.css": "419cf6e97c864892ad71c45cf9969137df5b0a70621b2995ffb597453da92ec8",
         "design/social/framework.html": "ad59bd6b99d27df82694e8ac9fb60ebc162eb66a8327d2d6cdc8e104b625b717",
         "design/social/mark.svg": "d7d22e9a71fad284d6f0ab600176da0942072decf2480e2d4d40e034203bcaf6",

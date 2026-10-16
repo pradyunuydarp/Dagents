@@ -34,9 +34,9 @@ sys.path.insert(0, str(APP_ROOT.parents[1]))
 from fastapi.testclient import TestClient  # noqa: E402
 import yaml  # noqa: E402
 
-from agents.common.domain.federation import SiteAddressList, SiteAddressState, SiteRegistration  # noqa: E402
-from agents.common.infrastructure.agent_client import AgentError, AgentUnavailableError  # noqa: E402
-from agents.common.infrastructure.compose_apply import (  # noqa: E402
+from dagents.common.domain.federation import SiteAddressList, SiteAddressState, SiteRegistration  # noqa: E402
+from dagents.common.infrastructure.agent_client import AgentError, AgentUnavailableError  # noqa: E402
+from dagents.common.infrastructure.compose_apply import (  # noqa: E402
     AppliedService,
     ComposeApplyError,
     LocalProcessApplier,
@@ -474,7 +474,7 @@ class DeploymentFlowTests(unittest.TestCase):
         )
         shown = yaml.safe_load(deployment["compose_yaml"])["services"][SERVICE]
         self.assertEqual(
-            ["<python>", "-m", "uvicorn", "agents.lma.main:app", "--host", "127.0.0.1", "--port", "<port>",
+            ["<python>", "-m", "uvicorn", "dagents.lma.main:app", "--host", "127.0.0.1", "--port", "<port>",
              "--log-level", "warning"],
             shown["command"],
         )
@@ -554,7 +554,7 @@ class DeploymentFlowTests(unittest.TestCase):
         # and in process mode the log file.
         self.applier.fail = ComposeApplyError(
             "the process exited with status 1",
-            "Traceback (most recent call last):\n  ...\nModuleNotFoundError: No module named 'agents'\n",
+            "Traceback (most recent call last):\n  ...\nModuleNotFoundError: No module named 'dagents'\n",
             log_path="/tmp/deploy/lma-pl-290.log",
         )
         with self.assertLogs("app.services.deployment", "WARNING") as logs:
@@ -562,7 +562,7 @@ class DeploymentFlowTests(unittest.TestCase):
         self.assertIn("Traceback (most recent call last)", logs.output[0])
         self.assert_failed_at(deployment, "start", {"plan": "done", "start": "failed"})
         self.assertEqual(
-            "The process exited with status 1: ModuleNotFoundError: No module named 'agents'. "
+            "The process exited with status 1: ModuleNotFoundError: No module named 'dagents'. "
             "Its log is lma-pl-290.log in the deploy folder.",
             self.detail(deployment, "start"),
         )

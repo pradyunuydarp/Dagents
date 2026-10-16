@@ -36,7 +36,7 @@ Each language does the work it suits best:
 | Layer | Owns | Never owns |
 |---|---|---|
 | **OCaml** (`bindings/ocaml/`) | Pure planning: validate, compile, route, render | Database connections, training loops, API servers |
-| **Python** (`agents/`, `services/`) | FastAPI services, model training and inference, source I/O, runtime state | Deterministic planning rules |
+| **Python** (`dagents/`, `services/`) | FastAPI services, model training and inference, source I/O, runtime state | Deterministic planning rules |
 | **Spring Boot** (`services/spring-services/`) | Orchestration APIs, policy entry points, external integration | Machine learning |
 
 Decisions go in the OCaml planners. Anything with side effects goes in Python or
@@ -49,7 +49,7 @@ its own, and keeps the Kubernetes deployment simple.
 ## Repository map
 
 ```text
-agents/
+dagents/
   common/        shared domain contracts, the extension registry, dagents_runner (the dagentsc
                  bridge), and agent_client and agent_auth (how agents call each other)
   lma/           Local Monitoring Agent service
@@ -86,7 +86,7 @@ tests/           checks that span more than one service
 docs/
   learn/          the learning guide, rendered by the site (Markdown + Mermaid)
   guide/          the guide to building an application on Dagents, rendered at #/guide
-  agents/         LMA/GMA architecture
+  dagents/         LMA/GMA architecture
   architecture/   OCaml adoption plan, Python-vs-OCaml comparison
   demo/           demo scripts + recorded inputs and expected outputs
   presentation/   teaching decks (.pptx) and their notes, resources.json (the list
@@ -112,12 +112,12 @@ is the fastest test loop in the repo, so prefer it.
 
 ### Python tests
 
-Tests import as `agents.common...`, so run them from the repository root.
+Tests import as `dagents.common...`, so run them from the repository root.
 FastAPI and the other dependencies are in the gitignored `.venv/`, not system
 Python:
 
 ```bash
-.venv/bin/python -m unittest discover -s agents/tests -t .
+.venv/bin/python -m unittest discover -s dagents/tests -t .
 ```
 
 If `.venv/` is missing (a fresh clone), create it and install the requirements
@@ -129,7 +129,7 @@ adds its backend to the path itself, so it also runs from the root.
 
 `tests/` at the root holds checks that span more than one service, such as the
 endpoint inventory and the API conventions. They need every Python service
-importable, while `agents/tests` needs only the agent requirements:
+importable, while `dagents/tests` needs only the agent requirements:
 
 ```bash
 .venv/bin/python -m unittest discover -s tests -t .
@@ -174,7 +174,7 @@ admin login:
 
 ```bash
 export HEALTHCARE_DEMO_TEST_DATABASE_URL=postgresql://admin:pw@127.0.0.1:5432/postgres  # healthcare suite
-export DAGENTS_TEST_DATABASE_URL=postgresql://admin:pw@127.0.0.1:5432/postgres          # agents/tests: role scoping, the lease, the model store, the job log, the GMA's Postgres wiring
+export DAGENTS_TEST_DATABASE_URL=postgresql://admin:pw@127.0.0.1:5432/postgres          # dagents/tests: role scoping, the lease, the model store, the job log, the GMA's Postgres wiring
 ```
 
 Without them these tests skip with a message that starts `database test
@@ -194,7 +194,7 @@ PostgreSQL 16, where the smoke test adds Hospital 290 from the page),
 `docs-impact`, and a `ci` gate job that is the single required check.
 
 `docs-impact` runs `scripts/check_docs_impact.py` on pull requests and pushes
-to `main`. It fails when a change touches a code area (`agents/`, `services/`,
+to `main`. It fails when a change touches a code area (`dagents/`, `services/`,
 `bindings/ocaml/`, `apps/`, `contracts/`, `scripts/`, `examples/`, `env/`, the
 compose file, a workflow, or a deck) and none of the docs that area feeds,
 unless a commit message has a line `Docs-Impact: none [area] (reason)` that
@@ -207,7 +207,7 @@ names the area. Run it before pushing:
 Two guard scripts catch runs that look green but are not:
 
 ```bash
-python -m unittest discover -s agents/tests -t . -v 2>&1 | tee suite.log
+python -m unittest discover -s dagents/tests -t . -v 2>&1 | tee suite.log
 python scripts/ci_no_skipped_tests.py --forbid planner --forbid charts suite.log  # fails on a forbidden skip
 .venv/bin/python scripts/service_inventory.py --check                             # fails when a route is undocumented
 ```
@@ -472,7 +472,7 @@ that regenerates each generated doc. Never edit a generated doc by hand.
 
 ### Agent layout
 
-`agents/lma/` and `agents/gma/` use the same layout, and new agents should too:
+`dagents/lma/` and `dagents/gma/` use the same layout, and new agents should too:
 
 ```text
 domain/          typed models, no I/O
@@ -487,7 +487,7 @@ can be replaced by a message broker and a database without restructuring.
 
 ### Calling the OCaml layer from Python
 
-Use `agents/common/infrastructure/dagents_runner.py`. It converts keys between
+Use `dagents/common/infrastructure/dagents_runner.py`. It converts keys between
 snake_case and camelCase and runs the subprocess. The binary comes from
 `DAGENTSC_BIN`, or from `dagentsc` on PATH (containers install it there; local
 runs point at the dune build).
@@ -636,7 +636,7 @@ Governance follows the same split as the rest of the code:
   `select_strategy` matches every combination. Adding a level fails to compile
   until every combination is handled.
 - **Enforcing** needs real data and an audit log, so it is in
-  `agents/common/application/ethical_guard.py`. The Guard applies the plan,
+  `dagents/common/application/ethical_guard.py`. The Guard applies the plan,
   drops every field the request did not ask for, and writes an audit record that
   includes the digest of the previous record.
 - **Policy** is configuration: a `DataClassification` contributed by an
@@ -667,7 +667,7 @@ hospital when no database is configured. These rules hold for both:
 - **Every read or write of a site's data goes through that site's store, acting
   as that site's role.** Each database operation runs in one transaction that
   starts with `SET LOCAL ROLE` and checks `current_user`
-  (`agents/common/infrastructure/postgres_roles.py`, `acting_as`). Never use a
+  (`dagents/common/infrastructure/postgres_roles.py`, `acting_as`). Never use a
   session-level `SET ROLE`; a pooled connection would keep it.
 - **The coordinator never reads site rows.** It sees what sites report: counts,
   rates the site's planner permits (at least the minimum cohort), round
@@ -706,18 +706,18 @@ login and database; the store reads an optional per-site connection string,
 eligibility, quorum, aggregation readiness (which counts only the sites the
 plan selected), release gates, and every change of a model version's status
 (`dagentsc federation model lifecycle`).
-`agents/common/application/federation.py` holds state and side effects and calls
+`dagents/common/application/federation.py` holds state and side effects and calls
 the planner for the rest; the GMA's model registry
-(`agents/gma/application/model_registry.py`) applies the lifecycle answer and
+(`dagents/gma/application/model_registry.py`) applies the lifecycle answer and
 keeps no status rule of its own. Do not write a planning rule again in Python.
 
 The federated protocol belongs to a dedicated runtime behind `FederationEngine`.
 The in-process engine is a simulator for tests and the getting-started example;
 do not turn it into a federated optimizer. The GMA's HTTP engine
-(`agents/gma/adapters/http_federation_engine.py`) moves jobs to the LMAs and
+(`dagents/gma/adapters/http_federation_engine.py`) moves jobs to the LMAs and
 holds clipped updates until aggregation; how updates are combined comes from
 the model kind an extension contributes (`ModelKind.combine`), so no averaging
-rule lives in `agents/`. The healthcare demo runs its pilot on the HTTP engine:
+rule lives in `dagents/`. The healthcare demo runs its pilot on the HTTP engine:
 its study operator (`apps/healthcare-demo/backend/app/services/pilot.py`)
 calls only the GMA, and its logistic regression is the model kind
 (`app/domain/model_kinds.py`).
@@ -732,7 +732,7 @@ accepts.
 
 ### Extending the framework from an application
 
-An application contributes through `agents/common/extensions`, never by patching
+An application contributes through `dagents/common/extensions`, never by patching
 the framework. An extension supplies feature contracts, data classifications,
 condition packs (with their label field and approved purposes), model kinds
 (how the LMA trains and evaluates a model and how the GMA checks and combines
@@ -761,16 +761,16 @@ The two demos show the boundary:
   (contributed as a model kind, including how an update is checked and
   combined), the study sequence, the FHIR mapping and the intended-use
   statement. It calls the LMA and GMA APIs through
-  `agents/common/infrastructure/agent_client.py`. Dagents owns governance,
+  `dagents/common/infrastructure/agent_client.py`. Dagents owns governance,
   federation (the LMA and GMA APIs, job dispatch, the update store, the model
   registry and approval), role scoping, the running profile, the chart renderer
   and everything else generic. See `apps/healthcare-demo/backend/app/extension.py`
   for the extension and `apps/healthcare-demo/backend/app/services/agents.py`
   for how the app builds or connects to the agents.
 
-Nothing in `agents/` knows what a stroke is, and nothing in the healthcare app
+Nothing in `dagents/` knows what a stroke is, and nothing in the healthcare app
 implements a quorum rule. Apply that test to a new capability: if it would need a
-domain word in `agents/`, it belongs in the application.
+domain word in `dagents/`, it belongs in the application.
 
 ## Writing style
 
@@ -794,7 +794,7 @@ The agents deliver messages in memory, and broker-backed messaging is deferred.
 An LMA can serve one site (its records, profile, Guard probe, federated jobs and
 job log), and a GMA can dispatch rounds to the LMAs over HTTP, keep model
 versions and handle approvals. They call each other through
-`agents/common/infrastructure/agent_client.py`, in one process through
+`dagents/common/infrastructure/agent_client.py`, in one process through
 `httpx.ASGITransport` or over HTTP, with bearer tokens of fixed scopes
 (`agent_auth.py`). With a database, an LMA keeps its audit chain and job log in
 Postgres and the GMA keeps its model registry and audit chain there; the GMA's

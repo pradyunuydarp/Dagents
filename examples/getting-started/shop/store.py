@@ -2,7 +2,7 @@
 
 This example keeps them in memory, loaded from ``data/<site_id>.csv``. A
 deployment with a database gives each store its own Postgres schema and role
-and runs every query through ``agents.common.infrastructure.postgres_roles.acting_as``;
+and runs every query through ``dagents.common.infrastructure.postgres_roles.acting_as``;
 the healthcare demo's ``PostgresSiteStore`` shows how.
 """
 
@@ -12,7 +12,7 @@ import csv
 from pathlib import Path
 from typing import Any, Mapping
 
-from agents.common.application.running_profile import RunningProfile
+from dagents.common.application.running_profile import RunningProfile
 
 from shop.contract import FEATURE_CONTRACT
 

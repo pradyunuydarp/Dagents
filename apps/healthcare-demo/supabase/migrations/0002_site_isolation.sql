@@ -140,7 +140,7 @@ begin
             )$ddl$, s);
 
         -- The hospital's own audit chain. The columns are the ones
-        -- agents/common/infrastructure/postgres_audit.py reads and writes.
+        -- dagents/common/infrastructure/postgres_audit.py reads and writes.
         -- previous_digest is unique, so the chain cannot fork.
         execute format($ddl$
             create table if not exists %I.guard_audit (

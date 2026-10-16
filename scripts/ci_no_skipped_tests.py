@@ -20,9 +20,9 @@ least one test (passed, failed or errored, but not skipped).
 
 Usage::
 
-    python -m unittest discover -s agents/tests -t . -v 2>&1 | tee suite.log
+    python -m unittest discover -s dagents/tests -t . -v 2>&1 | tee suite.log
     python scripts/ci_no_skipped_tests.py --forbid planner --forbid charts \\
-        --require-ran agents.tests.test_charts.RenderTests suite.log
+        --require-ran dagents.tests.test_charts.RenderTests suite.log
 
 The suite must run with `-v`. Without it, unittest prints one `s` per skip and
 no reason, so there is nothing to check, and the guard fails.
