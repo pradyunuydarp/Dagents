@@ -337,8 +337,10 @@ lists the seven steps of
 each with its status in words (Done, Skipped, Failed, Undone or Not run), what
 happened and how many seconds it took. **Compose file from core-service**
 opens the file the OCaml manifest compiler rendered, exactly as the app
-received it. The last line says whether the GMA's planner selects the
-hospital for the next round.
+received it. The last step says whether the GMA's planner selects the
+hospital for the next round, with the planner's reason when it does not. The
+line under the steps says what that means: run the pilot, or the hospital
+stays in the consortium but the next round would leave it out.
 
 When the hospital has joined, the page reloads the overview: the header and
 the hospitals table list four hospitals, and Hospital 290's page shows its own

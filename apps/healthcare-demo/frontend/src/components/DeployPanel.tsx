@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 
 import { ApiError, isRecorded, postJson } from "../api";
-import { count, plannerReason } from "../format";
+import { count } from "../format";
 import type { Deployment, DeploymentStepName, DeploymentStepStatus, DeploymentsView, JoinableHospital } from "../types";
 import { useResource } from "../useResource";
 import { ErrorNote, Loading, Panel } from "./Basics";
@@ -90,11 +90,12 @@ function Attempt({ deployment, name }: { deployment: Deployment; name: string })
           <pre className="compose-file">{deployment.compose_yaml}</pre>
         </details>
       )}
+      {/* What the planner's answer means. The last step already gives the answer and its reason. */}
       {deployment.next_round && (
         <p className="guard-message" data-role="next-round">
           {deployment.next_round.selected
-            ? `The next round selects ${name}.`
-            : `The next round would not select ${name}: ${plannerReason(deployment.next_round.reason ?? "no reason given")}`}
+            ? `Run the pilot to see ${name} take part in its rounds.`
+            : `${name} stays in the consortium, but the next round would leave it out, for the reason in the last step.`}
         </p>
       )}
     </div>

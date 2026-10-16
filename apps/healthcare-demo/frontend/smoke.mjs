@@ -1045,6 +1045,14 @@ try {
     };
     const previous = attempt("dep-smoke-previous", "start", "Port 8085 is in use.");
     const second = attempt("dep-smoke-second", "start", "Port 8085 is still in use.");
+    // The planner's own wording, which the page shows as it comes.
+    const plannerSays = "site cohort 0 is below the per-site minimum 20";
+    const notSelected = {
+      ...attempt("dep-smoke-third", "check", `The next round would not select ${joining.display_name}: ${plannerSays}.`,
+        { selected: false, reason: plannerSays }),
+      status: "joined",
+    };
+    const answers = [second, notSelected];
     offeredView.deployments = [previous];
     let releasePost = () => {};
     const postHeld = new Promise((resolve) => {
@@ -1054,8 +1062,9 @@ try {
       if (route.request().method() === "GET") return route.fulfill(appJson(offeredView));
       // The request that adds a hospital never reaches the backend here.
       await postHeld;
-      offeredView.deployments = [second, previous];
-      return route.fulfill(appJson(second));
+      const answer = answers.shift();
+      offeredView.deployments = [answer, ...offeredView.deployments];
+      return route.fulfill(appJson(answer));
     });
     await deployPage.goto(baseUrl, { timeout: 60000 });
     const phoneButton = deployPage.locator('[data-panel="deploy"] [data-action="deploy"]').first();
@@ -1108,6 +1117,21 @@ try {
       "focus moves to the attempt that returned, and its end is announced",
       focused === `attempt-${second.deployment_id}` && announced.includes(`${joining.display_name} did not join`),
       `focus on ${focused || "nothing"}; live region: ${announced || "empty"}`
+    );
+
+    //    When the planner does not select the hospital, the check step gives
+    //    its reason. The last line says what that means, without repeating it.
+    await phoneButton.click();
+    await attemptShown(notSelected.deployment_id).waitFor({ timeout: 30000 });
+    const nextRoundLine = (
+      (await attemptShown(notSelected.deployment_id).locator('[data-role="next-round"]').textContent().catch(() => "")) ?? ""
+    ).trim();
+    const attemptText = (await attemptShown(notSelected.deployment_id).innerText()) ?? "";
+    const reasonCount = attemptText.split(plannerSays).length - 1;
+    check(
+      "the next-round line ends with a full stop and does not repeat the planner's reason",
+      nextRoundLine.length > 0 && nextRoundLine.endsWith(".") && reasonCount === 1,
+      `"${nextRoundLine || "no line"}"; the reason appears ${reasonCount} time(s) in the attempt`
     );
   } finally {
     await deployPage.unrouteAll({ behavior: "ignoreErrors" });
