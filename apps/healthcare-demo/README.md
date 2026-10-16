@@ -514,7 +514,7 @@ does the side effects:
 
 | Step | What happens | Done by |
 |---|---|---|
-| `plan` | The app sends a workload spec for the LMA to core-service's `POST /api/v1/manifests/compose`. The OCaml manifest compiler renders a Compose file with one service, `lma-pl-290`, or lists the issues | core-service's planner |
+| `plan` | The app sends a workload spec for the LMA to core-service's `POST /api/v1/manifests/compose`. The OCaml manifest compiler renders a Compose file with one service, `lma-pl-290`, or lists the issues. The app then checks that the file's keys, image, command, environment, published ports, health check and network are the ones it asked for, because the applier starts what the file says | core-service's planner |
 | `start` | An applier starts that one service from the file as rendered: a local process (`process`) or a container (`compose`). It refuses when the port already answers for a service it did not start, and keeps a service it started earlier | `agents/common/infrastructure/compose_apply.py` |
 | `answer` | The new LMA answers `/api/v1/health` and reports site `pl-290`. It loads its own 263 records; the app never reads them | the LMA |
 | `attach` | The GMA accepts the LMA's address, only the exact address in its `GMA_FEDERATION_JOINABLE_SITES` | the GMA |

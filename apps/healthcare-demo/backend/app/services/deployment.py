@@ -54,6 +54,7 @@ from agents.common.infrastructure.compose_apply import (
     DockerComposeApplier,
     LocalProcessApplier,
     compose_service,
+    unescape_compose,
 )
 
 from app.core.config import Settings
@@ -298,6 +299,57 @@ def lma_compose_request(
             }
         ],
     }
+
+
+#: The service keys the file core-service renders from :func:`lma_compose_request`.
+RENDERED_KEYS = frozenset({"image", "command", "environment", "ports", "healthcheck", "networks", "restart"})
+
+
+def _unescaped(value: Any) -> Any:
+    if isinstance(value, str):
+        return unescape_compose(value)
+    if isinstance(value, list):
+        return [_unescaped(item) for item in value]
+    if isinstance(value, dict):
+        return {key: _unescaped(item) for key, item in value.items()}
+    return value
+
+
+def rendered_service_mismatch(definition: Mapping[str, Any], request: Mapping[str, Any]) -> str | None:
+    """The first part of a rendered service that differs from the request, or ``None``.
+
+    The applier starts what the file says, and the file comes from whatever
+    answers at ``CORE_SERVICE_PUBLIC_URL``. So the app compares the parts that
+    decide what runs and where it listens with the component it asked for:
+    the keys, the image, the command, the environment, the published ports,
+    the health check's command and the network. It compares parsed values,
+    not text, so a change in how the planner formats the file does not matter.
+    """
+    component = request["components"][0]
+    unknown = sorted(str(key) for key in definition if key not in RENDERED_KEYS)
+    if unknown:
+        return f"the key {unknown[0]}"
+    expected: dict[str, Any] = {
+        "image": component["image"],
+        "command": list(component["args"]),
+        "environment": {item["name"]: item["value"] for item in component["env"]},
+        "ports": [f"{port['host_ip']}:{port['host_port']}:{port['container_port']}" for port in component["ports"]],
+        "healthcheck": ["CMD", *component["health_check"]["command"]],
+        "networks": [request["network"]],
+    }
+    healthcheck = definition.get("healthcheck")
+    actual = {
+        **{key: definition.get(key) for key in expected if key != "healthcheck"},
+        "healthcheck": healthcheck.get("test") if isinstance(healthcheck, Mapping) else None,
+    }
+    for key, value in expected.items():
+        try:
+            found = _unescaped(actual[key])
+        except ComposeApplyError:
+            return f"the {key}"
+        if found != value:
+            return f"the {key}"
+    return None
 
 
 # --- One attempt -------------------------------------------------------------------
@@ -654,9 +706,15 @@ class _Attempt:
         if issues != [] or not isinstance(compose_yaml, str) or not compose_yaml or answer.get("services") != [self.service]:
             raise _StepFailed("The core service returned a file this app cannot use.")
         try:
-            compose_service(compose_yaml, self.service)
+            definition = compose_service(compose_yaml, self.service)
         except ComposeApplyError:
             raise _StepFailed("The core service returned a file this app cannot use.") from None
+        mismatch = rendered_service_mismatch(definition, request)
+        if mismatch is not None:
+            logger.warning(
+                "the Compose file for %s does not match the request: %s differs", self.service, mismatch
+            )
+            raise _StepFailed("The core service returned a file this app cannot use.")
         self.compose_yaml = compose_yaml
         try:
             self.applier.check(compose_yaml, self.service)

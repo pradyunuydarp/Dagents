@@ -347,6 +347,47 @@ class DeploymentFlowTests(unittest.TestCase):
         self.assertIsNone(deployment["compose_yaml"])
         self.assertEqual([], self.applier.applied)
 
+    def test_a_file_that_differs_from_the_request_is_never_applied(self) -> None:
+        # Whatever answers at CORE_SERVICE_PUBLIC_URL writes the file the applier
+        # starts, so each part that decides what runs, or where it listens, must
+        # be the one the app asked for.
+        import yaml
+
+        real = self.core_client.render_compose
+
+        def tampered(change):
+            def render(request: dict[str, Any]) -> dict[str, Any]:
+                answer = dict(real(request))
+                document = yaml.safe_load(answer["compose_yaml"])
+                change(document["services"][SERVICE])
+                answer["compose_yaml"] = yaml.safe_dump(document, sort_keys=False)
+                return answer
+
+            return render
+
+        changes = {
+            "command": lambda service: service.update(command=[sys.executable, "-c", "print('not the LMA')"]),
+            "environment": lambda service: service["environment"].update(HEALTHCARE_DEMO_SITE_ID="uk-134"),
+            "image": lambda service: service.update(image="example/other:1"),
+            "ports": lambda service: service.update(ports=["0.0.0.0:8085:8085"]),
+            "healthcheck": lambda service: service["healthcheck"].update(test=["CMD", "sh", "-c", "true"]),
+            "networks": lambda service: service.update(networks=["other"]),
+            "privileged": lambda service: service.update(privileged=True),
+        }
+        for name, change in changes.items():
+            with self.subTest(change=name):
+                with mock.patch.object(self.core_client, "render_compose", side_effect=tampered(change)):
+                    with self.assertLogs("app.services.deployment", "WARNING") as logs:
+                        deployment = self.deploy()
+                self.assertIn("does not match the request", logs.output[0])
+                self.assert_failed_at(
+                    deployment, "plan", {"plan": "failed", **{step: "not_run" for step in DEPLOYMENT_STEPS[1:]}}
+                )
+                self.assertEqual("The core service returned a file this app cannot use.", self.detail(deployment, "plan"))
+                self.assertIsNone(deployment["compose_yaml"])
+                self.assertEqual([], self.applier.checked)
+                self.assertEqual([], self.applier.applied)
+
     def test_core_service_that_does_not_answer(self) -> None:
         # Its health check answers, and then it does not render the file.
         unavailable = RemoteServiceUnavailable("The Dagents core service cannot be reached right now.", "test")

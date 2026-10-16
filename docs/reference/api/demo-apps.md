@@ -1054,7 +1054,7 @@ lists the settings.
 
 | Step | What happens |
 |---|---|
-| `plan` | core-service renders the LMA's Compose file (`POST /api/v1/manifests/compose`, the planner's `manifest compile`). Issues fail the step |
+| `plan` | core-service renders the LMA's Compose file (`POST /api/v1/manifests/compose`, the planner's `manifest compile`). Issues fail the step. So does a file whose keys, image, command, environment, published ports, health check or network differ from the request the app sent |
 | `start` | The applier starts that one service from the file as rendered. A port that already answers for something else fails the step; a service this app started earlier is kept (`adopted`) |
 | `answer` | The new LMA answers `/api/v1/health` within `HEALTHCARE_DEMO_DEPLOY_TIMEOUT_SECONDS` and reports site `pl-290` |
 | `attach` | The GMA accepts the LMA's address (`PUT /api/v1/federation/sites/pl-290/address`), only at the address in its `GMA_FEDERATION_JOINABLE_SITES` |

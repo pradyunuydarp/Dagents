@@ -33,6 +33,7 @@ sys.path.insert(0, str(FRAMEWORK_ROOT))
 import httpx  # noqa: E402
 
 from agents.common.infrastructure.compose_apply import (  # noqa: E402
+    CommandResult,
     DockerComposeApplier,
     LocalProcessApplier,
     compose_service,
@@ -40,7 +41,12 @@ from agents.common.infrastructure.compose_apply import (  # noqa: E402
 
 from app.core.config import settings as app_settings  # noqa: E402
 from app.domain.dataset import JOINING_SITES  # noqa: E402
-from app.services.deployment import BACKEND_DIR, COMPOSE_SERVICES, lma_compose_request  # noqa: E402
+from app.services.deployment import (  # noqa: E402
+    BACKEND_DIR,
+    COMPOSE_SERVICES,
+    lma_compose_request,
+    rendered_service_mismatch,
+)
 from tests.support import dagentsc_available  # noqa: E402
 
 CORE_SERVICE_DIR = FRAMEWORK_ROOT / "services" / "core-service"
@@ -264,6 +270,28 @@ class ComposeRequestTests(unittest.TestCase):
                 self.assertEqual([], answer["issues"])
                 self.assertEqual(["lma-pl-290"], answer["services"])
                 self.assertIsInstance(answer["compose_yaml"], str)
+
+    def test_each_rendered_file_matches_the_request_the_app_sent(self) -> None:
+        requests = {
+            "process": lma_compose_request(SITE, PROCESS_URL, process_settings(), "process"),
+            "compose": lma_compose_request(SITE, COMPOSE_URL, compose_settings(), "compose"),
+        }
+        for mode, request in requests.items():
+            with self.subTest(mode=mode):
+                service = compose_service(rendered(mode)["compose_yaml"], "lma-pl-290")
+                self.assertIsNone(rendered_service_mismatch(service, request))
+
+    def test_the_compose_applier_accepts_the_compose_mode_file(self) -> None:
+        # Every key the planner rendered is one the Compose applier applies.
+        calls: list[list[str]] = []
+
+        def runner(args: list[str], *, timeout: float) -> CommandResult:
+            calls.append(args)
+            return CommandResult(0, "", "")
+
+        with tempfile.TemporaryDirectory() as workdir:
+            DockerComposeApplier(Path(workdir), runner=runner).check(rendered("compose")["compose_yaml"], "lma-pl-290")
+        self.assertEqual(1, len(calls))
 
     def test_the_process_applier_accepts_the_process_mode_file(self) -> None:
         compose_yaml = rendered("process")["compose_yaml"]
