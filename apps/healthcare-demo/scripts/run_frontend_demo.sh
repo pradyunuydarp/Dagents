@@ -163,8 +163,9 @@ if (( SPLIT )); then
   # shellcheck source=run_split_demo.sh
   source "${HERE}/run_split_demo.sh"
   split_preflight
+  # The deployer is on exactly when the UI below listens on 127.0.0.1 only.
+  SPLIT_DEPLOY="${DEPLOY}"
   if (( DEPLOY )); then
-    export SPLIT_DEPLOY=1
     bold "Starting core-service, the GMA, the three hospitals and the API on :${API_PORT}"
   else
     bold "Starting the GMA, the three hospitals and the API on :${API_PORT}"

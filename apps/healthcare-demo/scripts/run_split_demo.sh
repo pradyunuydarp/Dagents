@@ -33,8 +33,9 @@
 # starts anything when the joining port already answers.
 #
 # scripts/run_frontend_demo.sh --split sources this file and calls
-# split_start, so the UI runs in front of the same five processes. It sets
-# SPLIT_DEPLOY=1 for --deploy.
+# split_start, so the UI runs in front of the same five processes. For
+# --deploy it sets SPLIT_DEPLOY=1 after it sources the file. A SPLIT_DEPLOY
+# in the environment is ignored.
 set -euo pipefail
 
 SPLIT_HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -46,8 +47,11 @@ SPLIT_SITES=(uk-134 it-002 ch-245)
 #: The hospital a run started with --deploy can add while it runs. It listens on
 #: HEALTHCARE_DEMO_JOINING_PORT.
 SPLIT_JOINING_SITE="pl-290"
-#: 1 when the run can add SPLIT_JOINING_SITE (--deploy).
-SPLIT_DEPLOY="${SPLIT_DEPLOY:-0}"
+#: 1 when the run can add SPLIT_JOINING_SITE. Only --deploy sets it, here or in
+#: run_frontend_demo.sh. The environment cannot: that script binds the UI to
+#: 127.0.0.1 only for --deploy, and a deployer behind a UI that listens on every
+#: interface would let another machine start a process here.
+SPLIT_DEPLOY=0
 SPLIT_PIDS=()
 SPLIT_NAMES=()
 

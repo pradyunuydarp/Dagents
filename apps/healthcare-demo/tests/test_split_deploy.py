@@ -216,10 +216,12 @@ class SplitDeployTests(unittest.TestCase):
 #: Runs ``split_start`` from ``scripts/run_split_demo.sh`` with a stand-in for
 #: ``split_spawn`` that writes each process's name, directory and arguments to
 #: ``$2``, and none for the health checks. ``$1`` is the script, ``$3`` the log
-#: directory.
+#: directory. A non-empty ``$4`` sets ``SPLIT_DEPLOY`` after the script is
+#: sourced, as ``--deploy`` and ``run_frontend_demo.sh --deploy`` do.
 SCRIPT_HARNESS = r"""
 source "$1"
 record="$2"
+[[ -n "$4" ]] && SPLIT_DEPLOY="$4"
 split_spawn() {
   local name="$1" log="$2" dir="$3"
   shift 3
@@ -268,20 +270,30 @@ class SplitScriptDeployTests(unittest.TestCase):
         self.log_dir = Path(directory.name)
         self.record = self.log_dir / "spawned.tsv"
 
-    def run_script(self, split: SplitProcesses, *, deploy: bool) -> subprocess.CompletedProcess[str]:
+    def run_script(
+        self, split: SplitProcesses, *, deploy: bool, environ: dict[str, str] | None = None
+    ) -> subprocess.CompletedProcess[str]:
         env = {key: value for key, value in os.environ.items() if not key.startswith(("HEALTHCARE_DEMO_", "GMA_", "LMA_"))}
         env.update(
-            SPLIT_DEPLOY="1" if deploy else "0",
             DAGENTS_HOME=str(REPO_ROOT),
             GMA_API_PORT=str(split.gma_port),
             HEALTHCARE_DEMO_API_PORT=str(split.app_port),
             HEALTHCARE_DEMO_INTERNAL_PORT=str(split.internal_port),
             HEALTHCARE_DEMO_LMA_PORTS=" ".join(str(split.lma_ports[site_id]) for site_id in SITE_IDS),
         )
-        if deploy:
-            env.update(CORE_SERVICE_PORT=str(split.core_port), HEALTHCARE_DEMO_JOINING_PORT=str(split.joining_port))
+        env.update(CORE_SERVICE_PORT=str(split.core_port), HEALTHCARE_DEMO_JOINING_PORT=str(split.joining_port))
+        env.update(environ or {})
         return subprocess.run(
-            ["bash", "-c", SCRIPT_HARNESS, "harness", str(SCRIPT), str(self.record), str(self.log_dir)],
+            [
+                "bash",
+                "-c",
+                SCRIPT_HARNESS,
+                "harness",
+                str(SCRIPT),
+                str(self.record),
+                str(self.log_dir),
+                "1" if deploy else "",
+            ],
             env=env,
             capture_output=True,
             text=True,
@@ -356,6 +368,15 @@ class SplitScriptDeployTests(unittest.TestCase):
         ):
             with self.subTest(source=source):
                 self.assert_layout(spawned, split, deploy=False)
+
+    def test_the_environment_cannot_turn_the_deployer_on(self) -> None:
+        # run_frontend_demo.sh binds the UI to 127.0.0.1 only for --deploy. A
+        # SPLIT_DEPLOY=1 exported by the caller must not turn the deployer on
+        # behind a UI that listens on every interface.
+        split = SplitProcesses(self.log_dir, deploy=False)
+        result = self.run_script(split, deploy=False, environ={"SPLIT_DEPLOY": "1"})
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        self.assert_layout(parse_spawns(self.record.read_text(encoding="utf-8")), split, deploy=False)
 
     def test_the_script_starts_nothing_when_the_joining_port_answers(self) -> None:
         split = SplitProcesses(self.log_dir, deploy=True)
