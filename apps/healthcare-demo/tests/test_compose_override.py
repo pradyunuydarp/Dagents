@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
@@ -42,6 +43,18 @@ BACKEND_ENVIRONMENT = {
 }
 
 
+#: The oldest Docker Compose that reads ``additional_contexts: service:<name>``.
+#: Older versions take it for a folder without a warning, so ``config`` passes
+#: and only the build fails.
+MINIMUM_COMPOSE = (2, 33)
+
+
+def compose_version(text: str) -> tuple[int, int] | None:
+    """``(major, minor)`` from ``docker compose version --short``, such as ``2.33.1`` or ``v2.24.6``."""
+    match = re.match(r"v?(\d+)\.(\d+)", text.strip())
+    return (int(match.group(1)), int(match.group(2))) if match else None
+
+
 def compose_config(*files: str, gid: str | None = "999") -> subprocess.CompletedProcess[str]:
     args = ["docker", "compose"]
     for name in files:
@@ -69,6 +82,13 @@ class ComposeOverrideTests(unittest.TestCase):
         probe = subprocess.run(["docker", "compose", "version"], capture_output=True, text=True, timeout=60)
         if probe.returncode != 0:
             raise unittest.SkipTest("docker compose is not available, so it cannot check the override")
+        short = subprocess.run(["docker", "compose", "version", "--short"], capture_output=True, text=True, timeout=60)
+        version = compose_version(short.stdout)
+        if version is None or version < MINIMUM_COMPOSE:
+            raise AssertionError(
+                f"{OVERRIDE} needs Docker Compose {MINIMUM_COMPOSE[0]}.{MINIMUM_COMPOSE[1]} or later, which reads "
+                f"'additional_contexts: service:lma-uk-134'. This machine has {short.stdout.strip() or 'no version'}."
+            )
         merged = compose_config(BASE, OVERRIDE)
         assert merged.returncode == 0, merged.stderr
         base = compose_config(BASE, gid=None)
@@ -169,6 +189,26 @@ class ComposeOverrideTests(unittest.TestCase):
         self.assertIsNone(base_backend.get("group_add"))
         self.assertEqual([(None, "8080", 8080)], published(base_backend))
         self.assertEqual([(None, "5174", 5174)], published(self.base["services"][FRONTEND]))
+
+
+class ComposeVersionTests(unittest.TestCase):
+    """The version check in ``ComposeOverrideTests``, which needs no Docker."""
+
+    def test_versions_are_read_and_compared(self) -> None:
+        cases = {
+            "2.24.6": False,
+            "v2.24.6": False,
+            "2.32.4": False,
+            "2.33.0": True,
+            "2.38.2\n": True,
+            "5.6.0": True,
+        }
+        for text, supported in cases.items():
+            with self.subTest(version=text):
+                version = compose_version(text)
+                self.assertIsNotNone(version)
+                self.assertEqual(supported, version >= MINIMUM_COMPOSE)
+        self.assertIsNone(compose_version(""))
 
 
 if __name__ == "__main__":

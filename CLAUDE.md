@@ -424,8 +424,8 @@ as a container in its own Compose project. **It mounts the Docker socket into
 the backend, which gives the backend control of Docker on that machine. Never
 use it on a shared or public host.** Run it from `apps/healthcare-demo` with
 `DOCKER_GID=$(stat -c %g /var/run/docker.sock) docker compose -f
-docker-compose.yml -f docker-compose.deploy.yml up --build`. CI checks it with
-`docker compose config` only; `apps/healthcare-demo/docs/deployment.md` has
+docker-compose.yml -f docker-compose.deploy.yml up --build`, with Docker Compose
+2.33 or later. CI checks it with `docker compose config` only; `apps/healthcare-demo/docs/deployment.md` has
 the check to run by hand and the settings.
 
 All of them need `dagentsc`. Without it the Ethical Guard denies every request,

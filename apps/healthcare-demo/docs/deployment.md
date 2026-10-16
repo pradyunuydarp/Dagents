@@ -240,7 +240,11 @@ DOCKER_GID=$(stat -c %g /var/run/docker.sock) \
   docker compose -f docker-compose.yml -f docker-compose.deploy.yml up --build
 ```
 
-Without `DOCKER_GID`, Compose stops with "set DOCKER_GID to the group id of
+It needs Docker Compose 2.33 or later (`docker compose version`). The
+backend's build starts from the hospitals' image through
+`additional_contexts: service:lma-uk-134`; older Compose reads that as a
+folder, prints no warning, and the build fails with a missing path. Without
+`DOCKER_GID`, Compose stops with "set DOCKER_GID to the group id of
 /var/run/docker.sock". The file changes four services:
 
 | Service | Change |

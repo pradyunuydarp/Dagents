@@ -4,6 +4,11 @@
 # backend control of Docker on this machine: it can start, stop and remove any
 # container. Never use this file on a shared or public host.
 #
+# It needs Docker Compose 2.33 or later. The backend's build reads another
+# service's image (additional_contexts: service:lma-uk-134), and older Compose
+# takes "service:lma-uk-134" for a folder without a warning, so the build fails
+# later with a missing path. `docker compose version` prints the version.
+#
 # Use it on top of docker-compose.yml, from apps/healthcare-demo:
 #
 #   DOCKER_GID=$(stat -c %g /var/run/docker.sock) \

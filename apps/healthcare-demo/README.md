@@ -560,7 +560,7 @@ lists every setting and the rules the app checks when it starts.
 
 **As a container.** `docker-compose.deploy.yml`, on top of `docker-compose.yml`,
 adds core-service and starts the new hospital as a container in its own Compose
-project. It mounts the Docker socket into the backend, so use it on your own
+project. It needs Docker Compose 2.33 or later. It mounts the Docker socket into the backend, so use it on your own
 machine only; it publishes the backend and the UI on 127.0.0.1 only.
 [Adding a hospital as a container](docs/deployment.md#adding-a-hospital-as-a-container)
 has the command, how to remove the container, and a check to run by hand.
