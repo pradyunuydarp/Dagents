@@ -378,6 +378,22 @@ class SplitScriptDeployTests(unittest.TestCase):
             with self.subTest(source=source):
                 self.assert_layout(spawned, split, deploy=False)
 
+    def test_the_framework_comes_from_dagents_home(self) -> None:
+        # In an app moved into its own repository, the framework is not two
+        # folders up; scripts/extract_repo.sh tells the user to set DAGENTS_HOME.
+        home = Path(self.log_dir) / "dagents"
+        result = subprocess.run(
+            [sys.executable, "-c", "from tests import split_support; print(split_support.REPO_ROOT)"],
+            cwd=APP_ROOT,
+            env={**os.environ, "DAGENTS_HOME": str(home)},
+            capture_output=True,
+            text=True,
+            timeout=120,
+            check=False,
+        )
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual(str(home.resolve()), result.stdout.strip())
+
     def test_the_environment_cannot_turn_the_deployer_on(self) -> None:
         # run_frontend_demo.sh binds the UI to 127.0.0.1 only for --deploy. A
         # SPLIT_DEPLOY=1 exported by the caller must not turn the deployer on

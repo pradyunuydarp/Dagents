@@ -180,7 +180,10 @@ class SplitRun:
 
 # --- The split run as real processes ------------------------------------------------
 
-REPO_ROOT = APP_ROOT.parents[1]
+#: The Dagents checkout: ``DAGENTS_HOME``, or the repository this app sits in.
+#: An app moved into its own repository (``scripts/extract_repo.sh``) runs the
+#: GMA and core-service from the checkout ``DAGENTS_HOME`` names.
+REPO_ROOT = Path(os.environ.get("DAGENTS_HOME") or APP_ROOT.parents[1]).resolve()
 BACKEND = APP_ROOT / "backend"
 CORE_SERVICE_DIR = REPO_ROOT / "services" / "core-service"
 
