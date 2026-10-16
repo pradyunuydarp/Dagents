@@ -13,9 +13,10 @@ What the app holds (``app.state.gma``, a :class:`GmaState`):
 | Governance | A Guard over ``deps.audit``, the Postgres audit chain in ``GMA_AUDIT_TABLE``, or memory. Strict about classifications when a configured registry has condition packs |
 | Model registry | ``deps.model_store``, the Postgres table in ``GMA_MODEL_TABLE``, or memory |
 | Update store | In memory, write-only |
-| Agent network | ``deps.network``, or one built over HTTP from ``GMA_SITE_ENDPOINTS`` |
+| Agent network | ``deps.network``, or one built over HTTP from ``GMA_SITE_ENDPOINTS`` (empty when only ``GMA_JOINABLE_SITE_ENDPOINTS`` is set) |
 | Round engine | The HTTP engine (``GMA_ENGINE=http``) or the in-process simulator |
 | Site directory, release service | The parts above |
+| Site addresses | ``GMA_SITE_ENDPOINTS`` and ``GMA_JOINABLE_SITE_ENDPOINTS``; a joined address goes into the agent network |
 | Tokens | ``GMA_ADMIN_TOKEN`` (scope ``admin``) and ``GMA_SITE_TOKENS`` (scope ``site``, each bound to its site) |
 
 Errors are answered as ``{"detail": ..., "code": ...}``: a framework error
@@ -61,6 +62,7 @@ from dagents.common.infrastructure.agent_client import (
     AgentNetwork,
     AgentUnavailableError,
     lma_agent,
+    normalize_base_url,
 )
 from dagents.common.infrastructure.dagents_runner import PlannerUnavailableError, warn_if_no_planner
 from dagents.common.infrastructure.postgres_roles import RoleScopeError
@@ -68,6 +70,7 @@ from dagents.gma.adapters.http_federation_engine import HttpFederationEngine
 from dagents.gma.application.aggregation_service import AggregationService
 from dagents.gma.application.model_registry import ModelRegistry, ModelStore
 from dagents.gma.application.release_service import ReleaseService
+from dagents.gma.application.site_addresses import SiteAddressBook
 from dagents.gma.application.site_directory import SiteDirectory
 from dagents.gma.config import Settings
 from dagents.gma.di import build_aggregation_service, build_governance_service, build_round_controller
@@ -159,6 +162,7 @@ class GmaState:
     engine: FederationEngine
     network: AgentNetwork | None
     access: AgentAccess
+    addresses: SiteAddressBook
     upload_threads: HandlerThreads = field(default_factory=HandlerThreads)
     _closers: list[Callable[[], None]] = field(default_factory=list, repr=False)
 
@@ -193,8 +197,39 @@ def _check(settings: Settings, deps: GmaDeps) -> None:
             raise ValueError(f"{' and '.join(tables)} need GMA_DATABASE_URL")
         if not settings.database_role:
             raise ValueError("GMA_DATABASE_URL needs GMA_DATABASE_ROLE, the role every coordinator query runs as")
-    if settings.engine == "http" and deps.network is None and not settings.site_endpoints:
-        raise ValueError("GMA_ENGINE=http needs GMA_SITE_ENDPOINTS, or an agent network handed to create_app")
+    joinable = settings.joinable_site_endpoints
+    if settings.engine == "http" and deps.network is None and not settings.site_endpoints and not joinable:
+        raise ValueError(
+            "GMA_ENGINE=http needs GMA_SITE_ENDPOINTS or GMA_JOINABLE_SITE_ENDPOINTS, or an agent network handed "
+            "to create_app"
+        )
+    if not joinable:
+        return
+    both = sorted(set(joinable) & set(settings.site_endpoints))
+    if both:
+        raise ValueError(
+            f"a site cannot be in both GMA_SITE_ENDPOINTS and GMA_JOINABLE_SITE_ENDPOINTS: {', '.join(both)}"
+        )
+    for site_id, url in sorted(joinable.items()):
+        try:
+            normalize_base_url(lma_agent(site_id), url)
+        except ValueError as error:
+            raise ValueError(f"GMA_JOINABLE_SITE_ENDPOINTS: {error}") from None
+    if settings.engine != "http":
+        raise ValueError("GMA_JOINABLE_SITE_ENDPOINTS needs GMA_ENGINE=http: the simulator calls no LMA")
+    if deps.network is not None and deps.network.mode != "network":
+        raise ValueError(
+            "GMA_JOINABLE_SITE_ENDPOINTS needs an agent network over HTTP; an in-process network takes no address"
+        )
+    has_tokens = settings.require_tokens or bool(settings.admin_token or settings.site_tokens or settings.lma_tokens)
+    if has_tokens:
+        for setting, tokens in (("GMA_LMA_TOKENS", settings.lma_tokens), ("GMA_SITE_TOKENS", settings.site_tokens)):
+            missing = sorted(set(joinable) - set(tokens))
+            if missing:
+                raise ValueError(
+                    f"GMA_JOINABLE_SITE_ENDPOINTS: {setting} has no entry for {', '.join(missing)}; the GMA could "
+                    "not call that LMA or accept its update"
+                )
 
 
 def _access(settings: Settings) -> AgentAccess:
@@ -224,7 +259,9 @@ def create_app(settings: Settings | None = None, deps: GmaDeps | None = None) ->
 
     Raises ``ValueError`` for settings that cannot work: an HTTP engine with no
     LMA to call, tables without a database or a role, required tokens that are
-    not set, or a token that is too short.
+    not set, a token that is too short, or a joinable site that is also
+    configured, has a bad address, lacks its tokens, or has no HTTP network to
+    join.
     """
     settings = settings or Settings()
     deps = deps or GmaDeps()
@@ -265,7 +302,7 @@ def create_app(settings: Settings | None = None, deps: GmaDeps | None = None) ->
         updates = InMemoryUpdateStore()
 
         network = deps.network
-        if network is None and settings.site_endpoints:
+        if network is None and (settings.site_endpoints or settings.joinable_site_endpoints):
             network = AgentNetwork.over_http(
                 {lma_agent(site_id): url for site_id, url in settings.site_endpoints.items()}
             )
@@ -294,6 +331,12 @@ def create_app(settings: Settings | None = None, deps: GmaDeps | None = None) ->
             timeout_s=settings.summary_timeout_seconds,
         )
         releases = ReleaseService(rounds, models, governance, extensions)
+        addresses = SiteAddressBook(
+            network,
+            configured=settings.site_endpoints,
+            joinable=settings.joinable_site_endpoints,
+            on_change=directory.forget,
+        )
     except Exception:
         for close in reversed(closers):
             close()
@@ -312,6 +355,7 @@ def create_app(settings: Settings | None = None, deps: GmaDeps | None = None) ->
         engine=engine,
         network=network,
         access=access,
+        addresses=addresses,
         _closers=closers,
     )
 

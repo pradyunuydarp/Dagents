@@ -1,4 +1,4 @@
-"""Kubernetes manifest generation for Dagents workloads."""
+"""Kubernetes manifests and Docker Compose files for Dagents workloads."""
 
 from __future__ import annotations
 
@@ -6,6 +6,8 @@ import time
 from typing import Protocol
 
 from app.models import (
+    ComposeManifestRequest,
+    ComposeManifestResponse,
     WorkloadCompileRequest,
     WorkloadComponent,
     WorkloadManifest,
@@ -13,6 +15,7 @@ from app.models import (
     WorkloadManifestResponse,
     WorkloadPlanResponse,
 )
+from app.services.compose_renderer import planner_payload, render_compose_plan
 
 
 class WorkloadPlanRepository(Protocol):
@@ -153,6 +156,35 @@ class ManifestService:
     def get_plan(self, plan_id: str) -> WorkloadPlanResponse | None:
         """Return a previously compiled workload plan by id."""
         return self._plans.get(plan_id)
+
+    def render_compose(self, request: ComposeManifestRequest) -> ComposeManifestResponse:
+        """Render one Docker Compose file through the planner. Nothing is stored.
+
+        The planner decides: `dagentsc manifest compile` lists every issue and
+        renders the file only when there is none. When the binary cannot be
+        started (an `OSError`, such as a missing file), the Python port in
+        `compose_renderer` gives the same answer; the golden files in
+        `tests/fixtures/compose/` check both.
+
+        When the planner starts and then fails, the error is raised and the
+        route answers 500, because the service must not serve a file the
+        planner did not render. The request models refuse the shapes the
+        planner refuses (unknown words, missing fields, a health check with
+        both or neither test), so this happens only when the two disagree or
+        a number does not fit in the planner's 63-bit integers. The Python
+        port refuses the same numbers with a ValueError, which is also a 500.
+        """
+        from dagents.common.infrastructure.dagents_runner import PlannerUnavailableError, run_dagentsc
+
+        payload = planner_payload(request)
+        try:
+            result = run_dagentsc(["manifest", "compile", "--input", "-", "--output", "json"], payload)
+        except PlannerUnavailableError as error:
+            if not isinstance(error.__cause__, OSError):
+                raise
+            result = render_compose_plan(payload)
+        # The planner's plan_id is its default, "dagents-plan"; the response has no such field.
+        return ComposeManifestResponse.model_validate(result)
 
     def _workload_yaml(self, namespace: str, component: WorkloadComponent) -> str:
         """Dispatch to the correct workload renderer based on `component.kind`."""

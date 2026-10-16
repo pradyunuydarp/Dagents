@@ -22,6 +22,11 @@ database is configured. Nothing this app returns is clinical advice.
 Every successful answer whose body is a JSON object has a ``framework_calls``
 field: the LMA and GMA calls behind it, by route, with no host and no token.
 
+A network-mode run started with ``--deploy`` on someone's own machine can add
+a hospital while the demo runs (``GET`` and ``POST /api/v1/deployments``, see
+``app.services.deployment``). It is off everywhere else, and the app refuses to
+start with a deploy setting that is unsafe or cannot work.
+
 Building the app reads no records, opens no database connection and starts no
 agent. The stores and the agents are built on first use and stopped when the
 app shuts down.
@@ -44,6 +49,7 @@ from dagents.common.domain.site import ProbeRequest
 from dagents.common.infrastructure.charts import ChartsUnavailableError
 
 from app.api.app_header import APP_HEADER, AppHeader
+from app.api.deploy_routes import build_deploy_router
 from app.api.errors import UNEXPECTED_ERROR_MESSAGE, UnhandledErrors
 from app.api.limits import (
     BodySizeLimit,
@@ -83,6 +89,7 @@ from app.models import (
 )
 from app.services.agents import AgentError, FrameworkCalls, HealthcareDemo, loggable
 from app.services.charts_service import ChartNotAvailable, ChartService, UnknownChartError
+from app.services.deployment import build_hospital_deployer, check_deployer
 from app.services.hospital_views import HospitalView
 from app.services.overview import ApprovalRefused, SiteReportMissing, SiteUnreachable, UnknownModelVersion
 from app.services.site_store import (
@@ -155,9 +162,18 @@ ENTRY_NOTICE = (
 
 PILOT_BUSY_MESSAGE = "A pilot is already running. Try again when it finishes."
 
+#: What a pilot request is told when the flight is held, by who holds it. A
+#: pilot and the addition of a hospital share one flight.
+PILOT_BUSY_MESSAGES = {
+    "pilot": PILOT_BUSY_MESSAGE,
+    "deployment": "A hospital is being added. Run the pilot when it has joined.",
+}
+
 # Settings that cannot work stop the app here, before it serves a request:
-# an unknown agent mode, or too few agent threads for the in-flight cap.
+# an unknown agent mode, too few agent threads for the in-flight cap, or a
+# deploy setting that is unsafe or cannot work.
 settings.check_agent_capacity()
+check_deployer(settings)
 
 #: The app's services: the hospitals' stores, the agents, the hospital views,
 #: the study and the overview. Built on first use. Tests replace it with their own.
@@ -177,6 +193,11 @@ rate_limits = RateLimiter(
 )
 pilot_flight = SingleFlight()
 
+#: Adds a hospital while the demo runs, in a network-mode run started with
+#: --deploy. It reads ``demo`` on each use, so tests that replace the services
+#: reach it. Tests replace it too.
+deployer = build_hospital_deployer(settings, demo=lambda: demo)
+
 #: Caps on Guard probes per hospital and on pilots in any 60 minutes, for
 #: every visitor together. Tests replace them with ``hourly_caps.configure``.
 hourly_caps = HourlyCap({"probes": settings.probes_per_site_per_hour, "pilots": settings.pilots_per_hour})
@@ -194,11 +215,18 @@ def _over_hourly_cap(wait: float, action: str) -> HTTPException:
 
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
-    """Stop the agents and close every store's database connection when the app shuts down."""
+    """Stop the agents and close every store's database connection when the app shuts down.
+
+    A hospital's LMA that this app started as a local process stops first; a
+    container keeps running.
+    """
     try:
         yield
     finally:
-        demo.close()
+        try:
+            deployer.close()
+        finally:
+            demo.close()
 
 
 # --- framework_calls ------------------------------------------------------------------------
@@ -962,7 +990,7 @@ def governance_probe(request: GuardProbeRequest) -> dict[str, Any]:
     PILOT_PATH,
     dependencies=[Depends(rate_limits.dependency("pilots"))],
     responses=_errors(
-        (409, "A pilot is already running. One pilot runs at a time."),
+        (409, "A pilot is already running, or a hospital is being added. One of them runs at a time."),
         NOT_VALID,
         (
             429,
@@ -977,17 +1005,19 @@ def run_pilot(request: PilotRequest) -> Any:
 
     Analytics, then evaluation of the model in use, then training rounds, then
     validation of the candidate, then the release Guard and gates. One pilot
-    runs at a time; a request while one runs gets 409. Beyond the hourly cap
-    on pilots, a request gets 429.
+    runs at a time, and never while a hospital is being added; a request then
+    gets 409. Beyond the hourly cap on pilots, a request gets 429.
     """
-    if not pilot_flight.try_enter():
-        raise HTTPException(status_code=409, detail=PILOT_BUSY_MESSAGE)
+    if not pilot_flight.try_enter("pilot"):
+        # The holder may have left since; then the message is a pilot's.
+        holder = pilot_flight.holder or "pilot"
+        raise HTTPException(status_code=409, detail=PILOT_BUSY_MESSAGES.get(holder, PILOT_BUSY_MESSAGE))
     try:
         # Counted only for a pilot that starts, not for one refused as busy.
         wait = hourly_caps.take("pilots")
         if wait > 0:
             raise _over_hourly_cap(wait, "pilots")
-        return demo.pilot.run_pilot(request.round_prefix)
+        return demo.run_pilot(request.round_prefix)
     finally:
         pilot_flight.leave()
 
@@ -1024,6 +1054,11 @@ def approve_model(
     did not allow it, or the version is no longer a candidate.
     """
     return demo.overview.approve(version)
+
+
+# --- Adding a hospital while the demo runs ---------------------------------------------------
+
+app.include_router(build_deploy_router(lambda: deployer, pilot_flight))
 
 
 # --- The framework ----------------------------------------------------------------------------

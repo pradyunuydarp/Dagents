@@ -48,13 +48,19 @@ EMULATION_SQL = APP_ROOT / "supabase" / "emulate_supabase_roles.sql"
 MIGRATION_0001 = APP_ROOT / "supabase" / "migrations" / "0001_stroke_encounters.sql"
 MIGRATION_0002 = APP_ROOT / "supabase" / "migrations" / "0002_site_isolation.sql"
 MIGRATION_0003 = APP_ROOT / "supabase" / "migrations" / "0003_coordinator_records.sql"
+MIGRATION_0004 = APP_ROOT / "supabase" / "migrations" / "0004_joining_site.sql"
 #: The coordinator's tables, from 0002 and 0003.
 COORDINATOR_TABLES = ("coordinator.models", "coordinator.site_contributions", "coordinator.pilot_reports",
                       "coordinator.guard_audit", "coordinator.guard_audit_anchor")
 #: Each hospital's tables, from 0002 and 0003.
 SITE_TABLES = ("encounters", "guard_audit", "guard_audit_anchor")
 
-SITE_ROLES = ("site_uk_134", "site_it_002", "site_ch_245")
+#: The roles of the hospitals in the consortium at start (0002) and of the
+#: hospitals that join while the demo runs (0004). Every cross-site check runs
+#: over all of them.
+CONSORTIUM_ROLES = ("site_uk_134", "site_it_002", "site_ch_245")
+JOINING_ROLES = ("site_pl_290",)
+SITE_ROLES = CONSORTIUM_ROLES + JOINING_ROLES
 COORDINATOR = "dagents_coordinator"
 API_ROLES = ("anon", "authenticated", "service_role")
 #: Roles the emulation and the migration create, in the order they can be dropped.
@@ -273,7 +279,7 @@ class SiteIsolationTests(unittest.TestCase):
             """,
             (list(SITE_ROLES) + ["coordinator"],),
         ).fetchall()
-        self.assertEqual(14, len(rows), rows)
+        self.assertEqual(len(SITE_ROLES) * len(SITE_TABLES) + len(COORDINATOR_TABLES), len(rows), rows)
         for schema, table, rls, owner in rows:
             with self.subTest(table=f"{schema}.{table}"):
                 self.assertTrue(rls)
@@ -314,6 +320,51 @@ class SiteIsolationTests(unittest.TestCase):
         )
         self.assert_denied(uk, "UPDATE coordinator.site_contributions SET phase = 'x'")
         self.assert_denied(uk, "DELETE FROM coordinator.site_contributions")
+
+    def test_a_joining_hospital_writes_and_reads_only_its_own_contributions(self) -> None:
+        joining, uk = JOINING_ROLES[0], CONSORTIUM_ROLES[0]
+        for role in (joining, uk):
+            with acting_as(self.conn, role):
+                self.conn.execute(
+                    "INSERT INTO coordinator.site_contributions (round_id, phase, payload) "
+                    "VALUES ('round-joining', 'analytics', '{\"n\": 1}')"
+                )
+        with acting_as(self.conn, joining):
+            seen = self.conn.execute(
+                "SELECT DISTINCT site_role FROM coordinator.site_contributions WHERE round_id = 'round-joining'"
+            ).fetchall()
+        self.assertEqual([(joining,)], seen)
+        with acting_as(self.conn, COORDINATOR):
+            everyone = self.conn.execute(
+                "SELECT site_role FROM coordinator.site_contributions WHERE round_id = 'round-joining' ORDER BY 1"
+            ).fetchall()
+        self.assertEqual(sorted([(joining,), (uk,)]), everyone)
+        self.assert_denied(
+            joining,
+            "INSERT INTO coordinator.site_contributions (round_id, phase, site_role, payload) "
+            "VALUES ('round-joining', 'analytics', %s, '{}')",
+            (uk,),
+        )
+
+    def test_the_joining_migration_applies_twice(self) -> None:
+        with self.conn.transaction():
+            self.conn.execute(MIGRATION_0004.read_text(encoding="utf-8"))
+        for role in SITE_ROLES:
+            with acting_as(self.conn, role):
+                self.assertEqual(1, count_rows(self.conn, f"{role}.encounters"))
+        self.test_the_connecting_role_cannot_read_sites_without_switching()
+        self.test_a_site_cannot_read_or_write_another_site()
+
+    def test_the_joining_migration_needs_0003(self) -> None:
+        with self.db.admin() as admin:
+            admin.execute("ALTER TABLE coordinator.pilot_reports RENAME TO pilot_reports_moved")
+        try:
+            with self.assertRaises(errors.RaiseException) as caught, self.conn.transaction():
+                self.conn.execute(MIGRATION_0004.read_text(encoding="utf-8"))
+            self.assertIn("apply 0003_coordinator_records.sql first", str(caught.exception))
+        finally:
+            with self.db.admin() as admin:
+                admin.execute("ALTER TABLE coordinator.pilot_reports_moved RENAME TO pilot_reports")
 
     def test_a_forged_site_role_is_refused_by_the_policy_too(self) -> None:
         """The column grant stops this first; the RLS check is the second line."""
@@ -581,7 +632,7 @@ class RolloutFromV2Tests(unittest.TestCase):
 
     def test_the_runner_applied_0001_then_the_rest(self) -> None:
         self.assertEqual([MIGRATION_0001.name], self.first_run)
-        self.assertEqual([MIGRATION_0002.name, MIGRATION_0003.name], self.second_run)
+        self.assertEqual([MIGRATION_0002.name, MIGRATION_0003.name, MIGRATION_0004.name], self.second_run)
 
     def test_nothing_v2_depends_on_changed(self) -> None:
         for name in V2_DEPENDENCIES:
@@ -609,8 +660,10 @@ class RolloutFromV2Tests(unittest.TestCase):
 #: The condition that picks the PostgreSQL 16 grant in 0002. The PostgreSQL 15
 #: tests replace it with ``false``.
 GRANT_OPTIONS_CONDITION = "current_setting('server_version_num')::int >= 160000"
-#: The role lists in 0002 and 0003, which the PostgreSQL 15 tests rename.
+#: The role lists in 0002, 0003 and 0004, which the PostgreSQL 15 tests rename.
 SITES_LITERAL = "array['site_uk_134', 'site_it_002', 'site_ch_245']"
+JOINING_LITERAL = "sites       text[] := array['site_pl_290']"
+ALL_SITES_LITERAL = "array['site_uk_134', 'site_it_002', 'site_ch_245', 'site_pl_290']"
 COORDINATOR_LITERAL = "coordinator_role constant text := 'dagents_coordinator'"
 
 
@@ -623,7 +676,7 @@ def replace_once(text: str, old: str, new: str) -> str:
 class PostgresFifteenGrantTests(unittest.TestCase):
     """The PostgreSQL 15 branch of 0002, run on this server.
 
-    PostgreSQL 15 has no per-grant INHERIT option, so 0002 grants each role
+    PostgreSQL 15 has no per-grant INHERIT option, so 0002 (and 0004) grant each role
     with a plain GRANT there. These tests choose that branch, run it on the
     server the suite has, and check what it gives up: the connecting role
     inherits the site roles' rights. The site roles stay isolated from each
@@ -652,6 +705,8 @@ class PostgresFifteenGrantTests(unittest.TestCase):
                         conn.execute(cls.as_on_15())
                     elif path == MIGRATION_0003:
                         conn.execute(cls.coordinator_migration())
+                    elif path == MIGRATION_0004:
+                        conn.execute(cls.joining_migration())
                     else:
                         conn.execute(path.read_text(encoding="utf-8"))
                 conn.commit()
@@ -668,14 +723,28 @@ class PostgresFifteenGrantTests(unittest.TestCase):
         """0002 with the PostgreSQL 15 grant chosen and this class's role names."""
         text = MIGRATION_0002.read_text(encoding="utf-8")
         text = replace_once(text, GRANT_OPTIONS_CONDITION, "false")
-        text = replace_once(text, SITES_LITERAL, "array[" + ", ".join(f"'{role}'" for role in cls.site_roles) + "]")
+        text = replace_once(text, SITES_LITERAL, cls.literal(cls.site_roles[: len(CONSORTIUM_ROLES)]))
+        return replace_once(text, COORDINATOR_LITERAL, f"coordinator_role constant text := '{cls.coordinator}'")
+
+    @staticmethod
+    def literal(roles: tuple[str, ...]) -> str:
+        return "array[" + ", ".join(f"'{role}'" for role in roles) + "]"
+
+    @classmethod
+    def joining_migration(cls) -> str:
+        """0004 with the PostgreSQL 15 grant chosen and this class's role names."""
+        text = MIGRATION_0004.read_text(encoding="utf-8")
+        text = replace_once(text, GRANT_OPTIONS_CONDITION, "false")
+        joining = cls.site_roles[len(CONSORTIUM_ROLES) :]
+        text = replace_once(text, JOINING_LITERAL, "sites       text[] := " + cls.literal(joining))
+        text = replace_once(text, ALL_SITES_LITERAL, cls.literal(cls.site_roles))
         return replace_once(text, COORDINATOR_LITERAL, f"coordinator_role constant text := '{cls.coordinator}'")
 
     @classmethod
     def coordinator_migration(cls) -> str:
         """0003 with this class's role names."""
         text = MIGRATION_0003.read_text(encoding="utf-8")
-        text = replace_once(text, SITES_LITERAL, "array[" + ", ".join(f"'{role}'" for role in cls.site_roles) + "]")
+        text = replace_once(text, SITES_LITERAL, cls.literal(cls.site_roles[: len(CONSORTIUM_ROLES)]))
         return replace_once(text, COORDINATOR_LITERAL, f"coordinator_role constant text := '{cls.coordinator}'")
 
     @classmethod
@@ -755,6 +824,8 @@ class PostgresFifteenGrantTests(unittest.TestCase):
     def test_the_branch_applies_twice(self) -> None:
         with self.conn.transaction():
             self.conn.execute(self.as_on_15())
+        with self.conn.transaction():
+            self.conn.execute(self.joining_migration())
         for role in self.site_roles:
             with acting_as(self.conn, role):
                 self.assertEqual(1, count_rows(self.conn, f"{role}.encounters"))

@@ -102,6 +102,21 @@ of both `ci.yml` and `healthcare-data.yml`, with
 `tests.test_pilot_parity.PilotParityTests` compares every number of a pilot
 with a fixture recorded before the demo used the agents.
 
+Adding a hospital while the demo runs starts real processes, so its tests do
+too. `tests.test_network_deploy.NetworkDeployTests` starts core-service, the
+GMA, three LMAs and the API with the deployer on, adds Hospital 290 and runs a
+pilot with it; both workflows require it to run. `tests/test_ci_guards.py`
+finds it although its database fixture is a base class imported from
+`test_network_mode`. Three classes skip when something the runner has is
+missing, so the demo-apps job's planner step requires them to run:
+`ComposeOverrideTests` skips without the Docker command line and its compose
+plugin (it checks that only the API gets the Docker socket and that the API and
+the UI are published on 127.0.0.1 only), `ComposeRequestTests` skips without
+the planner, and `NetworkScriptDeployTests` skips without bash and curl. The
+`deploy-smoke` job runs
+`run_frontend_demo.sh --deploy --check` against PostgreSQL 16 and fails unless
+the smoke test prints `ok  deploy: hospital pl-290 joined`.
+
 ### c. A convention written down but not checked
 
 Defence: the `contracts` job. `scripts/service_inventory.py --check` regenerates
@@ -304,7 +319,39 @@ build `dagentsc.exe` in an earlier stage and copy it to
 stops finding the images known to call the planner, or if a Python image starts
 in a way the walk cannot read.
 
-### m. A package that works in the checkout but not when installed
+### m. A Pages deploy that GitHub stalled, and a retry that could hide a failure
+
+Run 41 of `pages.yml` failed in **Deploy to Pages**. The deployment stayed at
+`updating_pages` until `actions/deploy-pages` reached its limit of ten minutes
+and cancelled it. The build had passed, and re-running the failed job deployed
+the same artifact in under 15 seconds. The fault was on GitHub's side, but it
+left a red check on `main`.
+
+Defence: the deploy job tries once more.
+
+- The first `actions/deploy-pages` step has `continue-on-error: true`. If it
+  fails, the job waits 30 seconds and runs the action again. The action cancels
+  a deployment it gives up on, so the second attempt starts clean.
+- The second attempt has no `continue-on-error`, so its failure fails the job.
+- A step that may fail without failing the job can turn a failure into a green
+  run. So **One deploy attempt succeeded** reads both outcomes through `env:`
+  and passes only when the first attempt succeeded, or when it failed and the
+  second succeeded. When the second attempt was needed, it writes a warning and
+  a note in the run summary.
+- The two checks of the published pages come after that step and have no
+  `if:`, so they run only after a deploy succeeded.
+
+`tests/test_social_previews.py` checks the order and the conditions of these
+steps, and runs the guard step's script on the two passing combinations of
+outcomes and on failing ones.
+
+If both attempts fail, re-run the failed jobs of that run
+(`POST /repos/{owner}/{repo}/actions/runs/{run_id}/rerun-failed-jobs`). The
+Pages artifact is kept for one day; after that, re-run the whole run. A new run
+of the same commit also publishes, but it adds a green check beside the red
+one, and the commit keeps showing the failure.
+
+### n. A package that works in the checkout but not when installed
 
 Every suite imports `dagents` from the checkout and sets `DAGENTSC_BIN`. None
 of them can see a wheel that lacks a module, ships a second top-level package,

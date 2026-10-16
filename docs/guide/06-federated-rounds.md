@@ -149,7 +149,11 @@ without being dispatched, with the stop reason `quorum_not_met`.
 A GMA that knows its LMAs' addresses can enrol them for you:
 `POST /api/v1/federation/sites:refresh` asks each LMA for its registration
 (`GET /api/v1/federation/registration`), with its current record count as the
-cohort size, and stores it. Section 6 does this.
+cohort size, and stores it. Section 6 does this. A source that starts after
+the GMA joins the same way once the GMA has its address: list the source in
+`GMA_JOINABLE_SITE_ENDPOINTS` with the one address it will use, send that
+address to `PUT /api/v1/federation/sites/{site_id}/address`, then refresh
+([Step 8](08-deploy.md#3-configure-from-the-environment) has the setting).
 
 ## 3. The source's side: the worker
 
@@ -958,7 +962,9 @@ baseline (`baseline_from_round`). The averaging
 itself is the app's model kind, `LogisticRegressionKind.combine` in
 [`app/domain/model_kinds.py`](../../apps/healthcare-demo/backend/app/domain/model_kinds.py),
 which the GMA calls. [Demo apps](../reference/api/demo-apps.md#the-federated-pilot-and-model-releases)
-lists every call of a pilot.
+lists every call of a pilot. A hospital that joins while the demo runs is
+enrolled from what its LMA reports, and the GMA's planner decides whether the
+next round selects it, with the same eligibility rules as the others.
 
 ## 8. Decide on release
 

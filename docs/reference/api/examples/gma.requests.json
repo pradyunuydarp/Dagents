@@ -1,6 +1,6 @@
 {
   "service": "gma",
-  "note": "Captured in process with the planner available. The requests run in this order against one new GMA started with nothing configured, so later requests see what earlier ones stored. The round digest in the site results was computed by dagentsc from the round 1 manifest: fnv1a:767d1ad0c4595843. Examples that name the app study run, in order, against the study's GMA, with an LMA for each store (scripts/api_example_agents.py).",
+  "note": "Captured in process with the planner available. The requests run in this order against one new GMA started with nothing configured, so later requests see what earlier ones stored. The round digest in the site results was computed by dagentsc from the round 1 manifest: fnv1a:767d1ad0c4595843. Examples that name the app study run, in order, against the study's GMA, with an LMA for each store, and examples that name the app joinable against a GMA that may add store west's LMA while it runs (scripts/api_example_agents.py).",
   "apps": {
     "study": {
       "app": "api_example_agents:study_gma",
@@ -9,6 +9,14 @@
         "scripts"
       ],
       "description": "The GMA of the getting-started example's study, with the HTTP engine, the example's extension and an LMA for store north and store south on the same in-process agent network. Its source reads are off. Built by scripts/api_example_agents.py, which adds a small logistic regression model kind (return_score) so a training round can run; the tokens are example values."
+    },
+    "joinable": {
+      "app": "api_example_agents:joinable_gma",
+      "pythonpath": [
+        "examples/getting-started",
+        "scripts"
+      ],
+      "description": "A GMA with the HTTP engine and no configured LMA. GMA_JOINABLE_SITE_ENDPOINTS lists store west at http://127.0.0.1:8013, so the GMA accepts that one address for it while it runs. Nothing listens there: accepting an address calls no LMA. Built by scripts/api_example_agents.py; the tokens are example values."
     }
   },
   "examples": [
@@ -1427,6 +1435,113 @@
         "path": "/api/v1/federation/sites"
       },
       "status": 200
+    },
+    {
+      "id": "site-addresses-none",
+      "endpoint": "GET /api/v1/federation/site-addresses",
+      "title": "List the site addresses of a GMA with no HTTP network",
+      "description": "This GMA runs rounds in its own process, so it holds no LMA address and no site may join.",
+      "request": {
+        "path": "/api/v1/federation/site-addresses"
+      },
+      "status": 200
+    },
+    {
+      "id": "site-address-not-joinable",
+      "endpoint": "PUT /api/v1/federation/sites/{site_id}/address",
+      "title": "Offer an address to a GMA that accepts none",
+      "description": "GMA_JOINABLE_SITE_ENDPOINTS is empty, so the GMA refuses every address sent while it runs.",
+      "request": {
+        "path": "/api/v1/federation/sites/store-west/address",
+        "json": {
+          "url": "http://127.0.0.1:8013"
+        }
+      },
+      "status": 403
+    },
+    {
+      "id": "joinable-site-addresses",
+      "endpoint": "GET /api/v1/federation/site-addresses",
+      "title": "List the sites that may join, before any has",
+      "app": "joinable",
+      "request": {
+        "path": "/api/v1/federation/site-addresses",
+        "headers": {
+          "Authorization": "Bearer example-study-admin-token"
+        }
+      },
+      "status": 200
+    },
+    {
+      "id": "site-address-differs",
+      "endpoint": "PUT /api/v1/federation/sites/{site_id}/address",
+      "title": "Send another address than the listed one",
+      "app": "joinable",
+      "request": {
+        "path": "/api/v1/federation/sites/store-west/address",
+        "headers": {
+          "Authorization": "Bearer example-study-admin-token"
+        },
+        "json": {
+          "url": "http://127.0.0.1:8099"
+        }
+      },
+      "status": 403
+    },
+    {
+      "id": "site-address-accepted",
+      "endpoint": "PUT /api/v1/federation/sites/{site_id}/address",
+      "title": "Give the GMA store west's address",
+      "app": "joinable",
+      "request": {
+        "path": "/api/v1/federation/sites/store-west/address",
+        "headers": {
+          "Authorization": "Bearer example-study-admin-token"
+        },
+        "json": {
+          "url": "http://127.0.0.1:8013"
+        }
+      },
+      "status": 200
+    },
+    {
+      "id": "joined-site-addresses",
+      "endpoint": "GET /api/v1/federation/site-addresses",
+      "title": "List the site addresses after store west joined",
+      "app": "joinable",
+      "request": {
+        "path": "/api/v1/federation/site-addresses",
+        "headers": {
+          "Authorization": "Bearer example-study-admin-token"
+        }
+      },
+      "status": 200
+    },
+    {
+      "id": "site-address-removed",
+      "endpoint": "DELETE /api/v1/federation/sites/{site_id}/address",
+      "title": "Remove store west's address again",
+      "app": "joinable",
+      "request": {
+        "path": "/api/v1/federation/sites/store-west/address",
+        "headers": {
+          "Authorization": "Bearer example-study-admin-token"
+        }
+      },
+      "status": 204
+    },
+    {
+      "id": "site-address-remove-not-joinable",
+      "endpoint": "DELETE /api/v1/federation/sites/{site_id}/address",
+      "title": "Remove the address of a site that may not join",
+      "app": "joinable",
+      "request": {
+        "path": "/api/v1/federation/sites/store-north/address",
+        "headers": {
+          "Authorization": "Bearer example-study-admin-token"
+        }
+      },
+      "status": 403
     },
     {
       "id": "plan-round",

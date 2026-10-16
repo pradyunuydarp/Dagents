@@ -6,7 +6,9 @@
  * controls change anything. This test drives the real UI against a live
  * backend, in a real browser:
  *
- *   1. the consortium page lists the hospitals the API reports;
+ *   1. the consortium page lists the hospitals the API reports, and the
+ *      panel to add a hospital lists the one that can join, defines LMA and
+ *      GMA where it first uses them, and says why it offers no button;
  *   2. each of the guard's three controls changes the systolic_bp strategy,
  *      the cohort minimum denies only column, table and model-update requests,
  *      and the coordinator's page shows what the Guard would release without
@@ -30,20 +32,38 @@
  *      numbers; each reason the backend gives (a missing rate, a hospital left
  *      out of a round) is shown in words;
  *   9. at 375 px the charts keep their drawn size inside their own scroll box
- *      and the page does not scroll sideways;
+ *      and the page does not scroll sideways; on rewritten answers, the
+ *      button that adds a hospital is fully visible at 375 px, the last
+ *      attempt is hidden while a new one runs, focus moves to the attempt
+ *      that returns, each step's status is a word, the next-round line does
+ *      not repeat the planner's reason, and a joined hospital whose LMA
+ *      stopped can be started again, also while the overview fails;
  *  10. the framework is visible: the "Who does what" table shows the agent
  *      mode the backend reports, every "Dagents API calls" strip names its
  *      agent and route and matches the calls the backend reports, no strip
  *      shows a host, each pilot round lists how the GMA dispatched its job
  *      (a refused job with its reason), and the hospital page groups its
  *      sections under the hospital's LMA and the app;
- *  11. nothing logs a console error or fails a request on the way.
+ *  11. with --expect-join, after every other check, the hospital joins from
+ *      the panel: every step is done and shows its word, the panel shows the
+ *      Compose file with <port> and <env folder> and no path of this machine,
+ *      the next-round line and the attempt's "Dagents API calls" strip, focus
+ *      is on the attempt, the table and the header list the hospital, its
+ *      page draws its charts and names no count of hospitals, and a pilot
+ *      includes it;
+ *  12. nothing logs a console error or fails a request on the way.
  *
  * Usage:
- *   node smoke.mjs [baseUrl] [--screenshots <dir>]
+ *   node smoke.mjs [baseUrl] [--screenshots <dir>] [--expect-join <site_id>]
  *
  * `--screenshots` also writes the README screenshots (consortium, guard-denied,
  * federated-pilot, hospital, data-entry) to <dir>.
+ *
+ * `--expect-join` is for a network-mode run started with --deploy, which can
+ * add a hospital. Without it, the panel must offer no button. With it, the
+ * panel must offer one for that hospital, and the test adds the hospital after
+ * every other check, because the earlier checks count the hospitals the run
+ * started with.
  *
  * Exits 0 on success, 1 on failure, and 2 when no browser is available, so a
  * machine without Chromium reports "skipped" rather than "broken".
@@ -54,7 +74,14 @@ import { mkdir } from "node:fs/promises";
 const args = process.argv.slice(2);
 const shotIndex = args.indexOf("--screenshots");
 const shotDir = shotIndex === -1 ? null : args[shotIndex + 1];
-const positional = args.filter((a, i) => !a.startsWith("--") && (shotIndex === -1 || i !== shotIndex + 1));
+const joinIndex = args.indexOf("--expect-join");
+const expectJoin = joinIndex === -1 ? null : args[joinIndex + 1] ?? "";
+if (expectJoin === "" || expectJoin?.startsWith("--")) {
+  console.log("--expect-join needs a site id, such as pl-290");
+  process.exit(1);
+}
+const valueIndexes = new Set([shotIndex, joinIndex].filter((i) => i !== -1).map((i) => i + 1));
+const positional = args.filter((a, i) => !a.startsWith("--") && !valueIndexes.has(i));
 const baseUrl = (positional[0] ?? "http://127.0.0.1:5174/").replace(/\/?$/, "/");
 
 /** Locate a Chromium the driver can launch, preferring the preinstalled one. */
@@ -86,8 +113,10 @@ if (!executablePath) {
 
 const failures = [];
 const consoleErrors = [];
+// A passing line reads "ok  <name>", with two spaces: CI greps for some
+// lines exactly, such as "ok  deploy: hospital pl-290 joined".
 const check = (name, ok, detail = "") => {
-  console.log(`  ${ok ? "ok  " : "FAIL"}  ${name}${detail ? ` — ${detail}` : ""}`);
+  console.log(`  ${ok ? "ok" : "FAIL"}  ${name}${detail ? ` — ${detail}` : ""}`);
   if (!ok) failures.push(name);
 };
 
@@ -292,6 +321,53 @@ try {
       problem ?? `${strips.length} strips, ${strips[0]?.count ?? 0} calls, from ${path}`
     );
   }
+
+  //    The panel to add a hospital lists the hospitals that can join. A run
+  //    that cannot add one (any run but --deploy) shows the backend's reason
+  //    and no button. A run that can offers a button for the hospital.
+  const deployPanel = page.locator('[data-panel="deploy"]');
+  await deployPanel.locator('[data-role="reason"], [data-action="deploy"]').first().waitFor({ timeout: 30000 }).catch(() => {});
+  const deployReason = ((await deployPanel.locator('[data-role="reason"]').textContent().catch(() => "")) ?? "").trim();
+  const deployButtons = await deployPanel.locator('[data-action="deploy"]').count();
+  const joinable = await deployPanel.locator("tr[data-joinable]").count();
+  if (expectJoin === null) {
+    check(
+      "deploy panel shows why adding a hospital is not offered",
+      deployReason.length > 0 && deployButtons === 0 && joinable > 0,
+      `${deployButtons} buttons, ${joinable} hospitals listed; ${deployReason || "no reason shown"}`
+    );
+  } else {
+    const offered = deployPanel.locator(`[data-action="deploy"][data-site="${expectJoin}"]`);
+    check(
+      `deploy panel offers to add ${expectJoin}`,
+      (await offered.count()) === 1 && (await offered.isEnabled()) && deployReason === "",
+      `${deployButtons} buttons; ${deployReason || "no reason shown"}`
+    );
+  }
+  //    The panel is shown to every visitor, so it defines LMA and GMA where it
+  //    first uses them.
+  const deployText = (await deployPanel.innerText().catch(() => "")) ?? "";
+  const definedAtFirstUse = (abbreviation) => {
+    const first = deployText.indexOf(abbreviation);
+    return first > 0 && deployText[first - 1] === "(" && deployText[first + abbreviation.length] === ")";
+  };
+  check(
+    "deploy panel defines LMA and GMA where it first uses them",
+    definedAtFirstUse("LMA") && definedAtFirstUse("GMA"),
+    deployText.split("\n").find((line) => /LMA|GMA/.test(line))?.slice(0, 160) ?? "no LMA or GMA in the panel"
+  );
+  //    Its strip lists the agent calls behind GET /api/v1/deployments: the
+  //    GMA's site-addresses route, or none when the answer needed no agent.
+  const deployStrips = await readStrips(page, '[data-panel="deploy"] [data-role="view-calls"]');
+  const deployStripProblem = deployStrips.map(stripProblem).find(Boolean);
+  const deployStripRows = deployStrips.flatMap((strip) => strip.rows);
+  check(
+    'the deploy panel has a "Dagents API calls" strip that names each agent and route',
+    deployStrips.length === 1 &&
+      !deployStripProblem &&
+      deployStripRows.every((row) => row.service === "gma" && row.path === "/api/v1/federation/site-addresses"),
+    deployStripProblem ?? `${deployStrips.length} strips, ${deployStripRows.length} rows`
+  );
   if (shotDir) {
     await staticHeader();
     await page.screenshot({
@@ -431,11 +507,16 @@ try {
 
   // 3. A full pilot runs and reports every gate, a decision and intact chains.
   //    The decision is whatever the gates decide; the test does not assume one.
-  const pilotAnswer = page.waitForResponse((r) => r.url().includes("/api/v1/pilot:run"), { timeout: 180000 });
-  await page.getByRole("button", { name: "Run the pilot" }).click();
-  const pilot = await (await pilotAnswer).json();
-  await pilotPanel.locator(".gates li").first().waitFor({ timeout: 180000 });
-  await page.waitForTimeout(500);
+  /** Run the pilot from the consortium page, wait until its gates are shown, and return the report. */
+  const runPilot = async () => {
+    const pilotAnswer = page.waitForResponse((r) => r.url().includes("/api/v1/pilot:run"), { timeout: 180000 });
+    await page.getByRole("button", { name: "Run the pilot" }).click();
+    const report = await (await pilotAnswer).json();
+    await pilotPanel.locator(".gates li").first().waitFor({ timeout: 180000 });
+    await page.waitForTimeout(500);
+    return report;
+  };
+  const pilot = await runPilot();
   const gates = await pilotPanel.locator(".gates li").count();
   check(
     "every release gate is reported",
@@ -1290,7 +1371,209 @@ try {
       `${roundText.replace(/\s+/g, " ")}; rate: ${hospitalRate}`
     );
   } finally {
+    // The app may still have a request in a rewrite handler when the page
+    // closes. That request fails, and its error is not a finding.
+    await reasonPage.unrouteAll({ behavior: "ignoreErrors" });
     await reasonPage.close();
+  }
+
+  //    The Add a hospital panel, with GET /api/v1/deployments rewritten to
+  //    offer the action, so every run checks it at phone width. The page
+  //    never sends the request that adds a hospital.
+  /** Steps whose visible status word is not the word for their `data-status`. */
+  const STATUS_WORDS = { done: "Done", skipped: "Skipped", failed: "Failed", undone: "Undone", not_run: "Not run" };
+  const wrongStatusWords = async (attemptLocator) =>
+    (
+      await attemptLocator
+        .locator("[data-step]")
+        .evaluateAll((items) =>
+          items.map((item) => [item.getAttribute("data-step"), item.getAttribute("data-status"), item.querySelector(".step-status")?.textContent?.trim() ?? ""])
+        )
+    ).filter(([, status, word]) => STATUS_WORDS[status] !== word);
+
+  const deployPage = await browser.newPage({ viewport: { width: 375, height: 812 } });
+  watch(deployPage);
+  try {
+    const realView = await api("/api/v1/deployments");
+    const offeredView = {
+      ...realView,
+      available: true,
+      reason: null,
+      applier: "process",
+      hospitals: realView.hospitals.map((item) => ({ ...item, in_consortium: false, service: "not_started" })),
+      deployments: [],
+      framework_calls: [],
+    };
+    const appJson = (json) => ({ status: 200, contentType: "application/json", headers: { "X-Dagents-App": "healthcare-demo" }, json });
+    const joining = offeredView.hospitals[0];
+    /** An attempt in the shape the backend returns, for the rewritten answers. */
+    const attempt = (id, failedStep, detail, nextRound = null) => {
+      const order = ["plan", "start", "answer", "attach", "enrol", "join", "check"];
+      const failedAt = order.indexOf(failedStep);
+      const now = new Date().toISOString();
+      return {
+        deployment_id: id, kind: "lma", site_id: joining.site_id, service: `lma-${joining.site_id}`,
+        applier: "process", status: "failed", adopted: false, compose_yaml: null, issues: [],
+        steps: order.map((step, index) => ({
+          step,
+          status: index < failedAt ? "done" : index === failedAt ? "failed" : "not_run",
+          detail: index === failedAt ? detail : index < failedAt ? "Done in the rewritten answer." : "",
+          seconds: 0.01,
+        })),
+        next_round: nextRound, started_at: now, finished_at: now, framework_calls: [],
+      };
+    };
+    const previous = attempt("dep-smoke-previous", "start", "Port 8085 is in use.");
+    const second = attempt("dep-smoke-second", "start", "Port 8085 is still in use.");
+    // The planner's own wording, which the page shows as it comes.
+    const plannerSays = "site cohort 0 is below the per-site minimum 20";
+    const notSelected = {
+      ...attempt("dep-smoke-third", "check", `The next round would not select ${joining.display_name}: ${plannerSays}.`,
+        { selected: false, reason: plannerSays }),
+      status: "joined",
+    };
+    const answers = [second, notSelected];
+    offeredView.deployments = [previous];
+    let releasePost = () => {};
+    const postHeld = new Promise((resolve) => {
+      releasePost = resolve;
+    });
+    await deployPage.route("**/api/v1/deployments", async (route) => {
+      if (route.request().method() === "GET") return route.fulfill(appJson(offeredView));
+      // The request that adds a hospital never reaches the backend here.
+      await postHeld;
+      const answer = answers.shift();
+      offeredView.deployments = [answer, ...offeredView.deployments];
+      return route.fulfill(appJson(answer));
+    });
+    await deployPage.goto(baseUrl, { timeout: 60000 });
+    const phoneButton = deployPage.locator('[data-panel="deploy"] [data-action="deploy"]').first();
+    await phoneButton.waitFor({ timeout: 30000 });
+    // Measured as a reader first sees it: no box scrolled sideways. (A
+    // scrollIntoView would scroll the table's own scroll box to the button.)
+    const fit = await phoneButton.evaluate((button) => {
+      let clipped = false;
+      const boxes = [];
+      for (let node = button.parentElement; node; node = node.parentElement) {
+        if (/(auto|scroll|hidden|clip)/.test(getComputedStyle(node).overflowX)) {
+          node.scrollLeft = 0;
+          boxes.push(node);
+        }
+      }
+      const box = button.getBoundingClientRect();
+      for (const node of boxes) {
+        const outer = node.getBoundingClientRect();
+        if (box.left < outer.left - 0.5 || box.right > outer.right + 0.5) clipped = true;
+      }
+      return { left: Math.round(box.left), right: Math.round(box.right), clipped, viewport: window.innerWidth };
+    });
+    check(
+      "at 375 px the button that adds a hospital is fully visible",
+      !fit.clipped && fit.left >= 0 && fit.right <= fit.viewport,
+      `button from ${fit.left} to ${fit.right} px of ${fit.viewport}${fit.clipped ? ", clipped by a scroll box" : ""}`
+    );
+
+    //    While a second attempt runs, the first one's steps are not shown
+    //    under the "Adding" note, where they would read as the new attempt.
+    const attemptShown = (id) => deployPage.locator(`[data-panel="deploy"] [data-deployment="${id}"]`);
+    await attemptShown(previous.deployment_id).waitFor({ timeout: 30000 });
+    await phoneButton.click();
+    await deployPage.locator("[data-deploy-running]").waitFor({ timeout: 15000 });
+    const shownWhileAdding = await deployPage.locator('[data-panel="deploy"] [data-deployment]').count();
+    releasePost();
+    await attemptShown(second.deployment_id).waitFor({ timeout: 30000 });
+    check(
+      "while a hospital is being added, the last attempt is not shown",
+      shownWhileAdding === 0,
+      `${shownWhileAdding} earlier attempt(s) shown under the running note`
+    );
+    const wrongWords = await wrongStatusWords(attemptShown(second.deployment_id));
+    check(
+      "each step of an attempt shows its status as a word",
+      wrongWords.length === 0,
+      wrongWords.length ? wrongWords.map((item) => item.join(" ")).join(", ") : "Done, Failed and Not run shown"
+    );
+    //    The button is disabled while the app works, so focus would fall to
+    //    the page. It moves to the new attempt's heading, and the live region,
+    //    which stays on the page, says how the attempt ended.
+    await deployPage.waitForTimeout(300);
+    const focused = await deployPage.evaluate(() => document.activeElement?.id ?? document.activeElement?.tagName ?? "");
+    const announced = ((await deployPage.locator('[data-panel="deploy"] [data-role="deploy-status"]').textContent().catch(() => "")) ?? "").trim();
+    check(
+      "focus moves to the attempt that returned, and its end is announced",
+      focused === `attempt-${second.deployment_id}` && announced.includes(`${joining.display_name} did not join`),
+      `focus on ${focused || "nothing"}; live region: ${announced || "empty"}`
+    );
+
+    //    When the planner does not select the hospital, the check step gives
+    //    its reason. The last line says what that means, without repeating it.
+    await phoneButton.click();
+    await attemptShown(notSelected.deployment_id).waitFor({ timeout: 30000 });
+    const nextRoundLine = (
+      (await attemptShown(notSelected.deployment_id).locator('[data-role="next-round"]').textContent().catch(() => "")) ?? ""
+    ).trim();
+    const attemptText = (await attemptShown(notSelected.deployment_id).innerText()) ?? "";
+    const reasonCount = attemptText.split(plannerSays).length - 1;
+    check(
+      "the next-round line ends with a full stop and does not repeat the planner's reason",
+      nextRoundLine.length > 0 && nextRoundLine.endsWith(".") && reasonCount === 1,
+      `"${nextRoundLine || "no line"}"; the reason appears ${reasonCount} time(s) in the attempt`
+    );
+  } finally {
+    await deployPage.unrouteAll({ behavior: "ignoreErrors" });
+    await deployPage.close();
+  }
+
+  //    A joined hospital whose LMA has stopped makes the overview fail until
+  //    it runs again. The panel offers to start it again, with the overview
+  //    and while the overview answers the app's 503. The answers are
+  //    rewritten in a page whose 503s are not counted as failures, and the
+  //    page never sends the request.
+  const restartPage = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  try {
+    const realView = await api("/api/v1/deployments");
+    const stoppedView = {
+      ...realView,
+      available: true,
+      reason: null,
+      applier: "process",
+      hospitals: realView.hospitals.map((item) => ({ ...item, in_consortium: true, service: "stopped" })),
+      deployments: [],
+      framework_calls: [],
+    };
+    const stopped = stoppedView.hospitals[0];
+    await restartPage.route("**/api/v1/deployments", (route) =>
+      route.request().method() === "GET"
+        ? route.fulfill({ status: 200, contentType: "application/json", headers: { "X-Dagents-App": "healthcare-demo" }, json: stoppedView })
+        : route.abort()
+    );
+    const restartButton = restartPage.locator(`[data-panel="deploy"] [data-action="deploy"][data-site="${stopped.site_id}"]`);
+    const buttonText = async () =>
+      (await restartButton.waitFor({ timeout: 30000 }).then(
+        async () => ((await restartButton.textContent()) ?? "").trim(),
+        () => "no button"
+      ));
+    await restartPage.goto(baseUrl, { timeout: 60000 });
+    const withOverview = await buttonText();
+    await restartPage.route("**/api/v1/overview", (route) =>
+      route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        headers: { "X-Dagents-App": "healthcare-demo" },
+        body: JSON.stringify({ detail: `${stopped.display_name} cannot be reached right now. Try again in a minute.` }),
+      })
+    );
+    await restartPage.reload({ timeout: 60000 });
+    const withoutOverview = await buttonText();
+    const expected = `Start ${stopped.display_name} again`;
+    check(
+      "a joined hospital whose LMA stopped can be started again, also while the overview fails",
+      withOverview === expected && withoutOverview === expected,
+      `with the overview: ${withOverview}; while it answers 503: ${withoutOverview}`
+    );
+  } finally {
+    await restartPage.unrouteAll({ behavior: "ignoreErrors" });
+    await restartPage.close();
   }
 
   // 10. Empty stores. The API is simulated in a separate page: it reports
@@ -1369,6 +1652,9 @@ try {
       reasons[0] ?? "no chart listed"
     );
   } finally {
+    // The app may still have a request in a rewrite handler when the page
+    // closes. That request fails, and its error is not a finding.
+    await emptyPage.unrouteAll({ behavior: "ignoreErrors" });
     await emptyPage.close();
   }
 
@@ -1395,7 +1681,166 @@ try {
     await phone.close();
   }
 
-  // 12. Nothing failed quietly along the way.
+  // 12. With --expect-join, the hospital joins from the panel, after every
+  //     other check, because they count the hospitals the run started with.
+  if (expectJoin !== null) {
+    await page.goto(baseUrl, { waitUntil: "networkidle", timeout: 60000 });
+    const rows = consortiumPanel.locator("table.hospitals tbody tr");
+    await rows.first().waitFor({ timeout: 30000 });
+    const rowsBefore = await rows.count();
+    const linksBefore = await page.locator('nav[aria-label="Pages"] a').count();
+    const button = deployPanel.locator(`[data-action="deploy"][data-site="${expectJoin}"]`);
+    await button.waitFor({ timeout: 30000 });
+    const answered = page.waitForResponse(
+      (r) => r.url().endsWith("/api/v1/deployments") && r.request().method() === "POST",
+      { timeout: 180000 }
+    );
+    await button.click();
+    // Starting the hospital's LMA takes at least a second, so the button is
+    // still on the page, disabled, right after the click.
+    const disabled = await button.isDisabled({ timeout: 2000 }).catch(() => null);
+    const deployment = await (await answered).json();
+    await deployPanel.locator('[data-step="check"]').waitFor({ timeout: 60000 });
+    const steps = await deployPanel
+      .locator("[data-step]")
+      .evaluateAll((items) => items.map((item) => [item.getAttribute("data-step"), item.getAttribute("data-status")]));
+    const unfinished = steps.filter(([, status]) => status !== "done" && status !== "skipped");
+    const composeText = (await deployPanel.locator('[data-role="compose-file"] pre').textContent().catch(() => "")) ?? "";
+    // The page fetches the overview and the panel's list again after a join.
+    const grown = await page
+      .waitForFunction(
+        ([rowsWanted, linksWanted]) =>
+          document.querySelectorAll('[data-panel="consortium"] table.hospitals tbody tr').length === rowsWanted &&
+          document.querySelectorAll('nav[aria-label="Pages"] a').length === linksWanted &&
+          document.querySelectorAll('[data-panel="deploy"] [data-action="deploy"]').length === 0,
+        [rowsBefore + 1, linksBefore + 1],
+        { timeout: 30000 }
+      )
+      .then(
+        () => true,
+        () => false
+      );
+    const rowsAfter = await rows.count();
+    const linksAfter = await page.locator('nav[aria-label="Pages"] a').count();
+    const listed = await consortiumPanel.locator(`tr[data-site="${expectJoin}"]`).count();
+    const buttonsLeft = await deployPanel.locator('[data-action="deploy"]').count();
+    check(
+      `deploy: hospital ${expectJoin} joined`,
+      disabled === true &&
+        deployment.status === "joined" &&
+        steps.length === 7 &&
+        unfinished.length === 0 &&
+        /(^|\n)services:/.test(composeText) &&
+        composeText.includes(`lma-${expectJoin}`) &&
+        grown &&
+        listed === 1 &&
+        buttonsLeft === 0,
+      `button ${disabled === true ? "disabled" : "not disabled"} while it ran; status ${deployment.status}; ` +
+        `${steps.length} steps${unfinished.length ? `, not finished: ${unfinished.map((item) => item.join(" ")).join(", ")}` : ""}; ` +
+        `compose file ${composeText.includes(`lma-${expectJoin}`) ? "shown" : "missing"}; ` +
+        `rows ${rowsBefore} -> ${rowsAfter}, links ${linksBefore} -> ${linksAfter}; ${buttonsLeft} buttons left`
+    );
+
+    //     The page and the answer show <port> and <env folder> in place of
+    //     the new LMA's port and the folder of its env file, and no path of
+    //     this machine, because any page can read the deployments view.
+    const placeholderNote =
+      ((await deployPanel.locator('[data-role="compose-placeholders"]').textContent().catch(() => "")) ?? "").trim();
+    const machinePath = /(^|[\s"'(\[=])\/(home|tmp|root|Users|srv|var|opt|usr|private)\//;
+    const detailsText = deployment.steps.map((step) => step.detail).join(" ");
+    const leaked =
+      machinePath.exec(composeText)?.[0] ??
+      machinePath.exec(deployment.compose_yaml ?? "")?.[0] ??
+      machinePath.exec(detailsText)?.[0] ??
+      /127\.0\.0\.1:\d+/.exec(JSON.stringify(deployment))?.[0] ??
+      null;
+    check(
+      "deploy: the Compose file shows <port> and <env folder>, and no address or path of this machine",
+      composeText.includes('"--port", "<port>"') &&
+        composeText.includes(`"<env folder>/lma-${expectJoin}.env"`) &&
+        placeholderNote.includes("<port>") &&
+        leaked === null,
+      leaked ? `shows "${leaked.trim()}"` : `placeholders ${composeText.includes("<port>") ? "shown" : "missing"}; note "${placeholderNote}"`
+    );
+
+    //     The steps show their status in words, the line under them says
+    //     what the planner's answer means, and focus is on the attempt.
+    const joinedAttempt = deployPanel.locator(`[data-deployment="${deployment.deployment_id}"]`);
+    const joinedWords = await wrongStatusWords(joinedAttempt);
+    const nextRoundLine = ((await joinedAttempt.locator('[data-role="next-round"]').textContent().catch(() => "")) ?? "").trim();
+    const focusedId = await page.evaluate(() => document.activeElement?.id ?? "");
+    const joinedDisplay =
+      (await api("/api/v1/deployments")).hospitals.find((item) => item.site_id === expectJoin)?.display_name ?? expectJoin;
+    check(
+      `deploy: the attempt shows its status words, the next-round line and takes focus`,
+      joinedWords.length === 0 &&
+        nextRoundLine.endsWith(".") &&
+        nextRoundLine.includes(joinedDisplay) &&
+        (deployment.next_round?.selected ? /^Run the pilot/.test(nextRoundLine) : /leave it out/.test(nextRoundLine)) &&
+        focusedId === `attempt-${deployment.deployment_id}`,
+      `${joinedWords.length ? `wrong words: ${joinedWords.map((item) => item.join(" ")).join(", ")}; ` : ""}` +
+        `next round: "${nextRoundLine || "no line"}"; focus on ${focusedId || "nothing"}`
+    );
+
+    //     The attempt's strip lists the calls the POST reports: the new LMA's
+    //     health and site routes and the GMA's address, refresh and plan
+    //     routes. It names each agent and route and holds no address.
+    const attemptStrips = await readStrips(page, `[data-panel="deploy"] [data-deployment="${deployment.deployment_id}"]`);
+    const attemptRows = attemptStrips.flatMap((strip) => strip.rows);
+    const attemptProblem = attemptStrips.map(stripProblem).find(Boolean);
+    check(
+      "deploy: the attempt's strip lists the agent calls the answer reports",
+      attemptStrips.length === 1 &&
+        !attemptProblem &&
+        attemptRows.some((row) => row.service === "lma" && row.site === expectJoin) &&
+        attemptRows.some((row) => row.service === "gma") &&
+        callKeys(attemptRows).join("|") === callKeys(deployment.framework_calls).join("|"),
+      attemptProblem ?? `${attemptRows.length} rows; ${callKeys(deployment.framework_calls).length} distinct calls reported`
+    );
+
+    //     Its page comes from its own LMA, and its charts draw.
+    const name =
+      (await api("/api/v1/overview")).hospitals.find((item) => item.site_id === expectJoin)?.display_name ?? expectJoin;
+    await page.locator(`nav[aria-label="Pages"] a[href$="hospitals/${expectJoin}"]`).click();
+    const joinedChart = page.locator('[data-panel="hospital-charts"] img.chart-image').first();
+    const joinedWidth = await imageWidth(joinedChart).catch(() => 0);
+    const joinedHeading = ((await page.locator("main h1").first().textContent()) ?? "").trim();
+    check(
+      `deploy: hospital ${expectJoin} page draws its charts`,
+      joinedWidth > 0 && joinedHeading.includes(name),
+      `${joinedWidth}px; heading "${joinedHeading}"`
+    );
+
+    //     A hospital can join while the demo runs, so its page names no count
+    //     of hospitals.
+    const joinedText = (await page.locator("main").innerText().catch(() => "")) ?? "";
+    const counted = /\b(one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+hospitals\b/i.exec(joinedText);
+    check(
+      `deploy: hospital ${expectJoin} page names no count of hospitals`,
+      joinedText.length > 0 && counted === null,
+      counted ? `says "${counted[0]}"` : `${joinedText.length} characters of text`
+    );
+
+    //     The next pilot includes it.
+    await page.locator('nav[aria-label="Pages"] a', { hasText: "Consortium" }).click();
+    await pilotPanel.waitFor({ timeout: 30000 });
+    const joinedPilot = await runPilot();
+    const rounds = [
+      joinedPilot.rounds?.analytics,
+      joinedPilot.rounds?.evaluation,
+      ...(joinedPilot.rounds?.training ?? []),
+      joinedPilot.rounds?.candidate_validation,
+    ].filter(Boolean);
+    const without = rounds.filter((round) => !round.results.some((result) => result.site_id === expectJoin));
+    const chainShown = await pilotPanel.locator(`tr[data-chain="${expectJoin}"]`).count();
+    check(
+      `deploy: the pilot includes ${expectJoin}`,
+      rounds.length > 0 && without.length === 0 && chainShown === 1,
+      `${rounds.length - without.length} of ${rounds.length} rounds include it; audit chain row ${chainShown ? "shown" : "missing"}`
+    );
+  }
+
+  // 13. Nothing failed quietly along the way.
   const unique = [...new Set(consoleErrors)];
   check("no console errors or failed requests", unique.length === 0, unique.join(" | "));
 } catch (error) {

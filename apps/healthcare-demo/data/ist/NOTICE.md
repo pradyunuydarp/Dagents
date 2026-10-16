@@ -4,6 +4,12 @@
 International Stroke Trial (IST-1). The demo uses them as each hospital's own data.
 They are real, de-identified trial records from 1991-1996.
 
+`ist_joining_hospitals.csv` holds 263 records from a fourth IST hospital, the joining
+hospital. It is not in the consortium when the demo starts. A network-mode run on your
+own machine can add it while the demo runs. Its records are in its own database schema,
+seeded with the others. Every read of them acts as that hospital's own role: its LMA,
+and the app's view of that hospital.
+
 > Contains information from the International Stroke Trial database (version 2)
 > (https://doi.org/10.7488/ds/104), made available under the ODC Attribution License
 > (https://opendatacommons.org/licenses/by/1-0/).
@@ -56,6 +62,8 @@ Every page and chart the demo builds from these records carries it.
 | Source size and shape | 4,798,288 bytes; 19,435 rows x 112 columns; Windows-1250; CRLF line endings |
 | Extract SHA-256 | `817c85be1499d5a6436319a2b04a7ecb06bdfd40611fa860a5be09852d8710da` |
 | Extract format | UTF-8, LF line endings, 1,014 rows plus a header |
+| Joining extract SHA-256 | `7ffe697d23bbc7a57182cd10577c76b0baac2728cc872b58b41a1361a1478545` |
+| Joining extract format | UTF-8, LF line endings, 263 rows plus a header, file `ist_joining_hospitals.csv` |
 
 The two pinned copies are byte-identical. The DataShare host could not be reached from
 the environment that made this extract, so the copies were checked against the
@@ -67,18 +75,27 @@ Windows-1250 month codes in the date column.
 Rule: take the three countries with the most patients in the trial. In each, take the
 hospital with the most patients; a tie goes to the lowest hospital number.
 
+The joining hospital follows the same rule for the country with the fourth most
+patients. That country is Poland (759 patients), and its largest hospital is hospital
+290.
+
 | Demo site | IST `HOSPNUM` | Country | Rows |
 |---|---|---|---|
 | `uk-134` | 134 | United Kingdom | 524 |
 | `it-002` | 2 | Italy | 292 |
 | `ch-245` | 245 | Switzerland | 198 |
+| `pl-290` (joins at run time) | 290 | Poland | 263 |
+
+Every record of the three hospitals has a six-month outcome. In the joining extract,
+3 of the 263 records have none (`OCCODE` 0 or 9), so their `poor_outcome_6m` cell is
+empty.
 
 ## How the columns were mapped
 
 | Extract column | IST column | Rule |
 |---|---|---|
 | `encounter_id` | | `{site_id}-{source_row}`, the row number padded to 5 digits |
-| `site_id` | `HOSPNUM` | 134 to `uk-134`, 2 to `it-002`, 245 to `ch-245` |
+| `site_id` | `HOSPNUM` | 134 to `uk-134`, 2 to `it-002`, 245 to `ch-245`; 290 to `pl-290` (joining extract) |
 | `source_row` | | 1-based position among the data rows of `IST_corrected.csv`; the header is not counted |
 | `age` | `AGE` | years |
 | `age_band` | `AGE` | `<50`, `50-59`, `60-69`, `70-79`, `80-89`, `90+` |
@@ -124,14 +141,15 @@ From the repository root:
 ```
 
 The script downloads the pinned copy, checks the SHA-256 above, decodes Windows-1250,
-checks that the selection rule still picks the three hospitals, maps the columns, checks
-the row count of each hospital and writes `ist_three_hospitals.csv`. It stops with an
-error if any check fails. To use a local copy of `IST_corrected.csv` instead of
-downloading it:
+checks that the selection rule still picks the three hospitals and the joining hospital,
+maps the columns, checks the row count of each hospital and writes
+`ist_three_hospitals.csv` and `ist_joining_hospitals.csv`. It stops with an error, and
+writes neither file, if any check fails. To use a local copy of `IST_corrected.csv`
+instead of downloading it:
 
 ```bash
 .venv/bin/python apps/healthcare-demo/scripts/extract_ist.py --source path/to/IST_corrected.csv
 ```
 
-The result is byte-identical to the committed file. If the extract SHA-256 above
-changes, update it here; `tests/test_dataset.py` checks it.
+The results are byte-identical to the committed files. If an extract SHA-256 above
+changes, update it here; `tests/test_dataset.py` checks both.

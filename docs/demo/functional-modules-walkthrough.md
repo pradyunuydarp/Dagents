@@ -75,7 +75,7 @@ Presentation point: routing is a policy decision, not a training job, so it belo
 
 ## `manifest_compiler`
 
-This module renders typed workload specs into Kubernetes YAML for Deployments, Jobs, CronJobs, Services, and ConfigMaps.
+This module renders typed workload specs into Kubernetes YAML for Deployments, Jobs, CronJobs, Services, ConfigMaps and ServiceAccounts, or into one Docker Compose file. For the Compose target it returns a list of issues instead of a file when the spec breaks a rule, such as two services publishing the same host port.
 
 Presentation point: the app does not hand-build YAML in many places. It uses a deterministic renderer from typed input.
 

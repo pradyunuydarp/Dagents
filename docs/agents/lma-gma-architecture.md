@@ -47,6 +47,15 @@ simulator engine, keeps everything in memory and answers every caller, as it
 did before sites existed. `GMA_ENGINE=http` and `GMA_SITE_ENDPOINTS` make it
 dispatch rounds to the LMAs over HTTP.
 
+A site can also join while the GMA runs. `GMA_JOINABLE_SITE_ENDPOINTS` lists,
+in the same `SITE=URL` form, the sites that may join and the one address each
+may use. The study operator sends that address to
+`PUT /api/v1/federation/sites/{site_id}/address`, and the GMA adds it to its
+agent network; then a site refresh enrols the site, and the summaries and
+round dispatch call it, as for a configured site. The GMA keeps the address in
+memory, so a restarted GMA needs it again. `DELETE` on the same path removes a
+joined address. The rules are in [`dagents/gma/README.md`](../../dagents/gma/README.md#sites-that-join-while-the-gma-runs).
+
 ## Responsibilities
 
 | LMA | GMA |

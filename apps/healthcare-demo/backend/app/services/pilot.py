@@ -50,6 +50,7 @@ from dagents.common.domain.federation import (
     ReleaseEvaluationRequest,
     RoundManifest,
     RoundPhase,
+    RoundPlan,
 )
 from dagents.common.domain.governance import KyuAttribute, Requester
 
@@ -202,6 +203,20 @@ class PilotService:
         self._note_dispatch = note_dispatch
         self._models_ready = models_ready
 
+    def set_sites(self, sites: Sequence[Site]) -> None:
+        """Invite these hospitals to every round from now on, as after a hospital joined.
+
+        The pilot and a join never run at the same time (the API's flight), so
+        a round's invited hospitals do not change while it runs.
+        """
+        self.sites = tuple(sites)
+
+    def _need_models(self) -> None:
+        if self._models_ready is not None:
+            self._models_ready()
+        else:
+            self.register_models()
+
     # --- Model versions ------------------------------------------------------------
 
     def register_models(self) -> None:
@@ -249,6 +264,20 @@ class PilotService:
             stop_conditions=list(STOP_CONDITIONS),
             invited_sites=sorted(site.site_id for site in self.sites),
         )
+
+    def preview_round(self, round_id: str) -> RoundPlan:
+        """Which hospitals the GMA's planner would select for an analytics round now, with the model in use.
+
+        ``POST /api/v1/federation/rounds:plan`` stores and dispatches nothing,
+        so ``round_id`` can be any id. The planner decides; the app only reads
+        its answer.
+        """
+        self._need_models()
+        gma = self._agents.gma()
+        released = gma.released_model()
+        if released is None:  # pragma: no cover - only with a known digest
+            raise RuntimeError("the GMA sent no released model")
+        return gma.plan_round(self.manifest(round_id, "analytics", ModelRef(released.version, released.kind, released.digest)))
 
     def run_round(self, round_id: str, phase: RoundPhase, model: ModelRef) -> dict[str, Any]:
         """Dispatch one round through the GMA and report what happened.
@@ -333,10 +362,7 @@ class PilotService:
         if isinstance(training_rounds, bool) or not isinstance(training_rounds, int) or not 1 <= training_rounds <= 20:
             raise ValueError("training_rounds must be a whole number from 1 to 20")
         pilot_id = self.pilot_id(round_prefix)
-        if self._models_ready is not None:
-            self._models_ready()
-        else:
-            self.register_models()
+        self._need_models()
         gma = self._agents.gma()
 
         # Enrolment, once per pilot: each LMA reports its current cohort size.

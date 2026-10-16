@@ -291,6 +291,31 @@ class Agents:
             raise UnknownSiteError(site_id)
         return self.network.lma(site_id, self._lma_tokens[site_id])
 
+    def add_lma(self, site_id: str, url: str, token: str) -> None:
+        """Call a hospital that joined while the demo runs: its LMA's address and its ``site`` token.
+
+        Network mode only. The token map and the site list are replaced, not
+        changed in place, so a request in flight sees the old or the new one.
+        Raises ``ValueError`` for a hospital the app already calls or an
+        address the network refuses, and ``TypeError`` in process. No message
+        repeats the address or the token.
+        """
+        with self._lock:
+            if site_id in self._lma_tokens:
+                raise ValueError(f"the app already calls the LMA of {site_id}")
+            self.network.add_address(lma_agent(site_id), url)
+            self.site_ids = (*self.site_ids, site_id)
+            self._lma_tokens = {**self._lma_tokens, site_id: token}
+
+    def remove_lma(self, site_id: str) -> None:
+        """Undo :meth:`add_lma`. A hospital the app does not call is left as it is."""
+        with self._lock:
+            if site_id not in self._lma_tokens:
+                return
+            self.network.remove_address(lma_agent(site_id))
+            self.site_ids = tuple(other for other in self.site_ids if other != site_id)
+            self._lma_tokens = {other: token for other, token in self._lma_tokens.items() if other != site_id}
+
     def health_checks(self, timeout_s: float) -> list[dict[str, str]]:
         """Each agent's health check, GMA first: ``[{name, status, detail}]``.
 
@@ -329,6 +354,39 @@ class Agents:
                     close()
                 except Exception:  # noqa: BLE001 - closing one agent must not stop the others
                     logger.warning("an agent could not be closed", exc_info=True)
+
+
+class LmaProbe:
+    """A new hospital's LMA at the address the app was given, before it joins.
+
+    The deployer asks it whether it answers its health check, and which site
+    and which kind of source it reports, with the app's ``site`` token for it.
+    The calls go through the framework's agent client, so a request lists them
+    in ``framework_calls``. No message repeats the address or the token.
+    """
+
+    def __init__(self, site_id: str, url: str, token: str, *, timeout_s: float) -> None:
+        self.site_id = site_id
+        self._token = token
+        self._network = AgentNetwork.over_http({lma_agent(site_id): url}, timeout_s=timeout_s)
+
+    def __repr__(self) -> str:
+        return f"LmaProbe(site_id={self.site_id!r})"
+
+    def answers(self, timeout_s: float) -> bool:
+        """Whether ``GET /api/v1/health`` answers within ``timeout_s``."""
+        try:
+            self._network.lma(self.site_id).health(timeout_s=timeout_s)
+        except AgentError:
+            return False
+        return True
+
+    def site_info(self) -> Any:
+        """``GET /api/v1/site``, with the ``site`` token: the site and the source it reports."""
+        return self._network.lma(self.site_id, self._token).site_info()
+
+    def close(self) -> None:
+        self._network.close()
 
 
 def build_in_process_agents(
@@ -642,6 +700,8 @@ class HealthcareDemo:
         self._injected_coordinator = coordinator_store
         self._lock = threading.Lock()
         self._built: _Built | None = None
+        #: Hospitals that joined while the demo runs, to the address of their LMA.
+        self._joined: dict[str, str] = {}
 
     # --- Building --------------------------------------------------------------------
 
@@ -713,6 +773,7 @@ class HealthcareDemo:
                 secure_aggregation_threshold=self.secure_aggregation_threshold,
                 status_timeout_seconds=self.settings.request_timeout_seconds,
                 models_ready=self._ensure_models,
+                resend_addresses=self.resend_joined_addresses,
             )
             pilot = PilotService(
                 self.sites,
@@ -788,10 +849,119 @@ class HealthcareDemo:
             raise UnknownSiteError(site_id)
         return self.views[site_id]
 
+    def run_pilot(self, round_prefix: str | None = None) -> dict[str, Any]:
+        """Run a pilot (:meth:`PilotService.run_pilot`), after sending the GMA the address of each hospital that joined.
+
+        A GMA that restarted forgot those addresses; without them its refresh,
+        at the start of the pilot, would leave the hospitals out.
+        """
+        pilot = self.pilot
+        self.resend_joined_addresses()
+        return pilot.run_pilot(round_prefix)
+
+    def preview_round(self, round_id: str) -> Any:
+        """Which hospitals the GMA's planner would select for an analytics round now. Nothing runs."""
+        return self.pilot.preview_round(round_id)
+
+    # --- A hospital that joins while the demo runs -----------------------------------
+
+    def has_site(self, site_id: str) -> bool:
+        """Whether the hospital is in the consortium. It builds nothing."""
+        return any(site.site_id == site_id for site in self.sites)
+
+    def joined(self) -> dict[str, str]:
+        """The hospitals that joined while the demo runs, to the address of their LMA."""
+        return dict(self._joined)
+
+    def add_site(self, site: Site, url: str, token: str) -> None:
+        """Add a hospital that joins while the demo runs.
+
+        Network mode only: the hospital's LMA runs as its own process, at
+        ``url``, and reads its records in its own Postgres schema. The app
+        builds the hospital's store, calls its LMA with ``token`` (its
+        ``site`` token), builds its view, and adds it to the overview and to
+        the pilot's rounds. Every map and list a request may hold is replaced,
+        not changed in place. More hospitals than chart colours means no
+        hospital keeps a colour, as at start.
+
+        Raises ``ValueError`` in process, for a hospital already in the
+        consortium, and for an address the agent network refuses. A join that
+        fails changes nothing.
+        """
+        from dagents.common.infrastructure.charts import MAX_SERIES
+
+        if self.settings.agents_mode != "network":
+            raise ValueError(
+                "a hospital joins while the demo runs only with HEALTHCARE_DEMO_AGENTS=network: its LMA is a "
+                "process of its own"
+            )
+        built = self._built_services()
+        with self._lock:
+            if self.has_site(site.site_id):
+                raise ValueError(f"{site.site_id} is already in the consortium")
+            store = build_site_store(site, self.database_url, max_entered=self.max_entered_per_site, environ=self._environ)
+            try:
+                if store.lease is None:
+                    raise ValueError(f"{site.site_id} needs a Postgres store: its LMA is a process of its own")
+                built.agents.add_lma(site.site_id, url, token)
+                try:
+                    view = HospitalView(
+                        site,
+                        store,
+                        built.agents,
+                        source=StoreSiteSource(store),
+                        series_slot=None,
+                        models_ready=self._ensure_models,
+                    )
+                except BaseException:
+                    built.agents.remove_lma(site.site_id)
+                    raise
+            except BaseException:
+                store.close()
+                raise
+            # Nothing below can fail: each step replaces a map or a list.
+            sites = (*self.sites, site)
+            views = {**built.views, site.site_id: view}
+            if len(sites) > MAX_SERIES:
+                for other in views.values():
+                    other.series_slot = None
+            built.stores = {**built.stores, site.site_id: store}
+            built.views = views
+            built.owned = [*built.owned, store]
+            built.overview.set_sites(sites, views)
+            built.pilot.set_sites(sites)
+            self.sites = sites
+            self._joined = {**self._joined, site.site_id: url}
+        logger.info("%s joined the consortium", site.site_id)
+
+    def resend_joined_addresses(self) -> bool:
+        """Send the GMA the address of each hospital that joined, again. Returns whether there was one to send.
+
+        A GMA keeps the addresses it accepted in memory, so one that restarted
+        forgets them. The pilot calls this before it runs, and the overview
+        and the status report when the GMA's site report leaves a hospital
+        out. The GMA accepts the same address again and changes nothing. A
+        refusal is logged without the address, never raised: a pilot then runs
+        without that hospital, and the overview reports its LMA as unreachable.
+        """
+        joined = self.joined()
+        if not joined:
+            return False
+        gma = self.agents.gma()
+        for site_id, url in joined.items():
+            try:
+                gma.register_site_address(site_id, url)
+            except AgentError as error:
+                logger.warning("the GMA did not take the address of %s again: %s", site_id, error.without_detail())
+        return True
+
     def close(self) -> None:
         """Stop the agents and close the stores this object built. A later use builds them again."""
         with self._lock:
             built, self._built = self._built, None
+            # The services built on the next use know only the hospitals of the start again.
+            self.sites = tuple(site for site in self.sites if site.site_id not in self._joined)
+            self._joined = {}
         if built is None:
             return
         try:
@@ -814,6 +984,7 @@ __all__ = [
     "GmaClient",
     "HealthcareDemo",
     "LmaClient",
+    "LmaProbe",
     "build_in_process_agents",
     "build_site_store",
     "call_entry",
@@ -836,17 +1007,17 @@ def main(argv: Sequence[str] | None = None) -> int:
     """
     import argparse
 
-    from app.domain.dataset import site_for
+    from app.domain.dataset import any_site_for
 
     parser = argparse.ArgumentParser(prog="python -m app.services.agents", description=main.__doc__)
     parser.add_argument("agent", choices=("lma", "gma"))
-    parser.add_argument("site_id", nargs="?", help="the hospital, for an LMA")
+    parser.add_argument("site_id", nargs="?", help="the hospital, for an LMA; a joining hospital too")
     parser.add_argument("--database", action="store_true", help="the records and tables are in Postgres")
     args = parser.parse_args(argv)
     if args.agent == "lma":
         if not args.site_id:
             parser.error("an LMA needs a site id")
-        env = lma_environment(site_for(args.site_id), database=args.database)
+        env = lma_environment(any_site_for(args.site_id), database=args.database)
     else:
         env = gma_environment(database=args.database, dispatch_concurrency=app_settings.dispatch_concurrency)
     for name, value in env.items():

@@ -1,7 +1,7 @@
 {
  "service": "gma",
  "generated_by": "scripts/capture_api_examples.py",
- "note": "Captured in process with the planner available. The requests run in this order against one new GMA started with nothing configured, so later requests see what earlier ones stored. The round digest in the site results was computed by dagentsc from the round 1 manifest: fnv1a:767d1ad0c4595843. Examples that name the app study run, in order, against the study's GMA, with an LMA for each store (scripts/api_example_agents.py).",
+ "note": "Captured in process with the planner available. The requests run in this order against one new GMA started with nothing configured, so later requests see what earlier ones stored. The round digest in the site results was computed by dagentsc from the round 1 manifest: fnv1a:767d1ad0c4595843. Examples that name the app study run, in order, against the study's GMA, with an LMA for each store, and examples that name the app joinable against a GMA that may add store west's LMA while it runs (scripts/api_example_agents.py).",
  "examples": [
   {
    "id": "health",
@@ -583,7 +583,7 @@
      },
      "plan_token": "plan-7a989362f8d0",
      "config_digest": "7a989362f8d032dec7ab01062f7361c2ef738fb38ea6215db9d8620164ec8cd4",
-     "created_at": 1792123892
+     "created_at": 1792137894
     },
     "trimmed": []
    },
@@ -624,7 +624,7 @@
      },
      "plan_token": "plan-bafb345eb050",
      "config_digest": "bafb345eb050a5eee8163cd680d67ce53ef468e94485263fd6a77d5d63e4f4b2",
-     "created_at": 1792123892
+     "created_at": 1792137894
     },
     "trimmed": []
    },
@@ -878,7 +878,7 @@
       },
       "plan_token": "plan-7a989362f8d0",
       "config_digest": "7a989362f8d032dec7ab01062f7361c2ef738fb38ea6215db9d8620164ec8cd4",
-      "created_at": 1792123892
+      "created_at": 1792137894
      },
      {
       "agent_id": "lma-store-south",
@@ -890,7 +890,7 @@
       },
       "plan_token": "plan-bafb345eb050",
       "config_digest": "bafb345eb050a5eee8163cd680d67ce53ef468e94485263fd6a77d5d63e4f4b2",
-      "created_at": 1792123892
+      "created_at": 1792137894
      }
     ],
     "trimmed": []
@@ -1022,7 +1022,7 @@
       "scope": {
        "table": "orders"
       },
-      "dispatched_at": 1792123892,
+      "dispatched_at": 1792137894,
       "status": "QUEUED"
      }
     ],
@@ -1836,7 +1836,7 @@
       ]
      },
      "run": {
-      "run_id": "gma-returns-all-stores-1792123892",
+      "run_id": "gma-returns-all-stores-1792137895",
       "agent_role": "GMA",
       "scope_id": "returns-all-stores",
       "scope_kind": "assimilated",
@@ -1852,8 +1852,8 @@
        "feature_coverage": 0.75
       },
       "artifact_uri": "artifacts/gma/returns-all-stores/random_forest-v2.json",
-      "started_at": 1792123892,
-      "completed_at": 1792123892
+      "started_at": 1792137895,
+      "completed_at": 1792137895
      }
     },
     "trimmed": []
@@ -1922,7 +1922,7 @@
       ]
      },
      "run": {
-      "run_id": "gma-returns-sample-1792123892",
+      "run_id": "gma-returns-sample-1792137895",
       "agent_role": "GMA",
       "scope_id": "returns-sample",
       "scope_kind": "assimilated",
@@ -1938,8 +1938,8 @@
        "feature_coverage": 1.0
       },
       "artifact_uri": "artifacts/gma/returns-sample/autoencoder-v1.json",
-      "started_at": 1792123892,
-      "completed_at": 1792123892
+      "started_at": 1792137895,
+      "completed_at": 1792137895
      }
     },
     "trimmed": []
@@ -2009,7 +2009,7 @@
     },
     "body": [
      {
-      "run_id": "gma-returns-sample-1792123892",
+      "run_id": "gma-returns-sample-1792137895",
       "agent_role": "GMA",
       "scope_id": "returns-sample",
       "scope_kind": "assimilated",
@@ -2025,11 +2025,11 @@
        "feature_coverage": 1.0
       },
       "artifact_uri": "artifacts/gma/returns-sample/autoencoder-v1.json",
-      "started_at": 1792123892,
-      "completed_at": 1792123892
+      "started_at": 1792137895,
+      "completed_at": 1792137895
      },
      {
-      "run_id": "gma-returns-all-stores-1792123892",
+      "run_id": "gma-returns-all-stores-1792137895",
       "agent_role": "GMA",
       "scope_id": "returns-all-stores",
       "scope_kind": "assimilated",
@@ -2045,8 +2045,8 @@
        "feature_coverage": 0.75
       },
       "artifact_uri": "artifacts/gma/returns-all-stores/random_forest-v2.json",
-      "started_at": 1792123892,
-      "completed_at": 1792123892
+      "started_at": 1792137895,
+      "completed_at": 1792137895
      }
     ],
     "trimmed": []
@@ -2647,7 +2647,7 @@
      "transformed_fields": [
       "model_update"
      ],
-     "audit_id": "5cef5d2c94ba45f78c3c9099c6bdc468",
+     "audit_id": "e298ae53daeb4a5290e6f052ab793a3f",
      "message": "permitted with restrictions"
     },
     "trimmed": []
@@ -2776,7 +2776,7 @@
       "model_update"
      ],
      "transformed_fields": [],
-     "audit_id": "30d8df297ec048f383fbec5d003aa47a",
+     "audit_id": "3170c39228d84e819b7ed77ab3ae66db",
      "message": "declared_purpose marketing is not an approved purpose"
     },
     "trimmed": []
@@ -2849,8 +2849,8 @@
      "chain_intact": true,
      "records": [
       {
-       "audit_id": "30d8df297ec048f383fbec5d003aa47a",
-       "recorded_at": 1792123893,
+       "audit_id": "3170c39228d84e819b7ed77ab3ae66db",
+       "recorded_at": 1792137895,
        "boundary": "before_release",
        "request_id": "returns-round-1:release-2",
        "requester_id": "returns-release-committee",
@@ -2874,12 +2874,12 @@
        "contribution_norm_before": null,
        "contribution_norm_after": null,
        "contribution_strategies": [],
-       "previous_digest": "0232068e922b24f137b3fd2b916d9040e55243544a009481c658c6559f41d892",
-       "digest": "5046a12391aad85a1ac9943d6891fa4a9106699ecd42f42f839013afeade3fba"
+       "previous_digest": "9f82b9564cc689fcba34bc5e14609d2a6d001f10db14bea9efdaaad0f1fb3aac",
+       "digest": "799439aa7a59c2f8758a0052882d682ccb8cef18b3e25af0c4008c967f50c43a"
       },
       {
-       "audit_id": "5cef5d2c94ba45f78c3c9099c6bdc468",
-       "recorded_at": 1792123893,
+       "audit_id": "e298ae53daeb4a5290e6f052ab793a3f",
+       "recorded_at": 1792137895,
        "boundary": "before_release",
        "request_id": "returns-round-1:release",
        "requester_id": "returns-release-committee",
@@ -2901,7 +2901,7 @@
        "contribution_norm_after": null,
        "contribution_strategies": [],
        "previous_digest": "",
-       "digest": "0232068e922b24f137b3fd2b916d9040e55243544a009481c658c6559f41d892"
+       "digest": "9f82b9564cc689fcba34bc5e14609d2a6d001f10db14bea9efdaaad0f1fb3aac"
       }
      ]
     },
@@ -3243,6 +3243,213 @@
    "planner_calls": []
   },
   {
+   "id": "site-addresses-none",
+   "endpoint": "GET /api/v1/federation/site-addresses",
+   "title": "List the site addresses of a GMA with no HTTP network",
+   "description": "This GMA runs rounds in its own process, so it holds no LMA address and no site may join.",
+   "request": {
+    "method": "GET",
+    "path": "/api/v1/federation/site-addresses"
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "joinable": [],
+     "sites": []
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "site-address-not-joinable",
+   "endpoint": "PUT /api/v1/federation/sites/{site_id}/address",
+   "title": "Offer an address to a GMA that accepts none",
+   "description": "GMA_JOINABLE_SITE_ENDPOINTS is empty, so the GMA refuses every address sent while it runs.",
+   "request": {
+    "method": "PUT",
+    "path": "/api/v1/federation/sites/store-west/address",
+    "json": {
+     "url": "http://127.0.0.1:8013"
+    }
+   },
+   "response": {
+    "status": 403,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "detail": "site store-west is not one this GMA may add while it runs",
+     "code": "not_joinable"
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "joinable-site-addresses",
+   "endpoint": "GET /api/v1/federation/site-addresses",
+   "title": "List the sites that may join, before any has",
+   "app": "joinable",
+   "request": {
+    "method": "GET",
+    "path": "/api/v1/federation/site-addresses",
+    "headers": {
+     "Authorization": "Bearer example-study-admin-token"
+    }
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "joinable": [
+      "store-west"
+     ],
+     "sites": []
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "site-address-differs",
+   "endpoint": "PUT /api/v1/federation/sites/{site_id}/address",
+   "title": "Send another address than the listed one",
+   "app": "joinable",
+   "request": {
+    "method": "PUT",
+    "path": "/api/v1/federation/sites/store-west/address",
+    "headers": {
+     "Authorization": "Bearer example-study-admin-token"
+    },
+    "json": {
+     "url": "http://127.0.0.1:8099"
+    }
+   },
+   "response": {
+    "status": 403,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "detail": "the address differs from the one GMA_JOINABLE_SITE_ENDPOINTS lists for site store-west",
+     "code": "address_differs"
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "site-address-accepted",
+   "endpoint": "PUT /api/v1/federation/sites/{site_id}/address",
+   "title": "Give the GMA store west's address",
+   "app": "joinable",
+   "request": {
+    "method": "PUT",
+    "path": "/api/v1/federation/sites/store-west/address",
+    "headers": {
+     "Authorization": "Bearer example-study-admin-token"
+    },
+    "json": {
+     "url": "http://127.0.0.1:8013"
+    }
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "site_id": "store-west",
+     "source": "joined"
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "joined-site-addresses",
+   "endpoint": "GET /api/v1/federation/site-addresses",
+   "title": "List the site addresses after store west joined",
+   "app": "joinable",
+   "request": {
+    "method": "GET",
+    "path": "/api/v1/federation/site-addresses",
+    "headers": {
+     "Authorization": "Bearer example-study-admin-token"
+    }
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "joinable": [
+      "store-west"
+     ],
+     "sites": [
+      {
+       "site_id": "store-west",
+       "source": "joined"
+      }
+     ]
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "site-address-removed",
+   "endpoint": "DELETE /api/v1/federation/sites/{site_id}/address",
+   "title": "Remove store west's address again",
+   "app": "joinable",
+   "request": {
+    "method": "DELETE",
+    "path": "/api/v1/federation/sites/store-west/address",
+    "headers": {
+     "Authorization": "Bearer example-study-admin-token"
+    }
+   },
+   "response": {
+    "status": 204,
+    "headers": {},
+    "body": "",
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
+   "id": "site-address-remove-not-joinable",
+   "endpoint": "DELETE /api/v1/federation/sites/{site_id}/address",
+   "title": "Remove the address of a site that may not join",
+   "app": "joinable",
+   "request": {
+    "method": "DELETE",
+    "path": "/api/v1/federation/sites/store-north/address",
+    "headers": {
+     "Authorization": "Bearer example-study-admin-token"
+    }
+   },
+   "response": {
+    "status": 403,
+    "headers": {
+     "content-type": "application/json"
+    },
+    "body": {
+     "detail": "site store-north is not one this GMA may add while it runs",
+     "code": "not_joinable"
+    },
+    "trimmed": []
+   },
+   "planner_calls": []
+  },
+  {
    "id": "plan-round",
    "endpoint": "POST /api/v1/federation/rounds:plan",
    "title": "Plan round 1 of the returns pilot",
@@ -3579,8 +3786,8 @@
      "results": [],
      "readiness": null,
      "decision": null,
-     "created_at": 1792123893,
-     "updated_at": 1792123893,
+     "created_at": 1792137895,
+     "updated_at": 1792137895,
      "status": "closed",
      "acceptances": [],
      "candidate": null,
@@ -3751,8 +3958,8 @@
      ],
      "readiness": null,
      "decision": null,
-     "created_at": 1792123893,
-     "updated_at": 1792123893,
+     "created_at": 1792137895,
+     "updated_at": 1792137895,
      "status": "collecting",
      "acceptances": [
       {
@@ -4011,8 +4218,8 @@
      ],
      "readiness": null,
      "decision": null,
-     "created_at": 1792123893,
-     "updated_at": 1792123893,
+     "created_at": 1792137895,
+     "updated_at": 1792137895,
      "status": "collecting",
      "acceptances": [
       {
@@ -4193,8 +4400,8 @@
      ],
      "readiness": null,
      "decision": null,
-     "created_at": 1792123893,
-     "updated_at": 1792123893,
+     "created_at": 1792137895,
+     "updated_at": 1792137895,
      "status": "collecting",
      "acceptances": [
       {
@@ -4376,8 +4583,8 @@
      ],
      "readiness": null,
      "decision": null,
-     "created_at": 1792123893,
-     "updated_at": 1792123893,
+     "created_at": 1792137895,
+     "updated_at": 1792137895,
      "status": "collecting",
      "acceptances": [
       {
@@ -4562,8 +4769,8 @@
      ],
      "readiness": null,
      "decision": null,
-     "created_at": 1792123893,
-     "updated_at": 1792123893,
+     "created_at": 1792137895,
+     "updated_at": 1792137895,
      "status": "collecting",
      "acceptances": [
       {
@@ -4843,7 +5050,7 @@
      },
      "artifact_uri": "memory://candidates/returns-round-1",
      "artifact_digest": "",
-     "produced_at": 1792123893
+     "produced_at": 1792137895
     },
     "trimmed": []
    },
@@ -5413,8 +5620,8 @@
       "blocking_failures": [],
       "rollback_version": "returns-rule-1.0"
      },
-     "created_at": 1792123893,
-     "updated_at": 1792123893,
+     "created_at": 1792137895,
+     "updated_at": 1792137895,
      "status": "closed",
      "acceptances": [
       {
@@ -5462,7 +5669,7 @@
       },
       "artifact_uri": "memory://candidates/returns-round-1",
       "artifact_digest": "",
-      "produced_at": 1792123893
+      "produced_at": 1792137895
      },
      "dispatch": [],
      "abandoned_reason": null
@@ -5656,8 +5863,8 @@
        ],
        "rollback_version": "returns-rule-1.0"
       },
-      "created_at": 1792123893,
-      "updated_at": 1792123893,
+      "created_at": 1792137895,
+      "updated_at": 1792137895,
       "status": "closed",
       "acceptances": [
        {
@@ -5844,8 +6051,8 @@
        "blocking_failures": [],
        "rollback_version": "returns-rule-1.0"
       },
-      "created_at": 1792123893,
-      "updated_at": 1792123893,
+      "created_at": 1792137895,
+      "updated_at": 1792137895,
       "status": "closed",
       "acceptances": [
        {
@@ -5893,7 +6100,7 @@
        },
        "artifact_uri": "memory://candidates/returns-round-1",
        "artifact_digest": "",
-       "produced_at": 1792123893
+       "produced_at": 1792137895
       },
       "dispatch": [],
       "abandoned_reason": null
@@ -5963,8 +6170,8 @@
       "results": [],
       "readiness": null,
       "decision": null,
-      "created_at": 1792123893,
-      "updated_at": 1792123893,
+      "created_at": 1792137895,
+      "updated_at": 1792137895,
       "status": "closed",
       "acceptances": [],
       "candidate": null,
@@ -6113,7 +6320,7 @@
      "digest": "sha256:6367ac6596e4db525b87ac86bc6b9d0aa6138948a230cc3ea2d5308b6174e937",
      "status": "released",
      "parent_version": null,
-     "created_at": "2026-10-16T04:11:33.691494+00:00",
+     "created_at": "2026-10-16T08:04:56.243865+00:00",
      "params": null,
      "release_decision": null
     },
@@ -6161,7 +6368,7 @@
      "digest": "sha256:6367ac6596e4db525b87ac86bc6b9d0aa6138948a230cc3ea2d5308b6174e937",
      "status": "released",
      "parent_version": null,
-     "created_at": "2026-10-16T04:11:33.691494+00:00",
+     "created_at": "2026-10-16T08:04:56.243865+00:00",
      "params": null,
      "release_decision": null
     },
@@ -6203,7 +6410,7 @@
      "digest": "sha256:7d78761e6f99535bde22505bff849b704310f66c782610a67fa3a29e8e44238e",
      "status": "candidate",
      "parent_version": null,
-     "created_at": "2026-10-16T04:11:33.700921+00:00",
+     "created_at": "2026-10-16T08:04:56.255552+00:00",
      "params": null,
      "release_decision": null
     },
@@ -6633,8 +6840,8 @@
       }
      },
      "decision": null,
-     "created_at": 1792123893,
-     "updated_at": 1792123893,
+     "created_at": 1792137896,
+     "updated_at": 1792137896,
      "status": "collecting",
      "acceptances": [
       {
@@ -6660,14 +6867,14 @@
        "site_id": "store-north",
        "step": "run",
        "status_code": 200,
-       "ms": 29.45,
+       "ms": 28.09,
        "outcome": "completed"
       },
       {
        "site_id": "store-south",
        "step": "run",
        "status_code": 200,
-       "ms": 18.77,
+       "ms": 20.22,
        "outcome": "completed"
       }
      ],
@@ -6775,7 +6982,7 @@
      },
      "artifact_uri": "",
      "artifact_digest": "",
-     "produced_at": 1792123893
+     "produced_at": 1792137896
     },
     "trimmed": []
    },
@@ -7049,8 +7256,8 @@
       }
      },
      "decision": null,
-     "created_at": 1792123893,
-     "updated_at": 1792123893,
+     "created_at": 1792137896,
+     "updated_at": 1792137896,
      "status": "collecting",
      "acceptances": [
       {
@@ -7091,14 +7298,14 @@
        "site_id": "store-north",
        "step": "run",
        "status_code": 200,
-       "ms": 44.51,
+       "ms": 43.5,
        "outcome": "completed"
       },
       {
        "site_id": "store-south",
        "step": "run",
        "status_code": 200,
-       "ms": 25.18,
+       "ms": 30.41,
        "outcome": "completed"
       }
      ],
@@ -7362,7 +7569,7 @@
      },
      "artifact_uri": "registry://models/return-score+returns-train-1",
      "artifact_digest": "sha256:ace560c113fd36382984429ab289315d1da6df1bf51ec446ef9e86f33330fc95",
-     "produced_at": 1792123893
+     "produced_at": 1792137896
     },
     "trimmed": []
    },
@@ -7571,8 +7778,8 @@
       }
      },
      "decision": null,
-     "created_at": 1792123893,
-     "updated_at": 1792123893,
+     "created_at": 1792137896,
+     "updated_at": 1792137896,
      "status": "aggregated",
      "acceptances": [
       {
@@ -7621,7 +7828,7 @@
       },
       "artifact_uri": "registry://models/return-score+returns-train-1",
       "artifact_digest": "sha256:ace560c113fd36382984429ab289315d1da6df1bf51ec446ef9e86f33330fc95",
-      "produced_at": 1792123893
+      "produced_at": 1792137896
      },
      "dispatch": [
       {
@@ -7635,14 +7842,14 @@
        "site_id": "store-north",
        "step": "run",
        "status_code": 200,
-       "ms": 44.51,
+       "ms": 43.5,
        "outcome": "completed"
       },
       {
        "site_id": "store-south",
        "step": "run",
        "status_code": 200,
-       "ms": 25.18,
+       "ms": 30.41,
        "outcome": "completed"
       }
      ],
@@ -7814,8 +8021,8 @@
       }
      },
      "decision": null,
-     "created_at": 1792123893,
-     "updated_at": 1792123893,
+     "created_at": 1792137896,
+     "updated_at": 1792137896,
      "status": "collecting",
      "acceptances": [
       {
@@ -7841,14 +8048,14 @@
        "site_id": "store-north",
        "step": "run",
        "status_code": 200,
-       "ms": 18.23,
+       "ms": 21.85,
        "outcome": "completed"
       },
       {
        "site_id": "store-south",
        "step": "run",
        "status_code": 200,
-       "ms": 15.21,
+       "ms": 21.58,
        "outcome": "completed"
       }
      ],
@@ -7983,7 +8190,7 @@
      },
      "artifact_uri": "",
      "artifact_digest": "",
-     "produced_at": 1792123894
+     "produced_at": 1792137896
     },
     "trimmed": []
    },
@@ -8122,7 +8329,7 @@
       "transformed_fields": [
        "model_update"
       ],
-      "audit_id": "1c1dbbc19a584d8b8bb141699bb68b3d",
+      "audit_id": "e302d547daa745f4bd7af0131b29fd88",
       "message": "permitted with restrictions"
      },
      "candidate_status": "candidate",
@@ -8268,7 +8475,7 @@
       "digest": "sha256:6367ac6596e4db525b87ac86bc6b9d0aa6138948a230cc3ea2d5308b6174e937",
       "status": "released",
       "parent_version": null,
-      "created_at": "2026-10-16T04:11:33.691494+00:00",
+      "created_at": "2026-10-16T08:04:56.243865+00:00",
       "params": null,
       "release_decision": null
      },
@@ -8279,7 +8486,7 @@
        "digest": "sha256:ace560c113fd36382984429ab289315d1da6df1bf51ec446ef9e86f33330fc95",
        "status": "candidate",
        "parent_version": "return-score-v0",
-       "created_at": "2026-10-16T04:11:33.945070+00:00",
+       "created_at": "2026-10-16T08:04:56.529590+00:00",
        "params": null,
        "release_decision": {
         "action": "release",
@@ -8310,7 +8517,7 @@
         "round_id": "returns-train-1",
         "baseline_version": "return-check-rule-v2",
         "metrics_source": "rounds",
-        "decided_at": "2026-10-16T04:11:34.026979+00:00"
+        "decided_at": "2026-10-16T08:04:56.634778+00:00"
        }
       },
       {
@@ -8319,7 +8526,7 @@
        "digest": "sha256:7d78761e6f99535bde22505bff849b704310f66c782610a67fa3a29e8e44238e",
        "status": "superseded",
        "parent_version": null,
-       "created_at": "2026-10-16T04:11:33.700921+00:00",
+       "created_at": "2026-10-16T08:04:56.255552+00:00",
        "params": null,
        "release_decision": null
       },
@@ -8329,7 +8536,7 @@
        "digest": "sha256:6367ac6596e4db525b87ac86bc6b9d0aa6138948a230cc3ea2d5308b6174e937",
        "status": "released",
        "parent_version": null,
-       "created_at": "2026-10-16T04:11:33.691494+00:00",
+       "created_at": "2026-10-16T08:04:56.243865+00:00",
        "params": null,
        "release_decision": null
       }
@@ -8369,7 +8576,7 @@
      "digest": "sha256:ace560c113fd36382984429ab289315d1da6df1bf51ec446ef9e86f33330fc95",
      "status": "candidate",
      "parent_version": "return-score-v0",
-     "created_at": "2026-10-16T04:11:33.945070+00:00",
+     "created_at": "2026-10-16T08:04:56.529590+00:00",
      "params": null,
      "release_decision": {
       "action": "release",
@@ -8400,7 +8607,7 @@
       "round_id": "returns-train-1",
       "baseline_version": "return-check-rule-v2",
       "metrics_source": "rounds",
-      "decided_at": "2026-10-16T04:11:34.026979+00:00"
+      "decided_at": "2026-10-16T08:04:56.634778+00:00"
      }
     },
     "trimmed": []
@@ -8494,7 +8701,7 @@
       "digest": "sha256:ace560c113fd36382984429ab289315d1da6df1bf51ec446ef9e86f33330fc95",
       "status": "released",
       "parent_version": "return-score-v0",
-      "created_at": "2026-10-16T04:11:33.945070+00:00",
+      "created_at": "2026-10-16T08:04:56.529590+00:00",
       "params": null,
       "release_decision": {
        "action": "release",
@@ -8525,7 +8732,7 @@
        "round_id": "returns-train-1",
        "baseline_version": "return-check-rule-v2",
        "metrics_source": "rounds",
-       "decided_at": "2026-10-16T04:11:34.026979+00:00"
+       "decided_at": "2026-10-16T08:04:56.634778+00:00"
       }
      },
      "previous": "return-check-rule-v2"
@@ -8620,7 +8827,7 @@
      "digest": "sha256:ace560c113fd36382984429ab289315d1da6df1bf51ec446ef9e86f33330fc95",
      "status": "released",
      "parent_version": "return-score-v0",
-     "created_at": "2026-10-16T04:11:33.945070+00:00",
+     "created_at": "2026-10-16T08:04:56.529590+00:00",
      "params": {
       "bias": -1.2918602795668273,
       "w.clothing_or_shoes_items": 1.873203603819812,
@@ -8655,7 +8862,7 @@
       "round_id": "returns-train-1",
       "baseline_version": "return-check-rule-v2",
       "metrics_source": "rounds",
-      "decided_at": "2026-10-16T04:11:34.026979+00:00"
+      "decided_at": "2026-10-16T08:04:56.634778+00:00"
      }
     },
     "trimmed": []

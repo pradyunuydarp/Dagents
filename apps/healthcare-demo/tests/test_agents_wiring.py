@@ -16,6 +16,7 @@ planner. The Postgres tests need ``HEALTHCARE_DEMO_TEST_DATABASE_URL`` (see
 from __future__ import annotations
 
 from collections import deque
+from contextlib import ExitStack as contextlib_exit_stack
 import dataclasses
 import functools
 import types
@@ -435,6 +436,259 @@ class PostgresWiringTests(unittest.TestCase):
         # The connection still serves the coordinator's own tables afterwards.
         with lease.acting_as(role) as conn:
             self.assertIsNotNone(conn.execute("SELECT count(*) FROM coordinator.models").fetchone())
+
+
+
+class JoiningSiteTests(unittest.TestCase):
+    """``add_site`` adds a hospital that joins while the demo runs, and replaces every map it changes.
+
+    Network mode only: the new hospital's LMA is a process of its own. The
+    stores point at a database that is never reached, because nothing here
+    reads a record.
+    """
+
+    DSN = "postgresql://demo@127.0.0.1:1/demo"
+    URL = "http://127.0.0.1:4"
+    TOKEN = "the-joining-lmas-site-token"
+
+    def setUp(self) -> None:
+        from app.domain.dataset import JOINING_SITES
+        from app.services.site_store import MemoryCoordinatorStore
+
+        self.site = JOINING_SITES[0]
+        environ = {}
+        for number, site in enumerate(SITES, start=1):
+            key = site.site_id.upper().replace("-", "_")
+            environ[f"HEALTHCARE_DEMO_LMA_{key}_URL"] = f"http://127.0.0.1:{number}"
+            environ[f"HEALTHCARE_DEMO_LMA_{key}_TOKEN"] = f"token-{key}"
+        settings = dataclasses.replace(
+            app_settings, agents_mode="network", gma_url="http://127.0.0.1:5", gma_token="gma-admin-token"
+        )
+        self.stores = {site.site_id: PostgresSiteStore(site, self.DSN) for site in SITES}
+        self.demo = HealthcareDemo(
+            settings=settings,
+            database_url=self.DSN,
+            environ=environ,
+            site_stores=self.stores,
+            coordinator_store=MemoryCoordinatorStore(),
+        )
+        self.addCleanup(self.demo.close)
+
+    def test_before_a_join_the_hospital_is_unknown(self) -> None:
+        from app.domain.dataset import UnknownSiteError
+
+        self.assertFalse(self.demo.has_site(self.site.site_id))
+        self.assertEqual({}, self.demo.joined())
+        with self.assertRaises(UnknownSiteError):
+            self.demo.hospital(self.site.site_id)
+        self.assertEqual([1, 2, 3], [view.series_slot for view in self.demo.views.values()])
+
+    def test_a_join_adds_the_hospital_everywhere_and_replaces_each_map(self) -> None:
+        demo = self.demo
+        views, stores = demo.views, demo.stores
+        overview_sites, pilot_sites = demo.overview.sites, demo.pilot.sites
+        agents = demo.agents
+        site_ids = agents.site_ids
+
+        demo.add_site(self.site, self.URL, self.TOKEN)
+
+        expected = [*SITE_IDS, "pl-290"]
+        self.assertEqual(expected, [site.site_id for site in demo.sites])
+        self.assertTrue(demo.has_site("pl-290"))
+        self.assertEqual({"pl-290": self.URL}, demo.joined())
+        view = demo.hospital("pl-290")
+        self.assertEqual("pl-290", view.site_id)
+        self.assertIsInstance(view.store, PostgresSiteStore)
+        self.assertEqual({"schema": "site_pl_290", "role": "site_pl_290"}, view.store.location)
+        self.assertIs(view.store, demo.stores["pl-290"])
+        self.assertEqual(expected, [site.site_id for site in demo.overview.sites])
+        self.assertEqual(expected, [site.site_id for site in demo.pilot.sites])
+        self.assertEqual(sorted(expected), demo.pilot.manifest("r", "analytics", _model_ref()).invited_sites)
+        self.assertEqual(tuple(expected), agents.site_ids)
+        self.assertTrue(agents.network.has_lma("pl-290"))
+        agents.lma("pl-290")  # the app holds the new LMA's site token
+        # Four hospitals and three series colours: no hospital keeps a colour.
+        self.assertEqual([None] * 4, [view.series_slot for view in demo.views.values()])
+        # The maps a request may hold were replaced, not changed in place.
+        self.assertNotIn("pl-290", views)
+        self.assertNotIn("pl-290", stores)
+        self.assertEqual(SITE_IDS, [site.site_id for site in overview_sites])
+        self.assertEqual(SITE_IDS, [site.site_id for site in pilot_sites])
+        self.assertEqual(tuple(SITE_IDS), site_ids)
+        # The store is the app's, so it closes with the app.
+        with mock.patch.object(demo.stores["pl-290"], "close") as close:
+            demo.close()
+        close.assert_called_once()
+
+    def test_a_second_join_or_a_configured_hospital_is_refused(self) -> None:
+        self.demo.add_site(self.site, self.URL, self.TOKEN)
+        for site in (self.site, SITES[0]):
+            with self.subTest(site=site.site_id), self.assertRaises(ValueError):
+                self.demo.add_site(site, self.URL, self.TOKEN)
+        self.assertEqual([*SITE_IDS, "pl-290"], [site.site_id for site in self.demo.sites])
+
+    def test_a_failed_join_changes_nothing(self) -> None:
+        demo = self.demo
+        demo.agents
+        with self.assertRaises(ValueError) as refused:
+            demo.add_site(self.site, "ftp://127.0.0.1:4", self.TOKEN)
+        self.assertNotIn("127.0.0.1", str(refused.exception))
+        self.assertFalse(demo.has_site("pl-290"))
+        self.assertNotIn("pl-290", demo.stores)
+        self.assertEqual(tuple(SITE_IDS), demo.agents.site_ids)
+        self.assertFalse(demo.agents.network.has_lma("pl-290"))
+        self.assertEqual([1, 2, 3], [view.series_slot for view in demo.views.values()])
+
+    def test_only_in_network_mode(self) -> None:
+        demo = HealthcareDemo()
+        self.addCleanup(demo.close)
+        with self.assertRaises(ValueError) as refused:
+            demo.add_site(self.site, self.URL, self.TOKEN)
+        self.assertIn("HEALTHCARE_DEMO_AGENTS=network", str(refused.exception))
+
+    def test_joined_addresses_are_sent_to_the_gma_again(self) -> None:
+        self.demo.add_site(self.site, self.URL, self.TOKEN)
+        gma = mock.Mock()
+        with mock.patch.object(self.demo.agents, "gma", return_value=gma):
+            self.demo.resend_joined_addresses()
+            gma.register_site_address.assert_called_once_with("pl-290", self.URL)
+            # A refusal is logged, never raised: the pilot then runs without the hospital.
+            gma.register_site_address.side_effect = AgentError(
+                service="gma", site_id=None, path="/x", status=403, code="address_differs", detail="no"
+            )
+            with self.assertLogs("app.services.agents", "WARNING") as logs:
+                self.demo.resend_joined_addresses()
+        self.assertNotIn(self.URL, "\n".join(logs.output))
+
+    def test_a_pilot_sends_the_addresses_before_it_runs(self) -> None:
+        """The pilot's first GMA calls register the models and refresh the enrolments; the addresses come first."""
+        events: list[str] = []
+        pilot = mock.Mock()
+        pilot.run_pilot.side_effect = lambda prefix: events.append(f"pilot {prefix}") or {"pilot_id": "p"}
+        with mock.patch.object(self.demo, "resend_joined_addresses", side_effect=lambda: events.append("resend")), \
+                mock.patch.object(type(self.demo), "pilot", new_callable=mock.PropertyMock, return_value=pilot):
+            self.assertEqual({"pilot_id": "p"}, self.demo.run_pilot("ui"))
+        self.assertEqual(["resend", "pilot ui"], events)
+
+
+    # --- A GMA that restarted forgot the joined hospital's address ---------------------
+
+    def _forgetful_gma(self, calls: list[str], *, takes_address: bool = True) -> Any:
+        """A GMA that knows the configured hospitals and learns a joined one only from its address."""
+        from dagents.common.domain.site import SiteDirectoryEntry, SiteSummary
+
+        known = set(SITE_IDS)
+
+        class Gma:
+            def site_summaries(self, include_audit: bool = False, *, timeout_s: float | None = None) -> list:
+                calls.append("summaries")
+                return [
+                    SiteDirectoryEntry(
+                        site_id=site_id,
+                        reachable=True,
+                        source_kind="postgres",
+                        summary=SiteSummary(
+                            site_id=site_id, record_count=10, labelled_count=4, label_rate_status="no_labels",
+                            minimum_cohort=20,
+                        ),
+                    )
+                    for site_id in sorted(known)
+                ]
+
+            def register_site_address(self, site_id: str, url: str) -> None:
+                calls.append(f"address {site_id}")
+                if not takes_address:
+                    raise AgentError(
+                        service="gma", site_id=None, path="/x", status=403, code="not_joinable", detail="no"
+                    )
+                known.add(site_id)
+
+        return Gma()
+
+    def _rows_without_records(self) -> Any:
+        """Patches that let the overview build its rows without reading a store."""
+        stack = contextlib_exit_stack()
+        for view in self.demo.views.values():
+            stack.enter_context(mock.patch.object(view, "counts", return_value={"entered": 0}))
+        stack.enter_context(
+            mock.patch("app.services.overview.hospital_row", side_effect=lambda site, *rest: {"site_id": site.site_id})
+        )
+        return stack
+
+    def test_the_overview_sends_a_lost_address_again_before_it_lists_the_hospitals(self) -> None:
+        self.demo.add_site(self.site, self.URL, self.TOKEN)
+        calls: list[str] = []
+        with mock.patch.object(self.demo.agents, "gma", return_value=self._forgetful_gma(calls)), \
+                self._rows_without_records():
+            rows = self.demo.overview.hospital_rows()
+            self.assertEqual([*SITE_IDS, "pl-290"], [row["site_id"] for row in rows])
+            self.assertEqual(["summaries", "address pl-290", "summaries"], calls)
+            # The GMA holds the address now, so the next read asks once.
+            calls.clear()
+            self.demo.overview.hospital_rows()
+            self.assertEqual(["summaries"], calls)
+
+    def test_the_status_report_sends_a_lost_address_again(self) -> None:
+        from app.services.overview import StudyOverview
+
+        self.demo.add_site(self.site, self.URL, self.TOKEN)
+        calls: list[str] = []
+        with mock.patch.object(self.demo.agents, "gma", return_value=self._forgetful_gma(calls)), \
+                mock.patch.object(StudyOverview, "engine", return_value="http"), \
+                mock.patch.object(StudyOverview, "service_status", return_value=[]):
+            status = self.demo.status()
+        self.assertEqual([*SITE_IDS, "pl-290"], [row["site_id"] for row in status["hospitals"]])
+        self.assertTrue(all(lma["reachable"] for lma in status["agents"]["lmas"]))
+        self.assertEqual(["summaries", "address pl-290", "summaries"], calls)
+
+    def test_an_address_the_gma_refuses_is_sent_once_per_read(self) -> None:
+        from app.services.overview import SiteUnreachable
+
+        self.demo.add_site(self.site, self.URL, self.TOKEN)
+        calls: list[str] = []
+        gma = self._forgetful_gma(calls, takes_address=False)
+        with mock.patch.object(self.demo.agents, "gma", return_value=gma), self._rows_without_records(), \
+                self.assertLogs("app.services.agents", "WARNING"):
+            with self.assertRaises(SiteUnreachable):
+                self.demo.overview.hospital_rows()
+        self.assertEqual(["summaries", "address pl-290", "summaries"], calls)
+
+    def test_no_address_is_sent_while_the_gma_lists_every_hospital(self) -> None:
+        calls: list[str] = []
+        with mock.patch.object(self.demo.agents, "gma", return_value=self._forgetful_gma(calls)), \
+                self._rows_without_records():
+            self.assertEqual(SITE_IDS, [row["site_id"] for row in self.demo.overview.hospital_rows()])
+        self.assertEqual(["summaries"], calls)
+
+
+def _model_ref() -> Any:
+    from app.domain import stroke_rule
+    from app.services.pilot import ModelRef
+
+    return ModelRef(stroke_rule.RULE_VERSION, stroke_rule.RULE_KIND, "0" * 64)
+
+
+class PilotPreviewTests(unittest.TestCase):
+    """The study operator previews a round with the planner, without running it."""
+
+    def test_a_preview_plans_an_analytics_round_of_every_hospital(self) -> None:
+        from app.services.pilot import PilotService
+        from app.services.site_store import MemoryCoordinatorStore
+
+        gma = mock.Mock()
+        model = _model_ref()
+        gma.released_model.return_value = mock.Mock(version=model.version, kind=model.kind, digest=model.digest)
+        agents = mock.Mock()
+        agents.gma.return_value = gma
+        ready = mock.Mock()
+        pilot = PilotService(SITES, agents, MemoryCoordinatorStore(), models_ready=ready)
+        plan = pilot.preview_round("preview-dep-1")
+        ready.assert_called_once()
+        self.assertIs(gma.plan_round.return_value, plan)
+        manifest = gma.plan_round.call_args.args[0]
+        self.assertEqual(("preview-dep-1", "analytics"), (manifest.round_id, manifest.phase))
+        self.assertEqual(sorted(SITE_IDS), manifest.invited_sites)
+        gma.dispatch_round.assert_not_called()
 
 
 if __name__ == "__main__":

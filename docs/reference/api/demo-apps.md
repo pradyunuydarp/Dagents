@@ -74,8 +74,8 @@ clinical advice.
 ## The healthcare demo
 
 The healthcare backend is one FastAPI app, `apps/healthcare-demo/backend/app/main.py`,
-with 26 endpoints. It serves no LMA or GMA route: the agents are separate apps
-that only the backend calls. Three hospitals take part:
+with 28 endpoints. It serves no LMA or GMA route: the agents are separate apps
+that only the backend calls. Three hospitals take part at start:
 
 | `site_id` | Name | Country | Records from the IST |
 |---|---|---|---|
@@ -117,7 +117,7 @@ Terms used in this part:
 
 ```mermaid
 flowchart TB
-    Routes["main.py: 26 routes"] --> Limits["InFlightCap, RateLimiter, HourlyCap, SingleFlight, BodySizeLimit"]
+    Routes["main.py: 28 routes"] --> Limits["InFlightCap, RateLimiter, HourlyCap, SingleFlight, BodySizeLimit"]
     Routes --> Views["HospitalView x 3: the app at each hospital"]
     Routes --> Overview["StudyOverview: overview, models, approval, status"]
     Routes --> Pilot["PilotService: the study operator"]
@@ -154,6 +154,8 @@ flowchart TB
 | `GET /api/v1/models` | GMA `GET /api/v1/model-versions` |
 | `POST /api/v1/models/{version}:approve` | GMA `POST /api/v1/model-versions/{version}:approve` |
 | `GET /api/v1/framework/status` | GMA `GET /api/v1/federation/sites/summaries`, and each agent's `GET /api/v1/health`, whose results the app reuses for 15 seconds |
+| `GET /api/v1/deployments` | in a network-mode run with the deployer on: GMA `GET /api/v1/federation/site-addresses`, at most once every 15 seconds, and `PUT /api/v1/federation/sites/{site_id}/address` for a joined hospital whose address the GMA no longer holds. Otherwise none |
+| `POST /api/v1/deployments` | the new LMA's `GET /api/v1/health` and `GET /api/v1/site`, then GMA `PUT /api/v1/federation/sites/{site_id}/address`, `POST /api/v1/federation/sites:refresh` and `POST /api/v1/federation/rounds:plan`, as [adding a hospital](#adding-a-hospital-while-the-demo-runs) lists. A failed attempt adds the calls that undo it |
 
 **Model versions are registered on first use.** The first request that needs a
 model version (the overview, a hospital's view, worklist, thresholds, entered
@@ -1128,7 +1130,7 @@ trimmed to 3 items per list and 200 characters per string. The GMA calls the
 hospitals in parallel, so the order and times of the dispatch rows change from
 run to run.
 
-**Errors.** `409` when a pilot is already running; one runs at a time. `422`
+**Errors.** `409` when a pilot is already running, or a hospital is being added; one of them runs at a time, and the body says which. `422`
 for a `round_prefix` other than `ui` or `api`, or any other key. `429` beyond 3
 pilots per minute from one client, or 20 pilots in any hour from all clients
 together. `503` when the planner cannot be run, an agent does not answer, or,
@@ -1195,6 +1197,136 @@ run or the GMA does not answer.
 **Related.** [List the model versions](#healthcare-demo-backend-get-api-v1-models),
 [run the pilot](#healthcare-demo-backend-post-api-v1-pilot-run),
 [approve a candidate at the GMA](agents.md#gma-post-api-v1-model-versions-version-approve).
+
+## Adding a hospital while the demo runs
+
+```api-interface
+service: healthcare-demo-backend
+status: complete
+code: apps/healthcare-demo/backend/app/api/deploy_routes.py, apps/healthcare-demo/backend/app/services/deployment.py
+classes:
+- HospitalDeployer (apps/healthcare-demo/backend/app/services/deployment.py)
+- CoreServiceClient (apps/healthcare-demo/backend/app/services/core_client.py)
+- LmaProbe (apps/healthcare-demo/backend/app/services/agents.py)
+- LocalProcessApplier (dagents/common/infrastructure/compose_apply.py)
+- DockerComposeApplier (dagents/common/infrastructure/compose_apply.py)
+endpoints:
+- GET /api/v1/deployments
+- POST /api/v1/deployments
+```
+
+Hospital 290 (`pl-290`, Poland, 263 IST records) is not in the consortium at
+start. A network-mode run on your own machine, started with `--deploy`
+(`scripts/run_local_demo.sh --agents network --deploy`, or
+`docker-compose.deploy.yml`), can add it while the demo runs. Its records are
+in its own Postgres schema, `site_pl_290`, seeded with the others. Every read
+of them goes through the hospital's own store, acting as its own role: its LMA
+reads them, and so does the app's view of that hospital. The coordinator's role
+has no grant on the schema.
+
+The deployer runs seven steps. The framework makes every decision and does
+every side effect except the join:
+
+| Step | What happens | Who does it |
+|---|---|---|
+| `plan` | The new LMA's Compose file is rendered from a workload spec, and checked against it | core-service (`POST /api/v1/manifests/compose`), the OCaml manifest compiler |
+| `start` | The one service in that file starts, as a local process or a container | an applier from `dagents/common/infrastructure/compose_apply.py` |
+| `answer` | The new LMA answers its health check and reports site `pl-290`, read from its schema in Postgres | the new LMA |
+| `attach` | The GMA accepts the LMA's address, only the one in its `GMA_JOINABLE_SITE_ENDPOINTS` | the GMA |
+| `enrol` | The GMA enrols the site from the registration its LMA reports | the GMA |
+| `join` | The app adds the hospital: its pages come from its LMA, and every later round invites it | the app |
+| `check` | The planner plans the next round and says whether it selects the hospital | the GMA's planner |
+
+A failure in steps 2 to 6 undoes what the attempt did, newest first: the
+enrolment is withdrawn, the GMA drops the address, and a service the attempt
+started is stopped. A failed `check` keeps the hospital and gives the
+planner's reason. The new LMA reads its tokens, its database address and the
+GMA's address from an env file the Compose file names, readable by its owner
+only, so the file, the answers and the logs hold no secret. Any page can read
+the view, so the answers show `<port>`, `<python>`, `<env folder>` and
+`<deploy folder>` in place of the new LMA's port, the Python path and the
+folders on the server, and name a log file by its name in the deploy folder.
+After a join, four hospitals share three series colours, so no hospital keeps
+a colour on any chart. A GMA that restarts forgets the address of a hospital
+that joined; the app sends it again before each pilot, and before the
+overview, the status report and the consortium charts when the GMA's report
+leaves the hospital out.
+
+Adding a hospital is off by default (`HEALTHCARE_DEMO_DEPLOYER=off`). The app
+refuses to start with it on when `RENDER` is set, when the agents run in
+process, without a database, core-service or the joining hospital's address
+and token, or, in process mode, when `HEALTHCARE_DEMO_API_HOST` is not
+127.0.0.1 or localhost.
+The published demo runs the agents in process, so its view says why it cannot
+add a hospital, and the POST is refused.
+
+### Read whether this server can add a hospital
+
+```api-endpoint
+GET /api/v1/deployments
+```
+
+Returns `available`, the `reason` when it is not, the `applier` (`off`,
+`process` or `compose`), every hospital that can join with its `records` (read
+from the dataset module, never from the hospital's store), `in_consortium`
+and whether its LMA runs (`service`), and the attempts since the app started,
+newest first, at most 20, kept in memory. The reasons, first match wins:
+
+1. The agents run in the API process.
+2. The deployer is off.
+3. core-service does not answer its health check.
+4. The GMA does not answer `GET /api/v1/federation/site-addresses`.
+5. The GMA does not list the hospital as joinable.
+
+The checks of core-service and the GMA are reused for 15 seconds, and a POST
+clears them. When the GMA no longer holds the address of a hospital that
+joined, as after it restarted, the check sends it again. It reads no
+hospital's records and has no `Origin` check.
+
+**Errors.** None of its own.
+
+**Related.** [Add a hospital](#healthcare-demo-backend-post-api-v1-deployments),
+[the GMA's site addresses](agents.md#gma-get-api-v1-federation-site-addresses).
+
+### Add a hospital
+
+```api-endpoint
+POST /api/v1/deployments
+```
+
+Runs the seven steps for the hospital in `site_id` and returns the attempt:
+its `steps`, each with a `status` (`done`, `skipped`, `failed`, `undone` or
+`not_run`), a plain `detail` and its `seconds`; the rendered `compose_yaml`;
+any `issues` the planner gave; `next_round`; and the attempt's own
+`framework_calls`. `status` is `joined` when every step up to `join` is done or
+skipped, even if `check` failed, and `failed` otherwise. A failed attempt is
+still a `200`: the body says which step failed and why.
+
+The body names a hospital and nothing else: the address, port, image and
+command come from the server's settings. A browser's `Origin` must be
+`127.0.0.1`, `localhost` or `::1`; any other host, and `null`, get `403` before
+the body is read, so a page on another site cannot make a browser start a
+process. A request without `Origin`, such as one from curl, passes. In
+process mode a request whose TCP client is not this machine gets `403` before
+the body is read, whatever address the API listens on. In compose mode the API
+sees Docker's proxy as the client, so `docker-compose.deploy.yml` publishes
+the API on 127.0.0.1 only. A pilot and an addition share one flight, so they
+never run at the same time.
+
+The examples ran on a server with the agents in process, so they show the
+refusals.
+
+**Errors.** `403` from a page on another host, in process mode from a client
+on another machine, or when adding a hospital is not available; the detail
+says which. `409` while a pilot runs ("A pilot is
+running. Add the hospital when it has finished."), while another hospital is
+being added, or when the hospital is in the consortium and its LMA answers.
+`422` for a body that is not `{"site_id": ...}` with a hospital that can join.
+
+**Related.** [Read the view](#healthcare-demo-backend-get-api-v1-deployments),
+[run the pilot](#healthcare-demo-backend-post-api-v1-pilot-run),
+[render a Compose file](framework-services.md#core-service-post-api-v1-manifests-compose),
+[accept a joinable site's address](agents.md#gma-put-api-v1-federation-sites-site-id-address).
 
 ## The framework
 
@@ -1512,6 +1644,39 @@ example: healthcare-demo-backend status /response/body/agents
 How the Dagents agents run behind the demo, as
 [framework status](#healthcare-demo-backend-get-api-v1-framework-status)
 reports it. The page's "Who does what" panel shows it.
+
+### The DeploymentsView object
+
+```api-object
+class: app.models.DeploymentsView
+service: healthcare-demo-backend
+example: healthcare-demo-backend deployments /response/body
+```
+
+Whether this server can add a hospital, which hospitals can join, and the
+attempts so far, as [the view](#healthcare-demo-backend-get-api-v1-deployments)
+returns it.
+
+### The Deployment object
+
+```api-object
+class: app.models.Deployment
+service: healthcare-demo-backend
+```
+
+One attempt to add a hospital, as [the POST](#healthcare-demo-backend-post-api-v1-deployments)
+returns it and the view lists it. A step's `detail` never holds an address or
+a token. No example: the examples ran on a server that cannot add a hospital.
+
+### The DeploymentRequest object
+
+```api-object
+class: app.models.DeploymentRequest
+service: healthcare-demo-backend
+example: healthcare-demo-backend deploy-in-process /request/json
+```
+
+The hospital to add. Any other key is refused with `422`.
 
 ### The PilotRequest object
 

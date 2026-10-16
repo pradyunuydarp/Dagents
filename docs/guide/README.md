@@ -21,7 +21,7 @@ lists every endpoint and its fields.
   sources may join, whether enough of them answered, and whether the result may
   be released.
 - **Planning services.** HTTP services that validate pipelines, choose a model
-  family for a dataset and render Kubernetes manifests.
+  family for a dataset and render Kubernetes manifests and Docker Compose files.
 
 Your application keeps what only it can know: its fields, its records, its
 models and its user interface.
@@ -59,7 +59,7 @@ which sources may join a round, and whether a release gate passes.
 | | A. Call the services | B. Extension and agents | C. Python building blocks |
 |---|---|---|---|
 | **You write** | HTTP calls from any language | An extension (fields, sensitivity, release gates), your list of approved purposes, and one data store per source | Python code that calls the framework's classes |
-| **Dagents gives you** | Pipeline validation and runs, model routing, workload plans and Kubernetes manifests | The Guard at four boundaries, federated rounds, release decisions, audit logs | The same parts as B, wired the way your application needs |
+| **Dagents gives you** | Pipeline validation and runs, model routing, workload plans, Kubernetes manifests and Docker Compose files | The Guard at four boundaries, federated rounds, release decisions, audit logs | The same parts as B, wired the way your application needs |
 | **What it costs** | No Guard on your data: the services see what you send them | You run an LMA per source and a GMA, as separate processes or inside your own, and keep the planner on each machine | You own the wiring; the framework's HTTP agents are not used |
 | **Example in this repository** | NL2SQL demo: [`dagents_orchestrator.py`](../../services/nl2sql-demo/backend/app/services/dagents_orchestrator.py) | Stroke demo: [`extension.py`](../../apps/healthcare-demo/backend/app/extension.py) and [`agents.py`](../../apps/healthcare-demo/backend/app/services/agents.py) | The [worked example](../../examples/getting-started/) used in this guide |
 

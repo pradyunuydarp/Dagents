@@ -45,6 +45,9 @@ from dagents.common.domain.federation import (
     RoundManifest,
     RoundPlan,
     RoundRecord,
+    SiteAddressList,
+    SiteAddressRequest,
+    SiteAddressState,
     SiteRegistration,
     SiteResult,
     UpdateReceipt,
@@ -67,6 +70,7 @@ from dagents.gma.app_factory import HandlerThreads
 from dagents.gma.application.aggregation_service import AggregationService
 from dagents.gma.application.model_registry import ModelRegistry, UnknownModelKind
 from dagents.gma.application.release_service import ReleaseService
+from dagents.gma.application.site_addresses import SiteAddressBook
 from dagents.gma.application.site_directory import SiteDirectory
 from dagents.gma.domain.errors import SourceReadsDisabled
 from dagents.gma.domain.models import (
@@ -132,6 +136,10 @@ async def _releases(request: Request) -> ReleaseService:
     return request.app.state.gma.releases
 
 
+async def _addresses(request: Request) -> SiteAddressBook:
+    return request.app.state.gma.addresses
+
+
 async def _extensions(request: Request) -> ExtensionRegistry:
     return request.app.state.gma.extensions
 
@@ -152,6 +160,7 @@ ModelsDep = Annotated[ModelRegistry, Depends(_models)]
 UpdatesDep = Annotated[InMemoryUpdateStore, Depends(_updates)]
 DirectoryDep = Annotated[SiteDirectory, Depends(_directory)]
 ReleasesDep = Annotated[ReleaseService, Depends(_releases)]
+AddressesDep = Annotated[SiteAddressBook, Depends(_addresses)]
 ExtensionsDep = Annotated[ExtensionRegistry, Depends(_extensions)]
 ThreadsDep = Annotated[HandlerThreads, Depends(_upload_threads)]
 
@@ -946,6 +955,106 @@ def site_summaries(directory: DirectoryDep, include: Annotated[Literal["audit"] 
 def site_summaries_v1(directory: DirectoryDep, include: Annotated[Literal["audit"] | None, _INCLUDE] = None):
     """Versioned alias for the site summaries."""
     return site_summaries(directory, include=include)
+
+
+# --------------------------------------------------------------------------- #
+# Federation: site addresses
+# --------------------------------------------------------------------------- #
+
+
+_ADDRESS_SITE_ID = Path(description="The site's id, as in `GMA_SITE_ENDPOINTS` or `GMA_JOINABLE_SITE_ENDPOINTS`.")
+_ADDRESS_RESPONSES = {
+    200: {"model": SiteAddressState, "description": "The address is held. `source` says where it came from."},
+    403: _coded(
+        "`not_joinable`: the site is not in `GMA_JOINABLE_SITE_ENDPOINTS` (a GMA with no HTTP network has no joinable "
+        "site). `address_differs`: the address differs from the one listed for the site. `forbidden`: the token is "
+        "not the admin token."
+    ),
+    409: _coded("`configured_elsewhere`: the site is in `GMA_SITE_ENDPOINTS` with another address."),
+    422: _coded_or_invalid_body(
+        "The body is not `{url}`, or `url` is not an http or https base address (`invalid_request`)."
+    ),
+}
+
+
+@router.put("/federation/sites/{site_id}/address", responses=_ADDRESS_RESPONSES, dependencies=ADMIN)
+def register_site_address(
+    site_id: Annotated[str, _ADDRESS_SITE_ID], body: SiteAddressRequest, addresses: AddressesDep
+) -> SiteAddressState:
+    """Give the GMA the address of a joinable site's LMA, while it runs.
+
+    The GMA accepts only the address `GMA_JOINABLE_SITE_ENDPOINTS` lists for
+    the site, and adds it to its agent network, in memory. From then on the
+    site refresh, the site summaries and round dispatch call that LMA, with
+    the coordinator token in `GMA_LMA_TOKENS`. A configured site at its own
+    address is accepted as `configured`; sending a joined site's address again
+    changes nothing. The route does not enrol the site: call
+    `POST /api/v1/federation/sites:refresh` next. No answer or log line repeats
+    the address.
+    """
+    return addresses.attach(site_id, body.url)
+
+
+@router.put("/api/v1/federation/sites/{site_id}/address", responses=_ADDRESS_RESPONSES, dependencies=ADMIN)
+def register_site_address_v1(
+    site_id: Annotated[str, _ADDRESS_SITE_ID], body: SiteAddressRequest, addresses: AddressesDep
+) -> SiteAddressState:
+    """Versioned alias for giving the GMA a joinable site's address."""
+    return register_site_address(site_id, body, addresses)
+
+
+_REMOVE_ADDRESS_RESPONSES = {
+    204: {"description": "The joined address is removed, or the joinable site had not joined."},
+    403: _coded("`not_joinable`: the site is not in `GMA_JOINABLE_SITE_ENDPOINTS`. `forbidden`: not the admin token."),
+    409: _coded("`configured`: the site's address comes from `GMA_SITE_ENDPOINTS`, so it stays."),
+}
+
+
+@router.delete(
+    "/federation/sites/{site_id}/address", status_code=204, responses=_REMOVE_ADDRESS_RESPONSES, dependencies=ADMIN
+)
+def remove_site_address(site_id: Annotated[str, _ADDRESS_SITE_ID], addresses: AddressesDep) -> Response:
+    """Remove a joined site's address from the GMA's agent network.
+
+    The GMA closes its client for that LMA and calls it no more: the site
+    refresh and the summaries leave it out, and a round that still selects it
+    records a failed result without calling it. Withdraw the site's enrolment
+    first (`PUT /api/v1/federation/sites/{site_id}` with `enrolled: false`), so
+    the next plan does not select it.
+    """
+    addresses.detach(site_id)
+    return Response(status_code=204)
+
+
+@router.delete(
+    "/api/v1/federation/sites/{site_id}/address",
+    status_code=204,
+    responses=_REMOVE_ADDRESS_RESPONSES,
+    dependencies=ADMIN,
+)
+def remove_site_address_v1(site_id: Annotated[str, _ADDRESS_SITE_ID], addresses: AddressesDep) -> Response:
+    """Versioned alias for removing a joined site's address."""
+    return remove_site_address(site_id, addresses)
+
+
+_ADDRESS_LIST_RESPONSES = {200: {"model": SiteAddressList, "description": "The joinable sites and every held address's source."}}
+
+
+@router.get("/federation/site-addresses", responses=_ADDRESS_LIST_RESPONSES, dependencies=ADMIN)
+def list_site_addresses(addresses: AddressesDep) -> SiteAddressList:
+    """List the sites that may join while the GMA runs, and where each address the GMA holds came from.
+
+    `joinable` is `GMA_JOINABLE_SITE_ENDPOINTS`'s sites, joined or not;
+    `sites` is every configured or joined site. No address is listed. A GMA
+    with no HTTP network answers two empty lists.
+    """
+    return addresses.listing()
+
+
+@router.get("/api/v1/federation/site-addresses", responses=_ADDRESS_LIST_RESPONSES, dependencies=ADMIN)
+def list_site_addresses_v1(addresses: AddressesDep) -> SiteAddressList:
+    """Versioned alias for listing the site addresses."""
+    return list_site_addresses(addresses)
 
 
 # --------------------------------------------------------------------------- #

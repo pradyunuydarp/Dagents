@@ -65,6 +65,7 @@ environment.
 | `GMA_API_HOST`, `GMA_API_PORT` | none | Where uvicorn serves the GMA in the container; the app does not read them |
 | `GMA_ENGINE` | `in-process` | `in-process` (the simulator) or `http` (jobs go to the LMAs over their HTTP API) |
 | `GMA_SITE_ENDPOINTS` | none | `SITE=URL,...`: each LMA's base address. Only these addresses are called, so an enrolment cannot point the GMA elsewhere |
+| `GMA_JOINABLE_SITE_ENDPOINTS` | none | `SITE=URL,...`: sites that may join while the GMA runs, each with the one address the GMA accepts for it. See [Sites that join while the GMA runs](#sites-that-join-while-the-gma-runs) |
 | `GMA_LMA_TOKENS` | none | `SITE=TOKEN,...`: the coordinator token the GMA sends to each LMA |
 | `GMA_ADMIN_TOKEN` | none | The study operator's token (`admin` scope) |
 | `GMA_SITE_TOKENS` | none | `SITE=TOKEN,...`: each LMA's token for its update uploads and the released model (`site` scope, bound to the site) |
@@ -78,7 +79,8 @@ environment.
 | `GMA_ALLOW_SOURCE_READS` | `1` | `0` makes the source, dataset profile and model job routes answer `403` |
 | `GMA_REQUIRE_TOKENS` | `0` | `1` refuses to start without a token |
 
-`env/.env.gma` sets only the names and the port. Set the rest in the
+`env/.env.gma` sets the names, the port and an empty
+`GMA_JOINABLE_SITE_ENDPOINTS`. Set the rest in the
 environment; never commit a token or a database address. A GMA whose
 configured registry has condition packs runs its Guard strict about
 classifications: a request whose inline classification differs from the
@@ -92,6 +94,9 @@ The routes for sites, rounds and model versions, in their `/api/v1` form:
 | Route | Token scope | What it does |
 |---|---|---|
 | `POST /federation/sites:refresh` | `admin` | Ask each configured LMA for its registration, at the same time, and enrol it |
+| `PUT /federation/sites/{site_id}/address` | `admin` | Accept a joinable site's LMA address and add it to the agent network. `403` `not_joinable` or `address_differs`, `409` `configured_elsewhere` |
+| `DELETE /federation/sites/{site_id}/address` | `admin` | Remove a joined site's address (`204`). `409` `configured` for a configured site |
+| `GET /federation/site-addresses` | `admin` | The joinable sites and, for every address the GMA holds, whether it is `configured` or `joined`. No address is listed |
 | `GET /federation/sites/summaries?include=audit` | `admin` | What each LMA reports: counts, the permitted label rate and, with `include=audit`, its audit chain state |
 | `POST /federation/rounds` | `admin` | Plan and dispatch a round. `409` for a round id already used |
 | `POST /federation/rounds/{round_id}/results` | `admin` | Record a site's result. `403` for a site the plan did not select, `409` for an aggregated or closed round, and `409` for every round when the HTTP engine collects the results from the LMAs |
@@ -131,11 +136,46 @@ records `metrics_source: rounds` in a release decision. The update upload runs
 on a small thread pool of the GMA's own (8 threads), so an upload never waits
 for the server threads that the dispatches hold.
 
+## Sites that join while the GMA runs
+
+A GMA reaches each LMA through its agent network. At start the network holds
+the addresses in `GMA_SITE_ENDPOINTS`. `GMA_JOINABLE_SITE_ENDPOINTS` lists the
+sites that may join later, in the same `SITE=URL` form. Each entry is the one
+address the GMA accepts for that site.
+
+1. The study operator starts the new site's LMA.
+2. `PUT /api/v1/federation/sites/{site_id}/address` with `{"url": "..."}`
+   adds the address to the agent network, in memory.
+3. `POST /api/v1/federation/sites:refresh` enrols the site from its own
+   registration, as for a configured site. The site summaries and round
+   dispatch call it from then on.
+
+The address route applies these rules, in order: a configured site at its own
+address is accepted as `configured`; a configured site at another address gets
+`409` `configured_elsewhere`; a site that is not joinable gets `403`
+`not_joinable`; an address other than the listed one gets `403`
+`address_differs`; a site that joined already is accepted again, with no
+second client. A trailing `/` is ignored, and an address that is not a base
+address gets `422`. No answer or log line repeats an address.
+
+The GMA refuses to start when a site is in both lists, when a joinable address
+is not a base address, when `GMA_ENGINE` is not `http`, when it is handed an
+in-process agent network, or, with tokens, when a joinable site has no entry
+in `GMA_LMA_TOKENS` or `GMA_SITE_TOKENS`: without them it could neither call
+the LMA nor accept its update.
+
+A restarted GMA forgets the joined addresses; the operator sends them again.
+To take a site out, withdraw its enrolment first
+(`PUT /api/v1/federation/sites/{site_id}` with `enrolled: false`), then
+`DELETE /api/v1/federation/sites/{site_id}/address`. A round that still
+selects a site with no address records a `failed` result without calling it.
+
 ## Errors
 
 The GMA answers its own errors as `{"detail": ..., "code": ...}`: `401`
-`unauthorized`, `403` `forbidden`, `404` `not_found`, `409` `conflict` or
-`aggregation_refused`, `422` `invalid_request`, `502` `agent_error`, `503`
+`unauthorized`, `403` `forbidden`, `not_joinable` or `address_differs`, `404`
+`not_found`, `409` `conflict`, `aggregation_refused`, `configured_elsewhere` or
+`configured`, `422` `invalid_request`, `502` `agent_error`, `503`
 `planner_unavailable`, `store_unavailable`, `store_not_set_up` or
 `agent_unavailable`. A lifecycle
 refusal adds `refusal`. Routes that existed before keep FastAPI's `{detail}`
@@ -149,6 +189,7 @@ or a connection string.
 | Model versions, their status and latest release decision | `InMemoryModelStore`, or `PostgresModelStore` with `GMA_MODEL_TABLE` |
 | The release Guard's audit chain | Memory, or `PostgresAuditSink` with `GMA_AUDIT_TABLE` |
 | Enrolments and rounds | Memory |
+| Addresses of joined sites | Memory, in the agent network |
 | Clipped training updates | Memory, until aggregation or discard |
 
 A restart during a round loses the round and its updates, so it cannot be
@@ -158,7 +199,7 @@ aggregated. Model versions, decisions and audit chains survive in Postgres.
 
 - `domain/`: pure models and errors
 - `application/`: `model_registry.py`, `release_service.py`,
-  `site_directory.py`, `aggregation_service.py`
+  `site_directory.py`, `site_addresses.py`, `aggregation_service.py`
 - `adapters/`: `http_federation_engine.py`, `telemetry_sink.py`
 - `infrastructure/`: `update_store.py`, `postgres_models.py`, in-memory
   persistence

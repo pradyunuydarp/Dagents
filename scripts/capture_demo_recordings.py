@@ -80,13 +80,18 @@ AUDIT_LIMIT = 50
 ENTERED_LIMIT = 20
 CHART_THEMES = ("light", "dark")
 
+#: What the panel to add a hospital reads.
+DEPLOYMENTS_PATH = "/api/v1/deployments"
+
 #: Settings for the healthcare backend during a capture: the agents inside the
 #: demo server, as on the published demo (network mode would also need a
 #: database); no database, so the hospitals read the committed extract; and no
 #: rate limits or hourly caps, because the capture sends 150 probes in a few
-#: seconds.
+#: seconds. Adding a hospital is off, as on the published demo, so the recorded
+#: panel lists the hospital that can join and offers no button.
 HEALTHCARE_CAPTURE_ENV = {
     "HEALTHCARE_DEMO_AGENTS": "in-process",
+    "HEALTHCARE_DEMO_DEPLOYER": "off",
     "HEALTHCARE_DEMO_DATABASE_URL": "",
     "HEALTHCARE_DEMO_SITE_UK_134_DATABASE_URL": "",
     "HEALTHCARE_DEMO_SITE_IT_002_DATABASE_URL": "",
@@ -415,13 +420,18 @@ def capture_healthcare(recorder: Recorder) -> None:
     """Walk every request the healthcare UI can make.
 
     Data entry is not recorded: a recorded POST could not change the GETs
-    after it, so the replay disables the form instead.
+    after it, so the replay disables the form instead. Adding a hospital is
+    not recorded either: it starts a process, which a replay cannot, so the
+    replay shows the hospitals that can join and no button.
     """
     recorder.phase = "before_pilot"
     recorder.get("/api/v1/framework/status")
     overview = recorder.get("/api/v1/overview")
     recorder.get("/api/v1/hospitals")
     recorder.get("/api/v1/models")
+    # The panel to add a hospital lists the hospitals that can join. With the
+    # deployer off the answer says why and lists no attempt.
+    recorder.get(DEPLOYMENTS_PATH)
     site_ids = [hospital["site_id"] for hospital in overview["hospitals"]]
     for site_id in site_ids:
         capture_hospital(recorder, site_id)

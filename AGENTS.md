@@ -11,7 +11,7 @@ This repository is the generic home for:
 - shared control-plane contracts
 - reusable pipeline execution services
 - data-analysis and model-training utilities that should not live inside a single product codebase
-- parameterized Kubernetes manifest generation for framework workloads
+- parameterized Kubernetes manifest and Docker Compose file generation for framework workloads
 
 ## Repository Scope
 
@@ -33,7 +33,7 @@ Current scope by area:
 - `dagents/common/extensions/`: the interface consumer apps contribute domain semantics through
 - `apps/healthcare-demo/`: a self-contained consumer app, extractable into its own repository
 - `bindings/ocaml/`: the typed planning layer, including governance and federation compilers
-- `services/core-service/`: framework service catalog, topology endpoint, and Kubernetes manifest generation
+- `services/core-service/`: framework service catalog, topology endpoint, and Kubernetes manifest and Docker Compose file generation
 - `services/model-service/`: generic anomaly-model training and inference service
 - `services/pipeline-service/`: reusable JSON pipeline orchestration and ML workflow service
 - `contracts/grpc/dagents/agents/v1/`: shared control-plane protobuf contracts
@@ -120,7 +120,7 @@ The intended operating flow across the framework is:
 4. LMA optionally calls local product services.
 5. LMA pushes source-level outputs to GMA or downstream storage.
 6. GMA runs aggregate models over assimilated datasets.
-7. Core service generates Kubernetes manifests for the required workloads.
+7. Core service generates Kubernetes manifests or Docker Compose files for the required workloads.
 8. Downstream orchestration systems apply manifests and consume model outcomes.
 
 A federated round follows its own flow: the GMA plans the round with the
@@ -171,6 +171,7 @@ Purpose:
 - service discovery metadata
 - runtime topology inspection
 - parameterized Kubernetes manifest generation for framework workloads
+- Docker Compose files for workloads that join a project Docker Compose already runs
 
 Current API:
 
@@ -178,6 +179,9 @@ Current API:
 - `GET /api/v1/services`
 - `GET /api/v1/topology`
 - `POST /api/v1/manifests/pods`
+- `POST /api/v1/manifests/compose`
+- `POST /api/v1/workloads:compile`
+- `GET /api/v1/workload-plans/{plan_id}`
 
 ### Model Service
 
@@ -263,7 +267,7 @@ Implemented framework capabilities currently include:
 - LMA source dataset profiling and source-level model execution
 - GMA assimilated dataset profiling and aggregate model execution
 - pipeline-level dataset profiling and model job steps
-- core-service Kubernetes manifest generation for workload deployment
+- core-service Kubernetes manifest and Docker Compose file generation for workload deployment
 - GRAILS-style governance: the Ethical-Restriction Rails as a typed OCaml planner, and the Ethical
   Guard enforcing its decisions in the LMA and GMA request paths with a digest-chained audit log
 - federated round control: signed round manifests, site eligibility, quorum, aggregation
@@ -470,7 +474,11 @@ Two consumers in this repository show the boundary, and both are published:
   hospital and a GMA only through their HTTP APIs, with
   `dagents/common/infrastructure/agent_client.py`: in its own process through
   `httpx.ASGITransport` on the published demo, or over HTTP when the agents run as separate
-  processes (`scripts/run_local_demo.sh --agents network`, its compose file). Every successful
+  processes (`scripts/run_local_demo.sh --agents network`, its compose file). A network-mode
+  run on one machine can add a fourth hospital while it runs (`--deploy`, or
+  `docker-compose.deploy.yml`): core-service renders the new LMA's Compose file, an applier
+  from `dagents/common/infrastructure/compose_apply.py` starts it, and the GMA accepts only the
+  address its `GMA_JOINABLE_SITE_ENDPOINTS` lists. Every successful
   answer whose body is a JSON object lists the agent calls behind it (`framework_calls`); errors,
   the hospital list and the SVG charts do not. Nothing in `dagents/` knows what a stroke
   is, and nothing in the app re-implements a quorum rule.

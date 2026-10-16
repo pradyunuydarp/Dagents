@@ -42,6 +42,22 @@ def default_limits() -> dict[str, int]:
     }
 
 
+def served_to(app: Any, host: str, port: int = 50000) -> Any:
+    """``app`` as uvicorn serves it to a client at ``host``.
+
+    ``TestClient`` reports its client as ``testclient``, which is not an IP
+    address. The route that adds a hospital in process mode checks the TCP
+    peer, so its tests wrap the app to set the ASGI scope's ``client``.
+    """
+
+    async def wrapped(scope: dict[str, Any], receive: Any, send: Any) -> None:
+        if scope["type"] in ("http", "websocket"):
+            scope = {**scope, "client": (host, port)}
+        await app(scope, receive, send)
+
+    return wrapped
+
+
 def without_calls(body: Any) -> Any:
     """A JSON object without its ``framework_calls`` field, for tests that compare a whole body."""
     if isinstance(body, dict):

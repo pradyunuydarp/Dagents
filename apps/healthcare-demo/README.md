@@ -56,8 +56,12 @@ A poor outcome is death or dependency at six months (the trial's `OCCODE`). Ever
 record in the extract has one.
 
 `data/ist/ist_three_hospitals.csv` holds the 1,014 records, mapped to the demo's
-feature contract. `scripts/extract_ist.py` regenerates it from a pinned copy of
-the source file and checks its SHA-256. The extract leaves out the trial's own
+feature contract. `data/ist/ist_joining_hospitals.csv` holds the 263 records of
+Hospital 290 (Poland), the hospital with the most patients in the country with
+the fourth most, chosen by the same rule. It is not in the consortium at start;
+a local network-mode run can add it while the demo runs. 3 of its records have
+no six-month outcome. `scripts/extract_ist.py` regenerates both files from a
+pinned copy of the source file and checks their SHA-256. The extract leaves out the trial's own
 outcome predictions, free-text fields, dates and the treatment allocation;
 [`data/ist/NOTICE.md`](data/ist/NOTICE.md) lists each dropped column and why.
 
@@ -202,6 +206,106 @@ docker compose -f docker-compose.yml --env-file env/.env.healthcare-demo up --bu
 Its `setup` job applies the migrations, loads the records and makes the
 agents' tokens once per volume. The tokens and the data stay until
 `docker compose down -v`. Only the API and the UI are published on the host.
+
+### Add a hospital while the demo runs
+
+Hospital 290 (`pl-290`, Poland, 263 IST records) is not in the consortium at
+start. A network-mode run on your own machine can add it while the demo runs.
+Its records are in its own Postgres schema, `site_pl_290`, seeded with the
+others by `scripts/seed_supabase.py`, after migration
+`0004_joining_site.sql`. Every read of its records goes through its own store,
+acting as its own role: its LMA reads them, and so does the app's view of that
+hospital (its worklist and threshold sweep). The coordinator's role and the
+other hospitals' roles have no grant on its schema.
+
+There are two ways to run it. Both need the database from the section above:
+
+```bash
+scripts/run_frontend_demo.sh --deploy    # the new LMA starts as a local process
+DOCKER_GID=$(stat -c %g /var/run/docker.sock) \
+  docker compose -f docker-compose.yml -f docker-compose.deploy.yml \
+  --env-file env/.env.healthcare-demo up --build   # the new LMA starts as a container
+```
+
+`--deploy` works on `run_local_demo.sh` too, and implies `--agents network`.
+It also starts core-service from `services/core-service` on 127.0.0.1, port
+8040 (`HEALTHCARE_DEMO_CORE_SERVICE_PORT`). Hospital 290's LMA gets port 8085
+(`HEALTHCARE_DEMO_LMA_PL_290_PORT`). The script refuses to start when either
+port already answers. It makes Hospital 290's tokens with the others, writes
+the new LMA's env file in a folder only you can enter, and on exit stops the
+new LMA with the other processes.
+
+`docker-compose.deploy.yml` mounts the Docker socket into the API's container.
+That gives the API control of Docker on the machine, so never use it on a
+shared or public host. It needs Docker Compose 2.33 or later. It adds
+core-service, has `setup` write Hospital 290's tokens and env file, and
+publishes the API and the UI on 127.0.0.1 only. The new LMA runs in its own
+Compose project, `healthcare-demo-lma-pl-290`, with no published port.
+`docker compose down` does not remove it; this does:
+
+```bash
+docker rm -f $(docker ps -aq --filter label=com.docker.compose.project=healthcare-demo-lma-pl-290)
+```
+
+`POST /api/v1/deployments` with `{"site_id": "pl-290"}` runs seven steps. The
+framework makes every decision and does every side effect except the join:
+
+1. `plan`: core-service renders the new LMA's Compose file
+   (`POST /api/v1/manifests/compose`, the OCaml manifest compiler). The app
+   checks the file against what it asked for before anything runs.
+2. `start`: the one service in that file starts, as a local process or with
+   `docker compose`, through an applier from
+   `dagents/common/infrastructure/compose_apply.py`.
+3. `answer`: the new LMA answers its health check and reports site `pl-290`,
+   read from its schema in Postgres.
+4. `attach`: the GMA accepts the LMA's address, but only the one its
+   `GMA_JOINABLE_SITE_ENDPOINTS` lists for `pl-290`.
+5. `enrol`: the GMA enrols the site from the registration its LMA reports.
+6. `join`: the app adds the hospital. Its pages come from its LMA, and every
+   later pilot invites it.
+7. `check`: the GMA's planner plans the next round and says whether it selects
+   the hospital.
+
+A failure in steps 2 to 6 undoes what the attempt did: the enrolment is
+withdrawn, the GMA drops the address, and the service is stopped. A failed
+`check` keeps the hospital and shows the planner's reason. A GMA that restarts
+forgets the address of a hospital that joined. The app sends it again before
+each pilot, and before the overview, the status report and the consortium
+charts when the GMA's report leaves the hospital out.
+`GET /api/v1/deployments` says whether the server can add a hospital and, if
+not, why, and lists the attempts. After a join four hospitals share the three
+chart colours, so no hospital keeps a colour.
+
+The new LMA reads its tokens, its database address and the GMA's address from
+an env file (`lma-pl-290.env`, readable by its owner only) that the Compose
+file names. The Compose file, the answers, the page and the logs hold no
+token. The app answers every origin, so any page can read
+`GET /api/v1/deployments`. Its answers therefore show the Compose file with
+`<port>`, `<python>` and `<env folder>` in place of the new LMA's port, the
+Python path and the env folder, and name a log file by its name in the deploy
+folder. The start script prints that folder when it starts.
+
+Adding a hospital starts a process or a container, so it is off by default
+(`HEALTHCARE_DEMO_DEPLOYER=off`), and the API refuses to start with it on:
+
+- when `RENDER` is set, or the agents run inside the API process;
+- without `HEALTHCARE_DEMO_DATABASE_URL`, `HEALTHCARE_DEMO_CORE_SERVICE_URL`,
+  or the joining hospital's `HEALTHCARE_DEMO_LMA_PL_290_URL` and
+  `HEALTHCARE_DEMO_LMA_PL_290_TOKEN`;
+- when that address is not `http://host:port`, or another agent or the API
+  uses it;
+- in process mode, when the address or the API is not on 127.0.0.1 or
+  localhost;
+- when the env file is missing or other users can read it.
+
+A browser may ask from a page on this machine only: a POST whose `Origin` names
+another host, or `null`, gets `403` before its body is read. In process mode
+the API also refuses a POST whose TCP client is not this machine, so an API
+started by hand with `--host 0.0.0.0` still accepts it only from this machine.
+In compose mode the API sees Docker's proxy as the client, so
+`docker-compose.deploy.yml` publishes the API on 127.0.0.1 only. A pilot and an
+addition never run at the same time. The published demo runs the agents in
+process, so it lists Hospital 290 and says why it cannot add it.
 
 ### Why the planner is required
 
@@ -358,6 +462,21 @@ reason "This hospital's store holds no records yet." The two consortium charts
 of records and outcome rates are listed the same way, with the reason "No
 hospital's store holds records yet.", when every store is empty.
 
+### Add a hospital
+
+The last panel on the consortium page lists the hospital that can join,
+Hospital 290, with its records and whether it is in the consortium. A run
+started with `--deploy` offers a button that adds it; any other run, the
+published demo and its replay say why they offer none. After a press the panel
+shows the seven steps in words, each with its time and one sentence, then the
+Compose file core-service rendered, what the planner's answer for the next
+round means, and the agent calls the attempt made. Focus moves to the attempt,
+and a live region says whether the hospital joined. The page then loads the
+overview, the status and the charts again, so the table, the header and every
+later pilot include the hospital. If a joined hospital's LMA stops, the panel
+offers to start it again, even while the overview cannot load. See
+[Add a hospital while the demo runs](#add-a-hospital-while-the-demo-runs).
+
 ## How it works
 
 ```mermaid
@@ -443,8 +562,9 @@ same alert threshold (an estimated risk of 0.5).
 Every database operation runs in one transaction that starts with `SET LOCAL
 ROLE` and checks `current_user`. Row-level security is on for every table, and
 the migrations revoke all access from Supabase's data API roles
-(`supabase/migrations/0002_site_isolation.sql` and
-`0003_coordinator_records.sql`).
+(`supabase/migrations/0002_site_isolation.sql`,
+`0003_coordinator_records.sql` and `0004_joining_site.sql`, which gives
+Hospital 290 the same schema, role and grants).
 
 **One limit on Supabase.** The API connects with one credential, and on Supabase
 that role also holds `pg_read_all_data`. So the isolation binds the code paths
@@ -526,6 +646,8 @@ owner and safety evidence.
 | `GET /api/v1/models` | the model in use and the 20 newest registered versions |
 | `POST /api/v1/models/{version}:approve` | release a candidate whose gates all passed |
 | `GET /api/v1/framework/status` | where the records are stored, whether every store is ready, each hospital's record counts, how the agents run (`agents`) and which agents answer |
+| `GET /api/v1/deployments` | whether this server can add a hospital while the demo runs, and if not, why; the hospitals that can join and the attempts so far |
+| `POST /api/v1/deployments` | add a hospital (`{"site_id": "pl-290"}`) and report each step; only from this machine, in a network-mode run with the deployer on |
 
 Every successful answer whose body is a JSON object also has
 `framework_calls`: the LMA and GMA calls behind it, by route, with no host and
@@ -624,7 +746,10 @@ submits a data entry, checks that every "Dagents API calls" table names its
 agent and route and holds no address, and fails on any console error or failed
 request. Without a browser it exits 2 and prints `SKIP`.
 `scripts/run_frontend_demo.sh --check --agents network` runs the same test
-against agents in their own processes.
+against agents in their own processes. `scripts/run_frontend_demo.sh --deploy
+--check` also adds Hospital 290 from the page after the other checks, opens
+its page, runs a pilot with it, and prints `ok  deploy: hospital pl-290
+joined`; CI's `deploy-smoke` job requires that line.
 
 `tests/test_network_mode.py` starts the GMA, the three LMAs and the API as five
 uvicorn processes on free loopback ports against a scratch PostgreSQL 16
@@ -632,6 +757,15 @@ database. It checks that a pilot over HTTP gives the same numbers as one in
 process, that an approval releases a candidate at the GMA and at every LMA
 process, and that no answer or log holds a token or an agent's address. It
 needs the database URL above and the planner.
+
+`tests/test_network_deploy.py` starts the same processes plus core-service with
+the deployer on, adds Hospital 290, and checks that the next pilot includes it,
+that a held port fails the `start` step and that the new LMA stops with the
+API. It also runs `run_local_demo.sh --deploy` with stand-in programs to check
+what the script refuses. `tests/test_compose_override.py` reads the merged
+Compose files with `docker compose config` (no daemon is needed) and checks
+that only the API gets the Docker socket and that the API and the UI are
+published on 127.0.0.1 only; it skips without Docker.
 
 Good tests to read first:
 
@@ -646,6 +780,14 @@ Good tests to read first:
   and the GMA reads none
 - `tests/test_pilot_parity.py`: a pilot through the agents gives the same
   numbers as the version before them
+- `tests/test_deployment_flow.py`: each of the seven steps of adding a
+  hospital, each failure and what it undoes, with fakes for core-service, the
+  applier, the new LMA and the GMA
+- `tests/test_deployments_api.py`: the start-up refusals of
+  `HEALTHCARE_DEMO_DEPLOYER`, the `Origin` check and the flight a pilot and an
+  addition share
+- `tests/test_deployment_spec.py`: the Compose request, and the file a real
+  core-service renders from it with the planner
 
 ## Layout
 
@@ -654,7 +796,7 @@ backend/app/
   extension.py           the whole Dagents integration
   domain/
     conditions.py        feature contract, classification, condition pack, release gates, field domains
-    dataset.py           the three IST hospitals and the extract loader
+    dataset.py           the three IST hospitals, the one that can join, and the extract loader
     stroke_rule.py       the seed rule and the shared evaluation
     stroke_model.py      the logistic regression: encoding, local training, updates
     fhir.py              FHIR-shaped ingestion into the contract
@@ -667,6 +809,9 @@ backend/app/
     overview.py          the coordinator's pages, the models and approval, through the GMA
     pilot.py             the study: the pilot's rounds as GMA calls
     charts_service.py    the charts each view shows
+    deployment.py        adds a hospital while the demo runs: the Compose request, the checks, the seven steps
+    core_client.py       asks core-service to render the new LMA's Compose file
+  api/deploy_routes.py   GET and POST /api/v1/deployments, with the Origin check
   main.py                FastAPI app: the public routes, their limits and framework_calls
 data/ist/                the IST extract, its licence and notice
 supabase/                migrations and the role emulation used by the tests
@@ -678,7 +823,10 @@ frontend/
   social-meta.mjs        writes the published address (PUBLIC_SITE_URL) into the link preview tags
   smoke.mjs              drives the UI against a live backend
 docs/screenshots/        screenshots of the UI
-scripts/                 run the demo, run the pilot, extract the data, seed a database, move into its own repository
+scripts/                 run the demo, run the pilot, extract the data, seed a database, write the
+                         agents' settings files, move into its own repository
+docker-compose.yml       the network layout in containers on a local PostgreSQL 16
+docker-compose.deploy.yml  opt-in override that lets Hospital 290 join as a container
 tests/                   the test suite
 ```
 
@@ -707,6 +855,9 @@ planner built, or install Dagents as a dependency.
   reliability or networking. Network mode runs the same code over HTTP on one
   machine. The GMA's HTTP engine, with the app's averaging in a model kind,
   stands in for a federated learning runtime such as Flower or NVIDIA FLARE.
+- **Only Hospital 290 can join, and only on your own machine.** Nothing
+  removes a hospital that joined, and an API restart forgets the join: the
+  next run starts with the three hospitals again.
 - **A restart during a pilot fails that pilot.** The GMA keeps enrolments,
   rounds and pending updates in memory. Model versions, release decisions and
   audit chains survive with a database.

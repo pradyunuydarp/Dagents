@@ -63,7 +63,7 @@ sys.path.insert(0, str(APP_ROOT / "backend"))
 sys.path.insert(0, str(FRAMEWORK_ROOT))
 
 from app.core.config import lma_token_variable, lma_url_variable, settings  # noqa: E402
-from app.domain.dataset import SITES, load_site_records  # noqa: E402
+from app.domain.dataset import JOINING_SITES, SITES, load_site_records  # noqa: E402
 from app.services.agents import HealthcareDemo, gma_environment, lma_environment  # noqa: E402
 from app.services.site_store import PostgresSiteStore  # noqa: E402
 from tests import test_pilot_parity as parity  # noqa: E402
@@ -104,13 +104,28 @@ def _bound_socket() -> socket.socket:
 
 
 class _Process:
-    """One uvicorn process serving on a socket this test bound."""
+    """One uvicorn process serving on a socket this test bound.
+
+    It runs from the framework's root with the framework and the app's backend
+    on its ``PYTHONPATH``, unless ``cwd`` and ``pythonpath`` say otherwise
+    (core-service, whose package is also named ``app``).
+    """
 
     def __init__(
-        self, name: str, app: str, environment: dict[str, str], log_dir: Path, paths: tuple[Path, ...] = ()
+        self,
+        name: str,
+        app: str,
+        environment: dict[str, str],
+        log_dir: Path,
+        paths: tuple[Path, ...] = (),
+        *,
+        cwd: Path | None = None,
+        pythonpath: tuple[Path, ...] | None = None,
     ) -> None:
         self.name = name
         self.paths = paths
+        self.cwd = cwd or FRAMEWORK_ROOT
+        self.pythonpath = pythonpath
         self.sock = _bound_socket()
         self.port = self.sock.getsockname()[1]
         self.url = f"http://127.0.0.1:{self.port}"
@@ -124,11 +139,10 @@ class _Process:
         if os.sep in env.get("DAGENTSC_BIN", ""):
             # The processes run from the framework's root, not from this directory.
             env["DAGENTSC_BIN"] = os.path.abspath(env["DAGENTSC_BIN"])
+        pythonpath = self.pythonpath or (FRAMEWORK_ROOT, APP_ROOT / "backend", *self.paths)
         env.update(
             {
-                "PYTHONPATH": os.pathsep.join(
-                    [str(FRAMEWORK_ROOT), str(APP_ROOT / "backend"), *(str(path) for path in self.paths)]
-                ),
+                "PYTHONPATH": os.pathsep.join(str(path) for path in pythonpath),
                 "PYTHONUNBUFFERED": "1",
                 # Every call here stays on loopback.
                 "NO_PROXY": "127.0.0.1,localhost",
@@ -139,7 +153,7 @@ class _Process:
         with self.log_path.open("wb") as log:
             self.process = subprocess.Popen(
                 [sys.executable, "-c", SERVE, self.app, str(self.sock.fileno())],
-                cwd=str(FRAMEWORK_ROOT),
+                cwd=str(self.cwd),
                 env=env,
                 stdout=log,
                 stderr=subprocess.STDOUT,
@@ -212,7 +226,18 @@ class _AgentProcesses:
     :meth:`start_cluster` starts them; :meth:`tearDownClass` stops them and
     drops the database. ``agent_settings`` are added to the GMA's and each
     LMA's settings, and ``paths`` to every process's ``PYTHONPATH``.
+
+    With ``deploy``, it also seeds the joining hospital's schema, starts
+    core-service, and gives the GMA and the API the settings
+    ``run_local_demo.sh --deploy`` gives them: the GMA accepts the joining
+    hospital's one address and holds its tokens, the new LMA's env file is in
+    a folder only this user can enter, and the API runs with
+    ``HEALTHCARE_DEMO_DEPLOYER=process``. The API starts the new LMA itself.
     """
+
+    core: _Process | None = None
+    joining_port: int = 0
+    deploy_dir: Path | None = None
 
     db: SupabaseLikeDatabase
     log_dir: tempfile.TemporaryDirectory[str]
@@ -223,32 +248,35 @@ class _AgentProcesses:
     responses: list[Any]
 
     @classmethod
-    def start_cluster(cls, agent_settings: dict[str, str] | None = None, paths: tuple[Path, ...] = ()) -> None:
+    def start_cluster(
+        cls, agent_settings: dict[str, str] | None = None, paths: tuple[Path, ...] = (), *, deploy: bool = False
+    ) -> None:
         cls.db = SupabaseLikeDatabase(admin_dsn_or_skip())
         cls.log_dir = tempfile.TemporaryDirectory(prefix="healthcare-network-")
         cls.lmas = {}
         cls.responses = []
         cls.db.start()
-        for site in SITES:
+        for site in (*SITES, *(JOINING_SITES if deploy else ())):
             store = PostgresSiteStore(site, cls.db.dsn)
             try:
                 store.seed_dataset(load_site_records(site.site_id))
             finally:
                 store.close()
-        cls._start_processes(agent_settings or {}, paths)
+        cls._start_processes(agent_settings or {}, paths, deploy)
 
     @classmethod
     def log_path(cls) -> Path:
         return Path(cls.log_dir.name)
 
     @classmethod
-    def _start_processes(cls, agent_settings: dict[str, str], paths: tuple[Path, ...]) -> None:
+    def _start_processes(cls, agent_settings: dict[str, str], paths: tuple[Path, ...], deploy: bool = False) -> None:
         log_dir = cls.log_path()
         token = lambda: secrets.token_urlsafe(32)  # noqa: E731 - a one-line factory
+        joining = [site.site_id for site in JOINING_SITES] if deploy else []
         site_ids = [site.site_id for site in SITES]
-        lma_site = {site_id: token() for site_id in site_ids}
-        lma_coordinator = {site_id: token() for site_id in site_ids}
-        gma_site = {site_id: token() for site_id in site_ids}
+        lma_site = {site_id: token() for site_id in [*site_ids, *joining]}
+        lma_coordinator = {site_id: token() for site_id in [*site_ids, *joining]}
+        gma_site = {site_id: token() for site_id in [*site_ids, *joining]}
         admin = token()
         cls.tokens = {"gma admin": admin}
         cls.tokens.update({f"lma site {site_id}": value for site_id, value in lma_site.items()})
@@ -281,15 +309,17 @@ class _AgentProcesses:
             paths,
         )
 
-        cls.gma.start(
-            {
-                "GMA_DATABASE_URL": cls.db.dsn,
-                "GMA_SITE_ENDPOINTS": _site_map({site_id: lma.url for site_id, lma in cls.lmas.items()}),
-                "GMA_LMA_TOKENS": _site_map(lma_coordinator),
-                "GMA_ADMIN_TOKEN": admin,
-                "GMA_SITE_TOKENS": _site_map(gma_site),
-            }
-        )
+        gma_extra = {
+            "GMA_DATABASE_URL": cls.db.dsn,
+            "GMA_SITE_ENDPOINTS": _site_map({site_id: lma.url for site_id, lma in cls.lmas.items()}),
+            "GMA_LMA_TOKENS": _site_map(lma_coordinator),
+            "GMA_ADMIN_TOKEN": admin,
+            "GMA_SITE_TOKENS": _site_map(gma_site),
+        }
+        api_deploy: dict[str, str] = {}
+        if deploy:
+            api_deploy = cls._deploy_settings(joining, gma_extra, lma_site, lma_coordinator, gma_site)
+        cls.gma.start(gma_extra)
         for site_id, lma in cls.lmas.items():
             lma.start(
                 {
@@ -304,14 +334,66 @@ class _AgentProcesses:
             "HEALTHCARE_DEMO_DATABASE_URL": cls.db.dsn,
             "HEALTHCARE_DEMO_GMA_URL": cls.gma.url,
             "HEALTHCARE_DEMO_GMA_TOKEN": admin,
+            "HEALTHCARE_DEMO_API_PORT": str(cls.api.port),
+            **api_deploy,
         }
         for site_id, lma in cls.lmas.items():
             api_extra[lma_url_variable(site_id)] = lma.url
             api_extra[lma_token_variable(site_id)] = lma_site[site_id]
-        for process in (cls.gma, *cls.lmas.values()):
+        for process in (cls.gma, *cls.lmas.values(), *([cls.core] if cls.core is not None else [])):
             process.wait_healthy()
         cls.api.start(api_extra)
         cls.api.wait_healthy()
+
+    @classmethod
+    def _deploy_settings(
+        cls,
+        joining: list[str],
+        gma_extra: dict[str, str],
+        lma_site: dict[str, str],
+        lma_coordinator: dict[str, str],
+        gma_site: dict[str, str],
+    ) -> dict[str, str]:
+        """Start core-service, write the new LMA's env file, add the GMA's settings, and return the API's."""
+        from app.services.deployment import write_env_file
+
+        log_dir = cls.log_path()
+        core_dir = FRAMEWORK_ROOT / "services" / "core-service"
+        cls.core = _Process(
+            "core-service", "app.main:app", {}, log_dir, cwd=core_dir, pythonpath=(FRAMEWORK_ROOT, core_dir)
+        )
+        cls.core.start({})
+        # The API starts the new LMA itself, on this port, so no socket is held for it.
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+            probe.bind(("127.0.0.1", 0))
+            cls.joining_port = probe.getsockname()[1]
+        joining_url = f"http://127.0.0.1:{cls.joining_port}"
+        cls.deploy_dir = log_dir / "deploy"
+        cls.deploy_dir.mkdir(mode=0o700)
+        for site_id in joining:
+            write_env_file(
+                cls.deploy_dir / f"lma-{site_id}.env",
+                {
+                    "LMA_DATABASE_URL": cls.db.dsn,
+                    "LMA_GMA_ENDPOINT": cls.gma.url,
+                    "LMA_GMA_TOKEN": gma_site[site_id],
+                    "LMA_SITE_TOKEN": lma_site[site_id],
+                    "LMA_COORDINATOR_TOKEN": lma_coordinator[site_id],
+                },
+            )
+        gma_extra["GMA_JOINABLE_SITE_ENDPOINTS"] = _site_map({site_id: joining_url for site_id in joining})
+        gma_extra["GMA_DISPATCH_CONCURRENCY"] = str(len(SITES) + len(joining))
+        api = {
+            "HEALTHCARE_DEMO_DEPLOYER": "process",
+            "HEALTHCARE_DEMO_API_HOST": "127.0.0.1",
+            "HEALTHCARE_DEMO_CORE_SERVICE_URL": cls.core.url,
+            "HEALTHCARE_DEMO_DEPLOY_DIR": str(cls.deploy_dir),
+            "HEALTHCARE_DEMO_DEPLOY_ENV_DIR": str(cls.deploy_dir),
+        }
+        for site_id in joining:
+            api[lma_url_variable(site_id)] = joining_url
+            api[lma_token_variable(site_id)] = lma_site[site_id]
+        return api
 
     @classmethod
     def public(cls, method: str, path: str, body: Any = None) -> tuple[int, Any]:
@@ -322,7 +404,12 @@ class _AgentProcesses:
 
     @classmethod
     def tearDownClass(cls) -> None:
-        for process in (getattr(cls, "api", None), *getattr(cls, "lmas", {}).values(), getattr(cls, "gma", None)):
+        for process in (
+            getattr(cls, "api", None),
+            *getattr(cls, "lmas", {}).values(),
+            getattr(cls, "gma", None),
+            getattr(cls, "core", None),
+        ):
             if process is not None:
                 process.stop()
         if getattr(cls, "db", None) is not None:
@@ -393,6 +480,16 @@ class NetworkModeTests(_AgentProcesses, unittest.TestCase):
         services = {service["name"]: service["status"] for service in self.status["services"]}
         expected = {"gma", *(f"lma-{site.site_id}" for site in SITES)}
         self.assertEqual({name: "ok" for name in expected}, {name: services.get(name) for name in expected})
+
+    def test_adding_a_hospital_is_off_in_a_run_without_deploy(self) -> None:
+        from app.services.deployment import REASON_OFF
+
+        status, view = self.public("GET", "/api/v1/deployments")
+        self.assertEqual(200, status, view)
+        self.assertEqual((False, REASON_OFF, "off"), (view["available"], view["reason"], view["applier"]))
+        self.assertEqual([], view["framework_calls"])
+        status, refused = self.public("POST", "/api/v1/deployments", {"site_id": JOINING_SITES[0].site_id})
+        self.assertEqual(403, status, refused)
 
     def test_the_probe_is_answered_by_the_hospitals_lma(self) -> None:
         self.assertTrue(self.probe["permitted"], self.probe)
@@ -627,6 +724,8 @@ class NetworkApprovalTests(_AgentProcesses, unittest.TestCase):
 
 ENV_FILE = APP_ROOT / "env" / ".env.healthcare-demo"
 COMPOSE = APP_ROOT / "docker-compose.yml"
+#: The opt-in override that lets a hospital join; it reads the deploy ports.
+COMPOSE_DEPLOY = APP_ROOT / "docker-compose.deploy.yml"
 SCRIPTS = (APP_ROOT / "scripts" / "run_local_demo.sh", APP_ROOT / "scripts" / "run_frontend_demo.sh")
 
 
@@ -669,8 +768,14 @@ class NetworkSettingsTests(unittest.TestCase):
                     )
 
     def test_the_compose_file_takes_the_agent_and_api_ports_from_the_env_file(self) -> None:
-        """The UI's container port is the one its dev script binds, so only the host side is checked for it."""
-        text = _without_comments(COMPOSE.read_text(encoding="utf-8"))
+        """The UI's container port is the one its dev script binds, so only the host side is checked for it.
+
+        The ports of a hospital that joins and of core-service are read by the
+        deploy override, which runs on top of the compose file.
+        """
+        text = "\n".join(
+            _without_comments(path.read_text(encoding="utf-8")) for path in (COMPOSE, COMPOSE_DEPLOY)
+        )
         ports = {name: value for name, value in _port_settings().items() if name != "HEALTHCARE_DEMO_UI_PORT"}
         for name, value in ports.items():
             with self.subTest(name=name):
@@ -694,7 +799,7 @@ class NetworkSettingsTests(unittest.TestCase):
     def test_no_file_holds_a_token(self) -> None:
         """Tokens are made for each run; none is written in a script, the compose file or the env file."""
         assignment = re.compile(r"^\s*-?\s*(?:export\s+)?[A-Z_]*TOKENS?[=:]\s*['\"]?([A-Za-z0-9_-]{16,})", re.M)
-        for path in (*SCRIPTS, COMPOSE, ENV_FILE):
+        for path in (*SCRIPTS, COMPOSE, COMPOSE_DEPLOY, ENV_FILE):
             with self.subTest(path=path.name):
                 self.assertEqual([], assignment.findall(path.read_text(encoding="utf-8")))
 

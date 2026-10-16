@@ -1,6 +1,6 @@
 {
   "service": "healthcare-demo-backend",
-  "note": "Captured in process with the planner available and no database, so each hospital's records are in memory, loaded from apps/healthcare-demo/data/ist/. The three LMAs and the GMA run inside the app and are called through httpx.ASGITransport, as on the published demo. The per-client limits and hourly caps are off, except model approvals, which are limited to 2 per minute so the last approval example shows a 429. The agents' tokens are new on every run and appear in no answer. The time each agent call took (framework_calls ms) changes on every run, so the replay check ignores it.",
+  "note": "Captured in process with the planner available and no database, so each hospital's records are in memory, loaded from apps/healthcare-demo/data/ist/. The three LMAs and the GMA run inside the app and are called through httpx.ASGITransport, as on the published demo. The per-client limits and hourly caps are off, except model approvals, which are limited to 2 per minute so the last approval example shows a 429. Adding a hospital is off (HEALTHCARE_DEMO_DEPLOYER=off) and the agents run in process, so the deployment examples show the refusals; a network-mode run started with --deploy adds the hospital. The agents' tokens are new on every run and appear in no answer. The time each agent call took (framework_calls ms) changes on every run, so the replay check ignores it.",
   "env": {
     "HEALTHCARE_DEMO_DATABASE_URL": "",
     "HEALTHCARE_DEMO_AGENTS": "in-process",
@@ -13,7 +13,8 @@
     "HEALTHCARE_DEMO_CORS_ORIGINS": "",
     "HEALTHCARE_DEMO_TRUST_FORWARDED_FOR": "0",
     "NO_PROXY": "127.0.0.1,localhost",
-    "no_proxy": "127.0.0.1,localhost"
+    "no_proxy": "127.0.0.1,localhost",
+    "HEALTHCARE_DEMO_DEPLOYER": "off"
   },
   "examples": [
     {
@@ -843,6 +844,54 @@
         "path": "/api/v1/models/stroke-outcome-rule-v1:approve"
       },
       "status": 429
+    },
+    {
+      "id": "deployments",
+      "endpoint": "GET /api/v1/deployments",
+      "title": "Read whether this server can add a hospital, and why not",
+      "request": {
+        "path": "/api/v1/deployments"
+      },
+      "status": 200
+    },
+    {
+      "id": "deploy-in-process",
+      "endpoint": "POST /api/v1/deployments",
+      "title": "Ask a server that runs the agents in process to add a hospital",
+      "request": {
+        "path": "/api/v1/deployments",
+        "json": {
+          "site_id": "pl-290"
+        }
+      },
+      "status": 403
+    },
+    {
+      "id": "deploy-unknown-site",
+      "endpoint": "POST /api/v1/deployments",
+      "title": "A hospital that cannot join",
+      "request": {
+        "path": "/api/v1/deployments",
+        "json": {
+          "site_id": "uk-134"
+        }
+      },
+      "status": 422
+    },
+    {
+      "id": "deploy-foreign-origin",
+      "endpoint": "POST /api/v1/deployments",
+      "title": "A request from a page on another host",
+      "request": {
+        "path": "/api/v1/deployments",
+        "headers": {
+          "Origin": "https://example.org"
+        },
+        "json": {
+          "site_id": "pl-290"
+        }
+      },
+      "status": 403
     },
     {
       "id": "status",

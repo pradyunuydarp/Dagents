@@ -55,6 +55,9 @@ from dagents.common.domain.federation import (
     RoundManifest,
     RoundPlan,
     RoundRecord,
+    SiteAddressList,
+    SiteAddressRequest,
+    SiteAddressState,
     SiteRegistration,
     SiteResult,
     UpdateReceipt,
@@ -331,6 +334,23 @@ def build_fake_gma(access: AgentAccess, holder: dict[str, Any]) -> FastAPI:
     @app.post("/api/v1/federation/rounds:plan", dependencies=admin)
     def plan_round(manifest: RoundManifest):
         return ROUND_PLAN.model_copy(update={"round_id": manifest.round_id})
+
+    addresses: dict[str, str] = {}
+
+    @app.put("/api/v1/federation/sites/{site_id}/address", dependencies=admin)
+    def register_site_address(site_id: str, body: SiteAddressRequest):
+        addresses[site_id] = body.url
+        return SiteAddressState(site_id=site_id, source="joined")
+
+    @app.delete("/api/v1/federation/sites/{site_id}/address", status_code=204, dependencies=admin)
+    def remove_site_address(site_id: str):
+        addresses.pop(site_id, None)
+        return Response(status_code=204)
+
+    @app.get("/api/v1/federation/site-addresses", dependencies=admin)
+    def site_addresses():
+        joined = [SiteAddressState(site_id=site_id, source="joined") for site_id in sorted(addresses)]
+        return SiteAddressList(joinable=["site-c"], sites=joined)
 
     @app.post("/api/v1/federation/rounds", status_code=202, dependencies=admin)
     def dispatch_round(manifest: RoundManifest):
@@ -662,6 +682,27 @@ class ClientContract:
         self.assertEqual((evaluation.decision.action, evaluation.metrics_source), ("release", "rounds"))
         self.assertEqual(gma.audit_summary().record_count, 2)
 
+    def test_gma_site_address_routes(self) -> None:
+        gma = self.network.gma(GMA_ADMIN_TOKEN)
+        with CallLog() as log:
+            state = gma.register_site_address("site-c", "http://127.0.0.1:9/site-c")
+            listed = gma.site_addresses()
+            self.assertIsNone(gma.remove_site_address("site-c"))
+            after = gma.site_addresses()
+        self.assertEqual(state, SiteAddressState(site_id="site-c", source="joined"))
+        self.assertEqual(listed, SiteAddressList(joinable=["site-c"], sites=[state]))
+        self.assertEqual(after.sites, [])
+        self.assertEqual(
+            [(call.method, call.path, call.status) for call in log.calls],
+            [
+                ("PUT", "/api/v1/federation/sites/{site_id}/address", 200),
+                ("GET", "/api/v1/federation/site-addresses", 200),
+                ("DELETE", "/api/v1/federation/sites/{site_id}/address", 204),
+                ("GET", "/api/v1/federation/site-addresses", 200),
+            ],
+        )
+        self.assertNotIn("127.0.0.1:9", json.dumps(log.as_list()))
+
     def test_gma_reused_round_id_and_refused_aggregation(self) -> None:
         gma = self.network.gma(GMA_ADMIN_TOKEN)
         manifest = MANIFEST.model_copy(update={"round_id": f"reused-{self.MODE}"})
@@ -909,6 +950,114 @@ class NetworkClientTests(ClientContract, unittest.TestCase):
     def test_add_app_is_only_for_in_process_networks(self) -> None:
         with self.assertRaises(TypeError):
             self.network.add_app(lma_agent("site-z"), FastAPI())
+
+
+class _OsPortServer(LoopbackServer):
+    """A loopback server on a port the operating system picks."""
+
+    def __init__(self, app: Any) -> None:
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.sock.bind(("127.0.0.1", 0))
+        self.port = self.sock.getsockname()[1]
+        config = uvicorn.Config(app, log_config=None, log_level="warning", access_log=False, lifespan="off")
+        self.server = uvicorn.Server(config)
+        self.thread = threading.Thread(target=self.server.run, kwargs={"sockets": [self.sock]}, daemon=True)
+
+
+class AddressTests(unittest.TestCase):
+    """An HTTP network takes a new agent's address while it runs, and gives it up again."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        lma_access, _ = full_access()
+        cls.server = _OsPortServer(build_fake_lma(OTHER_SITE, lma_access)).start()
+        cls.url = cls.server.url("")
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls.server.stop()
+
+    def setUp(self) -> None:
+        self.network = AgentNetwork.over_http({}, timeout_s=5.0)
+        self.addCleanup(self.network.close)
+        self.name = lma_agent(OTHER_SITE)
+
+    def client_object(self) -> Any:
+        return self.network._transport._clients[self.name]
+
+    def test_an_address_added_later_is_called(self) -> None:
+        self.assertFalse(self.network.has_lma(OTHER_SITE))
+        self.network.add_address(self.name, self.url + "/")
+        self.assertEqual(self.network.agents, [self.name])
+        self.assertEqual(self.network.lma(OTHER_SITE, LMA_SITE_TOKEN).site_info().site_id, OTHER_SITE)
+
+    def test_the_same_address_again_keeps_one_client(self) -> None:
+        self.network.add_address(self.name, self.url)
+        first = self.client_object()
+        self.network.add_address(self.name, self.url + "/")
+        self.assertIs(self.client_object(), first)
+
+    def test_concurrent_adds_of_one_address_build_one_client(self) -> None:
+        errors: list[BaseException] = []
+
+        def add() -> None:
+            try:
+                self.network.add_address(self.name, self.url)
+            except BaseException as error:  # noqa: BLE001 - reported below
+                errors.append(error)
+
+        threads = [threading.Thread(target=add) for _ in range(8)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+        self.assertEqual(errors, [])
+        self.assertEqual(self.network.agents, [self.name])
+
+    def test_another_address_for_the_same_name_is_refused_without_repeating_either(self) -> None:
+        self.network.add_address(self.name, self.url)
+        with self.assertRaises(ValueError) as raised:
+            self.network.add_address(self.name, "http://127.0.0.1:1/elsewhere")
+        message = str(raised.exception)
+        self.assertNotIn("127.0.0.1", message)
+        self.assertIn(OTHER_SITE, message)
+        self.assertEqual(self.network.lma(OTHER_SITE, LMA_SITE_TOKEN).site_info().site_id, OTHER_SITE)
+
+    def test_a_bad_address_is_refused_without_repeating_it(self) -> None:
+        for url in ("ftp://host:21", "http://user:secret-pw@host:1", "http://host:1/?q=1", "http://host:1/#f", "nothing"):
+            with self.subTest(url=url), self.assertRaises(ValueError) as raised:
+                self.network.add_address(self.name, url)
+            self.assertNotIn("secret-pw", str(raised.exception))
+            self.assertNotIn("host:", str(raised.exception))
+        self.assertEqual(self.network.agents, [])
+
+    def test_a_removed_address_is_no_longer_called_and_its_client_is_closed(self) -> None:
+        self.network.add_address(self.name, self.url)
+        client = self.client_object()
+        self.network.remove_address(self.name)
+        self.assertTrue(client.is_closed)
+        self.assertEqual(self.network.agents, [])
+        with self.assertRaises(AgentUnavailableError) as raised:
+            self.network.lma(OTHER_SITE, LMA_SITE_TOKEN).site_info()
+        self.assertIn("no address is configured", str(raised.exception))
+        self.network.remove_address(self.name)  # gone already: nothing happens
+
+    def test_an_in_process_network_takes_no_address(self) -> None:
+        network = AgentNetwork.in_process()
+        self.addCleanup(network.close)
+        with self.assertRaises(TypeError):
+            network.add_address(self.name, self.url)
+        with self.assertRaises(TypeError):
+            network.remove_address(self.name)
+
+    def test_a_closed_network_takes_no_address(self) -> None:
+        self.network.close()
+        with self.assertRaises(RuntimeError):
+            self.network.add_address(self.name, self.url)
+
+    def test_names_are_checked(self) -> None:
+        with self.assertRaises(ValueError):
+            self.network.add_address("lma-without-prefix", self.url)
 
 
 class TransportParityTests(unittest.TestCase):

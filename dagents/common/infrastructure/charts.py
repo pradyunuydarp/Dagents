@@ -243,6 +243,10 @@ class _Colours:
         self.narrow = values["--ds-narrow"]
         self.deny = values["--ds-deny"]
 
+    def slot_colour(self, slot: int | None) -> str:
+        """The colour of a 0-based series slot, or neutral ink for an entity with no slot."""
+        return self.ink2 if slot is None else self.series[slot]
+
 
 # ---------------------------------------------------------------------------
 # Input checks
@@ -310,10 +314,17 @@ def _series(
     return result
 
 
-def _slot(series_slot: Any) -> int:
-    """A one-based colour slot, checked; returned 0-based."""
+def _slot(series_slot: Any) -> int | None:
+    """A one-based colour slot, checked; returned 0-based. ``None`` stays ``None``.
+
+    ``None`` is for an entity that has no series colour, such as a fourth
+    site when the design system has three series colours. It is drawn in
+    neutral ink (``--ds-ink-2``), which marks no identity.
+    """
+    if series_slot is None:
+        return None
     if isinstance(series_slot, bool) or not isinstance(series_slot, int) or not 1 <= series_slot <= MAX_SERIES:
-        raise ChartInputError(f"series_slot must be 1 to {MAX_SERIES}, not {series_slot!r}")
+        raise ChartInputError(f"series_slot must be 1 to {MAX_SERIES} or None, not {series_slot!r}")
     return series_slot - 1
 
 
@@ -899,7 +910,7 @@ def _draw_bars(
     figure,
     colours: _Colours,
     categories: list[str],
-    series: list[tuple[str, int, list[float | None]]],
+    series: list[tuple[str, int | None, list[float | None]]],
     *,
     stacked: bool,
     orientation: str,
@@ -956,7 +967,7 @@ def _draw_bars(
     _axis_label(ax, value_axis, value_label, colours)
     _axis_label(ax, category_axis, category_label, colours)
     if len(series) >= 2:
-        _legend(ax, [(name, colours.series[slot]) for name, slot, _ in series], colours, "bar")
+        _legend(ax, [(name, colours.slot_colour(slot)) for name, slot, _ in series], colours, "bar")
     (ax.axvline if horizontal else ax.axhline)(0, color=colours.axis, linewidth=_HAIRLINE_PT, zorder=1.5)
 
     _freeze_layout(figure)
@@ -1028,7 +1039,7 @@ def _draw_bars(
                 start = cumulative + (gap_v if s != visible[0] else 0.0)
                 end = cumulative + value
                 if end > start:
-                    _add_bar(ax, colours.series[slot], u0, u1, start, end, scale_u, scale_v,
+                    _add_bar(ax, colours.slot_colour(slot), u0, u1, start, end, scale_u, scale_v,
                              horizontal, round_end=s == visible[-1])
                 cumulative = end
     else:
@@ -1038,7 +1049,7 @@ def _draw_bars(
                     suppressed.append((i, g))
                     continue
                 u0, u1 = span(i, g)
-                _add_bar(ax, colours.series[slot], u0, u1, 0.0, value, scale_u, scale_v, horizontal)
+                _add_bar(ax, colours.slot_colour(slot), u0, u1, 0.0, value, scale_u, scale_v, horizontal)
 
     texts = []
     for i, g, value in labelled:
@@ -1090,7 +1101,7 @@ def bar_chart(
     orientation: str = "vertical",
     direct_labels: str = "auto",
     value_limits: tuple[float, float] | None = None,
-    series_slot: int = 1,
+    series_slot: int | None = 1,
     note: str = "",
     width_px: int = 640,
     height_px: int | None = None,
@@ -1112,6 +1123,8 @@ def bar_chart(
     - `value_limits`: fixed axis limits; by default the axis starts at zero.
     - `series_slot`: the colour slot (1 to 3) of the entity the bars belong
       to, so a chart about one entity keeps that entity's colour. Default 1.
+      ``None`` draws in neutral ink (``--ds-ink-2``), for an entity with no
+      series colour, such as a fourth one.
     - `note`: a source or licence line drawn under the chart in small type,
       for data whose licence asks for attribution on every chart.
     - `width_px`, `height_px`: the size the SVG is drawn for.
@@ -1265,7 +1278,7 @@ def _draw_histogram(
     figure,
     colours: _Colours,
     edges: list[float],
-    series: list[tuple[str, int, list[float | None]]],
+    series: list[tuple[str, int | None, list[float | None]]],
     *,
     x_label: str,
     y_label: str,
@@ -1293,7 +1306,7 @@ def _draw_histogram(
     _axis_label(ax, "x", x_label, colours)
     _axis_label(ax, "y", y_label, colours)
     if len(series) >= 2:
-        _legend(ax, [(name, colours.series[slot]) for name, slot, _ in series], colours, "bar")
+        _legend(ax, [(name, colours.slot_colour(slot)) for name, slot, _ in series], colours, "bar")
     ax.axhline(0, color=colours.axis, linewidth=_HAIRLINE_PT, zorder=1.5)
 
     _freeze_layout(figure)
@@ -1324,7 +1337,7 @@ def _draw_histogram(
                             ha="center", va="bottom", rotation=90 if rotate else 0,
                             fontsize=_SMALL_SIZE, color=colours.ink3, annotation_clip=False)
                 continue
-            _add_bar(ax, colours.series[slot], u0, u1, 0.0, value, scale_x, scale_y, horizontal=False)
+            _add_bar(ax, colours.slot_colour(slot), u0, u1, 0.0, value, scale_x, scale_y, horizontal=False)
 
 
 def histogram(
@@ -1339,7 +1352,7 @@ def histogram(
     value_format: Formatter = None,
     edge_format: Formatter = None,
     series_slots: Mapping[str, int] | None = None,
-    series_slot: int = 1,
+    series_slot: int | None = 1,
     note: str = "",
     width_px: int = 640,
     height_px: int | None = None,
@@ -1355,7 +1368,8 @@ def histogram(
     - `x_label`, `y_label`: axis labels.
     - `edge_format`: format for the bin edges on the axis and in the table.
     - `series_slots`: for a mapping, series name to colour slot (1 to 3).
-    - `series_slot`: for one series, its colour slot (1 to 3). Default 1.
+    - `series_slot`: for one series, its colour slot (1 to 3), or ``None``
+      for neutral ink. Default 1.
     - Other params as in ``bar_chart``. Histograms carry no value labels; the
       table view holds every count.
 
@@ -1396,7 +1410,7 @@ def _draw_histogram_panels(
     colours: _Colours,
     edges: list[float],
     panels: list[tuple[str, list[float | None]]],
-    slot: int,
+    slot: int | None,
     *,
     x_label: str,
     y_label: str,
@@ -1448,7 +1462,7 @@ def _draw_histogram_panels(
                             ha="center", va="bottom", rotation=90 if rotate else 0,
                             fontsize=_SMALL_SIZE, color=colours.ink3, annotation_clip=False)
                 continue
-            _add_bar(ax, colours.series[slot], u0, u1, 0.0, value, scale_x, scale_y, horizontal=False)
+            _add_bar(ax, colours.slot_colour(slot), u0, u1, 0.0, value, scale_x, scale_y, horizontal=False)
 
 
 def histogram_panels(
@@ -1462,7 +1476,7 @@ def histogram_panels(
     y_label: str = "Count",
     value_format: Formatter = None,
     edge_format: Formatter = None,
-    series_slot: int = 1,
+    series_slot: int | None = 1,
     note: str = "",
     width_px: int = 640,
     height_px: int | None = None,
@@ -1471,7 +1485,7 @@ def histogram_panels(
     """Small multiples: one histogram panel per category, stacked, all in one series colour.
 
     Use it when the categories are not entities, such as the outcomes recorded
-    at one hospital. A series colour marks an entity, so the categories get a
+    at one site. A series colour marks an entity, so the categories get a
     panel each, named above it, and every panel uses the entity's slot. The
     panels share the bins and one count scale.
 
@@ -1479,7 +1493,8 @@ def histogram_panels(
     - `bin_edges`: increasing edges; there is one bin between each pair.
     - `panels`: panel name to one count per bin, top to bottom. One to six
       panels. ``None`` leaves a gap labelled "suppressed".
-    - `series_slot`: the colour slot (1 to 3) of the entity. Default 1.
+    - `series_slot`: the colour slot (1 to 3) of the entity, or ``None`` for
+      neutral ink. Default 1.
     - Other params as in ``histogram``. The table view is ``histogram_table``
       with the panels as columns.
 

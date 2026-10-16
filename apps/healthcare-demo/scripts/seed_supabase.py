@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 """Load each demo hospital's IST records into that hospital's own schema.
 
-The records come from the committed extract, ``data/ist/ist_three_hospitals.csv``
-(International Stroke Trial database, version 2, ODC-By 1.0; see
+The records come from the committed extracts, ``data/ist/ist_three_hospitals.csv``
+for the three hospitals in the consortium at start and
+``data/ist/ist_joining_hospitals.csv`` for the hospital that joins while the
+demo runs (International Stroke Trial database, version 2, ODC-By 1.0; see
 ``data/ist/NOTICE.md``). They are real, de-identified trial records from
-1991-1996.
+1991-1996. Three of the joining hospital's records have no six-month outcome;
+their ``poor_outcome_6m`` is stored as NULL.
 
 Each hospital is written while acting as its own role (``site_uk_134`` and so
 on), through the same store the API uses. The script then reads each count
@@ -61,11 +64,11 @@ def seed(dsn: str, *, keep_entries: bool = False) -> dict[str, dict[str, int]]:
       while acting as each hospital.
     """
     # Imported here so `--help` works without the app's dependencies.
-    from app.domain.dataset import SITES, load_site_records
+    from app.domain.dataset import JOINING_SITES, SITES, load_site_records
     from app.services.site_store import PostgresSiteStore, StoreUnavailableError
 
     counts: dict[str, dict[str, int]] = {}
-    for site in SITES:
+    for site in (*SITES, *JOINING_SITES):
         records = load_site_records(site.site_id)
         if len(records) != site.expected_rows:
             raise SystemExit(

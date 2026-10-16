@@ -1,0 +1,70 @@
+{
+  "payload": {
+    "plan_id": "job-on-external-network",
+    "target": {
+      "kind": "compose",
+      "placement": "own",
+      "network": "healthcare-demo_default",
+      "external_network": true,
+      "existing_services": [
+        "gma"
+      ]
+    },
+    "components": [
+      {
+        "name": "lma-hospital-e",
+        "image": "dagents/lma:1",
+        "ports": [
+          {
+            "container_port": 8010
+          },
+          {
+            "container_port": 9100,
+            "host_port": 9100,
+            "host_ip": "0.0.0.0"
+          }
+        ],
+        "health_check": {
+          "command": [
+            "curl",
+            "-fsS",
+            "http://127.0.0.1:8010/health"
+          ]
+        }
+      },
+      {
+        "name": "seed-hospital-e",
+        "image": "dagents/lma:1",
+        "kind": "Job",
+        "args": [
+          "seed"
+        ],
+        "depends_on": [
+          {
+            "service": "lma-hospital-e",
+            "condition": "service_healthy"
+          },
+          {
+            "service": "lma-hospital-e-init",
+            "condition": "service_completed_successfully"
+          }
+        ]
+      },
+      {
+        "name": "lma-hospital-e-init",
+        "image": "dagents/lma:1",
+        "kind": "job"
+      }
+    ]
+  },
+  "expected": {
+    "plan_id": "job-on-external-network",
+    "services": [
+      "lma-hospital-e",
+      "seed-hospital-e",
+      "lma-hospital-e-init"
+    ],
+    "issues": [],
+    "compose_yaml": "services:\n  \"lma-hospital-e\":\n    image: \"dagents/lma:1\"\n    expose:\n      - \"8010\"\n    ports:\n      - \"0.0.0.0:9100:9100\"\n    healthcheck:\n      test: [\"CMD\", \"curl\", \"-fsS\", \"http://127.0.0.1:8010/health\"]\n      interval: 30s\n      timeout: 5s\n      retries: 3\n      start_period: 10s\n    networks:\n      - \"healthcare-demo_default\"\n    restart: unless-stopped\n  \"seed-hospital-e\":\n    image: \"dagents/lma:1\"\n    command: [\"seed\"]\n    depends_on:\n      \"lma-hospital-e\":\n        condition: service_healthy\n      \"lma-hospital-e-init\":\n        condition: service_completed_successfully\n    networks:\n      - \"healthcare-demo_default\"\n    restart: \"no\"\n  \"lma-hospital-e-init\":\n    image: \"dagents/lma:1\"\n    networks:\n      - \"healthcare-demo_default\"\n    restart: \"no\"\nnetworks:\n  \"healthcare-demo_default\":\n    external: true"
+  }
+}

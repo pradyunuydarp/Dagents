@@ -84,6 +84,10 @@ class StudyOverview:
     - `models_ready`: called before anything that reads the model versions,
       so the GMA holds the app's versions first. The status report does not
       call it.
+    - `resend_addresses`: sends the GMA the address of each hospital that
+      joined while the demo runs, and returns whether it sent any. The
+      overview calls it when the GMA's site report leaves a hospital out, as
+      after the GMA restarted and forgot those addresses, then asks again once.
     """
 
     def __init__(
@@ -96,6 +100,7 @@ class StudyOverview:
         secure_aggregation_threshold: int = 3,
         status_timeout_seconds: float = 2.0,
         models_ready: Callable[[], None] | None = None,
+        resend_addresses: Callable[[], bool] | None = None,
     ) -> None:
         self.sites = tuple(sites)
         self._views = dict(views)
@@ -104,15 +109,35 @@ class StudyOverview:
         self._secure_threshold = secure_aggregation_threshold
         self._status_timeout = status_timeout_seconds
         self._models_ready = models_ready
+        self._resend_addresses = resend_addresses
         self._lock = threading.Lock()
         self._last_pilot: dict[str, Any] | None = None
         self._engine: str | None = None
         self._services: tuple[float, list[dict[str, str]]] | None = None
 
+    def set_sites(self, sites: Sequence[Site], views: Mapping[str, HospitalView]) -> None:
+        """Use these hospitals and views from now on, as after a hospital joined.
+
+        Both are replaced, not changed in place, so a page being built sees the
+        old pair or the new one.
+        """
+        self.sites, self._views = tuple(sites), dict(views)
+
     # --- What the hospitals report --------------------------------------------------------
 
-    def _site_entries(self) -> dict[str, SiteDirectoryEntry]:
-        return {entry.site_id: entry for entry in self._agents.gma().site_summaries()}
+    def _site_entries(self, **options: Any) -> dict[str, SiteDirectoryEntry]:
+        """What each hospital's LMA reports through the GMA, by site id.
+
+        A GMA that restarted forgot the address of each hospital that joined,
+        so its report leaves those hospitals out. Then the app sends the
+        addresses again (``resend_addresses``) and asks once more.
+        """
+        gma = self._agents.gma()
+        entries = {entry.site_id: entry for entry in gma.site_summaries(**options)}
+        missing = any(site.site_id not in entries for site in self.sites)
+        if missing and self._resend_addresses is not None and self._resend_addresses():
+            entries = {entry.site_id: entry for entry in gma.site_summaries(**options)}
+        return entries
 
     def hospital_rows(self) -> list[dict[str, Any]]:
         """Each hospital's row, in display order: what its LMA reports, plus its entered count and store.
@@ -289,8 +314,7 @@ class StudyOverview:
         """
         entries: dict[str, SiteDirectoryEntry] | None
         try:
-            summaries = self._agents.gma().site_summaries(timeout_s=STATUS_REPORT_TIMEOUT_SECONDS)
-            entries = {entry.site_id: entry for entry in summaries}
+            entries = self._site_entries(timeout_s=STATUS_REPORT_TIMEOUT_SECONDS)
         except AgentError as error:
             logger.warning("the GMA could not report the hospitals for the status report: %s", loggable(error))
             entries = None

@@ -150,6 +150,29 @@ AUDIT = f"{BASE}/audit?limit={capture_script.AUDIT_LIMIT}"
 ENTERED = f"{BASE}/encounters?origin=entered&limit={capture_script.ENTERED_LIMIT}"
 
 
+def deployments_view(**changes) -> dict:
+    """``GET /api/v1/deployments`` as the published demo answers it: the agents run in process, nothing is offered or tried."""
+    return {
+        "available": False,
+        "reason": "This server runs the Dagents agents inside the API process.",
+        "applier": "off",
+        "hospitals": [
+            {
+                "site_id": "pl-290",
+                "display_name": "Hospital 290",
+                "country": "Poland",
+                "records": 263,
+                "records_source": "dataset",
+                "in_consortium": False,
+                "service": "unknown",
+            }
+        ],
+        "deployments": [],
+        "framework_calls": [],
+        **changes,
+    }
+
+
 def healthy_healthcare_capture() -> dict:
     """A capture that is worth publishing, used as the baseline to break."""
     strategies = ["generalize:1", "redact", "aggregate_only:20", "clip_contribution:1"]
@@ -178,6 +201,7 @@ def healthy_healthcare_capture() -> dict:
                 {"hospitals": [{"site_id": SITE}],
                  "framework_calls": [call("gma", None, "GET", "/api/v1/federation/sites/summaries")]},
             ),
+            json_entry(capture_script.DEPLOYMENTS_PATH, deployments_view()),
             json_entry(base, {"site_id": SITE, "framework_calls": lma_dashboard_calls()}),
             json_entry(WORKLIST, {"worklist": []}),
             json_entry(AUDIT, {"records": []}),
@@ -436,6 +460,57 @@ class HealthcareCaptureTests(unittest.TestCase):
             f"the dashboard for {SITE} was not captured after the pilot (GET {BASE})",
             guard.check_healthcare(capture),
         )
+
+    def deployments_entry(self, capture: dict) -> dict:
+        return next(entry for entry in capture["entries"] if entry["path"] == capture_script.DEPLOYMENTS_PATH)
+
+    def test_a_capture_without_the_deploy_panel_is_refused(self) -> None:
+        """The replay would say the panel to add a hospital was not recorded."""
+        capture = without(healthy_healthcare_capture(), lambda e: e["path"] == capture_script.DEPLOYMENTS_PATH)
+        problems = guard.check_healthcare(capture)
+        self.assertTrue(any("add a hospital was not captured" in p for p in problems), problems)
+
+    def test_a_failed_deploy_panel_answer_does_not_count(self) -> None:
+        capture = healthy_healthcare_capture()
+        self.deployments_entry(capture)["status"] = 404
+        problems = guard.check_healthcare(capture)
+        self.assertTrue(any("add a hospital was not captured" in p for p in problems), problems)
+
+    def test_a_deploy_panel_that_offers_a_deployment_is_refused(self) -> None:
+        """A replay that showed the button would offer a deployment it cannot run."""
+        capture = healthy_healthcare_capture()
+        self.deployments_entry(capture)["response"] = deployments_view(available=True, reason=None, applier="process")
+        problems = guard.check_healthcare(capture)
+        self.assertTrue(any("a replay must not offer or show a deployment" in p for p in problems), problems)
+
+    def test_a_deploy_panel_that_lists_a_deployment_is_refused(self) -> None:
+        """A replay must not show an attempt as though it happened in the visitor's session."""
+        capture = healthy_healthcare_capture()
+        attempt = {"deployment_id": "dep-0123456789ab", "site_id": "pl-290", "status": "joined", "steps": []}
+        self.deployments_entry(capture)["response"] = deployments_view(deployments=[attempt])
+        problems = guard.check_healthcare(capture)
+        self.assertTrue(any("a replay must not offer or show a deployment" in p for p in problems), problems)
+
+    def test_the_capture_records_the_deploy_panel_with_the_deployer_off(self) -> None:
+        """The capture's server runs the agents in process with the deployer off, as the published demo does."""
+        recorder = mock.Mock()
+        recorder.phase = None
+        recorded: list[tuple[str | None, str]] = []
+
+        def get(path: str, **_: object):
+            recorded.append((recorder.phase, path))
+            if path == "/api/v1/overview":
+                return {"hospitals": [{"site_id": SITE}]}
+            return {"charts": []}
+
+        recorder.get.side_effect = get
+        recorder.post.return_value = {}
+        recorder.entries = []
+        capture_script.capture_healthcare(recorder)
+        self.assertIn(("before_pilot", capture_script.DEPLOYMENTS_PATH), recorded)
+        env = capture_script.HEALTHCARE_SERVICES[-1].env
+        self.assertEqual("in-process", env["HEALTHCARE_DEMO_AGENTS"])
+        self.assertEqual("off", env["HEALTHCARE_DEMO_DEPLOYER"])
 
     def test_a_status_that_says_the_stores_are_not_ready_is_refused(self) -> None:
         """The page would open with a banner saying the records are not loaded."""

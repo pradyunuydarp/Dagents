@@ -193,6 +193,172 @@
         }
       },
       "status": 422
+    },
+    {
+      "id": "compose-an-lma",
+      "endpoint": "POST /api/v1/manifests/compose",
+      "title": "Render one LMA to add to a running project",
+      "description": "With placement merge, the file is passed with -f after the project's own Compose files, so the LMA can wait for the project's gma service.",
+      "request": {
+        "path": "/api/v1/manifests/compose",
+        "json": {
+          "placement": "merge",
+          "existing_services": [
+            "postgres",
+            "setup",
+            "gma",
+            "lma-uk-134",
+            "lma-it-002",
+            "lma-ch-245",
+            "healthcare-demo-backend",
+            "healthcare-demo-frontend"
+          ],
+          "components": [
+            {
+              "name": "lma-hospital-d",
+              "image": "dagents/healthcare-demo-backend:local",
+              "args": [
+                "uvicorn",
+                "dagents.lma.main:app",
+                "--host",
+                "0.0.0.0",
+                "--port",
+                "8085"
+              ],
+              "env_files": [
+                "../../env/.env.shared",
+                "lma-hospital-d.env"
+              ],
+              "env": [
+                {
+                  "name": "LMA_SITE_ID",
+                  "value": "hospital-d"
+                },
+                {
+                  "name": "LMA_SITE_SOURCE",
+                  "value": "healthcare_site_store"
+                },
+                {
+                  "name": "LMA_API_PORT",
+                  "value": "8085"
+                }
+              ],
+              "ports": [
+                {
+                  "container_port": 8085,
+                  "host_port": 8085
+                }
+              ],
+              "health_check": {
+                "command": [
+                  "python",
+                  "-c",
+                  "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8085/api/v1/health')"
+                ]
+              },
+              "depends_on": [
+                {
+                  "service": "gma",
+                  "condition": "service_healthy"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "status": 200
+    },
+    {
+      "id": "compose-with-issues",
+      "endpoint": "POST /api/v1/manifests/compose",
+      "title": "The same LMA as a project of its own",
+      "description": "With placement own, the gma service is outside the file, so the planner reports an issue and renders no file.",
+      "request": {
+        "path": "/api/v1/manifests/compose",
+        "json": {
+          "placement": "own",
+          "existing_services": [
+            "postgres",
+            "setup",
+            "gma",
+            "lma-uk-134",
+            "lma-it-002",
+            "lma-ch-245",
+            "healthcare-demo-backend",
+            "healthcare-demo-frontend"
+          ],
+          "components": [
+            {
+              "name": "lma-hospital-d",
+              "image": "dagents/healthcare-demo-backend:local",
+              "args": [
+                "uvicorn",
+                "dagents.lma.main:app",
+                "--host",
+                "0.0.0.0",
+                "--port",
+                "8085"
+              ],
+              "env_files": [
+                "../../env/.env.shared",
+                "lma-hospital-d.env"
+              ],
+              "env": [
+                {
+                  "name": "LMA_SITE_ID",
+                  "value": "hospital-d"
+                },
+                {
+                  "name": "LMA_SITE_SOURCE",
+                  "value": "healthcare_site_store"
+                },
+                {
+                  "name": "LMA_API_PORT",
+                  "value": "8085"
+                }
+              ],
+              "ports": [
+                {
+                  "container_port": 8085,
+                  "host_port": 8085
+                }
+              ],
+              "health_check": {
+                "command": [
+                  "python",
+                  "-c",
+                  "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8085/api/v1/health')"
+                ]
+              },
+              "depends_on": [
+                {
+                  "service": "gma",
+                  "condition": "service_healthy"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "status": 200
+    },
+    {
+      "id": "compose-cronjob",
+      "endpoint": "POST /api/v1/manifests/compose",
+      "title": "A kind with no Compose equivalent",
+      "request": {
+        "path": "/api/v1/manifests/compose",
+        "json": {
+          "components": [
+            {
+              "name": "nightly-rollup",
+              "image": "ghcr.io/example/dagents-gma:0.1.0",
+              "kind": "CronJob"
+            }
+          ]
+        }
+      },
+      "status": 422
     }
   ]
 }

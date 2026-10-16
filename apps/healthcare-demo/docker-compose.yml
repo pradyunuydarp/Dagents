@@ -16,12 +16,13 @@
 #
 # 1. `postgres` starts the database.
 # 2. `setup` applies the migrations and loads each hospital's records into its
-#    own schema, keeping records entered earlier. Then it writes the settings of
-#    each agent and of the API to the `agent-settings` volume, one file per
-#    service. It makes the random tokens once per volume, so a restarted
-#    service gets the tokens the others still hold. It writes the addresses on
-#    every start, so a port changed in the env file reaches every service.
-#    `docker compose down -v` removes the tokens and the data.
+#    own schema, keeping records entered earlier. Then
+#    scripts/write_agent_settings.py writes the settings of each agent and of
+#    the API to the `agent-settings` volume, one file per service. It makes the
+#    random tokens once per volume, so a restarted service gets the tokens the
+#    others still hold. It writes the addresses on every start, so a port
+#    changed in the env file reaches every service. `docker compose down -v`
+#    removes the tokens and the data.
 # 3. `gma`, `lma-uk-134`, `lma-it-002` and `lma-ch-245` start from the demo
 #    image. Each reads only its own settings file.
 # 4. `healthcare-demo-backend` runs with HEALTHCARE_DEMO_AGENTS=network and
@@ -31,6 +32,9 @@
 # agents are reachable only inside the compose network, so the database accepts
 # local connections without a password. Never publish its port with this
 # setting.
+#
+# docker-compose.deploy.yml, an opt-in override, lets Hospital 290 join while
+# the demo runs, as a container; read its warning first.
 
 x-database-url: &database-url postgresql://postgres@postgres:5432/healthcare_demo
 
@@ -107,101 +111,7 @@ services:
         set -e
         python scripts/apply_migrations.py
         python scripts/seed_supabase.py --keep-entries
-        python - <<'PY'
-        """Write one settings file per service. The tokens are made once per volume."""
-        import dataclasses
-        import json
-        import os
-        import pwd
-        import shlex
-        from pathlib import Path
-
-        from app.core.config import lma_token_variable, lma_url_variable, settings
-        from app.domain.dataset import SITES
-        from app.services.agents import AgentTokens, gma_environment, lma_environment
-
-        out = Path("/run/agent-settings")
-
-
-        def write_secret(path, text, owner=None):
-            """Write a file that only its owner can read, then move it into place."""
-            temporary = path.with_name(f".{path.name}.new")
-            temporary.unlink(missing_ok=True)
-            descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-            with os.fdopen(descriptor, "w") as handle:
-                handle.write(text)
-            if owner is not None:
-                os.chown(temporary, owner.pw_uid, owner.pw_gid)
-            temporary.chmod(0o400)
-            temporary.replace(path)
-
-
-        # The tokens stay in a file that only root can read, so a service that
-        # restarts gets the tokens the others still hold. The addresses are
-        # written on every start, because a port may have changed.
-        site_ids = sorted(site.site_id for site in SITES)
-        kept = out / "tokens.json"
-        tokens = None
-        if kept.exists():
-            tokens = AgentTokens(**json.loads(kept.read_text()))
-            if sorted(tokens.lma_site) != site_ids:
-                tokens = None
-        made = "kept from an earlier start"
-        if tokens is None:
-            tokens = AgentTokens.generate(site_ids)
-            write_secret(kept, json.dumps(dataclasses.asdict(tokens)))
-            made = "new"
-
-        database = os.environ["HEALTHCARE_DEMO_DATABASE_URL"]
-
-
-        def lma_port(site):
-            key = site.site_id.upper().replace("-", "_")
-            return os.environ[f"HEALTHCARE_DEMO_LMA_{key}_PORT"]
-
-
-        def site_map(values):
-            return ",".join(f"{site_id}={value}" for site_id, value in sorted(values.items()))
-
-
-        gma_url = "http://gma:" + os.environ["HEALTHCARE_DEMO_GMA_PORT"]
-        lma_urls = {site.site_id: f"http://lma-{site.site_id}:" + lma_port(site) for site in SITES}
-        files = {
-            "gma": {
-                **gma_environment(database=True, dispatch_concurrency=settings.dispatch_concurrency),
-                "GMA_DATABASE_URL": database,
-                "GMA_SITE_ENDPOINTS": site_map(lma_urls),
-                "GMA_LMA_TOKENS": site_map(tokens.lma_coordinator),
-                "GMA_SITE_TOKENS": site_map(tokens.gma_site),
-                "GMA_ADMIN_TOKEN": tokens.gma_admin,
-            },
-            "api": {
-                "HEALTHCARE_DEMO_AGENTS": "network",
-                "HEALTHCARE_DEMO_DATABASE_URL": database,
-                "HEALTHCARE_DEMO_GMA_URL": gma_url,
-                "HEALTHCARE_DEMO_GMA_TOKEN": tokens.gma_admin,
-            },
-        }
-        for site in SITES:
-            files["api"][lma_url_variable(site.site_id)] = lma_urls[site.site_id]
-            files["api"][lma_token_variable(site.site_id)] = tokens.lma_site[site.site_id]
-            files[f"lma-{site.site_id}"] = {
-                **lma_environment(site, database=True),
-                "LMA_DATABASE_URL": database,
-                "LMA_GMA_ENDPOINT": gma_url,
-                "LMA_GMA_TOKEN": tokens.gma_site[site.site_id],
-                "LMA_SITE_TOKEN": tokens.lma_site[site.site_id],
-                "LMA_COORDINATOR_TOKEN": tokens.lma_coordinator[site.site_id],
-            }
-
-        # Each file is readable only by the image's user, and holds only the
-        # tokens of its own service.
-        user = pwd.getpwnam("appuser")
-        for name, values in files.items():
-            text = "".join(f"{key}={shlex.quote(value)}\n" for key, value in values.items())
-            write_secret(out / f"{name}.env", text, owner=user)
-        print(f"Wrote the settings of {len(files)} services. The tokens are {made}.")
-        PY
+        python scripts/write_agent_settings.py compose /run/agent-settings --owner appuser
 
   gma:
     <<: *agent

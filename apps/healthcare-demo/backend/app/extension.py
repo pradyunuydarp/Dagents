@@ -34,7 +34,7 @@ from app.domain.conditions import (
     STROKE_FEATURE_CONTRACT,
     STROKE_LABEL_FIELD,
 )
-from app.domain.dataset import UnknownSiteError, site_for
+from app.domain.dataset import UnknownSiteError, any_site_for
 from app.domain.model_kinds import MODEL_KINDS
 
 
@@ -83,11 +83,12 @@ def healthcare_site_store(lease: Any, role: str, site_id: str) -> Any:
 
     - there is no database: separate processes cannot share an in-memory
       store, so an entry made through the demo API would never reach the LMA;
-    - the site is not one of the demo hospitals;
+    - the site is not one of the demo hospitals or a hospital that joins
+      while the demo runs;
     - the role is not the hospital's own role.
     """
     try:
-        site = site_for(site_id)
+        site = any_site_for(site_id)
     except UnknownSiteError:
         raise ValueError(f"{site_id} is not one of the demo hospitals") from None
     if lease is None:

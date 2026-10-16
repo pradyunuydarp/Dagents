@@ -29,7 +29,7 @@ sys.path.insert(0, str(APP_ROOT / "scripts"))
 from dagents.common.infrastructure.postgres_audit import ANCHOR_COLUMNS  # noqa: E402
 from dagents.common.infrastructure.postgres_audit import COLUMNS as AUDIT_COLUMNS  # noqa: E402
 from app.domain.conditions import STROKE_FEATURE_CONTRACT  # noqa: E402
-from app.domain.dataset import SITES  # noqa: E402
+from app.domain.dataset import JOINING_SITES, SITES  # noqa: E402
 from app.services import site_store  # noqa: E402
 
 MIGRATIONS = APP_ROOT / "supabase" / "migrations"
@@ -371,6 +371,84 @@ class CoordinatorRecordsMigrationTests(unittest.TestCase):
         self.assertIn(f"keeps the newest {site_store.PILOT_REPORTS_KEPT}", comments)
 
 
+JOINING_MIGRATION = MIGRATIONS / "0004_joining_site.sql"
+
+
+def literal_list(text: str, name: str) -> list[str]:
+    """The quoted names in ``<name> text[] := array[...]`` of a migration."""
+    match = re.search(rf"\b{name}\s+text\[\]\s*:=\s*array\[([^\]]*)\]", text)
+    if match is None:
+        raise AssertionError(f"the list {name} was not found")
+    return re.findall(r"'([a-z0-9_]+)'", match.group(1))
+
+
+class JoiningSiteMigrationTests(unittest.TestCase):
+    """0004 gives each hospital that joins while the demo runs what 0002 and 0003 give the others."""
+
+    def setUp(self) -> None:
+        self.text = JOINING_MIGRATION.read_text(encoding="utf-8")
+        self.sql = normalised(self.text)
+
+    def test_it_runs_after_0003_and_refuses_to_run_before_it(self) -> None:
+        names = sorted(path.name for path in MIGRATIONS.glob("*.sql"))
+        self.assertLess(names.index(COORDINATOR_MIGRATION.name), names.index(JOINING_MIGRATION.name))
+        self.assertIn("apply 0003_coordinator_records.sql first", self.sql)
+
+    def test_it_creates_the_joining_hospitals_and_names_every_hospital_in_the_policies(self) -> None:
+        self.assertEqual([site.schema for site in JOINING_SITES], literal_list(self.text, "sites"))
+        self.assertEqual(
+            [site.schema for site in (*SITES, *JOINING_SITES)], literal_list(self.text, "all_sites")
+        )
+        for site in JOINING_SITES:
+            self.assertEqual(site.schema, site.role)
+
+    def test_its_tables_are_the_ones_0002_and_0003_create_for_every_hospital(self) -> None:
+        for table in ("encounters", "guard_audit"):
+            with self.subTest(table=table):
+                self.assertEqual(columns_of(table_block(migration_sql(), table)), columns_of(table_block(self.text, table)))
+        self.assertEqual(
+            columns_of(table_block(COORDINATOR_MIGRATION.read_text(encoding="utf-8"), "guard_audit_anchor")),
+            columns_of(table_block(self.text, "guard_audit_anchor")),
+        )
+
+    def test_rls_revokes_and_the_coordinator_grants_match_0002(self) -> None:
+        for statement in (
+            "alter table %i.encounters enable row level security",
+            "alter table %i.guard_audit enable row level security",
+            "alter table %i.guard_audit_anchor enable row level security",
+            "revoke all on schema %i from public",
+            "revoke all on all tables in schema %i from public",
+            "revoke all on schema %i from %i",
+            "revoke all on all tables in schema %i from %i",
+            "revoke all on all sequences in schema %i from %i",
+            "api_roles text[] := array['anon', 'authenticated', 'service_role']",
+            "foreach r in array api_roles loop if exists (select 1 from pg_roles where rolname = r)",
+            "'grant usage on schema coordinator to %s'",
+            "'grant select on coordinator.site_contributions to %s'",
+            "'grant insert (round_id, phase, payload) on coordinator.site_contributions to %s'",
+            "'alter policy site_contributions_insert_own on coordinator.site_contributions to %s'",
+            "'alter policy site_contributions_select_own on coordinator.site_contributions to %s'",
+        ):
+            with self.subTest(statement=statement):
+                self.assertIn(statement, self.sql)
+        self.assertNotIn("create policy", self.sql)
+
+    def test_the_coordinator_gets_nothing_on_a_joining_hospital(self) -> None:
+        self.assertNotRegex(self.sql, r"grant [^;']* to %i', [a-z_]*, coordinator_role")
+        self.assertNotIn("to dagents_coordinator", self.sql)
+
+    def test_it_is_safe_to_run_twice_and_sets_no_session_role(self) -> None:
+        self.assertNotRegex(self.sql, r"create table (?!if not exists)")
+        self.assertNotRegex(self.sql, r"create schema (?!if not exists)")
+        self.assertIn("if not exists (select 1 from pg_roles where rolname = r) then", self.sql)
+        self.assertEqual([], re.findall(r"(?<!local )\bset role\b", self.sql))
+
+    def test_it_has_both_branches_of_the_role_grant(self) -> None:
+        self.assertIn("current_setting('server_version_num')::int >= 160000", self.sql)
+        self.assertIn("'grant %i to current_user with inherit false, set true'", self.sql)
+        self.assertIn("'grant %i to current_user'", self.sql)
+
+
 class ScriptsTests(unittest.TestCase):
     def test_the_seed_reads_its_credentials_from_the_environment(self) -> None:
         source = SEED.read_text(encoding="utf-8")
@@ -380,6 +458,7 @@ class ScriptsTests(unittest.TestCase):
     def test_the_seed_loads_the_extract_and_acts_as_each_site(self) -> None:
         source = SEED.read_text(encoding="utf-8")
         self.assertIn("load_site_records", source)
+        self.assertIn("JOINING_SITES", source, "the joining hospitals are seeded with the others")
         self.assertIn("PostgresSiteStore", source)
         self.assertNotIn("app.domain.synthetic", source)
 

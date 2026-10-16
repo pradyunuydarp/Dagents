@@ -1474,7 +1474,7 @@ Terms used in this part of the page:
 
 | | |
 |---|---|
-| Code | `dagents/gma/`: the routes in `routes.py`, the app built by `app_factory.py` from `config.py`, the use cases in `application/` (`aggregation_service.py`, `model_registry.py`, `release_service.py`, `site_directory.py`), the HTTP engine in `adapters/http_federation_engine.py`, and the stores in `infrastructure/` (`persistence.py`, `update_store.py`, `postgres_models.py`) |
+| Code | `dagents/gma/`: the routes in `routes.py`, the app built by `app_factory.py` from `config.py`, the use cases in `application/` (`aggregation_service.py`, `model_registry.py`, `release_service.py`, `site_directory.py`, `site_addresses.py`), the HTTP engine in `adapters/http_federation_engine.py`, and the stores in `infrastructure/` (`persistence.py`, `update_store.py`, `postgres_models.py`) |
 | Shared code it serves | `dagents/common/`: federated rounds (`application/federation.py`, `domain/federation.py`), governance (`application/governance_service.py`, `application/ethical_guard.py`), sources (`infrastructure/sources.py`), profiles and model runs (`application/ml_orchestration.py`), the agent client and tokens (`infrastructure/agent_client.py`, `infrastructure/agent_auth.py`) and extensions (`extensions/registry.py`) |
 | Port | 8020 (`GMA_API_PORT` in `env/.env.gma`, read by uvicorn) |
 | Settings | `env/.env.shared`, then `env/.env.gma`, read by `Settings.from_env()` in `dagents/gma/config.py`. A variable already set in the environment wins. |
@@ -1489,7 +1489,8 @@ process-wide extension registry, everything in memory and source reads on.
 | Setting | Default | Meaning |
 |---|---|---|
 | `GMA_ENGINE` | `in-process` | `in-process`, the simulator, or `http`, which sends each round's jobs to the LMAs over their HTTP API |
-| `GMA_SITE_ENDPOINTS` | none | `SITE=URL,...`: each LMA's address. Only these addresses are called, so an enrolment cannot point the GMA at another host. `GMA_ENGINE=http` needs them, or an agent network an application hands the GMA. |
+| `GMA_SITE_ENDPOINTS` | none | `SITE=URL,...`: each LMA's address. Only these addresses are called, so an enrolment cannot point the GMA at another host. `GMA_ENGINE=http` needs them, joinable sites, or an agent network an application hands the GMA. |
+| `GMA_JOINABLE_SITE_ENDPOINTS` | none | `SITE=URL,...`: sites that may join while the GMA runs, each with the one address the GMA accepts for it ([give the GMA a site's address](#gma-put-api-v1-federation-sites-site-id-address)). Needs `GMA_ENGINE=http`. With tokens, each site also needs entries in `GMA_LMA_TOKENS` and `GMA_SITE_TOKENS`. |
 | `GMA_LMA_TOKENS` | none | `SITE=TOKEN,...`: the `coordinator` token the GMA sends to each LMA |
 | `GMA_ADMIN_TOKEN`, `GMA_SITE_TOKENS`, `GMA_REQUIRE_TOKENS` | none, none, `0` | The tokens this GMA accepts ([Tokens](#tokens-errors-and-calls-between-agents)) |
 | `GMA_DISPATCH_CONCURRENCY` | `3` | How many sites a round's jobs run at at once, 1 to 64 |
@@ -1512,8 +1513,10 @@ How the GMA relates to the other modules:
   from its [registration](#lma-get-api-v1-federation-registration), reads
   each LMA's [summary](#lma-get-api-v1-site-summary), and offers and runs each
   round's [jobs](#lma-federated-jobs). The LMAs call it back to store their
-  clipped updates and to read the released model. With the simulator it calls
-  no other service.
+  clipped updates and to read the released model. A site in
+  `GMA_JOINABLE_SITE_ENDPOINTS` is called the same way once the study operator
+  has [sent its address](#gma-put-api-v1-federation-sites-site-id-address).
+  With the simulator it calls no other service.
 - **It calls the planner for every decision.** The governance plan and enforce
   endpoints and the release Guard run [`dagentsc governance restrict`](dagentsc.md#dagentsc-governance-restrict).
   Planning, dispatch, readiness, aggregation and release evaluation run
@@ -1550,6 +1553,8 @@ flowchart TB
     Routes --> Models["ModelRegistry"]
     Routes --> Updates["InMemoryUpdateStore"]
     Routes --> Releases["ReleaseService"]
+    Routes --> Addresses["SiteAddressBook"]
+    Addresses --> Network["Agent network: configured and joined LMA addresses"]
     Aggregation --> Stores["In-memory stores: agents, telemetry, deployments, dispatches, model runs"]
     Governance --> Guard["EthicalGuard"]
     Guard --> Audit["Audit chain: memory or Postgres"]
@@ -1585,6 +1590,7 @@ except the stored updates.
 | Guard decisions | `InMemoryAuditLog`, or `PostgresAuditSink` with `GMA_AUDIT_TABLE` | Enforce, and the release Guard of each release evaluation | `GET /api/v1/governance/audit`, `GET /api/v1/governance/audit:summary` |
 | Site enrolments, one per site id | `InMemorySiteRegistry` | `PUT /api/v1/federation/sites/{site_id}`, `POST /api/v1/federation/sites:refresh` | The site list, round planning and dispatch |
 | Site summaries, for `GMA_SUMMARY_TTL_SECONDS` | `SiteDirectory` | `GET /api/v1/federation/sites/summaries` | The same endpoint |
+| Addresses of sites that joined while the GMA runs | `SiteAddressBook`, in the agent network | `PUT /api/v1/federation/sites/{site_id}/address`, `DELETE` of the same path | The site address list, the site refresh, the summaries and round dispatch |
 | Rounds, one per round id, with their plan, acceptances, results, dispatch calls, readiness, candidate and decision | `InMemoryRoundRepository` | Dispatch, results, aggregation, discard and release evaluation | The round list and lookup, and every round endpoint |
 | The sites' clipped updates, until the round is aggregated or discarded | `InMemoryUpdateStore` | `PUT /api/v1/federation/rounds/{round_id}/updates/{site_id}` | The HTTP engine's aggregation only; no route reads an update |
 | Model versions, with their parameters, status and latest release decision | `InMemoryModelStore`, or `PostgresModelStore` with `GMA_MODEL_TABLE` | Registration, aggregation, release evaluation and approval | The model version endpoints, dispatch and aggregation |
@@ -2379,6 +2385,7 @@ classes:
 - FederatedRoundController (dagents/common/application/federation.py)
 - InMemorySiteRegistry (dagents/common/application/federation.py)
 - SiteDirectory (dagents/gma/application/site_directory.py)
+- SiteAddressBook (dagents/gma/application/site_addresses.py)
 endpoints:
 - PUT /federation/sites/{site_id}
 - PUT /api/v1/federation/sites/{site_id}
@@ -2388,6 +2395,12 @@ endpoints:
 - POST /api/v1/federation/sites:refresh
 - GET /federation/sites/summaries
 - GET /api/v1/federation/sites/summaries
+- PUT /federation/sites/{site_id}/address
+- PUT /api/v1/federation/sites/{site_id}/address
+- DELETE /federation/sites/{site_id}/address
+- DELETE /api/v1/federation/sites/{site_id}/address
+- GET /federation/site-addresses
+- GET /api/v1/federation/site-addresses
 ```
 
 A **site enrolment** says that a site takes part in studies and what it offers:
@@ -2403,9 +2416,19 @@ An enrolment comes from one of two places:
 - **A refresh** asks each LMA in the GMA's agent network for its own
   [registration](#lma-get-api-v1-federation-registration), with its current
   record count as the cohort size. The LMAs in the network are the addresses in
-  `GMA_SITE_ENDPOINTS`, or the LMA apps an application added to an in-process
-  network. An enrolment never adds an address, so a site cannot point the GMA
-  at another host.
+  `GMA_SITE_ENDPOINTS`, the addresses of joinable sites the study operator
+  sent, or the LMA apps an application added to an in-process network. An
+  enrolment never adds an address, so a site cannot point the GMA at another
+  host.
+
+A **site address** is where the GMA calls a site's LMA. The GMA reads the
+addresses in `GMA_SITE_ENDPOINTS` at start. A site listed in
+`GMA_JOINABLE_SITE_ENDPOINTS` can join while the GMA runs: the study operator
+[sends its address](#gma-put-api-v1-federation-sites-site-id-address), which
+must be the one listed, and then [refreshes](#gma-post-api-v1-federation-sites-refresh)
+the enrolments. An address and an enrolment are separate: the planner selects
+a site only by its enrolment, and the GMA reaches a selected site only by its
+address. No answer shows an address.
 
 The GMA also reads what each configured LMA reports about its records, through
 the [site summaries](#gma-get-api-v1-federation-sites-summaries). It never
@@ -2494,6 +2517,73 @@ LMA that answers with an error is reachable and has no summary. No entry holds a
 
 **Related.** [The SiteDirectoryEntry object](#the-sitedirectoryentry-object),
 [the SiteSummary object](#the-sitesummary-object).
+
+### Give the GMA a site's address
+
+```api-endpoint
+PUT /api/v1/federation/sites/{site_id}/address
+```
+
+Adds the address of a joinable site's LMA to the GMA's agent network, in
+memory, while the GMA runs. The GMA accepts only the address that
+`GMA_JOINABLE_SITE_ENDPOINTS` lists for the site; a trailing `/` is ignored.
+From then on the site refresh, the site summaries and round dispatch call that
+LMA, with the site's `coordinator` token from `GMA_LMA_TOKENS`. It answers with
+the site's id and `source: joined`. A site in `GMA_SITE_ENDPOINTS` sent with
+its own address answers `source: configured` and changes nothing, and sending a
+joined site again builds no second client. It does not enrol the site:
+[refresh the enrolments](#gma-post-api-v1-federation-sites-refresh) next. No
+planner command runs, no Guard boundary is passed, and no answer or log line
+repeats the address. A restarted GMA forgets it.
+
+**Errors.** `401` and `403` `forbidden` for tokens: it needs the `admin`
+token. `403` `not_joinable` when the site is not in
+`GMA_JOINABLE_SITE_ENDPOINTS`; a GMA with no HTTP network has no joinable site
+(the first example). `403` `address_differs` when the address differs from the
+listed one. `409` `configured_elsewhere` when the site is in
+`GMA_SITE_ENDPOINTS` with another address. `422` when `url` is missing, empty,
+longer than 2048 characters, or not an http or https base address with no user,
+password, query or fragment (`invalid_request`).
+
+**Related.** [Remove a joined site's address](#gma-delete-api-v1-federation-sites-site-id-address),
+[list the site addresses](#gma-get-api-v1-federation-site-addresses),
+[the SiteAddressState object](#the-siteaddressstate-object).
+
+### Remove a joined site's address
+
+```api-endpoint
+DELETE /api/v1/federation/sites/{site_id}/address
+```
+
+Removes a joined site's address from the GMA's agent network and closes the
+GMA's client for that LMA. The refresh and the summaries leave the site out
+from then on. Its enrolment stays: withdraw it first, with
+[enrol a site](#gma-put-api-v1-federation-sites-site-id) and `enrolled: false`,
+because a round that still selects the site records a `failed` result for it
+without calling it. A joinable site that has not joined answers `204` too. No
+planner command runs.
+
+**Errors.** `401` and `403` `forbidden` for tokens. `403` `not_joinable` for a
+site that is not in `GMA_JOINABLE_SITE_ENDPOINTS` (the example). `409`
+`configured` for a site in `GMA_SITE_ENDPOINTS`: its address stays while the
+GMA runs.
+
+**Related.** [Give the GMA a site's address](#gma-put-api-v1-federation-sites-site-id-address).
+
+### List the site addresses
+
+```api-endpoint
+GET /api/v1/federation/site-addresses
+```
+
+Returns the sites in `GMA_JOINABLE_SITE_ENDPOINTS`, joined or not, and every
+site whose LMA address the GMA holds, each with `source` `configured` or
+`joined`, sorted by `site_id`. It lists no address. A GMA with no HTTP network
+answers two empty lists (the first example). It reads memory only.
+
+**Errors.** `401` and `403` `forbidden` for tokens.
+
+**Related.** [The SiteAddressList object](#the-siteaddresslist-object).
 
 ## Federated rounds
 
@@ -3605,6 +3695,31 @@ from each LMA's [registration](#lma-get-api-v1-federation-registration) in a
 it with each round's manifest: `enrolled`, `capabilities`,
 `feature_contract_version`, `approved_conditions` and `cohort_size` are
 eligibility checks, and `policy_version` is stored only.
+
+### The SiteAddressState object
+
+```api-object
+class: dagents.common.domain.federation.SiteAddressState
+service: gma
+example: gma site-address-accepted /response/body
+```
+
+Where the GMA's address for one site's LMA came from: `GMA_SITE_ENDPOINTS` at
+start (`configured`) or the study operator while the GMA runs (`joined`). It
+never holds the address. It is the answer of
+[give the GMA a site's address](#gma-put-api-v1-federation-sites-site-id-address).
+
+### The SiteAddressList object
+
+```api-object
+class: dagents.common.domain.federation.SiteAddressList
+service: gma
+example: gma joined-site-addresses /response/body
+```
+
+The answer of [list the site addresses](#gma-get-api-v1-federation-site-addresses):
+the sites that may join and every address the GMA holds, by source. Both lists
+are empty on a GMA with no HTTP network.
 
 ### The RoundManifest object
 

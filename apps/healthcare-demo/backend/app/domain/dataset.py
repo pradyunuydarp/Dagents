@@ -1,14 +1,17 @@
-"""The demo's three hospitals and the committed IST-1 extract they start from.
+"""The demo's hospitals and the committed IST-1 extracts they start from.
 
 The records are real, de-identified patient records from the International
 Stroke Trial (IST-1), recruited in 1991-1996. Each demo hospital is one real IST
 hospital: the hospital with the most patients in each of the three countries
-with the most patients. ``scripts/extract_ist.py`` produced the extract, and
-``data/ist/NOTICE.md`` records the source, the licence and what was left out.
+with the most patients. A fourth hospital, chosen by the same rule for the
+fourth country, is not in the consortium at start; a network-mode run started
+with ``--deploy`` can add it while the demo runs (``JOINING_SITES``). ``scripts/extract_ist.py`` produced both
+extracts, and ``data/ist/NOTICE.md`` records the source, the licence and what
+was left out.
 
-This module reads one file, the committed extract, and nothing else. It does not
-open a network connection or a database. A deployed site reads the same rows
-from its own database schema, seeded from this file.
+This module reads the committed extracts and nothing else. It does not open a
+network connection or a database. A deployed site reads the same rows from its
+own database schema, seeded from these files.
 
 A missing value is an absent key in a record, never ``None``.
 """
@@ -19,7 +22,7 @@ import csv
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 # --- The dataset --------------------------------------------------------------
 
@@ -61,13 +64,21 @@ DATASET: dict[str, str] = {
 
 # --- The hospitals ------------------------------------------------------------
 
+#: The extract that holds the three hospitals' records, in ``data/ist/``.
+EXTRACT_FILE = "ist_three_hospitals.csv"
+
+#: The extract that holds the joining hospital's records, in ``data/ist/``.
+JOINING_EXTRACT_FILE = "ist_joining_hospitals.csv"
+
 
 @dataclass(frozen=True)
 class Site:
     """One demo hospital.
 
     ``schema`` is also the name of the database role that owns the schema, so a
-    site's rows are read and written only as that role.
+    site's rows are read and written only as that role. ``extract`` is the file
+    in ``data/ist/`` that holds the site's records, or ``None`` for a site that
+    starts with no records.
     """
 
     site_id: str
@@ -76,6 +87,7 @@ class Site:
     hospnum: int
     schema: str
     expected_rows: int
+    extract: str | None = EXTRACT_FILE
 
     @property
     def role(self) -> str:
@@ -92,17 +104,75 @@ SITES: tuple[Site, ...] = (
 
 SITE_IDS: tuple[str, ...] = tuple(site.site_id for site in SITES)
 
+#: Hospitals that are not in the consortium when the demo starts. A network-mode
+#: run started with ``--deploy`` adds one while the demo runs ("Add a hospital" on
+#: the consortium page). Hospital 290 is the hospital with the most patients in
+#: Poland, the country with the fourth most patients, so it follows the rule
+#: that picks ``SITES``.
+#:
+#: Each entry's ``extract`` is the one place that says where its records come
+#: from. To start a joining hospital with no records instead, set
+#: ``extract=None`` and ``expected_rows=0`` here, delete
+#: ``data/ist/ist_joining_hospitals.csv`` together with ``extract_joining`` and
+#: ``--joining-output`` in ``scripts/extract_ist.py``, and change the expected
+#: count in ``tests/test_dataset.py``. An empty site enrols with a cohort of 0,
+#: and the planner then leaves it out of rounds.
+JOINING_SITES: tuple[Site, ...] = (
+    Site("pl-290", "Hospital 290", "Poland", 290, "site_pl_290", 263, extract=JOINING_EXTRACT_FILE),
+)
+
+JOINING_SITE_IDS: tuple[str, ...] = tuple(site.site_id for site in JOINING_SITES)
+
 
 class UnknownSiteError(KeyError):
     """The site id is not one of the demo hospitals."""
 
 
 def site_for(site_id: str) -> Site:
-    """Return the hospital with this id, or raise :class:`UnknownSiteError`."""
+    """Return the consortium hospital (one of ``SITES``) with this id.
+
+    A joining hospital is not found here; use :func:`any_site_for` for it.
+    Raises :class:`UnknownSiteError` for any other id.
+    """
     for site in SITES:
         if site.site_id == site_id:
             return site
     raise UnknownSiteError(site_id)
+
+
+def joining_site_for(site_id: str) -> Site:
+    """Return the joining hospital (one of ``JOINING_SITES``) with this id.
+
+    Raises :class:`UnknownSiteError` for any other id, including the ids in
+    ``SITES``.
+    """
+    for site in JOINING_SITES:
+        if site.site_id == site_id:
+            return site
+    raise UnknownSiteError(site_id)
+
+
+def any_site_for(site_id: str) -> Site:
+    """Return the hospital with this id from ``SITES`` or, failing that, ``JOINING_SITES``."""
+    try:
+        return site_for(site_id)
+    except UnknownSiteError:
+        return joining_site_for(site_id)
+
+
+def is_joining(site_id: str) -> bool:
+    """Whether the id names a hospital that joins while the demo runs."""
+    return any(site.site_id == site_id for site in JOINING_SITES)
+
+
+def records_source(site: Site) -> Literal["dataset", "empty"]:
+    """Where the site's records come from: an IST extract, or none at all."""
+    return "dataset" if site.extract is not None else "empty"
+
+
+def expected_record_count(site: Site) -> int:
+    """How many records the site starts with: its extract's rows, or 0 without one."""
+    return site.expected_rows if site.extract is not None else 0
 
 
 # --- Records ------------------------------------------------------------------
@@ -137,7 +207,7 @@ def encounter_id_for(site_id: str, source_row: int) -> str:
     return f"{site_id}-{source_row:05d}"
 
 
-#: Columns of ``ist_three_hospitals.csv``, in file order.
+#: Columns of both extracts, in file order.
 CSV_COLUMNS: tuple[str, ...] = (
     "encounter_id",
     "site_id",
@@ -174,21 +244,25 @@ _BOOL_COLUMNS = frozenset(
     }
 )
 
-#: The extract's path relative to the app root.
-EXTRACT_PATH = Path("data") / "ist" / "ist_three_hospitals.csv"
+#: The three hospitals' extract, relative to the app root.
+EXTRACT_PATH = Path("data") / "ist" / EXTRACT_FILE
 
 
-@lru_cache(maxsize=1)
-def dataset_path() -> Path:
-    """Where the committed extract is read from.
+@lru_cache(maxsize=4)
+def dataset_path(name: str = EXTRACT_FILE) -> Path:
+    """Where the committed extract ``name`` is read from.
 
     In the repository this module is ``apps/healthcare-demo/backend/app/domain``,
     so the app root is three levels up. In the container the package is
     ``/app/app`` and the image keeps the data in ``/app/data``. The path is
-    found on first use, not at import.
+    found on first use, not at import. ``name`` is a file name in
+    ``data/ist/``, never a path.
     """
+    if not name or Path(name).name != name:
+        raise ValueError(f"the extract name must be a file name in data/ist/, not {name!r}")
+    relative = Path("data") / "ist" / name
     here = Path(__file__).resolve()
-    candidates = [here.parents[3] / EXTRACT_PATH, here.parents[2] / EXTRACT_PATH]
+    candidates = [here.parents[3] / relative, here.parents[2] / relative]
     for candidate in candidates:
         if candidate.is_file():
             return candidate
@@ -238,10 +312,16 @@ def _read_extract(path: str) -> tuple[tuple[str, dict[str, Any]], ...]:
 def load_site_records(site_id: str, path: Path | str | None = None) -> list[dict[str, Any]]:
     """Return one hospital's dataset records, in source order.
 
+    The hospital is one of ``SITES`` or ``JOINING_SITES``. Its records come from
+    its own extract (``Site.extract``), or from ``path`` when given. A site
+    without an extract has no records, so the result is an empty list.
+
     Each record holds ``encounter_id``, ``source_row``, ``origin`` (always
     ``"dataset"``), ``age`` and the contract fields. A missing value is an
     absent key. The caller gets new dictionaries and may change them.
     """
-    site_for(site_id)
-    rows = _read_extract(str(path or dataset_path()))
+    site = any_site_for(site_id)
+    if site.extract is None:
+        return []
+    rows = _read_extract(str(path or dataset_path(site.extract)))
     return [dict(record) for row_site, record in rows if row_site == site_id]

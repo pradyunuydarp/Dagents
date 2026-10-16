@@ -460,3 +460,73 @@ export interface ApproveResult extends WithCalls {
   /** The version the hospitals used before. */
   previous: string;
 }
+
+/** Whether a joining hospital's LMA runs, as the app's applier reports it. */
+export type ServiceState = "running" | "stopped" | "not_started" | "unknown";
+
+/** A hospital that is not in the consortium at start and can join while the demo runs. */
+export interface JoinableHospital {
+  site_id: string;
+  display_name: string;
+  country: string;
+  /** The records it starts with, from the dataset module. The app never reads them. */
+  records: number;
+  records_source: "dataset" | "empty";
+  in_consortium: boolean;
+  service: ServiceState;
+}
+
+export type DeploymentStepName = "plan" | "start" | "answer" | "attach" | "enrol" | "join" | "check";
+export type DeploymentStepStatus = "done" | "skipped" | "failed" | "undone" | "not_run";
+
+/** One step of adding a hospital, and what happened in it. */
+export interface DeploymentStep {
+  step: DeploymentStepName;
+  status: DeploymentStepStatus;
+  detail: string;
+  seconds: number;
+}
+
+/** Whether the GMA's planner selects the new hospital for the next round. */
+export interface NextRound {
+  selected: boolean;
+  /** The planner's reason when it would not select the hospital. */
+  reason: string | null;
+}
+
+/** One reason core-service gave for not rendering the Compose file. */
+export interface DeploymentIssue {
+  service: string | null;
+  code: string;
+  value: string | null;
+}
+
+/** One attempt to add a hospital to the running consortium, with the agent calls it made. */
+export interface Deployment extends WithCalls {
+  deployment_id: string;
+  kind: "lma";
+  site_id: string;
+  service: string;
+  applier: "process" | "compose";
+  status: "joined" | "failed";
+  adopted: boolean;
+  /** The Compose file core-service rendered, with `<port>`, `<python>` and `<env folder>` in place of this machine's values. */
+  compose_yaml: string | null;
+  issues: DeploymentIssue[];
+  /** The seven steps, in the order they run. */
+  steps: DeploymentStep[];
+  next_round: NextRound | null;
+  started_at: string;
+  finished_at: string;
+}
+
+/** `GET /api/v1/deployments`: whether this server can add a hospital, and what was tried. */
+export interface DeploymentsView extends WithCalls {
+  available: boolean;
+  /** Why adding a hospital is not available, in plain words. */
+  reason: string | null;
+  applier: "off" | "process" | "compose";
+  hospitals: JoinableHospital[];
+  /** Newest first. */
+  deployments: Deployment[];
+}

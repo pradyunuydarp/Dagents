@@ -23,8 +23,8 @@ with typed planners, and deploy through services.
   call Dagents instead of rebuilding profiling, orchestration, model routing and
   manifest generation.
 - **OCaml planners**: pure, typed compilers for validation, DAG planning, model
-  routing, Kubernetes manifests, governance (ethical restrictions) and federated
-  rounds.
+  routing, Kubernetes manifests and Docker Compose files, governance (ethical
+  restrictions) and federated rounds.
 
 Intended consumers: Watchdog, Datalytics, the NL2SQL demo app and the healthcare
 stroke-triage demo app, both in this repository.
@@ -62,7 +62,7 @@ bindings/ocaml/  the planners (dune workspace)
   lib/dataset_compiler    source validation, profiling, schema contracts, quality, transforms
   lib/pipeline_compiler   DAG validation + topological ordering
   lib/model_router        dataset profile + task -> model family + packaging mode
-  lib/manifest_compiler   typed workload spec -> Kubernetes YAML
+  lib/manifest_compiler   typed workload spec -> Kubernetes YAML or a Docker Compose file
   lib/governance_compiler GRAILS ethical restrictions: what protection a request needs
   lib/federation_compiler federated round manifests, eligibility, quorum, release gates
   bin/dagentsc.ml         the command-line program services call
@@ -191,20 +191,21 @@ both store implementations are tested. The same holds for the agents' twins:
 (builds OCaml, runs `dune test`, and uploads `dagentsc` for the other jobs and
 a statically linked `dagentsc-static` for `packaging`), `agents`,
 `framework-services` (core-service twice, with and without `DAGENTSC_BIN`),
-`contracts`, `spring`, `demo-apps`, `frontends`, `packaging` (builds the sdist
-and a Linux wheel with the planner, installs the wheel into clean
-environments, and runs the agent suite on the newest versions the package's
-extras allow; see **Releasing**), `docs-impact`, and a `ci` gate job that is
-the single required check.
+`contracts`, `spring`, `demo-apps`, `frontends`, `deploy-smoke` (the
+healthcare UI in network mode with `--deploy` against PostgreSQL 16, where the
+smoke test adds Hospital 290 from the page), `packaging` (builds the sdist and
+a Linux wheel with the planner, installs the wheel into clean environments,
+and runs the agent suite on the newest versions the package's extras allow;
+see **Releasing**), `docs-impact`, and a `ci` gate job that is the single
+required check.
 
 `docs-impact` runs `scripts/check_docs_impact.py` on pull requests and pushes
 to `main`. It fails when a change touches a code area (`dagents/`, `services/`,
 `bindings/ocaml/`, `apps/`, `contracts/`, `scripts/`, `examples/`, `env/`, the
 compose file, a workflow, `pyproject.toml`, `hatch_build.py` or
-`.github/build-constraints.txt`, or a deck) and
-none of the docs that area feeds,
-unless a commit message has a line `Docs-Impact: none [area] (reason)` that
-names the area. Run it before pushing:
+`.github/build-constraints.txt`, or a deck) and none of the docs that area
+feeds, unless a commit message has a line `Docs-Impact: none [area] (reason)`
+that names the area. Run it before pushing:
 
 ```bash
 .venv/bin/python scripts/check_docs_impact.py --base origin/main
@@ -229,7 +230,8 @@ database and fails if one is missing from that list; a new class goes in both
 `ci.yml` and `healthcare-data.yml`. `scripts/ci_no_skipped_planner_tests.py
 LOG` still works; it runs the guard with `--forbid planner`.
 
-Docker and Minikube are not in CI; see **Current state**. The suites set
+CI starts no container and runs no Minikube; it uses the Docker command line
+only for `docker compose config`. See **Current state**. The suites set
 `DAGENTSC_BIN`, so they pass even when an image lacks the planner. One check
 covers the images without building them: `tests/test_planner_in_images.py`
 follows each Python image's imports from the module uvicorn runs, and fails if
@@ -273,9 +275,18 @@ the UI sends at the exact path and query string it sends it, or whose healthcare
 answers do not list the agent calls behind them (`framework_calls`, with the
 GMA's round call and a `jobs:run` call to each hospital's LMA in the pilot, a
 run dispatch row the hospital accepted for each hospital in the round reports,
-and `agents.mode` in the status). The capture refuses to write such a recording.
+and `agents.mode` in the status), or whose `GET /api/v1/deployments` offers or
+lists a deployment. The capture runs with `HEALTHCARE_DEMO_DEPLOYER=off` and
+refuses to write such a recording.
 `--port` sets the port of the demo backend the capture starts. Recordings are
 gitignored; the workflow makes them.
+
+**A failed deploy.** A deploy can stall on GitHub's side. So the deploy job
+tries a failed deploy once more after 30 seconds, and a second failure fails the
+run. If both attempts fail, re-run the failed jobs of that run. The Pages
+artifact is kept for one day; after that, re-run the whole run. A new run of the
+same commit adds a green check beside the red one but does not replace it, so
+the commit still shows the failure.
 
 **Link previews and icons.** A link to one of the sites, shared on LinkedIn,
 WhatsApp, Slack or X, shows that site's card: the 1200 x 630 PNG named by the
@@ -512,6 +523,23 @@ runs the network layout against PostgreSQL 16, checks that its pilot equals an
 in-process pilot, and approves a candidate across the processes (it needs
 `HEALTHCARE_DEMO_TEST_DATABASE_URL`).
 
+A fourth hospital, Hospital 290 (`pl-290`), can join a network-mode run while
+it runs (`POST /api/v1/deployments`). core-service renders its LMA's Compose
+file, and the API starts it as a local process or a container:
+
+```bash
+apps/healthcare-demo/scripts/run_frontend_demo.sh --deploy   # network mode plus core-service; the new LMA is a process
+cd apps/healthcare-demo && DOCKER_GID=$(stat -c %g /var/run/docker.sock) \
+  docker compose -f docker-compose.yml -f docker-compose.deploy.yml \
+  --env-file env/.env.healthcare-demo up --build              # the new LMA is a container
+```
+
+It is off by default (`HEALTHCARE_DEMO_DEPLOYER=off`) and on one machine only:
+the API refuses to start with it on when `RENDER` is set or the agents run in
+process. The override mounts the Docker socket into the API's container, so
+never use it on a shared host. `apps/healthcare-demo/tests/test_network_deploy.py`
+adds the hospital to real processes against PostgreSQL 16.
+
 All of them need `dagentsc`. Without it the Ethical Guard denies every request,
 which is correct but makes every panel a denial, so the scripts check first.
 Without `HEALTHCARE_DEMO_DATABASE_URL`, each hospital keeps its records in
@@ -524,8 +552,12 @@ view and checks that its charts draw, submits a data entry and checks that the
 record appears, switches to the dark theme and checks that the charts are drawn
 again, checks that a 503 without the app's `X-Dagents-App` header shows the
 connecting banner while the app's own 503 shows at once, checks that every
-"Dagents API calls" table names its agent and route and holds no address, and
-fails on any console error. A typecheck
+"Dagents API calls" table names its agent and route and holds no address,
+checks that the "Add a hospital" panel says why it offers no button, and
+fails on any console error. With `--expect-join pl-290`, which
+`run_frontend_demo.sh --deploy --check` passes, it also adds the hospital from
+the page after its other checks and prints `ok  deploy: hospital pl-290
+joined`. A typecheck
 and a bundle only prove that the app compiles. The smoke test exits 2 and prints
 `SKIP` when no browser is available; report that as skipped, not passed.
 
@@ -545,6 +577,8 @@ and a bundle only prove that the app compiles. The smoke test exits 2 and prints
 | healthcare-demo backend | 8080 |
 | healthcare-demo GMA (`--agents network` and compose) | 8081 |
 | healthcare-demo LMAs (`uk-134`, `it-002`, `ch-245`) | 8082, 8083, 8084 |
+| healthcare-demo LMA of the joining hospital (`pl-290`, `--deploy` and the deploy override) | 8085 |
+| healthcare-demo core-service (`--deploy` and the deploy override) | 8040 |
 | healthcare-demo frontend | 5174 |
 | framework site (dev) | 5175 |
 

@@ -75,7 +75,7 @@ copies of one rule drift apart; this repo has had that bug (see §5).
 | `lib/dataset_compiler` | Source validation, profiling, schema contracts, quality rules, transforms |
 | `lib/pipeline_compiler` | Whether a pipeline is a valid DAG, and the order of its steps |
 | `lib/model_router` | Dataset profile + task → model family + packaging mode |
-| `lib/manifest_compiler` | Typed workload spec → Kubernetes YAML |
+| `lib/manifest_compiler` | Typed workload spec → Kubernetes YAML or a Docker Compose file |
 | `lib/governance_compiler` | GRAILS: the protection each field of a request needs |
 | `lib/federation_compiler` | Round manifests, eligibility, quorum, aggregation readiness, release gates |
 
@@ -227,6 +227,16 @@ and everything else generic. **Never** import the Guard, the round controller,
 the worker, the running profile or `dagents_runner` into the app: it reaches
 them only through the agents' APIs. `apps/healthcare-demo/tests/test_boundary.py`
 lists what each app file may import.
+
+Adding a hospital while the demo runs keeps the same split. core-service's
+OCaml manifest compiler renders the new LMA's Compose file; an applier from
+`dagents/common/infrastructure/compose_apply.py` starts it and makes no
+decision; the GMA accepts only the address `GMA_JOINABLE_SITE_ENDPOINTS` lists
+for the site; the GMA's planner decides whether the next round selects it.
+The app (`app/services/deployment.py`) only orders the steps and undoes them
+on a failure. **Never** let it start a process when `RENDER` is set, when the
+agents run in process, or from a page on another host: `check_deployer`
+refuses those settings at start, and the POST refuses a foreign `Origin`.
 
 ## 3. The test loop
 

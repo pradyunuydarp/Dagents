@@ -207,6 +207,11 @@ backend and replays.
   lists only that hospital's LMA (`SiteCalls`); any other call, such as the
   app registering its model versions with the GMA after a start, gets a strip
   of its own.
+- **A replay never offers to add a hospital.** The capture records
+  `GET /api/v1/deployments` from a server with `HEALTHCARE_DEMO_DEPLOYER=off`,
+  and `check_demo_recordings.py` refuses a recording whose answer offers a
+  deployment or lists one. The panel shows the hospitals that can join and why
+  it offers no button.
 - The page names the commit it was recorded from. Keep that visible.
 - If you change what the UI requests, record again. Otherwise the published
   demo answers "not recorded" where it used to work. A hospital-page GET path
@@ -318,7 +323,10 @@ banner while the app's own 503 shows at once, checks that every "Dagents API
 calls" strip names its agent, method and route, matches the answer's calls and
 holds no address, checks that "Who does what" shows the agent mode the backend
 reports, checks that each pilot round lists how the GMA dispatched its job to
-every hospital, and fails on any console error. It finds controls by their labels ("Requester verified",
+every hospital, checks that the "Add a hospital" panel says why it offers no
+button (or, with `--expect-join`, adds the hospital, opens its page and runs a
+pilot with it), checks the panel's steps, focus and live announcement on
+rewritten answers at 375 px, and fails on any console error. It finds controls by their labels ("Requester verified",
 "Cohort size") and buttons by name ("Ask the guard", "Run the pilot"); rename
 them only together with the test. When you add a control, add an assertion for
 it. The test must not assume which release decision the pilot reaches.
