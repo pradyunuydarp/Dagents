@@ -335,12 +335,20 @@ banner while the app's own 503 shows at once, and fails on any console error. It
 them only together with the test. When you add a control, add an assertion for
 it. The test must not assume which release decision the pilot reaches.
 
+Every run also checks the panel on rewritten answers, without sending the
+request that adds a hospital: at 375 px the button is fully visible, the last
+attempt is hidden while a new one runs, focus moves to the attempt that
+returns, each step's visible status word matches its `data-status`, the
+next-round line does not repeat the planner's reason, and a joined hospital
+whose LMA stopped gets a button to start it again.
+
 With `--expect-join <site_id>` the smoke test expects the button instead of
 the reason. It presses it, checks that the button is disabled while the app
-works, that every step is done or skipped and that the Compose file names
-the hospital's LMA, that the overview lists one more hospital, that the new
-hospital's page draws its charts, and that the next pilot's rounds include
-it. CI greps its `ok  deploy: hospital pl-290 joined` line, so keep the
+works, that every step is done or skipped and shows its word, that the
+Compose file names the hospital's LMA, that the next-round line is shown and
+focus is on the attempt, that the overview lists one more hospital, that the
+new hospital's page draws its charts, and that the next pilot's rounds
+include it. CI greps its `ok  deploy: hospital pl-290 joined` line, so keep the
 line's text, including the two spaces after `ok`.
 
 The site's `check.mjs` serves `dist/`, visits every guide page, and fails if a

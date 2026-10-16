@@ -735,14 +735,16 @@ cd frontend && npm run smoke             # against a running stack
 It tries all three guard controls, runs a full pilot, opens a hospital view,
 submits a data entry, checks that the panel to add a hospital shows the
 server's reason and no button, and fails on any console error or failed
-request. Without
+request. On rewritten answers it also checks the panel at 375 px, its focus,
+its status words and its next-round line, without starting anything. Without
 a browser it exits 2 and prints `SKIP`. `scripts/run_frontend_demo.sh --split
 --check` runs the same test against the five processes.
 `scripts/run_frontend_demo.sh --deploy --check` runs it against the six
 processes with `--expect-join pl-290`: the test presses **Add Hospital 290**,
-checks that every step is done and that the Compose file names the
-hospital's LMA, opens the new hospital's page and checks that its charts
-draw, and runs a pilot that includes it.
+checks that every step is done and shows its word, that the Compose file
+names the hospital's LMA and that focus moves to the attempt, opens the new
+hospital's page and checks that its charts draw, and runs a pilot that
+includes it.
 
 Three suites cover the split layout:
 

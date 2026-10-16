@@ -33,10 +33,16 @@
  *      out of a round) is shown in words; a hospital whose store differs
  *      from the others is named in the source line;
  *   9. at 375 px the charts keep their drawn size inside their own scroll box
- *      and the page does not scroll sideways;
+ *      and the page does not scroll sideways; on rewritten answers, the
+ *      button that adds a hospital is fully visible at 375 px, the last
+ *      attempt is hidden while a new one runs, focus moves to the attempt
+ *      that returns, each step's status is a word, the next-round line does
+ *      not repeat the planner's reason, and a joined hospital whose LMA
+ *      stopped can be started again, also while the overview fails;
  *  10. with --expect-join, after every other check, the hospital joins from
- *      the panel: every step is done, the panel shows the Compose file,
- *      the table and the header list it, its page draws its charts, and a
+ *      the panel: every step is done and shows its word, the panel shows the
+ *      Compose file and the next-round line, focus is on the attempt, the
+ *      table and the header list it, its page draws its charts, and a
  *      pilot includes it;
  *  11. nothing logs a console error or fails a request on the way.
  *
@@ -1012,6 +1018,17 @@ try {
   //    The Add a hospital panel, with GET /api/v1/deployments rewritten to
   //    offer the action, so every run checks it at phone width. The page
   //    never sends the request that adds a hospital.
+  /** Steps whose visible status word is not the word for their `data-status`. */
+  const STATUS_WORDS = { done: "Done", skipped: "Skipped", failed: "Failed", undone: "Undone", not_run: "Not run" };
+  const wrongStatusWords = async (attemptLocator) =>
+    (
+      await attemptLocator
+        .locator("[data-step]")
+        .evaluateAll((items) =>
+          items.map((item) => [item.getAttribute("data-step"), item.getAttribute("data-status"), item.querySelector(".step-status")?.textContent?.trim() ?? ""])
+        )
+    ).filter(([, status, word]) => STATUS_WORDS[status] !== word);
+
   const deployPage = await browser.newPage({ viewport: { width: 375, height: 812 } });
   watch(deployPage);
   try {
@@ -1106,6 +1123,12 @@ try {
       "while a hospital is being added, the last attempt is not shown",
       shownWhileAdding === 0,
       `${shownWhileAdding} earlier attempt(s) shown under the running note`
+    );
+    const wrongWords = await wrongStatusWords(attemptShown(second.deployment_id));
+    check(
+      "each step of an attempt shows its status as a word",
+      wrongWords.length === 0,
+      wrongWords.length ? wrongWords.map((item) => item.join(" ")).join(", ") : "Done, Failed and Not run shown"
     );
     //    The button is disabled while the app works, so focus would fall to
     //    the page. It moves to the new attempt's heading, and the live region,
@@ -1349,6 +1372,26 @@ try {
         `${steps.length} steps${unfinished.length ? `, not finished: ${unfinished.map((item) => item.join(" ")).join(", ")}` : ""}; ` +
         `compose file ${composeText.includes(`lma-${expectJoin}`) ? "shown" : "missing"}; ` +
         `rows ${rowsBefore} -> ${rowsAfter}, links ${linksBefore} -> ${linksAfter}; ${buttonsLeft} buttons left`
+    );
+
+    //     The steps show their status in words, the line under them says
+    //     what the planner's answer means, and focus is on the attempt.
+    const joinedAttempt = deployPanel.locator(`[data-deployment="${deployment.deployment_id}"]`);
+    const joinedWords = await wrongStatusWords(joinedAttempt);
+    const nextRoundLine = ((await joinedAttempt.locator('[data-role="next-round"]').textContent().catch(() => "")) ?? "").trim();
+    const focusedId = await page.evaluate(() => document.activeElement?.id ?? "");
+    const joinedDisplay =
+      (await api("/api/v1/deployments")).hospitals.find((item) => item.site_id === expectJoin)?.display_name ?? expectJoin;
+    const joinedName = nextRoundLine.includes(joinedDisplay);
+    check(
+      `deploy: the attempt shows its status words, the next-round line and takes focus`,
+      joinedWords.length === 0 &&
+        nextRoundLine.endsWith(".") &&
+        joinedName &&
+        (deployment.next_round?.selected ? /^Run the pilot/.test(nextRoundLine) : /leave it out/.test(nextRoundLine)) &&
+        focusedId === `attempt-${deployment.deployment_id}`,
+      `${joinedWords.length ? `wrong words: ${joinedWords.map((item) => item.join(" ")).join(", ")}; ` : ""}` +
+        `next round: "${nextRoundLine || "no line"}"; focus on ${focusedId || "nothing"}`
     );
 
     //     Its page comes from its own LMA, and its charts draw.
