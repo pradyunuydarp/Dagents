@@ -308,7 +308,19 @@ that runs the services listed in `existingServices`, among them a GMA named
 contains the Dagents LMA (`agents.lma.main:app`), and a settings file,
 `lma-hospital-d.env`, with the new LMA's other `LMA_*` settings and its tokens.
 The planner checks none of these assumptions: it sees only the names in
-`existingServices`, not the running project, the image or the file:
+`existingServices`, not the running project, the image or the file.
+
+The stroke demo cannot add a hospital yet, so in the demo's own project this
+file does not start a working hospital:
+
+- The demo's `healthcare_site_store` site source accepts only the demo's three
+  hospitals (`uk-134`, `it-002` and `ch-245`). For `hospital-d` it raises an
+  error, so the LMA fails at startup and Compose keeps restarting it.
+- The GMA reads each LMA's address and tokens (`GMA_SITE_ENDPOINTS`,
+  `GMA_LMA_TOKENS` and `GMA_SITE_TOKENS`) when it starts. It sends no job to a
+  site that is missing from these settings.
+
+The spec:
 
 ```json
 {
