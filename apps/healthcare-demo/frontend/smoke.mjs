@@ -1025,9 +1025,38 @@ try {
       deployments: [],
     };
     const appJson = (json) => ({ status: 200, contentType: "application/json", headers: { "X-Dagents-App": "healthcare-demo" }, json });
-    await deployPage.route("**/api/v1/deployments", (route) =>
-      route.request().method() === "GET" ? route.fulfill(appJson(offeredView)) : route.abort()
-    );
+    const joining = offeredView.hospitals[0];
+    /** An attempt in the shape the backend returns, for the rewritten answers. */
+    const attempt = (id, failedStep, detail, nextRound = null) => {
+      const order = ["plan", "start", "answer", "attach", "enrol", "join", "check"];
+      const failedAt = order.indexOf(failedStep);
+      const now = new Date().toISOString();
+      return {
+        deployment_id: id, kind: "lma", site_id: joining.site_id, service: `lma-${joining.site_id}`,
+        applier: "process", status: "failed", adopted: false, compose_yaml: null, issues: [],
+        steps: order.map((step, index) => ({
+          step,
+          status: index < failedAt ? "done" : index === failedAt ? "failed" : "not_run",
+          detail: index === failedAt ? detail : index < failedAt ? "Done in the rewritten answer." : "",
+          seconds: 0.01,
+        })),
+        next_round: nextRound, started_at: now, finished_at: now,
+      };
+    };
+    const previous = attempt("dep-smoke-previous", "start", "Port 8085 is in use.");
+    const second = attempt("dep-smoke-second", "start", "Port 8085 is still in use.");
+    offeredView.deployments = [previous];
+    let releasePost = () => {};
+    const postHeld = new Promise((resolve) => {
+      releasePost = resolve;
+    });
+    await deployPage.route("**/api/v1/deployments", async (route) => {
+      if (route.request().method() === "GET") return route.fulfill(appJson(offeredView));
+      // The request that adds a hospital never reaches the backend here.
+      await postHeld;
+      offeredView.deployments = [second, previous];
+      return route.fulfill(appJson(second));
+    });
     await deployPage.goto(baseUrl, { timeout: 60000 });
     const phoneButton = deployPage.locator('[data-panel="deploy"] [data-action="deploy"]').first();
     await phoneButton.waitFor({ timeout: 30000 });
@@ -1053,6 +1082,21 @@ try {
       "at 375 px the button that adds a hospital is fully visible",
       !fit.clipped && fit.left >= 0 && fit.right <= fit.viewport,
       `button from ${fit.left} to ${fit.right} px of ${fit.viewport}${fit.clipped ? ", clipped by a scroll box" : ""}`
+    );
+
+    //    While a second attempt runs, the first one's steps are not shown
+    //    under the "Adding" note, where they would read as the new attempt.
+    const attemptShown = (id) => deployPage.locator(`[data-panel="deploy"] [data-deployment="${id}"]`);
+    await attemptShown(previous.deployment_id).waitFor({ timeout: 30000 });
+    await phoneButton.click();
+    await deployPage.locator("[data-deploy-running]").waitFor({ timeout: 15000 });
+    const shownWhileAdding = await deployPage.locator('[data-panel="deploy"] [data-deployment]').count();
+    releasePost();
+    await attemptShown(second.deployment_id).waitFor({ timeout: 30000 });
+    check(
+      "while a hospital is being added, the last attempt is not shown",
+      shownWhileAdding === 0,
+      `${shownWhileAdding} earlier attempt(s) shown under the running note`
     );
   } finally {
     await deployPage.unrouteAll({ behavior: "ignoreErrors" });

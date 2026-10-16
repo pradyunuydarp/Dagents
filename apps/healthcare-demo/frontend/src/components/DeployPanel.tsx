@@ -215,7 +215,8 @@ export function DeployPanel({ onJoined }: { onJoined: () => void }) {
         </p>
       )}
       <ErrorNote error={error} />
-      {latest && <Attempt deployment={latest} name={nameOf(latest.site_id)} />}
+      {/* While a request runs, the last attempt is hidden: its steps would read as the new one's. */}
+      {latest && !adding && <Attempt deployment={latest} name={nameOf(latest.site_id)} />}
     </Panel>
   );
 }
