@@ -177,9 +177,11 @@ the tool's output (`output_tail`) and, for a process that exited, its log file
 (`log_path`). Neither applier checks the service's health: ask the service. A
 process in a new process group outlives a parent that dies without calling
 `close`, so whatever supervises your program can stop it with the pid in
-`<service>.pid`. The tests run the Docker applier with a fake runner, because
-CI has no Docker. The stroke demo uses both appliers to add a hospital while
-it runs ([its README](../../apps/healthcare-demo/README.md)).
+`<service>.pid`. The applier tests run the Docker applier with a fake runner,
+so they start no container. CI uses the Docker command line only to check
+Compose files with `docker compose config`, which needs no running container.
+The stroke demo uses both appliers to add a hospital while it runs
+([its README](../../apps/healthcare-demo/README.md)).
 
 Both kinds of file are generated and tested, but CI deploys neither. The plan
 for checking the Kubernetes manifests on a live cluster is in `TODO.md`.

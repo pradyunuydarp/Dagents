@@ -49,8 +49,10 @@ from app.services.deployment import (  # noqa: E402
     COMPOSE_SERVICES,
     env_file_path,
     framework_root,
+    hidden_values,
     lma_compose_request,
     rendered_service_mismatch,
+    shown_compose_file,
 )
 from tests.support import dagentsc_available  # noqa: E402
 
@@ -319,6 +321,91 @@ class RenderedServiceMismatchTests(unittest.TestCase):
         self.assertEqual("the environment", rendered_service_mismatch(process, requests()["process"]))
 
 
+def planner_style_file(port: str, env_dir: str = "") -> str:
+    """A process-mode file written the way the manifest compiler writes it: every scalar in double quotes."""
+    env_dir = env_dir or str(ENV_DIR)
+    return (
+        "services:\n"
+        '  "lma-pl-290":\n'
+        '    image: "registry.example:1' + port + '/healthcare-demo-backend:local"\n'
+        f'    command: ["{sys.executable}", "-m", "uvicorn", "agents.lma.main:app", "--host", "127.0.0.1", '
+        f'"--port", "{port}", "--log-level", "warning"]\n'
+        "    env_file:\n"
+        f'      - "{env_dir}/lma-pl-290.env"\n'
+        "    environment:\n"
+        '      "LMA_SITE_ID": "pl-290"\n'
+        f'      "PORT": "{port}"\n'
+        "    networks:\n"
+        '      - "default"\n'
+        "networks:\n"
+        '  "default": {}\n'
+    )
+
+
+class ShownComposeFileTests(unittest.TestCase):
+    """What the deployment answers show of the file: no port, interpreter path or folder of this machine.
+
+    Any page can read ``GET /api/v1/deployments``, so the answers show the file
+    with ``<port>``, ``<python>`` and ``<env folder>`` in place of those values.
+    The applier still gets the file exactly as core-service returned it.
+    """
+
+    maxDiff = None
+
+    def test_the_port_the_python_and_the_env_folder_are_replaced(self) -> None:
+        hidden = hidden_values("http://127.0.0.1:9123", process_settings())
+        shown = shown_compose_file(planner_style_file("9123"), hidden)
+        self.assertIsNotNone(shown)
+        assert shown is not None
+        service = compose_service(shown, "lma-pl-290")
+        self.assertEqual(
+            ["<python>", "-m", "uvicorn", "agents.lma.main:app", "--host", "127.0.0.1", "--port", "<port>",
+             "--log-level", "warning"],
+            service["command"],
+        )
+        self.assertEqual(["<env folder>/lma-pl-290.env"], service["env_file"])
+        self.assertEqual({"LMA_SITE_ID": "pl-290", "PORT": "<port>"}, service["environment"])
+        # A longer number that holds the port's digits is kept.
+        self.assertEqual("registry.example:19123/healthcare-demo-backend:local", service["image"])
+        # Nothing else changes.
+        self.assertEqual(
+            planner_style_file("9123")
+            .replace(sys.executable, "<python>")
+            .replace(str(ENV_DIR), "<env folder>")
+            .replace('"9123"', '"<port>"'),
+            shown,
+        )
+        self.assertFalse(hidden.shown_in(shown))
+
+    def test_a_value_the_file_writes_escaped_is_never_shown(self) -> None:
+        # Compose writes `$` as `$$`, so the folder's text is not in the file
+        # as it is. The app then shows no file rather than the folder.
+        folder = "/tmp/env$folder"
+        hidden = hidden_values("http://127.0.0.1:9123", process_settings(deploy_env_dir=folder))
+        escaped = planner_style_file("9123", env_dir="/tmp/env$$folder")
+        self.assertIsNone(shown_compose_file(escaped, hidden))
+
+    def test_a_file_that_does_not_parse_is_not_shown(self) -> None:
+        hidden = hidden_values("http://127.0.0.1:9123", process_settings())
+        self.assertIsNone(shown_compose_file("services: [\n", hidden))
+
+    def test_the_root_folder_is_never_a_placeholder(self) -> None:
+        # A log file at the root would otherwise turn every "/" into one.
+        hidden = hidden_values("http://127.0.0.1:9123", process_settings(), ["/"])
+        self.assertEqual("GET /api/v1/health", hidden.hide("GET /api/v1/health"))
+
+    def test_details_show_no_port_or_folder(self) -> None:
+        hidden = hidden_values("http://127.0.0.1:9123", process_settings(deploy_dir="/srv/deploy"), ["/run/logs"])
+        self.assertEqual(
+            "Bind on ('127.0.0.1', <port>) failed; see <deploy folder>/lma-pl-290.log, <deploy folder>/x and "
+            "<env folder>/lma-pl-290.env. Process 19123 started.",
+            hidden.hide(
+                f"Bind on ('127.0.0.1', 9123) failed; see /srv/deploy/lma-pl-290.log, /run/logs/x and "
+                f"{ENV_DIR}/lma-pl-290.env. Process 19123 started."
+            ),
+        )
+
+
 _core: CoreServiceProcess | None = None
 _rendered: dict[str, dict] = {}
 
@@ -372,6 +459,27 @@ class ComposeRequestTests(unittest.TestCase):
             with self.subTest(mode=mode):
                 text = rendered(mode)["compose_yaml"].replace(str(ENV_DIR), "<env>")
                 self.assertIsNone(SECRET_SHAPES.search(text), text)
+
+    def test_the_answers_show_each_file_without_the_port_the_python_or_the_env_folder(self) -> None:
+        for mode, url, settings in (
+            ("process", PROCESS_URL, process_settings()),
+            ("compose", COMPOSE_URL, compose_settings()),
+        ):
+            with self.subTest(mode=mode):
+                hidden = hidden_values(url, settings)
+                shown = shown_compose_file(rendered(mode)["compose_yaml"], hidden)
+                self.assertIsNotNone(shown, "the planner's file could not be shown")
+                assert shown is not None
+                self.assertFalse(hidden.shown_in(shown), shown)
+                self.assertNotIn("8085", shown)
+                self.assertNotIn(str(ENV_DIR), shown)
+                self.assertNotIn(sys.executable, shown)
+                service = compose_service(shown, "lma-pl-290")
+                self.assertEqual("<port>", service["environment"]["PORT"])
+                self.assertEqual(["<env folder>/lma-pl-290.env"], service["env_file"])
+                self.assertEqual(["--port", "<port>"], service["command"][-4:-2])
+                expected_program = "<python>" if mode == "process" else "uvicorn"
+                self.assertEqual(expected_program, service["command"][0])
 
     def test_the_process_applier_accepts_the_process_mode_file(self) -> None:
         compose_yaml = rendered("process")["compose_yaml"]

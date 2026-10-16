@@ -12073,7 +12073,7 @@
       },
       {
        "status": "403",
-       "description": "The request came from a page on another host, or adding a hospital is not available here. The detail says which, and why.",
+       "description": "The request came from a page on another host or, in process mode, from another machine, or adding a hospital is not available here. The detail says which, and why.",
        "content_type": "application/json",
        "schema": {
         "$ref": "#/components/schemas/ErrorResponse"
@@ -13751,7 +13751,7 @@
         }
        ],
        "title": "Compose Yaml",
-       "description": "The Compose file core-service rendered, exactly as it came, or null when it rendered none. It holds no token and no agent address: the new LMA reads those from the env file it names."
+       "description": "The Compose file core-service rendered, or null when it rendered none. It holds no token: the new LMA reads its tokens and the GMA's address from the env file the file names. The app starts the file exactly as it came, but shows it with `<port>`, `<python>` and `<env folder>` in place of the new LMA's port, this Python's path and the env folder, because any page can read this answer. Null too when one of those values cannot be hidden."
       },
       "issues": {
        "items": {
@@ -13907,7 +13907,7 @@
       "detail": {
        "type": "string",
        "title": "Detail",
-       "description": "One plain sentence on what happened. It never holds an address or a token."
+       "description": "One plain sentence on what happened. It never holds a token, the new LMA's port or a path of this machine: it shows `<port>`, `<python>`, `<env folder>` and `<deploy folder>` in their place, and names a log file by its name in the deploy folder."
       },
       "seconds": {
        "type": "number",
@@ -33241,7 +33241,7 @@
         "type": "null"
        }
       ],
-      "description": "The Compose file core-service rendered, exactly as it came, or null when it rendered none. It holds no token and no agent address: the new LMA reads those from the env file it names.",
+      "description": "The Compose file core-service rendered, or null when it rendered none. It holds no token: the new LMA reads its tokens and the GMA's address from the env file the file names. The app starts the file exactly as it came, but shows it with `<port>`, `<python>` and `<env folder>` in place of the new LMA's port, this Python's path and the env folder, because any page can read this answer. Null too when one of those values cannot be hidden.",
       "title": "Compose Yaml"
      },
      "issues": {
@@ -33380,7 +33380,7 @@
        "type": "string"
       },
       "detail": {
-       "description": "One plain sentence on what happened. It never holds an address or a token.",
+       "description": "One plain sentence on what happened. It never holds a token, the new LMA's port or a path of this machine: it shows `<port>`, `<python>`, `<env folder>` and `<deploy folder>` in their place, and names a log file by its name in the deploy folder.",
        "title": "Detail",
        "type": "string"
       },
@@ -33805,7 +33805,7 @@
          "type": "null"
         }
        ],
-       "description": "The Compose file core-service rendered, exactly as it came, or null when it rendered none. It holds no token and no agent address: the new LMA reads those from the env file it names.",
+       "description": "The Compose file core-service rendered, or null when it rendered none. It holds no token: the new LMA reads its tokens and the GMA's address from the env file the file names. The app starts the file exactly as it came, but shows it with `<port>`, `<python>` and `<env folder>` in place of the new LMA's port, this Python's path and the env folder, because any page can read this answer. Null too when one of those values cannot be hidden.",
        "title": "Compose Yaml"
       },
       "issues": {
@@ -33943,7 +33943,7 @@
        "type": "string"
       },
       "detail": {
-       "description": "One plain sentence on what happened. It never holds an address or a token.",
+       "description": "One plain sentence on what happened. It never holds a token, the new LMA's port or a path of this machine: it shows `<port>`, `<python>`, `<env folder>` and `<deploy folder>` in their place, and names a log file by its name in the deploy folder.",
        "title": "Detail",
        "type": "string"
       },

@@ -91,6 +91,11 @@ function Attempt({ deployment, name }: { deployment: Deployment; name: string })
       {deployment.compose_yaml !== null && (
         <details className="ds-details" data-role="compose-file">
           <summary>Compose file from core-service</summary>
+          <p className="note ds-note" data-role="compose-placeholders">
+            The app started this file as core-service rendered it. This page shows &lt;port&gt;, &lt;python&gt; and
+            &lt;env folder&gt; in place of the new LMA's port, the Python path and the folder of its env file on this
+            machine.
+          </p>
           <pre className="compose-file">{deployment.compose_yaml}</pre>
         </details>
       )}

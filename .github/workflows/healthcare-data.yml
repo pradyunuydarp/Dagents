@@ -265,10 +265,12 @@ jobs:
           python apps/healthcare-demo/scripts/seed_supabase.py "${args[@]}"
 
       - name: Prove the isolation on the project
-        # Reads the project back rather than trusting the seed's report. Each
-        # hospital's count is read as that hospital's role. Reading another
-        # hospital's table, or any hospital table as the coordinator, must fail
-        # with InsufficientPrivilege.
+        # Reads the project back rather than trusting the seed's report. It
+        # checks every hospital the seed loads: the three in the consortium at
+        # start and Hospital 290, which can join a local run. Each hospital's
+        # count is read as that hospital's role. Reading another hospital's
+        # table, or any hospital table as the coordinator, must fail with
+        # InsufficientPrivilege.
         #
         # The connecting role on Supabase holds pg_read_all_data, so it could
         # read every schema without switching role. The step prints that, because
@@ -284,8 +286,10 @@ jobs:
           from psycopg import errors, sql
 
           from agents.common.infrastructure.postgres_roles import acting_as, connect
-          from app.domain.dataset import SITES
+          from app.domain.dataset import JOINING_SITES, SITES
 
+          # Every hospital seed_supabase.py loads.
+          HOSPITALS = (*SITES, *JOINING_SITES)
           COORDINATOR = "dagents_coordinator"
           failures = []
 
@@ -306,7 +310,7 @@ jobs:
               print(f"connecting role: {user}; member of pg_read_all_data: {read_all}")
 
               print("Records per hospital, each read as its own role:")
-              for site in SITES:
+              for site in HOSPITALS:
                   with acting_as(conn, site.role):
                       total, entered, labelled = conn.execute(
                           sql.SQL(
@@ -319,15 +323,15 @@ jobs:
                       failures.append(f"{site.site_id} holds {total} records; the extract has {site.expected_rows}")
 
               print("Reads that must be refused:")
-              for reader in SITES:
-                  for owner in SITES:
+              for reader in HOSPITALS:
+                  for owner in HOSPITALS:
                       if reader.role == owner.role:
                           continue
                       ok = denied(conn, reader.role, owner.schema, "encounters")
                       print(f"  {reader.role} reads {owner.schema}.encounters: {'refused' if ok else 'ALLOWED'}")
                       if not ok:
                           failures.append(f"{reader.role} can read {owner.schema}.encounters")
-              for owner in SITES:
+              for owner in HOSPITALS:
                   for table in ("encounters", "guard_audit"):
                       ok = denied(conn, COORDINATOR, owner.schema, table)
                       print(f"  {COORDINATOR} reads {owner.schema}.{table}: {'refused' if ok else 'ALLOWED'}")
@@ -336,5 +340,5 @@ jobs:
 
           if failures:
               raise SystemExit("Isolation check failed:\n  " + "\n  ".join(failures))
-          print(f"Isolation holds for {len(SITES)} hospitals and the coordinator.")
+          print(f"Isolation holds for {len(HOSPITALS)} hospitals and the coordinator.")
           PY

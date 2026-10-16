@@ -46,9 +46,11 @@
  *      sections under the hospital's LMA and the app;
  *  11. with --expect-join, after every other check, the hospital joins from
  *      the panel: every step is done and shows its word, the panel shows the
- *      Compose file, the next-round line and the attempt's "Dagents API
- *      calls" strip, focus is on the attempt, the table and the header list
- *      the hospital, its page draws its charts, and a pilot includes it;
+ *      Compose file with <port> and <env folder> and no path of this machine,
+ *      the next-round line and the attempt's "Dagents API calls" strip, focus
+ *      is on the attempt, the table and the header list the hospital, its
+ *      page draws its charts and names no count of hospitals, and a pilot
+ *      includes it;
  *  12. nothing logs a console error or fails a request on the way.
  *
  * Usage:
@@ -1739,6 +1741,28 @@ try {
         `rows ${rowsBefore} -> ${rowsAfter}, links ${linksBefore} -> ${linksAfter}; ${buttonsLeft} buttons left`
     );
 
+    //     The page and the answer show <port> and <env folder> in place of
+    //     the new LMA's port and the folder of its env file, and no path of
+    //     this machine, because any page can read the deployments view.
+    const placeholderNote =
+      ((await deployPanel.locator('[data-role="compose-placeholders"]').textContent().catch(() => "")) ?? "").trim();
+    const machinePath = /(^|[\s"'(\[=])\/(home|tmp|root|Users|srv|var|opt|usr|private)\//;
+    const detailsText = deployment.steps.map((step) => step.detail).join(" ");
+    const leaked =
+      machinePath.exec(composeText)?.[0] ??
+      machinePath.exec(deployment.compose_yaml ?? "")?.[0] ??
+      machinePath.exec(detailsText)?.[0] ??
+      /127\.0\.0\.1:\d+/.exec(JSON.stringify(deployment))?.[0] ??
+      null;
+    check(
+      "deploy: the Compose file shows <port> and <env folder>, and no address or path of this machine",
+      composeText.includes('"--port", "<port>"') &&
+        composeText.includes(`"<env folder>/lma-${expectJoin}.env"`) &&
+        placeholderNote.includes("<port>") &&
+        leaked === null,
+      leaked ? `shows "${leaked.trim()}"` : `placeholders ${composeText.includes("<port>") ? "shown" : "missing"}; note "${placeholderNote}"`
+    );
+
     //     The steps show their status in words, the line under them says
     //     what the planner's answer means, and focus is on the attempt.
     const joinedAttempt = deployPanel.locator(`[data-deployment="${deployment.deployment_id}"]`);
@@ -1785,6 +1809,16 @@ try {
       `deploy: hospital ${expectJoin} page draws its charts`,
       joinedWidth > 0 && joinedHeading.includes(name),
       `${joinedWidth}px; heading "${joinedHeading}"`
+    );
+
+    //     A hospital can join while the demo runs, so its page names no count
+    //     of hospitals.
+    const joinedText = (await page.locator("main").innerText().catch(() => "")) ?? "";
+    const counted = /\b(one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+hospitals\b/i.exec(joinedText);
+    check(
+      `deploy: hospital ${expectJoin} page names no count of hospitals`,
+      joinedText.length > 0 && counted === null,
+      counted ? `says "${counted[0]}"` : `${joinedText.length} characters of text`
     );
 
     //     The next pilot includes it.

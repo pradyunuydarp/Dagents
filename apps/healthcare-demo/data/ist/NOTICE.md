@@ -7,7 +7,8 @@ They are real, de-identified trial records from 1991-1996.
 `ist_joining_hospitals.csv` holds 263 records from a fourth IST hospital, the joining
 hospital. It is not in the consortium when the demo starts. A network-mode run on your
 own machine can add it while the demo runs. Its records are in its own database schema,
-seeded with the others, and only its own LMA reads them.
+seeded with the others. Every read of them acts as that hospital's own role: its LMA,
+and the app's view of that hospital.
 
 > Contains information from the International Stroke Trial database (version 2)
 > (https://doi.org/10.7488/ds/104), made available under the ODC Attribution License

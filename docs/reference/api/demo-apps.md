@@ -1219,8 +1219,10 @@ Hospital 290 (`pl-290`, Poland, 263 IST records) is not in the consortium at
 start. A network-mode run on your own machine, started with `--deploy`
 (`scripts/run_local_demo.sh --agents network --deploy`, or
 `docker-compose.deploy.yml`), can add it while the demo runs. Its records are
-in its own Postgres schema, `site_pl_290`, seeded with the others; only its own
-LMA reads them, acting as its own role.
+in its own Postgres schema, `site_pl_290`, seeded with the others. Every read
+of them goes through the hospital's own store, acting as its own role: its LMA
+reads them, and so does the app's view of that hospital. The coordinator's role
+has no grant on the schema.
 
 The deployer runs seven steps. The framework makes every decision and does
 every side effect except the join:
@@ -1240,14 +1242,21 @@ enrolment is withdrawn, the GMA drops the address, and a service the attempt
 started is stopped. A failed `check` keeps the hospital and gives the
 planner's reason. The new LMA reads its tokens, its database address and the
 GMA's address from an env file the Compose file names, readable by its owner
-only, so the file, the answers and the logs hold no secret and no agent
-address. After a join, four hospitals share three series colours, so no
-hospital keeps a colour on any chart.
+only, so the file, the answers and the logs hold no secret. Any page can read
+the view, so the answers show `<port>`, `<python>`, `<env folder>` and
+`<deploy folder>` in place of the new LMA's port, the Python path and the
+folders on the server, and name a log file by its name in the deploy folder.
+After a join, four hospitals share three series colours, so no hospital keeps
+a colour on any chart. A GMA that restarts forgets the address of a hospital
+that joined; the app sends it again before each pilot, and before the
+overview, the status report and the consortium charts when the GMA's report
+leaves the hospital out.
 
 Adding a hospital is off by default (`HEALTHCARE_DEMO_DEPLOYER=off`). The app
 refuses to start with it on when `RENDER` is set, when the agents run in
 process, without a database, core-service or the joining hospital's address
-and token, or, in process mode, when the API listens on more than 127.0.0.1.
+and token, or, in process mode, when `HEALTHCARE_DEMO_API_HOST` is not
+127.0.0.1 or localhost.
 The published demo runs the agents in process, so its view says why it cannot
 add a hospital, and the POST is refused.
 
@@ -1298,15 +1307,18 @@ command come from the server's settings. A browser's `Origin` must be
 `127.0.0.1`, `localhost` or `::1`; any other host, and `null`, get `403` before
 the body is read, so a page on another site cannot make a browser start a
 process. A request without `Origin`, such as one from curl, passes. In
-process mode the API listens on 127.0.0.1 only, which keeps other machines
-out. A pilot and an addition share one flight, so they never run at the same
-time.
+process mode a request whose TCP client is not this machine gets `403` before
+the body is read, whatever address the API listens on. In compose mode the API
+sees Docker's proxy as the client, so `docker-compose.deploy.yml` publishes
+the API on 127.0.0.1 only. A pilot and an addition share one flight, so they
+never run at the same time.
 
 The examples ran on a server with the agents in process, so they show the
 refusals.
 
-**Errors.** `403` from a page on another host, or when adding a hospital is not
-available; the detail says which. `409` while a pilot runs ("A pilot is
+**Errors.** `403` from a page on another host, in process mode from a client
+on another machine, or when adding a hospital is not available; the detail
+says which. `409` while a pilot runs ("A pilot is
 running. Add the hospital when it has finished."), while another hospital is
 being added, or when the hospital is in the consortium and its LMA answers.
 `422` for a body that is not `{"site_id": ...}` with a hospital that can join.

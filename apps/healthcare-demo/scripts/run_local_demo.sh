@@ -332,6 +332,8 @@ if [[ -n "${DEPLOY}" ]]; then
   PIDS+=("$!")
   CORE_INDEX=$((${#PIDS[@]} - 1))
   echo "  core-service http://127.0.0.1:${CORE_PORT}"
+  # The page names the new LMA's log by its name in this folder only.
+  echo "  deploy folder ${DEPLOY_DIR} (the new LMA's log and env file)"
 
   # The new LMA's env file: its tokens, its database and the GMA's address.
   # The values reach the writer in its environment, never in its arguments.

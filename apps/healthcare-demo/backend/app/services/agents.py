@@ -773,6 +773,7 @@ class HealthcareDemo:
                 secure_aggregation_threshold=self.secure_aggregation_threshold,
                 status_timeout_seconds=self.settings.request_timeout_seconds,
                 models_ready=self._ensure_models,
+                resend_addresses=self.resend_joined_addresses,
             )
             pilot = PilotService(
                 self.sites,
@@ -933,23 +934,26 @@ class HealthcareDemo:
             self._joined = {**self._joined, site.site_id: url}
         logger.info("%s joined the consortium", site.site_id)
 
-    def resend_joined_addresses(self) -> None:
-        """Send the GMA the address of each hospital that joined, again.
+    def resend_joined_addresses(self) -> bool:
+        """Send the GMA the address of each hospital that joined, again. Returns whether there was one to send.
 
         A GMA keeps the addresses it accepted in memory, so one that restarted
-        forgets them. The GMA accepts the same address again and changes
-        nothing. A refusal is logged without the address, never raised: a pilot
-        then runs without that hospital.
+        forgets them. The pilot calls this before it runs, and the overview
+        and the status report when the GMA's site report leaves a hospital
+        out. The GMA accepts the same address again and changes nothing. A
+        refusal is logged without the address, never raised: a pilot then runs
+        without that hospital, and the overview reports its LMA as unreachable.
         """
         joined = self.joined()
         if not joined:
-            return
+            return False
         gma = self.agents.gma()
         for site_id, url in joined.items():
             try:
                 gma.register_site_address(site_id, url)
             except AgentError as error:
                 logger.warning("the GMA did not take the address of %s again: %s", site_id, error.without_detail())
+        return True
 
     def close(self) -> None:
         """Stop the agents and close the stores this object built. A later use builds them again."""

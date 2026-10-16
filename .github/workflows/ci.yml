@@ -448,10 +448,13 @@ jobs:
           python -m unittest discover -s tests -t . -v 2>&1 | tee healthcare-suite.log
 
       - name: Fail if the healthcare governance or deployment tests skipped
-        # The deployment classes skip without docker, bash or curl, which the
-        # runner has; --require-ran fails the step if one of them did not run.
-        # ComposeOverrideTests checks that only the API gets the Docker socket
-        # and that the API and the UI are published on 127.0.0.1 only.
+        # ComposeOverrideTests skips without the Docker command line and its
+        # compose plugin, ComposeRequestTests without the planner, and
+        # NetworkScriptDeployTests without bash and curl. The runner has all of
+        # them, so --require-ran fails the step if one of them did not run.
+        # The Docker tests only run `docker compose config`; no container
+        # starts. ComposeOverrideTests checks that only the API gets the Docker
+        # socket and that the API and the UI are published on 127.0.0.1 only.
         run: |
           python scripts/ci_no_skipped_tests.py \
             --forbid planner \

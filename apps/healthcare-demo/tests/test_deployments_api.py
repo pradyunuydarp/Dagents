@@ -56,7 +56,7 @@ from app.services.deployment import (  # noqa: E402
     check_deployer,
 )
 
-from tests.api_support import NO_LIMITS, ApiTestCase, default_limits  # noqa: E402
+from tests.api_support import NO_LIMITS, ApiTestCase, default_limits, served_to  # noqa: E402
 
 PL_URL = "HEALTHCARE_DEMO_LMA_PL_290_URL"
 PL_TOKEN = "HEALTHCARE_DEMO_LMA_PL_290_TOKEN"
@@ -689,7 +689,7 @@ class AvailabilityTests(unittest.TestCase):
         self.assertTrue(deployer.view().available)
         self.gma.joinable = []
         with mock.patch.object(main, "deployer", deployer):
-            client = TestClient(main.app)
+            client = TestClient(served_to(main.app, "127.0.0.1"))
             # It fails at the plan step, and then the next view checks again.
             with self.assertLogs("app.services.deployment", "WARNING"):
                 response = client.post("/api/v1/deployments", json={"site_id": "pl-290"})
@@ -707,7 +707,7 @@ class AvailabilityTests(unittest.TestCase):
         self.assertEqual(REASON_NO_CORE, deployer.view().reason)
         self.core.up = True
         with mock.patch.object(main, "deployer", deployer):
-            client = TestClient(main.app)
+            client = TestClient(served_to(main.app, "127.0.0.1"))
             response = client.post("/api/v1/deployments", json={"site_id": "pl-290"})
             self.assertEqual(403, response.status_code, response.text)
             self.assertEqual({"detail": REASON_NO_CORE}, response.json())
@@ -735,6 +735,68 @@ class AvailabilityTests(unittest.TestCase):
         deployer = self.deployer()
         self.assertNotIn(SECRET, repr(deployer))
         self.assertNotIn(SECRET, deployer.view().model_dump_json())
+
+
+class PeerGuardTests(unittest.TestCase):
+    """In process mode, only a client on this machine may ask to add a hospital, whatever the API listens on.
+
+    A request with no ``Origin`` passes the Origin guard. Without this check,
+    an API started by hand on every interface (``--host 0.0.0.0``) would let
+    any machine on the network start a process with curl. In compose mode the
+    API sees Docker's proxy as the client, so the check does not apply there;
+    docker-compose.deploy.yml publishes the API on 127.0.0.1 only.
+    """
+
+    def setUp(self) -> None:
+        self.core = FakeCore()
+        self.gma = FakeGma()
+        self.folder = env_folder(self)
+
+    def post(self, host: str, deployer: str = "process", body: dict | None = None):
+        built = build_hospital_deployer(
+            dataclasses.replace(
+                main.settings, agents_mode="network", deployer=deployer, deploy_env_dir=str(self.folder)
+            ),
+            demo=lambda: FakeDemo(self.gma),
+            core=self.core,
+            applier=FakeApplier(),  # type: ignore[arg-type]
+            environ={PL_URL: "http://127.0.0.1:8085", PL_TOKEN: SECRET},
+        )
+        with mock.patch.object(main, "deployer", built), mock.patch("app.services.deployment.logger"):
+            return TestClient(served_to(main.app, host)).post(
+                "/api/v1/deployments", json={"site_id": "pl-290"} if body is None else body
+            )
+
+    def test_a_client_on_another_machine_is_refused_in_process_mode(self) -> None:
+        for host in ("192.0.2.10", "10.0.0.5", "2001:db8::1", "::ffff:192.0.2.10", "testclient", ""):
+            with self.subTest(host=host):
+                health_checks = self.core.health_checks
+                response = self.post(host)
+                self.assertEqual(403, response.status_code, response.text)
+                self.assertEqual({"detail": FOREIGN_ORIGIN_MESSAGE}, response.json())
+                # Refused before the deployer checks core-service or takes the flight.
+                self.assertEqual(health_checks, self.core.health_checks)
+                self.assertFalse(main.pilot_flight.busy)
+
+    def test_the_client_is_checked_before_the_body(self) -> None:
+        response = self.post("192.0.2.10", body={"site_id": "xx-999"})
+        self.assertEqual(403, response.status_code, response.text)
+        self.assertEqual({"detail": FOREIGN_ORIGIN_MESSAGE}, response.json())
+
+    def test_a_client_on_this_machine_passes_in_process_mode(self) -> None:
+        # The fake core-service renders nothing, so the attempt fails at its
+        # plan step, which shows that the check let the request through.
+        for host in ("127.0.0.1", "127.0.0.2", "::1", "::ffff:127.0.0.1"):
+            with self.subTest(host=host):
+                response = self.post(host)
+                self.assertEqual(200, response.status_code, response.text)
+                self.assertEqual("The core service did not answer.", response.json()["steps"][0]["detail"])
+
+    def test_compose_mode_does_not_check_the_client(self) -> None:
+        # Docker's proxy is the client of an API in a container.
+        response = self.post("172.18.0.1", deployer="compose")
+        self.assertEqual(200, response.status_code, response.text)
+        self.assertEqual("The core service did not answer.", response.json()["steps"][0]["detail"])
 
 
 class BuiltApplierTests(unittest.TestCase):

@@ -510,7 +510,7 @@ export interface Deployment extends WithCalls {
   applier: "process" | "compose";
   status: "joined" | "failed";
   adopted: boolean;
-  /** The Compose file core-service rendered, exactly as it came. */
+  /** The Compose file core-service rendered, with `<port>`, `<python>` and `<env folder>` in place of this machine's values. */
   compose_yaml: string | null;
   issues: DeploymentIssue[];
   /** The seven steps, in the order they run. */

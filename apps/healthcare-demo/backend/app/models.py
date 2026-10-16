@@ -427,7 +427,13 @@ class DeploymentStep(BaseModel):
             "failed) or `not_run` (an earlier step failed)."
         )
     )
-    detail: str = Field(description="One plain sentence on what happened. It never holds an address or a token.")
+    detail: str = Field(
+        description=(
+            "One plain sentence on what happened. It never holds a token, the new LMA's port or a path of this "
+            "machine: it shows `<port>`, `<python>`, `<env folder>` and `<deploy folder>` in their place, and names "
+            "a log file by its name in the deploy folder."
+        )
+    )
     seconds: float = Field(ge=0, description="How long the step took, rounded to 2 decimals.")
 
 
@@ -468,8 +474,11 @@ class Deployment(BaseModel):
     )
     compose_yaml: str | None = Field(
         description=(
-            "The Compose file core-service rendered, exactly as it came, or null when it rendered none. It holds "
-            "no token and no agent address: the new LMA reads those from the env file it names."
+            "The Compose file core-service rendered, or null when it rendered none. It holds no token: the new LMA "
+            "reads its tokens and the GMA's address from the env file the file names. The app starts the file "
+            "exactly as it came, but shows it with `<port>`, `<python>` and `<env folder>` in place of the new "
+            "LMA's port, this Python's path and the env folder, because any page can read this answer. Null too "
+            "when one of those values cannot be hidden."
         )
     )
     issues: list[DeploymentIssue] = Field(

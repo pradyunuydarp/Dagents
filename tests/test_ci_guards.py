@@ -671,6 +671,29 @@ class WorkflowGuardTests(unittest.TestCase):
         self.assertLess(data.rindex("ci_no_skipped_tests.py"), data.index("apply_migrations.py"))
         self.assertLess(data.index("SHOW server_version"), data.index("apply_migrations.py"))
 
+    def test_the_isolation_proof_covers_every_hospital_the_seed_loads(self) -> None:
+        """The proof on the project checks every schema the seed fills, Hospital 290's included.
+
+        The seed loads the hospitals in the consortium at start and the
+        hospitals that can join. A proof that read only the first list would
+        print that the isolation holds while a schema with real records went
+        unchecked.
+        """
+        seed = (REPO_ROOT / "apps" / "healthcare-demo" / "scripts" / "seed_supabase.py").read_text(encoding="utf-8")
+        seeded = re.findall(r"for site in (\(.*\)):", seed)
+        self.assertEqual(["(*SITES, *JOINING_SITES)"], seeded, "the seed's loop over the hospitals changed")
+        data = DATA_WORKFLOW.read_text(encoding="utf-8")
+        [proof] = [block for block in run_blocks(data) if "Isolation holds" in block]
+        self.assertIn("from app.domain.dataset import JOINING_SITES, SITES", proof)
+        self.assertIn(f"HOSPITALS = {seeded[0]}", proof)
+        loops = re.findall(r"for \w+ in (\w+):", proof)
+        self.assertEqual(
+            ["HOSPITALS"] * 4,
+            loops,
+            "the counts, both sides of the cross-hospital reads and the coordinator reads must each cover HOSPITALS",
+        )
+        self.assertIn("len(HOSPITALS)", proof)
+
     # `--forbid database` catches a skip with the database message. A database
     # class that is renamed, removed or skipped for another reason is caught
     # only by `--require-ran`, so every database class must be listed.

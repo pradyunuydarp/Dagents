@@ -3,7 +3,7 @@
 The process applier starts real child processes (Python itself, with ``-c``),
 so its tests check real process groups, logs and signals. The Docker Compose
 applier runs every command through a runner; its tests pass a fake runner and
-check the exact commands, because CI has no Docker daemon.
+check the exact commands, so they start no container.
 """
 
 from __future__ import annotations

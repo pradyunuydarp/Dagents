@@ -213,7 +213,10 @@ Hospital 290 (`pl-290`, Poland, 263 IST records) is not in the consortium at
 start. A network-mode run on your own machine can add it while the demo runs.
 Its records are in its own Postgres schema, `site_pl_290`, seeded with the
 others by `scripts/seed_supabase.py`, after migration
-`0004_joining_site.sql`. Only its own LMA reads them, acting as its own role.
+`0004_joining_site.sql`. Every read of its records goes through its own store,
+acting as its own role: its LMA reads them, and so does the app's view of that
+hospital (its worklist and threshold sweep). The coordinator's role and the
+other hospitals' roles have no grant on its schema.
 
 There are two ways to run it. Both need the database from the section above:
 
@@ -265,15 +268,22 @@ framework makes every decision and does every side effect except the join:
 
 A failure in steps 2 to 6 undoes what the attempt did: the enrolment is
 withdrawn, the GMA drops the address, and the service is stopped. A failed
-`check` keeps the hospital and shows the planner's reason.
+`check` keeps the hospital and shows the planner's reason. A GMA that restarts
+forgets the address of a hospital that joined. The app sends it again before
+each pilot, and before the overview, the status report and the consortium
+charts when the GMA's report leaves the hospital out.
 `GET /api/v1/deployments` says whether the server can add a hospital and, if
 not, why, and lists the attempts. After a join four hospitals share the three
 chart colours, so no hospital keeps a colour.
 
 The new LMA reads its tokens, its database address and the GMA's address from
 an env file (`lma-pl-290.env`, readable by its owner only) that the Compose
-file names. The Compose file, the answers, the page and the logs hold no token
-and no agent address.
+file names. The Compose file, the answers, the page and the logs hold no
+token. The app answers every origin, so any page can read
+`GET /api/v1/deployments`. Its answers therefore show the Compose file with
+`<port>`, `<python>` and `<env folder>` in place of the new LMA's port, the
+Python path and the env folder, and name a log file by its name in the deploy
+folder. The start script prints that folder when it starts.
 
 Adding a hospital starts a process or a container, so it is off by default
 (`HEALTHCARE_DEMO_DEPLOYER=off`), and the API refuses to start with it on:
@@ -289,7 +299,11 @@ Adding a hospital starts a process or a container, so it is off by default
 - when the env file is missing or other users can read it.
 
 A browser may ask from a page on this machine only: a POST whose `Origin` names
-another host, or `null`, gets `403` before its body is read. A pilot and an
+another host, or `null`, gets `403` before its body is read. In process mode
+the API also refuses a POST whose TCP client is not this machine, so an API
+started by hand with `--host 0.0.0.0` still accepts it only from this machine.
+In compose mode the API sees Docker's proxy as the client, so
+`docker-compose.deploy.yml` publishes the API on 127.0.0.1 only. A pilot and an
 addition never run at the same time. The published demo runs the agents in
 process, so it lists Hospital 290 and says why it cannot add it.
 

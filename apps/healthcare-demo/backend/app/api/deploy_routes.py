@@ -5,7 +5,8 @@
   hospital, such as the hosted demo, says why.
 - ``POST /api/v1/deployments``: add one hospital. It starts a process or a
   container, so it is accepted only from this machine (the ``Origin`` check
-  below), only when the deployer is on, and never while a pilot runs.
+  and, in process mode, the client check below), only when the deployer is
+  on, and never while a pilot runs.
 
 Both answers carry ``framework_calls``, like every other JSON object the app
 answers with. Nothing here forwards to a GMA or LMA route.
@@ -13,10 +14,11 @@ answers with. Nothing here forwards to a GMA or LMA route.
 
 from __future__ import annotations
 
+import ipaddress
 from typing import Any, Callable
 from urllib.parse import urlsplit
 
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
 
 from app.api.limits import SingleFlight
 from app.models import Deployment, DeploymentRequest, DeploymentsView, ErrorResponse, ValidationErrorResponse
@@ -49,9 +51,10 @@ def require_loopback_origin(
     A browser names the page's origin. A page on any other host, and a page
     that sends ``Origin: null``, gets 403 before the body is read, so a site a
     person visits cannot make their browser start a process on their machine.
-    A request with no ``Origin`` passes, so binding the API to 127.0.0.1 is
-    what keeps other machines out (``check_deployer`` requires it in process
-    mode).
+    A request with no ``Origin``, such as one from curl, passes. Other
+    machines are kept out by the client check in process mode
+    (:func:`is_this_machine`), and in compose mode by the 127.0.0.1 port
+    publish in docker-compose.deploy.yml.
     """
     if origin is None:
         return
@@ -61,6 +64,20 @@ def require_loopback_origin(
         host = None
     if host not in LOOPBACK_ORIGIN_HOSTS:
         raise HTTPException(status_code=403, detail=FOREIGN_ORIGIN_MESSAGE)
+
+
+def is_this_machine(host: str | None) -> bool:
+    """Whether a TCP client at ``host`` is this machine: a loopback address, IPv4 or IPv6.
+
+    ``host`` is the ASGI scope's client address, as uvicorn reports it. A name
+    or an empty value is not an address, so it is not this machine.
+    """
+    try:
+        address = ipaddress.ip_address(host or "")
+    except ValueError:
+        return False
+    mapped = getattr(address, "ipv4_mapped", None)
+    return bool(address.is_loopback or (mapped is not None and mapped.is_loopback))
 
 
 def _errors(*statuses: tuple[int, str]) -> dict[int | str, dict[str, Any]]:
@@ -79,6 +96,20 @@ def build_deploy_router(deployer: Callable[[], HospitalDeployer], flight: Single
     """
     router = APIRouter()
 
+    def require_this_machine(request: Request) -> None:
+        """In process mode, refuse a POST whose TCP client is not this machine.
+
+        The new LMA is a process on this machine, so only this machine may ask
+        for one, even when the API listens on every interface. In compose mode
+        the API runs in a container and Docker's proxy is its client, so the
+        127.0.0.1 port publish in docker-compose.deploy.yml keeps other
+        machines out instead. The check runs before the body is read.
+        """
+        if deployer().applier_name != "process":
+            return
+        if not is_this_machine(request.client.host if request.client else None):
+            raise HTTPException(status_code=403, detail=FOREIGN_ORIGIN_MESSAGE)
+
     @router.get("/api/v1/deployments")
     def list_deployments() -> DeploymentsView:
         """Whether this server can add a hospital now, and if not, why.
@@ -93,12 +124,12 @@ def build_deploy_router(deployer: Callable[[], HospitalDeployer], flight: Single
 
     @router.post(
         "/api/v1/deployments",
-        dependencies=[Depends(require_loopback_origin)],
+        dependencies=[Depends(require_loopback_origin), Depends(require_this_machine)],
         responses=_errors(
             (
                 403,
-                "The request came from a page on another host, or adding a hospital is not available here. The "
-                "detail says which, and why.",
+                "The request came from a page on another host or, in process mode, from another machine, or "
+                "adding a hospital is not available here. The detail says which, and why.",
             ),
             (
                 409,
@@ -150,5 +181,6 @@ __all__ = [
     "FOREIGN_ORIGIN_MESSAGE",
     "LOOPBACK_ORIGIN_HOSTS",
     "build_deploy_router",
+    "is_this_machine",
     "require_loopback_origin",
 ]

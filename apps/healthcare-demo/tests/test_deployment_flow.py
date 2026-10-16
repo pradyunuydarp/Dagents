@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import dataclasses
 from pathlib import Path
+import re
 import socket
 import sys
 import tempfile
@@ -42,7 +43,7 @@ from agents.common.infrastructure.compose_apply import (  # noqa: E402
 )
 
 import app.main as main  # noqa: E402
-from tests.api_support import NO_LIMITS, default_limits  # noqa: E402
+from tests.api_support import NO_LIMITS, default_limits, served_to  # noqa: E402
 from app.domain.dataset import SITES, joining_site_for  # noqa: E402
 from app.models import DEPLOYMENT_STEPS  # noqa: E402
 from app.services.core_client import CoreServiceUnavailable  # noqa: E402
@@ -345,7 +346,8 @@ class DeploymentFlowTests(unittest.TestCase):
         # The pilot route's per-client limit would answer 429 before the flight's 409.
         main.rate_limits.configure(NO_LIMITS)
         self.addCleanup(main.rate_limits.configure, default_limits())
-        self.client = TestClient(main.app)
+        # In process mode the route accepts a client on this machine only.
+        self.client = TestClient(served_to(main.app, "127.0.0.1"))
 
     def use_deployer(self, **overrides: Any) -> None:
         settings = dataclasses.replace(
@@ -373,11 +375,19 @@ class DeploymentFlowTests(unittest.TestCase):
         response = self.client.post("/api/v1/deployments", json={"site_id": SITE_ID})
         self.assertEqual(status, response.status_code, response.text)
         body = response.json()
-        # No answer holds the new LMA's address or a token.
-        host_port = self.url.removeprefix("http://")
-        self.assertNotIn(host_port, response.text)
-        self.assertNotIn(SITE_TOKEN, response.text)
+        self.assert_shows_nothing_of_this_machine(response.text)
+        # The view lists the attempt, and any page can read the view.
+        self.assert_shows_nothing_of_this_machine(self.client.get("/api/v1/deployments").text)
         return body
+
+    def assert_shows_nothing_of_this_machine(self, text: str) -> None:
+        """No answer holds a token, the new LMA's port, the interpreter's path or a folder of this machine."""
+        self.assertNotIn(SITE_TOKEN, text)
+        self.assertNotIn(self.url.removeprefix("http://"), text)
+        port = self.url.rsplit(":", 1)[1]
+        self.assertIsNone(re.search(rf"(?<![0-9]){port}(?![0-9])", text), text)
+        for path in (sys.executable, str(self.env_dir), str(Path(self.applier.log_path).parent), "/tmp/deploy"):
+            self.assertNotIn(path, text)
 
     @staticmethod
     def statuses(deployment: dict[str, Any]) -> dict[str, str]:
@@ -453,7 +463,23 @@ class DeploymentFlowTests(unittest.TestCase):
         returned = self.core.answers[0]["compose_yaml"]
         self.assertIs(returned, self.applier.checked[0])
         self.assertIs(returned, self.applier.applied[0][0])
-        self.assertEqual(returned, deployment["compose_yaml"])
+        # The answer shows the same file with placeholders for the values of
+        # this machine: the port, the interpreter's path and the env folder.
+        port = self.url.rsplit(":", 1)[1]
+        self.assertEqual(
+            returned.replace(sys.executable, "<python>")
+            .replace(str(self.env_dir), "<env folder>")
+            .replace(f"'{port}'", "'<port>'"),
+            deployment["compose_yaml"],
+        )
+        shown = yaml.safe_load(deployment["compose_yaml"])["services"][SERVICE]
+        self.assertEqual(
+            ["<python>", "-m", "uvicorn", "agents.lma.main:app", "--host", "127.0.0.1", "--port", "<port>",
+             "--log-level", "warning"],
+            shown["command"],
+        )
+        self.assertEqual(["<env folder>/lma-pl-290.env"], shown["env_file"])
+        self.assertEqual("<port>", shown["environment"]["PORT"])
 
     def test_attempts_are_kept_newest_first(self) -> None:
         self.core.up = False
@@ -537,10 +563,28 @@ class DeploymentFlowTests(unittest.TestCase):
         self.assert_failed_at(deployment, "start", {"plan": "done", "start": "failed"})
         self.assertEqual(
             "The process exited with status 1: ModuleNotFoundError: No module named 'agents'. "
-            "Its log is /tmp/deploy/lma-pl-290.log.",
+            "Its log is lma-pl-290.log in the deploy folder.",
             self.detail(deployment, "start"),
         )
         self.assertEqual([], self.applier.stopped)
+
+    def test_a_start_failure_shows_no_port_or_folder(self) -> None:
+        # uvicorn names the address it could not bind, and Docker names files.
+        port = self.url.rsplit(":", 1)[1]
+        self.applier.fail = ComposeApplyError(
+            "the process exited with status 1",
+            f"ERROR: [Errno 98] error while attempting to bind on address ('127.0.0.1', {port}): address already "
+            f"in use (env file {self.env_dir}/lma-pl-290.env)\n",
+            log_path=str(Path(self.applier.log_path)),
+        )
+        with self.assertLogs("app.services.deployment", "WARNING"):
+            deployment = self.deploy()
+        self.assertEqual(
+            "The process exited with status 1: ERROR: [Errno 98] error while attempting to bind on address "
+            "('127.0.0.1', <port>): address already in use (env file <env folder>/lma-pl-290.env). "
+            "Its log is lma-pl-290.log in the deploy folder.",
+            self.detail(deployment, "start"),
+        )
 
     def test_a_container_that_does_not_start_shows_dockers_reason(self) -> None:
         self.applier.fail = ComposeApplyError(
@@ -580,7 +624,8 @@ class DeploymentFlowTests(unittest.TestCase):
         deployment = self.deploy()
         self.assert_failed_at(deployment, "answer", {"plan": "done", "start": "undone", "answer": "failed"})
         self.assertEqual(
-            f"The new LMA did not answer its health check within 1.5 seconds. Its log is {self.applier.log_path}.",
+            "The new LMA did not answer its health check within 1.5 seconds. Its log is lma-pl-290.log in the "
+            "deploy folder.",
             self.detail(deployment, "answer"),
         )
         self.assertEqual("Stopped the service this attempt started.", self.detail(deployment, "start"))
@@ -600,7 +645,8 @@ class DeploymentFlowTests(unittest.TestCase):
         deployment = self.deploy()
         self.assertEqual("failed", self.statuses(deployment)["answer"])
         self.assertEqual(
-            f"The new LMA stopped before it answered its health check. Its log is {self.applier.log_path}.",
+            "The new LMA stopped before it answered its health check. Its log is lma-pl-290.log in the deploy "
+            "folder.",
             self.detail(deployment, "answer"),
         )
 

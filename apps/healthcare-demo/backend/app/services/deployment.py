@@ -15,7 +15,7 @@ every decision and does every side effect except the join:
    starts the one service in that exact file, as a local process or with
    ``docker compose``. The new LMA is a stock Dagents LMA; it reads its tokens,
    its database address and the GMA's address from the env file the Compose
-   file names, so the file holds no secret and no agent address.
+   file names, so the file holds no secret.
 3. ``answer``: the new LMA answers ``/api/v1/health`` and reports its site,
    read from its own schema in Postgres.
 4. ``attach``: the Dagents GMA accepts the LMA's address
@@ -40,14 +40,18 @@ stay.
 
 Adding a hospital starts a process or a container, so it is off unless
 ``HEALTHCARE_DEMO_DEPLOYER`` turns it on, and :func:`check_deployer` refuses
-every setting that would let a visitor of a public demo start one. No step
-detail, answer or log line holds an address or a token.
+every setting that would let a visitor of a public demo start one. No answer
+or log line holds a token. Any page can read ``GET /api/v1/deployments``, so
+no answer holds the new LMA's port, the interpreter's path or a folder of this
+machine either: the answers show ``<port>``, ``<python>``, ``<env folder>``
+and ``<deploy folder>`` in their place (:class:`HiddenValues`).
 """
 
 from __future__ import annotations
 
 import logging
 import os
+import re
 import secrets
 import socket
 import stat
@@ -58,8 +62,10 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Literal, Mapping
+from typing import Any, Callable, Iterable, Literal, Mapping
 from urllib.parse import urlsplit
+
+import yaml
 
 from agents.common.infrastructure.compose_apply import (
     ComposeApplier,
@@ -159,6 +165,12 @@ SITE_REPORT_SECONDS = 30.0
 #: Characters of a tool's last output line a step's detail shows.
 CAUSE_CHARACTERS = 300
 
+#: What the answers show in place of each value of this machine.
+PORT_SHOWN = "<port>"
+PYTHON_SHOWN = "<python>"
+ENV_FOLDER_SHOWN = "<env folder>"
+DEPLOY_FOLDER_SHOWN = "<deploy folder>"
+
 README_SECTION = '"Add a hospital while the demo runs" in the demo\'s README'
 REASON_IN_PROCESS = (
     "This server runs the Dagents agents inside the API process. Adding a hospital starts a new LMA process, "
@@ -245,9 +257,11 @@ def check_deployer(settings: Settings, environ: Mapping[str, str] | None = None)
        for it (``HEALTHCARE_DEMO_LMA_<SITE>_URL`` and ``_TOKEN``).
     7. Each address is ``http://host:port`` and nothing else, and no other
        agent or the API uses that host and port.
-    8. In process mode each address is on 127.0.0.1 or localhost, and the API
-       binds 127.0.0.1 or localhost, so another machine cannot ask it to start
-       a process.
+    8. In process mode each address is on 127.0.0.1 or localhost, and
+       ``HEALTHCARE_DEMO_API_HOST`` is 127.0.0.1 or localhost; the start
+       scripts bind the API to that host. The setting does not decide where a
+       uvicorn started by hand listens, so the route also refuses a client
+       that is not this machine (:func:`app.api.deploy_routes.is_this_machine`).
     9. In compose mode each address is ``http://lma-<site_id>:<port>``, the
        container's name on the Compose network.
     10. ``HEALTHCARE_DEMO_CORE_SERVICE_URL`` is set.
@@ -379,7 +393,8 @@ def lma_compose_request(
     hospital's ``LMA_*`` settings (:func:`~app.services.agents.lma_environment`)
     and ``PORT``, which its health check reads. Its tokens, its database
     address and the GMA's address are in its env file (:func:`env_file_path`),
-    so the request holds no secret and no agent address.
+    so the request holds no secret. It holds the port, this Python's path and
+    the env file's path, which the answers hide (:class:`HiddenValues`).
 
     - ``process``: this Python runs uvicorn on the host and port of ``url``,
       on its own network (``default``), with no port published.
@@ -481,6 +496,96 @@ def rendered_service_mismatch(definition: Mapping[str, Any], request: Mapping[st
     return None
 
 
+# --- What the answers show ---------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class HiddenValues:
+    """Values of this machine that no answer shows, and the placeholder each answer shows instead.
+
+    Any page can read ``GET /api/v1/deployments``, because the app answers
+    every origin. So the answers never show the new LMA's port (with its
+    host it is the LMA's address), the interpreter's path or a folder on this
+    machine, which name the account and the folder that holds the env files.
+
+    - `port`: the new LMA's port. It is hidden only where it stands as a whole
+      number, so ``19123`` keeps its digits when the port is ``9123``.
+    - `paths`: each path and its placeholder, longest first, so a folder
+      inside another one gets its own placeholder.
+    """
+
+    port: int | None
+    paths: tuple[tuple[str, str], ...]
+
+    def _port_pattern(self) -> re.Pattern[str] | None:
+        return None if self.port is None else re.compile(rf"(?<![0-9]){self.port}(?![0-9])")
+
+    def hide(self, text: str) -> str:
+        """``text`` with each path and the port replaced by its placeholder."""
+        for path, placeholder in self.paths:
+            text = text.replace(path, placeholder)
+        pattern = self._port_pattern()
+        return text if pattern is None else pattern.sub(PORT_SHOWN, text)
+
+    def shown_in(self, text: str) -> bool:
+        """Whether ``text`` still holds a path or the port."""
+        pattern = self._port_pattern()
+        return any(path in text for path, _ in self.paths) or (pattern is not None and bool(pattern.search(text)))
+
+
+def hidden_values(url: str, settings: Settings, folders: Iterable[str] = ()) -> HiddenValues:
+    """The values of this machine an attempt for the LMA at ``url`` must not show.
+
+    They are the LMA's port, this Python's path, the env folder, the deploy
+    folder and ``folders``, such as the folder a log file is in.
+    """
+    address = _host_port(url)
+    paths: dict[str, str] = {sys.executable: PYTHON_SHOWN}
+    named = [(env_folder(settings), ENV_FOLDER_SHOWN), (settings.deploy_dir.strip(), DEPLOY_FOLDER_SHOWN)]
+    named += [(folder, DEPLOY_FOLDER_SHOWN) for folder in folders]
+    for folder, placeholder in named:
+        path = Path(folder) if folder else None
+        # The root folder would turn every "/" into a placeholder.
+        if path is not None and path.is_absolute() and path != Path(path.anchor):
+            paths.setdefault(str(path), placeholder)
+    ordered = tuple(sorted(paths.items(), key=lambda item: (-len(item[0]), item[0])))
+    return HiddenValues(port=None if address is None else address[1], paths=ordered)
+
+
+def _texts(node: Any) -> Iterable[str]:
+    """Every key and value of a parsed YAML document, as text, with Compose's ``$$`` read as ``$``."""
+    if isinstance(node, Mapping):
+        for key, value in node.items():
+            yield from _texts(key)
+            yield from _texts(value)
+    elif isinstance(node, list):
+        for item in node:
+            yield from _texts(item)
+    elif node is not None:
+        text = str(node)
+        yield text
+        yield text.replace("$$", "$")
+
+
+def shown_compose_file(compose_yaml: str, hidden: HiddenValues) -> str | None:
+    """The Compose file as the answers show it: ``compose_yaml`` with ``hidden``'s placeholders.
+
+    The applier gets the file exactly as core-service returned it. The answers
+    show the same text with ``<port>``, ``<python>`` and the folder
+    placeholders in place of this machine's values. The result is parsed
+    again, and when any value still holds one of them, for example because
+    the file writes it escaped, the answers show no file (``None``).
+    """
+    shown = hidden.hide(compose_yaml)
+    try:
+        document = yaml.safe_load(shown)
+    except yaml.YAMLError:
+        return None
+    if not isinstance(document, Mapping) or any(hidden.shown_in(text) for text in _texts(document)):
+        return None
+    return shown
+
+
 # --- One attempt -----------------------------------------------------------------------
 
 
@@ -527,6 +632,11 @@ def _sentence(text: str) -> str:
     return text if text.endswith(".") else f"{text}."
 
 
+def _log_sentence(log_path: str | None) -> str:
+    """Where the process's log is: its file name in the deploy folder. The folder is never shown."""
+    return f" Its log is {Path(log_path).name} in the deploy folder." if log_path else ""
+
+
 def _apply_error_detail(error: ComposeApplyError, lead: str = "") -> str:
     """A step's detail for an applier error: ``lead``, its message, the last line
     of the tool's output, which usually names the cause, and the process's log file."""
@@ -534,10 +644,7 @@ def _apply_error_detail(error: ComposeApplyError, lead: str = "") -> str:
     cause = next((line.strip() for line in reversed(error.output_tail.splitlines()) if line.strip()), "")
     if cause:
         text += f": {cause[:CAUSE_CHARACTERS]}"
-    text = _sentence(text)
-    if error.log_path:
-        text += f" Its log is {error.log_path}."
-    return text
+    return _sentence(text) + _log_sentence(error.log_path)
 
 
 def _project(site_id: str) -> str:
@@ -760,6 +867,8 @@ class _Attempt:
         self.adopted = False
         self.started_service = False
         self.log_path: str | None = None
+        #: Folders of this machine the attempt saw, such as a log file's.
+        self.folders: set[str] = set()
         self.registration: Any = None
         self.next_round: NextRound | None = None
         self.deadline = 0.0
@@ -809,6 +918,8 @@ class _Attempt:
                 break
         if joined:
             self._run_step("check", self._check)
+        hidden = hidden_values(self.url, self.settings, self.folders)
+        steps = [self.steps[name].model() for name in DEPLOYMENT_STEPS]
         return Deployment(
             deployment_id=self.deployment_id,
             kind="lma",
@@ -817,9 +928,12 @@ class _Attempt:
             applier=self.applier.name,  # type: ignore[arg-type]
             status="joined" if joined else "failed",
             adopted=self.adopted,
-            compose_yaml=self.compose_yaml,
-            issues=self.issues,
-            steps=[self.steps[name].model() for name in DEPLOYMENT_STEPS],
+            compose_yaml=None if self.compose_yaml is None else shown_compose_file(self.compose_yaml, hidden),
+            issues=[
+                issue.model_copy(update={"value": None if issue.value is None else hidden.hide(issue.value)})
+                for issue in self.issues
+            ],
+            steps=[step.model_copy(update={"detail": hidden.hide(step.detail)}) for step in steps],
             next_round=self.next_round,
             started_at=started_at,
             finished_at=_utc_now(),
@@ -878,7 +992,9 @@ class _Attempt:
                 try:
                     applied = self.applier.apply(self.compose_yaml, self.service, project=self.project, wait_seconds=wait)
                 except ComposeApplyError as error:
+                    self._saw_log(error.log_path)
                     raise _StepFailed(_apply_error_detail(error)) from None
+                self._saw_log(applied.log_path)
                 self.adopted = applied.adopted
                 self.started_service = not applied.adopted
                 self.log_path = applied.log_path
@@ -910,15 +1026,21 @@ class _Attempt:
                 logger.warning("%s did not start: %s\n%s", self.service, error.message, loggable(error.output_tail))
             else:
                 logger.warning("%s did not start: %s", self.service, error.message)
+            self._saw_log(error.log_path)
             raise _StepFailed(_apply_error_detail(error)) from None
+        self._saw_log(applied.log_path)
         self.adopted = applied.adopted
         self.started_service = not applied.adopted
         self.log_path = applied.log_path
         return "done", f"{replaced}{_sentence(applied.detail)}"
 
+    def _saw_log(self, log_path: str | None) -> None:
+        if log_path:
+            self.folders.add(str(Path(log_path).parent))
+
     def _with_log(self, text: str) -> str:
-        if self.applier.name == "process" and self.log_path:
-            return f"{text} Its log is {self.log_path}."
+        if self.applier.name == "process":
+            return text + _log_sentence(self.log_path)
         return text
 
     def _answer(self) -> tuple[str, str]:
@@ -1128,11 +1250,16 @@ __all__ = [
     "COMPOSE_SERVICES",
     "DEPLOYERS",
     "DEPLOYMENTS_KEPT",
+    "DEPLOY_FOLDER_SHOWN",
     "DeployerSettingError",
     "DeploymentConflict",
     "DeploymentUnavailable",
+    "ENV_FOLDER_SHOWN",
     "HEALTH_CHECK",
+    "HiddenValues",
     "HospitalDeployer",
+    "PORT_SHOWN",
+    "PYTHON_SHOWN",
     "REASON_IN_PROCESS",
     "REASON_NOT_JOINABLE",
     "REASON_NO_CORE",
@@ -1145,8 +1272,10 @@ __all__ = [
     "env_file_path",
     "env_folder",
     "framework_root",
+    "hidden_values",
     "joining_addresses",
     "lma_compose_request",
     "rendered_service_mismatch",
+    "shown_compose_file",
     "write_env_file",
 ]
