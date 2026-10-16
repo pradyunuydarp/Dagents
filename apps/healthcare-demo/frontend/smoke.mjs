@@ -1009,6 +1009,56 @@ try {
     await mixedPage.close();
   }
 
+  //    The Add a hospital panel, with GET /api/v1/deployments rewritten to
+  //    offer the action, so every run checks it at phone width. The page
+  //    never sends the request that adds a hospital.
+  const deployPage = await browser.newPage({ viewport: { width: 375, height: 812 } });
+  watch(deployPage);
+  try {
+    const realView = await api("/api/v1/deployments");
+    const offeredView = {
+      ...realView,
+      available: true,
+      reason: null,
+      applier: "process",
+      hospitals: realView.hospitals.map((item) => ({ ...item, in_consortium: false, service: "not_started" })),
+      deployments: [],
+    };
+    const appJson = (json) => ({ status: 200, contentType: "application/json", headers: { "X-Dagents-App": "healthcare-demo" }, json });
+    await deployPage.route("**/api/v1/deployments", (route) =>
+      route.request().method() === "GET" ? route.fulfill(appJson(offeredView)) : route.abort()
+    );
+    await deployPage.goto(baseUrl, { timeout: 60000 });
+    const phoneButton = deployPage.locator('[data-panel="deploy"] [data-action="deploy"]').first();
+    await phoneButton.waitFor({ timeout: 30000 });
+    // Measured as a reader first sees it: no box scrolled sideways. (A
+    // scrollIntoView would scroll the table's own scroll box to the button.)
+    const fit = await phoneButton.evaluate((button) => {
+      let clipped = false;
+      const boxes = [];
+      for (let node = button.parentElement; node; node = node.parentElement) {
+        if (/(auto|scroll|hidden|clip)/.test(getComputedStyle(node).overflowX)) {
+          node.scrollLeft = 0;
+          boxes.push(node);
+        }
+      }
+      const box = button.getBoundingClientRect();
+      for (const node of boxes) {
+        const outer = node.getBoundingClientRect();
+        if (box.left < outer.left - 0.5 || box.right > outer.right + 0.5) clipped = true;
+      }
+      return { left: Math.round(box.left), right: Math.round(box.right), clipped, viewport: window.innerWidth };
+    });
+    check(
+      "at 375 px the button that adds a hospital is fully visible",
+      !fit.clipped && fit.left >= 0 && fit.right <= fit.viewport,
+      `button from ${fit.left} to ${fit.right} px of ${fit.viewport}${fit.clipped ? ", clipped by a scroll box" : ""}`
+    );
+  } finally {
+    await deployPage.unrouteAll({ behavior: "ignoreErrors" });
+    await deployPage.close();
+  }
+
   // 10. Empty stores. The API is simulated in a separate page: it reports
   //     stores that hold no records, as an unseeded database would. Each page
   //     shows one banner and a plain sentence in place of zeros and empty

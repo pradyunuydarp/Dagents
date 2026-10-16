@@ -118,6 +118,7 @@ export function DeployPanel({ onJoined }: { onJoined: () => void }) {
   const notOffered = view.error instanceof ApiError && view.error.status === 404;
   const offered = Boolean(data?.available) && !isRecorded;
   const latest = result ?? data?.deployments[0] ?? null;
+  const startable = offered && data ? data.hospitals.filter((hospital) => !hospital.in_consortium) : [];
   const nameOf = (siteId: string) =>
     data?.hospitals.find((hospital) => hospital.site_id === siteId)?.display_name ?? siteId;
 
@@ -170,11 +171,6 @@ export function DeployPanel({ onJoined }: { onJoined: () => void }) {
                 <th scope="col" className="wide-only">
                   Its LMA
                 </th>
-                {offered && (
-                  <th scope="col">
-                    <span className="visually-hidden">Action</span>
-                  </th>
-                )}
               </tr>
             </thead>
             <tbody>
@@ -187,26 +183,29 @@ export function DeployPanel({ onJoined }: { onJoined: () => void }) {
                   <td>{recordsText(hospital)}</td>
                   <td>{hospital.in_consortium ? "yes" : "no"}</td>
                   <td className="wide-only">{SERVICE_WORDS[hospital.service] ?? hospital.service}</td>
-                  {offered && (
-                    <td>
-                      {!hospital.in_consortium && (
-                        <button
-                          type="button"
-                          className="ds-btn ds-btn--primary"
-                          data-action="deploy"
-                          data-site={hospital.site_id}
-                          onClick={() => add(hospital)}
-                          disabled={adding !== null}
-                        >
-                          Add {hospital.display_name}
-                        </button>
-                      )}
-                    </td>
-                  )}
                 </tr>
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+      {/* The buttons sit under the table, not in it, so a narrow screen never
+          hides one inside the table's scroll box. */}
+      {startable.length > 0 && (
+        <div className="deploy-actions">
+          {startable.map((hospital) => (
+            <button
+              key={hospital.site_id}
+              type="button"
+              className="ds-btn ds-btn--primary"
+              data-action="deploy"
+              data-site={hospital.site_id}
+              onClick={() => add(hospital)}
+              disabled={adding !== null}
+            >
+              Add {hospital.display_name}
+            </button>
+          ))}
         </div>
       )}
 
