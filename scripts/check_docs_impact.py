@@ -247,6 +247,14 @@ AREAS: tuple[Area, ...] = (
         ),
     ),
     Area(
+        name="package",
+        code=("pyproject.toml", "hatch_build.py", ".github/build-constraints.txt"),
+        docs=(
+            ".claude/skills/ci/SKILL.md",
+            *REPO_GUIDES,
+        ),
+    ),
+    Area(
         name="decks",
         code=("docs/presentation/**/*.pptx",),
         docs=(
