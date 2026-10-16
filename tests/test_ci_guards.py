@@ -581,13 +581,14 @@ class WorkflowGuardTests(unittest.TestCase):
     def test_the_demo_apps_job_forbids_planner_and_database_skips(self) -> None:
         self.assertLessEqual({"planner", "database"}, self.forbidden_in("demo-apps"))
 
-    def test_the_agents_job_installs_the_app_chart_requirements(self) -> None:
-        """The same ranges as the healthcare app, which draws the charts in production."""
+    def test_the_agents_job_installs_the_app_chart_and_compose_requirements(self) -> None:
+        """The same ranges as the healthcare app, which draws the charts and
+        reads the rendered Compose file in production."""
         app_requirements = REPO_ROOT / "apps" / "healthcare-demo" / "requirements.txt"
         install = "\n".join(
             block for block in run_blocks(jobs(self.CI)["agents"]) if "pip install" in block
         )
-        for package in ("matplotlib", "numpy"):
+        for package in ("matplotlib", "numpy", "pyyaml"):
             with self.subTest(package=package):
                 self.assertIn(f'"{requirement(app_requirements, package)}"', install)
 

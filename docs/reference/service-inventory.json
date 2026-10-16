@@ -1,7 +1,7 @@
 {
   "framework": "dagents",
   "generated_by": "scripts/service_inventory.py",
-  "endpoint_count": 224,
+  "endpoint_count": 230,
   "services": [
     {
       "name": "core-service",
@@ -293,6 +293,17 @@
         },
         {
           "method": "GET",
+          "path": "/api/v1/federation/site-addresses",
+          "handler": "list_site_addresses_v1",
+          "status_code": null,
+          "summary": "Versioned alias for listing the site addresses.",
+          "alias_of": {
+            "method": "GET",
+            "path": "/federation/site-addresses"
+          }
+        },
+        {
+          "method": "GET",
           "path": "/api/v1/federation/sites",
           "handler": "list_sites_v1",
           "status_code": null,
@@ -322,6 +333,28 @@
           "alias_of": {
             "method": "PUT",
             "path": "/federation/sites/{site_id}"
+          }
+        },
+        {
+          "method": "DELETE",
+          "path": "/api/v1/federation/sites/{site_id}/address",
+          "handler": "remove_site_address_v1",
+          "status_code": 204,
+          "summary": "Versioned alias for removing a joined site's address.",
+          "alias_of": {
+            "method": "DELETE",
+            "path": "/federation/sites/{site_id}/address"
+          }
+        },
+        {
+          "method": "PUT",
+          "path": "/api/v1/federation/sites/{site_id}/address",
+          "handler": "register_site_address_v1",
+          "status_code": null,
+          "summary": "Versioned alias for giving the GMA a joinable site's address.",
+          "alias_of": {
+            "method": "PUT",
+            "path": "/federation/sites/{site_id}/address"
           }
         },
         {
@@ -643,6 +676,14 @@
         },
         {
           "method": "GET",
+          "path": "/federation/site-addresses",
+          "handler": "list_site_addresses",
+          "status_code": null,
+          "summary": "List the sites that may join while the GMA runs, and where each address the GMA holds came from.",
+          "alias_of": null
+        },
+        {
+          "method": "GET",
           "path": "/federation/sites",
           "handler": "list_sites",
           "status_code": null,
@@ -663,6 +704,22 @@
           "handler": "register_site",
           "status_code": null,
           "summary": "Enrol or update one site in the consortium.",
+          "alias_of": null
+        },
+        {
+          "method": "DELETE",
+          "path": "/federation/sites/{site_id}/address",
+          "handler": "remove_site_address",
+          "status_code": 204,
+          "summary": "Remove a joined site's address from the GMA's agent network.",
+          "alias_of": null
+        },
+        {
+          "method": "PUT",
+          "path": "/federation/sites/{site_id}/address",
+          "handler": "register_site_address",
+          "status_code": null,
+          "summary": "Give the GMA the address of a joinable site's LMA, while it runs.",
           "alias_of": null
         },
         {

@@ -134,7 +134,7 @@ class ModelRunRecord(DagentsModel):
 
     run_id: str = Field(
         description=(
-            "`<role>-<scope_id>-<start time in seconds>`, for example `lma-hospital-a-1760000000`. Two runs "
+            "`<role>-<scope_id>-<start time in seconds>`, for example `lma-site-a-1760000000`. Two runs "
             "for one scope in the same second get the same id."
         )
     )

@@ -149,7 +149,11 @@ without being dispatched, with the stop reason `quorum_not_met`.
 A GMA that knows its LMAs' addresses can enrol them for you:
 `POST /api/v1/federation/sites:refresh` asks each LMA for its registration
 (`GET /api/v1/federation/registration`), with its current record count as the
-cohort size, and stores it. Section 6 does this.
+cohort size, and stores it. Section 6 does this. A source that starts after
+the GMA joins the same way once the GMA has its address: list the source in
+`GMA_JOINABLE_SITE_ENDPOINTS` with the one address it will use, send that
+address to `PUT /api/v1/federation/sites/{site_id}/address`, then refresh
+([Step 8](08-deploy.md#3-configure-from-the-environment) has the setting).
 
 ## 3. The source's side: the worker
 

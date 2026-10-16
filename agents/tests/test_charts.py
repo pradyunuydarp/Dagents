@@ -455,6 +455,79 @@ class InputTests(unittest.TestCase):
         self.assertTrue(issubclass(charts.ChartInputError, ValueError))
 
 
+def bar_fills(svg: str) -> list[str]:
+    """The fill colour of every bar: the filled, clipped paths inside the plot."""
+    root = ET.fromstring(svg.split("?>", 1)[1])
+    fills = []
+    for node in root.iter(f"{SVG_NS}path"):
+        match = re.search(r"fill:\s*(#[0-9a-fA-F]{6})", node.attrib.get("style", ""))
+        if "clip-path" in node.attrib and match:
+            fills.append(match.group(1).lower())
+    return fills
+
+
+class NeutralSlotTests(unittest.TestCase):
+    """``series_slot=None`` draws an entity that has no series colour in neutral ink.
+
+    The design system has three series colours. A fourth entity gets none, so
+    a chart about it must not borrow another entity's colour.
+    """
+
+    def neutral_charts(self, theme: str) -> list[tuple[str, str, int]]:
+        """(name, SVG, number of bars) for each function with a ``series_slot``."""
+        return [
+            ("bar", charts.bar_chart(HOSPITALS, [1, 2, 3], series_slot=None, theme=theme), 3),
+            ("bar_horizontal", charts.bar_chart(["a", "b"], [0.2, 0.5], series_slot=None,
+                                                orientation="horizontal", theme=theme), 2),
+            ("histogram", charts.histogram([0, 1, 2], [4, 5], series_slot=None, theme=theme), 2),
+            ("histogram_panels", charts.histogram_panels([0, 1, 2], {"a": [1, 2], "b": [3, 4]},
+                                                         series_slot=None, theme=theme), 4),
+        ]
+
+    @unittest.skipUnless(HAS_MATPLOTLIB, NO_MATPLOTLIB)
+    def test_none_draws_every_bar_in_ink_2_and_uses_no_series_colour(self) -> None:
+        for theme in charts.THEMES:
+            tokens = charts.TOKENS[theme]
+            series = {tokens[f"--ds-series-{slot}"] for slot in range(1, charts.MAX_SERIES + 1)}
+            for name, svg, bars in self.neutral_charts(theme):
+                with self.subTest(theme=theme, chart=name):
+                    self.assertEqual(bar_fills(svg), [tokens["--ds-ink-2"]] * bars)
+                    self.assertFalse(svg_colours(svg) & series)
+
+    @unittest.skipUnless(HAS_MATPLOTLIB, NO_MATPLOTLIB)
+    def test_a_slot_still_draws_in_its_series_colour(self) -> None:
+        """The control for the test above: the same helper sees the series colour."""
+        tokens = charts.TOKENS["light"]
+        self.assertEqual(bar_fills(charts.bar_chart(HOSPITALS, [1, 2, 3], series_slot=2)), [tokens["--ds-series-2"]] * 3)
+        self.assertEqual(charts.bar_chart(HOSPITALS, [1, 2, 3]), charts.bar_chart(HOSPITALS, [1, 2, 3], series_slot=1))
+        self.assertNotEqual(
+            charts.bar_chart(HOSPITALS, [1, 2, 3], series_slot=None), charts.bar_chart(HOSPITALS, [1, 2, 3])
+        )
+
+    @unittest.skipUnless(HAS_MATPLOTLIB, NO_MATPLOTLIB)
+    def test_a_neutral_chart_is_deterministic(self) -> None:
+        first = charts.histogram_panels([0, 1, 2], {"a": [1, 2]}, series_slot=None)
+        self.assertEqual(first, charts.histogram_panels([0, 1, 2], {"a": [1, 2]}, series_slot=None))
+
+    def test_zero_four_and_true_are_still_refused(self) -> None:
+        for slot in (0, 4, True, -1, 1.0):
+            with self.subTest(slot=slot):
+                for draw in (
+                    lambda: charts.bar_chart(["a"], [1], series_slot=slot),
+                    lambda: charts.histogram([0, 1], [1], series_slot=slot),
+                    lambda: charts.histogram_panels([0, 1], {"a": [1]}, series_slot=slot),
+                ):
+                    with self.assertRaises(charts.ChartInputError) as raised:
+                        draw()
+                    self.assertIn("1 to 3 or None", str(raised.exception))
+
+    def test_named_series_still_need_slots_one_to_three(self) -> None:
+        with self.assertRaises(charts.ChartInputError):
+            charts.grouped_bar_chart(["a"], {"x": [1]}, series_slots={"x": None})
+        with self.assertRaises(charts.ChartInputError):
+            charts.histogram([0, 1], {"x": [1], "y": [2]}, series_slot=None)
+
+
 class TableTests(unittest.TestCase):
     """The table view holds the same values as the chart."""
 

@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- New setting `GMA_JOINABLE_SITE_ENDPOINTS`: sites that may join while the GMA
+  runs, each with the one address the GMA accepts for it. New routes
+  `PUT /federation/sites/{site_id}/address`, `DELETE
+  /federation/sites/{site_id}/address` and `GET /federation/site-addresses`,
+  with their `/api/v1` forms, all for the `admin` token. An accepted address
+  goes into the agent network, so the site refresh, the summaries and round
+  dispatch call that LMA. Refusals: `403` `not_joinable`, `403`
+  `address_differs`, `409` `configured_elsewhere`, `409` `configured`, `422`.
+  No answer repeats an address. The GMA refuses to start with a joinable site
+  that is also configured, has a bad address, lacks its tokens or has no HTTP
+  network to join.
 - The HTTP engine sends each selected site one `POST /api/v1/federation/jobs:run`
   call per round instead of `jobs:offer` then `jobs:execute`. A round's
   dispatch has one row per site, with the step `run`. A run call that fails

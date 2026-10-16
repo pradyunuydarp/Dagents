@@ -18,6 +18,11 @@ one GMA with the HTTP engine and one LMA per store, all in one
 :class:`AgentNetwork` in process. :func:`store_north_lma` returns store north's
 LMA; :func:`study_gma` returns the GMA. Each call builds a new network.
 
+:func:`joinable_gma` is a third app for the site address examples: a GMA with
+the HTTP engine, no configured LMA and one site that may join while it runs.
+Its agent network is over HTTP, because only such a network takes an address.
+Accepting an address calls no LMA, so nothing needs to listen there.
+
 The tokens are fixed, so the captured requests repeat. They are example
 values: an agent run for real reads its tokens from its settings. Every
 setting here is one a deployment could set (``Settings`` of each agent).
@@ -267,6 +272,27 @@ def _study() -> tuple[AgentNetwork, FastAPI, dict[str, FastAPI]]:
     return network, gma, lmas
 
 
+#: A store that may join the study while its GMA runs, and the one address
+#: :func:`joinable_gma` accepts for its LMA.
+JOINING_SITE = "store-west"
+JOINING_ADDRESS = "http://127.0.0.1:8013"
+
+
+def joinable_gma() -> FastAPI:
+    """A GMA with the HTTP engine, no configured LMA, and store west in ``GMA_JOINABLE_SITE_ENDPOINTS``."""
+    return create_gma(
+        GmaSettings(
+            engine="http",
+            joinable_site_endpoints={JOINING_SITE: JOINING_ADDRESS},
+            admin_token=ADMIN_TOKEN,
+            lma_tokens={JOINING_SITE: f"example-{JOINING_SITE}-coordinator-token"},
+            site_tokens={JOINING_SITE: f"example-{JOINING_SITE}-upload-token"},
+            allow_source_reads=False,
+        ),
+        GmaDeps(registry=_registry()),
+    )
+
+
 def study_gma() -> FastAPI:
     """The GMA of the study, with nothing registered yet. Its examples register the models themselves."""
     _, gma, _ = _study()
@@ -287,4 +313,13 @@ def store_north_lma() -> FastAPI:
     return lmas["store-north"]
 
 
-__all__ = ["START_PARAMS", "START_VERSION", "ReturnScoreKind", "store_north_lma", "study_gma"]
+__all__ = [
+    "JOINING_ADDRESS",
+    "JOINING_SITE",
+    "START_PARAMS",
+    "START_VERSION",
+    "ReturnScoreKind",
+    "joinable_gma",
+    "store_north_lma",
+    "study_gma",
+]

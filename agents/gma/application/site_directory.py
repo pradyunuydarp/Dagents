@@ -1,9 +1,10 @@
 """The GMA's view of the sites whose LMAs it can call.
 
 The configured sites are the LMAs in the GMA's agent network: the addresses in
-``GMA_SITE_ENDPOINTS``, or the LMA apps an application added to an in-process
-network. Enrolment never adds an address, so a site cannot point the GMA at
-another host.
+``GMA_SITE_ENDPOINTS``, the addresses of joinable sites the study operator
+sent (see ``site_addresses.py``), or the LMA apps an application added to an
+in-process network. Enrolment never adds an address, so a site cannot point
+the GMA at another host.
 
 - :meth:`SiteDirectory.refresh` asks each configured LMA for its registration
   (``GET /api/v1/federation/registration``), in parallel, and enrols what it
@@ -105,6 +106,12 @@ class SiteDirectory:
             max_workers=min(self._concurrency, len(sites)), thread_name_prefix="gma-directory"
         ) as executor:
             return list(executor.map(call, sites))
+
+    def forget(self, site_id: str) -> None:
+        """Drop the cached summaries and the cached source kind of ``site_id``, after its address changed."""
+        with self._lock:
+            self._cache.clear()
+            self._source_kinds.pop(site_id, None)
 
     # --- Enrolment --------------------------------------------------------------------
 

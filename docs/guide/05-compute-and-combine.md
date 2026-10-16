@@ -273,6 +273,10 @@ never from records: `bar_chart`, `grouped_bar_chart`, `stacked_bar_chart`,
 has a twin ending in `_table` that returns the same numbers as table rows, so a
 page can show the values next to the picture. The colours come from the design
 system: series colours mark which source a value belongs to, never a decision.
+The design system has three series colours. Give a chart about one source its
+slot with `series_slot` (1 to 3). For a fourth source, pass `series_slot=None`:
+the chart draws it in neutral ink (`--ds-ink-2`), so it never borrows another
+source's colour. A chart with named series still takes at most three.
 Drawing needs matplotlib. The `_table` functions do not. The stroke demo's
 hospital pages use it.
 

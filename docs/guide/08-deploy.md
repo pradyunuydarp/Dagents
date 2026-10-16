@@ -74,8 +74,14 @@ deployment, not as a tested one.
   variables when it starts, not when its module is imported. An LMA serves one
   site when `LMA_SITE_ID` and `LMA_CONDITION_ID` are set. A GMA sends jobs to
   the LMAs over HTTP when `GMA_ENGINE=http`, and calls only the addresses in
-  `GMA_SITE_ENDPOINTS`, so an enrolment cannot point it at another host. The
-  full lists are in [`agents/lma/README.md`](../../agents/lma/README.md) and
+  `GMA_SITE_ENDPOINTS`, so an enrolment cannot point it at another host. A
+  source that starts later can join while the GMA runs: list it in
+  `GMA_JOINABLE_SITE_ENDPOINTS` with the one address it will use, and send that
+  address to `PUT /api/v1/federation/sites/{site_id}/address` with the GMA's
+  `admin` token. The GMA accepts only the listed address, keeps it in memory,
+  and calls the LMA from the next site refresh on. With tokens, the GMA also
+  needs the source's entries in `GMA_LMA_TOKENS` and `GMA_SITE_TOKENS` from the
+  start. The full lists are in [`agents/lma/README.md`](../../agents/lma/README.md) and
   [`agents/gma/README.md`](../../agents/gma/README.md). Tokens and database
   addresses come from the environment and are never committed.
 
@@ -127,6 +133,51 @@ curl -s -X POST http://127.0.0.1:8040/api/v1/manifests/compose \
   }' | python3 -c "import json, sys; print(json.load(sys.stdin)['compose_yaml'])" > store-south.yml
 docker compose --env-file env/.env.compose -f docker-compose.yml -f store-south.yml up -d store-south-agent
 ```
+
+A program can apply a rendered file itself, for example to add a service when
+a person presses a button. `agents/common/infrastructure/compose_apply.py` has
+two appliers for a file that holds one service. Each takes the `compose_yaml`
+text exactly as core-service returned it, so your program never writes Compose:
+
+| Applier | What it runs | What it needs |
+|---|---|---|
+| `DockerComposeApplier` | `docker compose --file F config --quiet <service>` to check the file, then `docker compose --project-name P --file F up --detach --no-build --pull never --no-deps --wait <service>` | Docker, and the image already built |
+| `LocalProcessApplier` | The service's `command`, with its env files and `environment`, as a local process in a new process group; output goes to `<service>.log`, and the process id to `<service>.pid` while it runs | The program in its allowlist. No Docker. |
+
+`--no-deps` starts the new service alone, so the services it needs must already
+run. Give the service its own project and the running project's network
+(`"placement": "own"`, `"network"` set to that network and
+`"external_network": true`), so `docker compose down` on the project does not
+remove it. The Docker applier runs `up` even when the service runs already:
+Compose keeps a container whose file and image are unchanged, which the
+applier reports as adopted, and recreates one started from an older file or
+image. When a start fails, it removes the container it created.
+
+Both appliers apply only what the planner renders:
+
+- The Docker applier refuses a service key the manifest compiler never
+  renders, such as `privileged`, `pid`, `volumes` or `network_mode`, and a
+  top-level network other than `{}` or `external: true`, before Docker reads
+  the file. With those keys a file could give the container control of the
+  machine that runs Docker.
+- The process applier refuses `depends_on`, any key it cannot apply, a
+  program that is not in its allowlist, and a `$` that is not written `$$`,
+  because it reads no variable from the environment.
+- Put secrets in an env file (`env_files` in the request), so the rendered
+  file holds none. Each applier reads an `env_file` only at an absolute path
+  inside the folders it was given (`env_dirs`), after following symlinks, and
+  only as `NAME=VALUE` lines with a bare value (no space, quote, `$`, `#` or
+  backslash) or a value in single quotes. `format_env_file` writes that form.
+  An error names the line number, never the line.
+
+A failure raises `ComposeApplyError` with a plain message, the last 20 lines of
+the tool's output (`output_tail`) and, for a process that exited, its log file
+(`log_path`). Neither applier checks the service's health: ask the service. A
+process in a new process group outlives a parent that dies without calling
+`close`, so whatever supervises your program can stop it with the pid in
+`<service>.pid`. The tests run the Docker applier with a fake runner, because
+CI has no Docker. The stroke demo uses both appliers to add a hospital while
+it runs ([its README](../../apps/healthcare-demo/README.md)).
 
 Both kinds of file are generated and tested, but CI deploys neither. The plan
 for checking the Kubernetes manifests on a live cluster is in `TODO.md`.
@@ -269,7 +320,8 @@ Pass them to `GovernanceService(audit=...)` and
 | `401` with the code `unauthorized` | The agent has tokens, and the call has no `Authorization: Bearer` header or a token the agent does not accept | Send the token for the route's scope (section 6) |
 | `403` with the code `forbidden` | The token's scope may not call the route, or a site's token was used for another site | Use the token of the right scope |
 | An agent logs "runs without tokens: every caller may call every route" | No token is configured | Set the tokens, and `LMA_REQUIRE_TOKENS=1` or `GMA_REQUIRE_TOKENS=1` |
-| `AgentUnavailableError` in your application, or a round result `failed` with "the job run failed: ..." | An agent did not answer in time, or has no address configured | Check the agent is running and its address is in `GMA_SITE_ENDPOINTS` or `LMA_GMA_ENDPOINT`; in process, cap concurrent requests (section 7) |
+| `AgentUnavailableError` in your application, or a round result `failed` with "the job run failed: ..." | An agent did not answer in time, or has no address configured | Check the agent is running and its address is in `GMA_SITE_ENDPOINTS` or `LMA_GMA_ENDPOINT`, or was accepted from `GMA_JOINABLE_SITE_ENDPOINTS`; in process, cap concurrent requests (section 7) |
+| `403` `not_joinable` or `address_differs`, or `409` `configured_elsewhere`, from `PUT /api/v1/federation/sites/{site_id}/address` | The site is not in `GMA_JOINABLE_SITE_ENDPOINTS`, the address is not the listed one, or the site is configured with another address | Send the exact address the setting lists; a configured site needs no address at run time |
 | `store-south.yml` holds only `None` | The planner found issues, so `compose_yaml` is null | Read `issues` in the answer: each names the service and the rule it breaks |
 
 Next: [Step 9: Test your integration](09-test-your-integration.md).

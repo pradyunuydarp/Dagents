@@ -127,6 +127,46 @@ class SiteRegistration(DagentsModel):
     )
 
 
+class SiteAddressRequest(DagentsModel):
+    """The address a GMA should call a joinable site's LMA at."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    url: str = Field(
+        min_length=1,
+        max_length=2048,
+        description=(
+            "The LMA's base address, such as `http://127.0.0.1:8085`: http or https, with no user name, password, "
+            "query or fragment. It must equal the site's entry in `GMA_JOINABLE_SITE_ENDPOINTS`; a trailing `/` is "
+            "ignored. No answer repeats it."
+        ),
+    )
+
+
+class SiteAddressState(DagentsModel):
+    """Where a GMA's address for one site's LMA came from. It never holds the address."""
+
+    site_id: str = Field(description="The site's id.")
+    source: Literal["configured", "joined"] = Field(
+        description=(
+            "`configured`: the address is in `GMA_SITE_ENDPOINTS` and was read at start. `joined`: the study "
+            "operator sent it while the GMA ran, and the GMA keeps it in memory until it stops or the address is "
+            "removed."
+        )
+    )
+
+
+class SiteAddressList(DagentsModel):
+    """The sites a GMA can call, and the sites that may join while it runs. No address is listed."""
+
+    joinable: list[str] = Field(
+        description="The sites in `GMA_JOINABLE_SITE_ENDPOINTS`, sorted, whether or not they have joined."
+    )
+    sites: list[SiteAddressState] = Field(
+        description="Every site whose LMA address the GMA holds, configured or joined, sorted by `site_id`."
+    )
+
+
 class RoundManifest(DagentsModel):
     """The round contract distributed to every approved site.
 

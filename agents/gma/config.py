@@ -12,6 +12,7 @@ application runs in its own process.
 | `GMA_API_HOST`, `GMA_API_PORT` | none | Where uvicorn serves the GMA; the app does not read them |
 | `GMA_ENGINE` | `in-process` | `in-process` (the simulator) or `http` (jobs go to the LMAs over their HTTP API) |
 | `GMA_SITE_ENDPOINTS` | none | `SITE=URL,...`: each LMA's base address. Only these addresses are called, so an enrolment cannot point the GMA elsewhere |
+| `GMA_JOINABLE_SITE_ENDPOINTS` | none | `SITE=URL,...`: sites that may join while the GMA runs, each with the one address the GMA accepts for it (`PUT /api/v1/federation/sites/{site_id}/address`). Needs `GMA_ENGINE=http`; with tokens, each site also needs entries in `GMA_LMA_TOKENS` and `GMA_SITE_TOKENS` |
 | `GMA_LMA_TOKENS` | none | `SITE=TOKEN,...`: the coordinator token the GMA sends to each LMA |
 | `GMA_ADMIN_TOKEN` | none | The token of the study operator (`admin` scope) |
 | `GMA_SITE_TOKENS` | none | `SITE=TOKEN,...`: each LMA's token for its update uploads and the released model (`site` scope, bound to the site) |
@@ -80,7 +81,7 @@ def _number(environ: Mapping[str, str], name: str, default: float, cast: type) -
 class Settings:
     """What one GMA runs with. ``Settings()`` is a GMA with nothing configured.
 
-    Tokens and the database address are left out of ``repr``.
+    Tokens, the database address and the joinable sites' addresses are left out of ``repr``.
     """
 
     app_name: str = "dagents-gma"
@@ -90,6 +91,7 @@ class Settings:
     log_level: str = "info"
     engine: str = "in-process"
     site_endpoints: Mapping[str, str] = field(default_factory=dict)
+    joinable_site_endpoints: Mapping[str, str] = field(default_factory=dict, repr=False)
     lma_tokens: Mapping[str, str] = field(default_factory=dict, repr=False)
     admin_token: str | None = field(default=None, repr=False)
     site_tokens: Mapping[str, str] = field(default_factory=dict, repr=False)
@@ -143,6 +145,9 @@ class Settings:
             log_level=_text(environ, "GMA_LOG_LEVEL") or "info",
             engine=(_text(environ, "GMA_ENGINE") or "in-process").lower(),
             site_endpoints=parse_site_map(environ.get("GMA_SITE_ENDPOINTS"), setting="GMA_SITE_ENDPOINTS"),
+            joinable_site_endpoints=parse_site_map(
+                environ.get("GMA_JOINABLE_SITE_ENDPOINTS"), setting="GMA_JOINABLE_SITE_ENDPOINTS"
+            ),
             lma_tokens=parse_site_map(environ.get("GMA_LMA_TOKENS"), setting="GMA_LMA_TOKENS"),
             admin_token=_text(environ, "GMA_ADMIN_TOKEN"),
             site_tokens=parse_site_map(environ.get("GMA_SITE_TOKENS"), setting="GMA_SITE_TOKENS"),

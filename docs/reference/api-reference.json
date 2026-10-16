@@ -1,7 +1,7 @@
 {
  "generated_by": "scripts/api_reference.py",
  "regenerate": ".venv/bin/python scripts/api_reference.py --write",
- "endpoint_count": 224,
+ "endpoint_count": 230,
  "services": [
   {
    "name": "core-service",
@@ -2701,6 +2701,47 @@
      }
     },
     {
+     "id": "gma-get-api-v1-federation-site-addresses",
+     "method": "GET",
+     "path": "/api/v1/federation/site-addresses",
+     "summary": "Versioned alias for listing the site addresses.",
+     "description": null,
+     "status_code": 200,
+     "deprecated": false,
+     "handler": {
+      "function": "list_site_addresses_v1",
+      "module": "agents.gma.routes",
+      "file": "agents/gma/routes.py",
+      "calls": [
+       {
+        "kind": "route",
+        "class": null,
+        "module": "agents.gma.routes",
+        "file": "agents/gma/routes.py",
+        "name": "list_site_addresses",
+        "endpoint": "gma-get-federation-site-addresses"
+       }
+      ]
+     },
+     "parameters": [],
+     "request_body": null,
+     "responses": [
+      {
+       "status": "200",
+       "description": "The joinable sites and every held address's source.",
+       "content_type": "application/json",
+       "schema": {
+        "$ref": "#/components/schemas/SiteAddressList"
+       }
+      }
+     ],
+     "alias_of": {
+      "method": "GET",
+      "path": "/federation/site-addresses",
+      "id": "gma-get-federation-site-addresses"
+     }
+    },
+    {
      "id": "gma-get-api-v1-federation-sites",
      "method": "GET",
      "path": "/api/v1/federation/sites",
@@ -2891,6 +2932,171 @@
       "method": "PUT",
       "path": "/federation/sites/{site_id}",
       "id": "gma-put-federation-sites-site-id"
+     }
+    },
+    {
+     "id": "gma-delete-api-v1-federation-sites-site-id-address",
+     "method": "DELETE",
+     "path": "/api/v1/federation/sites/{site_id}/address",
+     "summary": "Versioned alias for removing a joined site's address.",
+     "description": null,
+     "status_code": 204,
+     "deprecated": false,
+     "handler": {
+      "function": "remove_site_address_v1",
+      "module": "agents.gma.routes",
+      "file": "agents/gma/routes.py",
+      "calls": [
+       {
+        "kind": "route",
+        "class": null,
+        "module": "agents.gma.routes",
+        "file": "agents/gma/routes.py",
+        "name": "remove_site_address",
+        "endpoint": "gma-delete-federation-sites-site-id-address"
+       }
+      ]
+     },
+     "parameters": [
+      {
+       "name": "site_id",
+       "in": "path",
+       "required": true,
+       "description": "The site's id, as in `GMA_SITE_ENDPOINTS` or `GMA_JOINABLE_SITE_ENDPOINTS`.",
+       "schema": {
+        "type": "string",
+        "description": "The site's id, as in `GMA_SITE_ENDPOINTS` or `GMA_JOINABLE_SITE_ENDPOINTS`.",
+        "title": "Site Id"
+       }
+      }
+     ],
+     "request_body": null,
+     "responses": [
+      {
+       "status": "204",
+       "description": "The joined address is removed, or the joinable site had not joined.",
+       "content_type": null,
+       "schema": null
+      },
+      {
+       "status": "403",
+       "description": "`not_joinable`: the site is not in `GMA_JOINABLE_SITE_ENDPOINTS`. `forbidden`: not the admin token.",
+       "content_type": "application/json",
+       "schema": {
+        "$ref": "#/components/schemas/AgentErrorDetail"
+       }
+      },
+      {
+       "status": "409",
+       "description": "`configured`: the site's address comes from `GMA_SITE_ENDPOINTS`, so it stays.",
+       "content_type": "application/json",
+       "schema": {
+        "$ref": "#/components/schemas/AgentErrorDetail"
+       }
+      },
+      {
+       "status": "422",
+       "description": "Validation Error",
+       "content_type": "application/json",
+       "schema": {
+        "$ref": "#/components/schemas/HTTPValidationError"
+       }
+      }
+     ],
+     "alias_of": {
+      "method": "DELETE",
+      "path": "/federation/sites/{site_id}/address",
+      "id": "gma-delete-federation-sites-site-id-address"
+     }
+    },
+    {
+     "id": "gma-put-api-v1-federation-sites-site-id-address",
+     "method": "PUT",
+     "path": "/api/v1/federation/sites/{site_id}/address",
+     "summary": "Versioned alias for giving the GMA a joinable site's address.",
+     "description": null,
+     "status_code": 200,
+     "deprecated": false,
+     "handler": {
+      "function": "register_site_address_v1",
+      "module": "agents.gma.routes",
+      "file": "agents/gma/routes.py",
+      "calls": [
+       {
+        "kind": "route",
+        "class": null,
+        "module": "agents.gma.routes",
+        "file": "agents/gma/routes.py",
+        "name": "register_site_address",
+        "endpoint": "gma-put-federation-sites-site-id-address"
+       }
+      ]
+     },
+     "parameters": [
+      {
+       "name": "site_id",
+       "in": "path",
+       "required": true,
+       "description": "The site's id, as in `GMA_SITE_ENDPOINTS` or `GMA_JOINABLE_SITE_ENDPOINTS`.",
+       "schema": {
+        "type": "string",
+        "description": "The site's id, as in `GMA_SITE_ENDPOINTS` or `GMA_JOINABLE_SITE_ENDPOINTS`.",
+        "title": "Site Id"
+       }
+      }
+     ],
+     "request_body": {
+      "required": true,
+      "content_type": "application/json",
+      "schema": {
+       "$ref": "#/components/schemas/SiteAddressRequest"
+      }
+     },
+     "responses": [
+      {
+       "status": "200",
+       "description": "The address is held. `source` says where it came from.",
+       "content_type": "application/json",
+       "schema": {
+        "$ref": "#/components/schemas/SiteAddressState"
+       }
+      },
+      {
+       "status": "403",
+       "description": "`not_joinable`: the site is not in `GMA_JOINABLE_SITE_ENDPOINTS` (a GMA with no HTTP network has no joinable site). `address_differs`: the address differs from the one listed for the site. `forbidden`: the token is not the admin token.",
+       "content_type": "application/json",
+       "schema": {
+        "$ref": "#/components/schemas/AgentErrorDetail"
+       }
+      },
+      {
+       "status": "409",
+       "description": "`configured_elsewhere`: the site is in `GMA_SITE_ENDPOINTS` with another address.",
+       "content_type": "application/json",
+       "schema": {
+        "$ref": "#/components/schemas/AgentErrorDetail"
+       }
+      },
+      {
+       "status": "422",
+       "description": "The body is not `{url}`, or `url` is not an http or https base address (`invalid_request`).",
+       "content_type": "application/json",
+       "schema": {
+        "anyOf": [
+         {
+          "$ref": "#/components/schemas/HTTPValidationError"
+         },
+         {
+          "$ref": "#/components/schemas/AgentErrorDetail"
+         }
+        ]
+       }
+      }
+     ],
+     "alias_of": {
+      "method": "PUT",
+      "path": "/federation/sites/{site_id}/address",
+      "id": "gma-put-federation-sites-site-id-address"
      }
     },
     {
@@ -5303,6 +5509,42 @@
      "alias_of": null
     },
     {
+     "id": "gma-get-federation-site-addresses",
+     "method": "GET",
+     "path": "/federation/site-addresses",
+     "summary": "List the sites that may join while the GMA runs, and where each address the GMA holds came from.",
+     "description": "`joinable` is `GMA_JOINABLE_SITE_ENDPOINTS`'s sites, joined or not;\n`sites` is every configured or joined site. No address is listed. A GMA\nwith no HTTP network answers two empty lists.",
+     "status_code": 200,
+     "deprecated": false,
+     "handler": {
+      "function": "list_site_addresses",
+      "module": "agents.gma.routes",
+      "file": "agents/gma/routes.py",
+      "calls": [
+       {
+        "kind": "method",
+        "class": "SiteAddressBook",
+        "module": "agents.gma.application.site_addresses",
+        "file": "agents/gma/application/site_addresses.py",
+        "name": "listing"
+       }
+      ]
+     },
+     "parameters": [],
+     "request_body": null,
+     "responses": [
+      {
+       "status": "200",
+       "description": "The joinable sites and every held address's source.",
+       "content_type": "application/json",
+       "schema": {
+        "$ref": "#/components/schemas/SiteAddressList"
+       }
+      }
+     ],
+     "alias_of": null
+    },
+    {
      "id": "gma-get-federation-sites",
      "method": "GET",
      "path": "/federation/sites",
@@ -5475,6 +5717,161 @@
        "content_type": "application/json",
        "schema": {
         "$ref": "#/components/schemas/HTTPValidationError"
+       }
+      }
+     ],
+     "alias_of": null
+    },
+    {
+     "id": "gma-delete-federation-sites-site-id-address",
+     "method": "DELETE",
+     "path": "/federation/sites/{site_id}/address",
+     "summary": "Remove a joined site's address from the GMA's agent network.",
+     "description": "The GMA closes its client for that LMA and calls it no more: the site\nrefresh and the summaries leave it out, and a round that still selects it\nrecords a failed result without calling it. Withdraw the site's enrolment\nfirst (`PUT /api/v1/federation/sites/{site_id}` with `enrolled: false`), so\nthe next plan does not select it.",
+     "status_code": 204,
+     "deprecated": false,
+     "handler": {
+      "function": "remove_site_address",
+      "module": "agents.gma.routes",
+      "file": "agents/gma/routes.py",
+      "calls": [
+       {
+        "kind": "method",
+        "class": "SiteAddressBook",
+        "module": "agents.gma.application.site_addresses",
+        "file": "agents/gma/application/site_addresses.py",
+        "name": "detach"
+       }
+      ]
+     },
+     "parameters": [
+      {
+       "name": "site_id",
+       "in": "path",
+       "required": true,
+       "description": "The site's id, as in `GMA_SITE_ENDPOINTS` or `GMA_JOINABLE_SITE_ENDPOINTS`.",
+       "schema": {
+        "type": "string",
+        "description": "The site's id, as in `GMA_SITE_ENDPOINTS` or `GMA_JOINABLE_SITE_ENDPOINTS`.",
+        "title": "Site Id"
+       }
+      }
+     ],
+     "request_body": null,
+     "responses": [
+      {
+       "status": "204",
+       "description": "The joined address is removed, or the joinable site had not joined.",
+       "content_type": null,
+       "schema": null
+      },
+      {
+       "status": "403",
+       "description": "`not_joinable`: the site is not in `GMA_JOINABLE_SITE_ENDPOINTS`. `forbidden`: not the admin token.",
+       "content_type": "application/json",
+       "schema": {
+        "$ref": "#/components/schemas/AgentErrorDetail"
+       }
+      },
+      {
+       "status": "409",
+       "description": "`configured`: the site's address comes from `GMA_SITE_ENDPOINTS`, so it stays.",
+       "content_type": "application/json",
+       "schema": {
+        "$ref": "#/components/schemas/AgentErrorDetail"
+       }
+      },
+      {
+       "status": "422",
+       "description": "Validation Error",
+       "content_type": "application/json",
+       "schema": {
+        "$ref": "#/components/schemas/HTTPValidationError"
+       }
+      }
+     ],
+     "alias_of": null
+    },
+    {
+     "id": "gma-put-federation-sites-site-id-address",
+     "method": "PUT",
+     "path": "/federation/sites/{site_id}/address",
+     "summary": "Give the GMA the address of a joinable site's LMA, while it runs.",
+     "description": "The GMA accepts only the address `GMA_JOINABLE_SITE_ENDPOINTS` lists for\nthe site, and adds it to its agent network, in memory. From then on the\nsite refresh, the site summaries and round dispatch call that LMA, with\nthe coordinator token in `GMA_LMA_TOKENS`. A configured site at its own\naddress is accepted as `configured`; sending a joined site's address again\nchanges nothing. The route does not enrol the site: call\n`POST /api/v1/federation/sites:refresh` next. No answer or log line repeats\nthe address.",
+     "status_code": 200,
+     "deprecated": false,
+     "handler": {
+      "function": "register_site_address",
+      "module": "agents.gma.routes",
+      "file": "agents/gma/routes.py",
+      "calls": [
+       {
+        "kind": "method",
+        "class": "SiteAddressBook",
+        "module": "agents.gma.application.site_addresses",
+        "file": "agents/gma/application/site_addresses.py",
+        "name": "attach"
+       }
+      ]
+     },
+     "parameters": [
+      {
+       "name": "site_id",
+       "in": "path",
+       "required": true,
+       "description": "The site's id, as in `GMA_SITE_ENDPOINTS` or `GMA_JOINABLE_SITE_ENDPOINTS`.",
+       "schema": {
+        "type": "string",
+        "description": "The site's id, as in `GMA_SITE_ENDPOINTS` or `GMA_JOINABLE_SITE_ENDPOINTS`.",
+        "title": "Site Id"
+       }
+      }
+     ],
+     "request_body": {
+      "required": true,
+      "content_type": "application/json",
+      "schema": {
+       "$ref": "#/components/schemas/SiteAddressRequest"
+      }
+     },
+     "responses": [
+      {
+       "status": "200",
+       "description": "The address is held. `source` says where it came from.",
+       "content_type": "application/json",
+       "schema": {
+        "$ref": "#/components/schemas/SiteAddressState"
+       }
+      },
+      {
+       "status": "403",
+       "description": "`not_joinable`: the site is not in `GMA_JOINABLE_SITE_ENDPOINTS` (a GMA with no HTTP network has no joinable site). `address_differs`: the address differs from the one listed for the site. `forbidden`: the token is not the admin token.",
+       "content_type": "application/json",
+       "schema": {
+        "$ref": "#/components/schemas/AgentErrorDetail"
+       }
+      },
+      {
+       "status": "409",
+       "description": "`configured_elsewhere`: the site is in `GMA_SITE_ENDPOINTS` with another address.",
+       "content_type": "application/json",
+       "schema": {
+        "$ref": "#/components/schemas/AgentErrorDetail"
+       }
+      },
+      {
+       "status": "422",
+       "description": "The body is not `{url}`, or `url` is not an http or https base address (`invalid_request`).",
+       "content_type": "application/json",
+       "schema": {
+        "anyOf": [
+         {
+          "$ref": "#/components/schemas/HTTPValidationError"
+         },
+         {
+          "$ref": "#/components/schemas/AgentErrorDetail"
+         }
+        ]
        }
       }
      ],
@@ -9050,7 +9447,7 @@
       "run_id": {
        "type": "string",
        "title": "Run Id",
-       "description": "`<role>-<scope_id>-<start time in seconds>`, for example `lma-hospital-a-1760000000`. Two runs for one scope in the same second get the same id."
+       "description": "`<role>-<scope_id>-<start time in seconds>`, for example `lma-site-a-1760000000`. Two runs for one scope in the same second get the same id."
       },
       "agent_role": {
        "type": "string",
@@ -10747,6 +11144,76 @@
      ],
      "title": "RunDispatchRequest",
      "description": "A request to record a run for an agent."
+    },
+    "SiteAddressList": {
+     "properties": {
+      "joinable": {
+       "items": {
+        "type": "string"
+       },
+       "type": "array",
+       "title": "Joinable",
+       "description": "The sites in `GMA_JOINABLE_SITE_ENDPOINTS`, sorted, whether or not they have joined."
+      },
+      "sites": {
+       "items": {
+        "$ref": "#/components/schemas/SiteAddressState"
+       },
+       "type": "array",
+       "title": "Sites",
+       "description": "Every site whose LMA address the GMA holds, configured or joined, sorted by `site_id`."
+      }
+     },
+     "type": "object",
+     "required": [
+      "joinable",
+      "sites"
+     ],
+     "title": "SiteAddressList",
+     "description": "The sites a GMA can call, and the sites that may join while it runs. No address is listed."
+    },
+    "SiteAddressRequest": {
+     "properties": {
+      "url": {
+       "type": "string",
+       "maxLength": 2048,
+       "minLength": 1,
+       "title": "Url",
+       "description": "The LMA's base address, such as `http://127.0.0.1:8085`: http or https, with no user name, password, query or fragment. It must equal the site's entry in `GMA_JOINABLE_SITE_ENDPOINTS`; a trailing `/` is ignored. No answer repeats it."
+      }
+     },
+     "additionalProperties": false,
+     "type": "object",
+     "required": [
+      "url"
+     ],
+     "title": "SiteAddressRequest",
+     "description": "The address a GMA should call a joinable site's LMA at."
+    },
+    "SiteAddressState": {
+     "properties": {
+      "site_id": {
+       "type": "string",
+       "title": "Site Id",
+       "description": "The site's id."
+      },
+      "source": {
+       "type": "string",
+       "enum": [
+        "configured",
+        "joined"
+       ],
+       "title": "Source",
+       "description": "`configured`: the address is in `GMA_SITE_ENDPOINTS` and was read at start. `joined`: the study operator sent it while the GMA ran, and the GMA keeps it in memory until it stops or the address is removed."
+      }
+     },
+     "type": "object",
+     "required": [
+      "site_id",
+      "source"
+     ],
+     "title": "SiteAddressState",
+     "description": "Where a GMA's address for one site's LMA came from. It never holds the address."
     },
     "SiteDirectoryEntry": {
      "properties": {
@@ -19943,7 +20410,7 @@
       "run_id": {
        "type": "string",
        "title": "Run Id",
-       "description": "`<role>-<scope_id>-<start time in seconds>`, for example `lma-hospital-a-1760000000`. Two runs for one scope in the same second get the same id."
+       "description": "`<role>-<scope_id>-<start time in seconds>`, for example `lma-site-a-1760000000`. Two runs for one scope in the same second get the same id."
       },
       "agent_role": {
        "type": "string",
@@ -36483,7 +36950,7 @@
      "description": "One recorded model run.",
      "properties": {
       "run_id": {
-       "description": "`<role>-<scope_id>-<start time in seconds>`, for example `lma-hospital-a-1760000000`. Two runs for one scope in the same second get the same id.",
+       "description": "`<role>-<scope_id>-<start time in seconds>`, for example `lma-site-a-1760000000`. Two runs for one scope in the same second get the same id.",
        "title": "Run Id",
        "type": "string"
       },
@@ -37411,7 +37878,7 @@
     "description": "One recorded model run.",
     "properties": {
      "run_id": {
-      "description": "`<role>-<scope_id>-<start time in seconds>`, for example `lma-hospital-a-1760000000`. Two runs for one scope in the same second get the same id.",
+      "description": "`<role>-<scope_id>-<start time in seconds>`, for example `lma-site-a-1760000000`. Two runs for one scope in the same second get the same id.",
       "title": "Run Id",
       "type": "string"
      },
@@ -42895,6 +43362,104 @@
      "base_url"
     ],
     "title": "ServiceDescriptor",
+    "type": "object"
+   },
+   "defs": {}
+  },
+  {
+   "service": "gma",
+   "class": "agents.common.domain.federation.SiteAddressList",
+   "name": "SiteAddressList",
+   "module": "agents.common.domain.federation",
+   "file": "agents/common/domain/federation.py",
+   "summary": "The sites a GMA can call, and the sites that may join while it runs. No address is listed.",
+   "description": null,
+   "schema": {
+    "description": "The sites a GMA can call, and the sites that may join while it runs. No address is listed.",
+    "properties": {
+     "joinable": {
+      "description": "The sites in `GMA_JOINABLE_SITE_ENDPOINTS`, sorted, whether or not they have joined.",
+      "items": {
+       "type": "string"
+      },
+      "title": "Joinable",
+      "type": "array"
+     },
+     "sites": {
+      "description": "Every site whose LMA address the GMA holds, configured or joined, sorted by `site_id`.",
+      "items": {
+       "$ref": "#/$defs/SiteAddressState"
+      },
+      "title": "Sites",
+      "type": "array"
+     }
+    },
+    "required": [
+     "joinable",
+     "sites"
+    ],
+    "title": "SiteAddressList",
+    "type": "object"
+   },
+   "defs": {
+    "SiteAddressState": {
+     "description": "Where a GMA's address for one site's LMA came from. It never holds the address.",
+     "properties": {
+      "site_id": {
+       "description": "The site's id.",
+       "title": "Site Id",
+       "type": "string"
+      },
+      "source": {
+       "description": "`configured`: the address is in `GMA_SITE_ENDPOINTS` and was read at start. `joined`: the study operator sent it while the GMA ran, and the GMA keeps it in memory until it stops or the address is removed.",
+       "enum": [
+        "configured",
+        "joined"
+       ],
+       "title": "Source",
+       "type": "string"
+      }
+     },
+     "required": [
+      "site_id",
+      "source"
+     ],
+     "title": "SiteAddressState",
+     "type": "object"
+    }
+   }
+  },
+  {
+   "service": "gma",
+   "class": "agents.common.domain.federation.SiteAddressState",
+   "name": "SiteAddressState",
+   "module": "agents.common.domain.federation",
+   "file": "agents/common/domain/federation.py",
+   "summary": "Where a GMA's address for one site's LMA came from. It never holds the address.",
+   "description": null,
+   "schema": {
+    "description": "Where a GMA's address for one site's LMA came from. It never holds the address.",
+    "properties": {
+     "site_id": {
+      "description": "The site's id.",
+      "title": "Site Id",
+      "type": "string"
+     },
+     "source": {
+      "description": "`configured`: the address is in `GMA_SITE_ENDPOINTS` and was read at start. `joined`: the study operator sent it while the GMA ran, and the GMA keeps it in memory until it stops or the address is removed.",
+      "enum": [
+       "configured",
+       "joined"
+      ],
+      "title": "Source",
+      "type": "string"
+     }
+    },
+    "required": [
+     "site_id",
+     "source"
+    ],
+    "title": "SiteAddressState",
     "type": "object"
    },
    "defs": {}
