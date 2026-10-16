@@ -195,9 +195,9 @@ a statically linked `dagentsc-static` for `packaging`), `agents`,
 healthcare UI in network mode with `--deploy` against PostgreSQL 16, where the
 smoke test adds Hospital 290 from the page), `packaging` (builds the sdist and
 a Linux wheel with the planner, installs the wheel into clean environments,
-and runs the agent suite on the newest versions the package's extras allow;
-see **Releasing**), `docs-impact`, and a `ci` gate job that is the single
-required check.
+one of them with openai-agents, and runs the agent suite on the newest
+versions the package's extras allow; see **Releasing**), `docs-impact`, and a
+`ci` gate job that is the single required check.
 
 `docs-impact` runs `scripts/check_docs_impact.py` on pull requests and pushes
 to `main`. It fails when a change touches a code area (`dagents/`, `services/`,
@@ -402,6 +402,15 @@ The `lma` and `gma` extras accept FastAPI from 0.115.0 and uvicorn from
 0.30.6, the versions the agents job pins, to below 1.0. The `packaging` job
 runs `dagents/tests` again on the newest versions those ranges allow, on
 Python 3.13.
+
+**The old name.** The package was called `agents` before 0.1.0a1. Another
+project owns that name on PyPI, and openai-agents installs a top-level module
+called `agents`. The smoke test's first check reads only the files the
+`dagents` distribution installed (its `RECORD`), so another package's `agents`
+module does not fail it. The `packaging` job installs the wheel together with
+`openai-agents`, runs `pip check`, and runs the smoke test with
+`--agents-from openai-agents`, which checks that `agents` comes from
+openai-agents and imports in the same process as `dagents`.
 
 **Make a release:**
 

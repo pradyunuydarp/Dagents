@@ -913,6 +913,22 @@ jobs:
             "${GITHUB_WORKSPACE}/scripts/smoke_installed_package.py" \
             --repo "${GITHUB_WORKSPACE}" --expect-planner none)
 
+      - name: Install the wheel next to openai-agents and run the smoke test
+        # openai-agents installs a top-level module named agents, the old name
+        # of this package. The package was renamed so that both install into
+        # one environment, so this step installs both and runs the smoke test
+        # there. The smoke test reads only the files the dagents distribution
+        # installed, and --agents-from checks that agents comes from
+        # openai-agents and imports next to dagents.
+        run: |
+          venv="${RUNNER_TEMP}/smoke-openai-agents"
+          python3.13 -m venv "${venv}"
+          "${venv}/bin/python" -m pip install --quiet "$(ls "${GITHUB_WORKSPACE}"/dist/*.whl)[lma,gma]" openai-agents==0.24.0
+          "${venv}/bin/python" -m pip check
+          (cd "${RUNNER_TEMP}" && env -u PYTHONPATH -u DAGENTSC_BIN "${venv}/bin/python" -I \
+            "${GITHUB_WORKSPACE}/scripts/smoke_installed_package.py" \
+            --repo "${GITHUB_WORKSPACE}" --expect-planner bundled --agents-from openai-agents)
+
       - name: Run the agent suite on the newest versions the extras allow
         # The agents job pins FastAPI 0.115.0 and uvicorn 0.30.6, the lowest
         # versions the lma and gma extras accept. pip gives a user the newest

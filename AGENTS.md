@@ -442,7 +442,8 @@ are in the "Releasing" section of `CLAUDE.md`. In short:
   environments accept only `v*` tags, and the `pypi` environment needs a reviewer's approval.
 - Every build uses the hatchling version pinned in `.github/build-constraints.txt`.
 - A manual run of the workflow is a dry run that builds and checks everything and publishes nothing.
-  CI's `packaging` job builds and smoke-tests a Linux wheel on every pull request, and runs the agent
+  CI's `packaging` job builds and smoke-tests a Linux wheel on every pull request, also in an
+  environment that has openai-agents (whose top-level module is `agents`), and runs the agent
   suite on the newest FastAPI and uvicorn the `lma` and `gma` extras allow.
 
 ## Learning Guide

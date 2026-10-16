@@ -374,7 +374,12 @@ runs `scripts/smoke_installed_package.py --expect-planner bundled`: the
 runner must find the bundled planner, the installed package must read no
 `env/` file, the Guard must get real decisions, the getting-started example
 must print the guide's outputs, and the LMA and GMA must answer `/health`
-without a planner warning. A wheel built from the sdist without a planner must
+without a planner warning. The smoke test's first check reads the `dagents`
+distribution's `RECORD`: it may list only `dagents/`, its `.dist-info`, its
+two commands and the bytecode pip compiled. With `PYTHONPYCACHEPREFIX` set,
+pip writes that bytecode outside site-packages, so the check allows `.pyc`
+files there and in `__pycache__` folders. Python never imports such a file as
+a module of its own. A wheel built from the sdist without a planner must
 make the Guard deny and each agent log that it has no planner
 (`--expect-planner none`). Last, the job installs the wheel with all its
 extras on Python 3.13, removes the package, and runs
@@ -388,6 +393,18 @@ every suite in the checkout passed while the `[all]` install had no PyYAML and
 the appliers' tests failed with `ModuleNotFoundError`. The `compose` extra now
 installs it, and `tests/test_packaging.py` checks that `all` names every other
 extra.
+
+The package was renamed from `agents` so that it installs next to
+openai-agents, whose top-level module is `agents`. The smoke test's first
+check used to fail whenever any `agents` module was installed, so no step
+could run it in an environment that has openai-agents. Now the check reads
+only the `dagents` distribution's files, and one step of the `packaging` job
+installs the wheel with `openai-agents==0.24.0`, runs `pip check`, and runs
+the smoke test with `--agents-from openai-agents`. That option fails unless
+`agents` comes from openai-agents and imports in the same process as
+`dagents`. `tests/test_release_workflow.py` checks that the step exists, and
+`tests/test_packaging.py` runs the file check and the option on synthetic
+distributions.
 
 ## 3. The test loop
 

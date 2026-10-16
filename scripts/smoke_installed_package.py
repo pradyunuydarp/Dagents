@@ -15,8 +15,11 @@ for the getting-started example and the guide's recorded outputs.
 
 With ``--expect-planner bundled`` the script checks, in order:
 
-1. ``dagents`` is imported from the environment, not the repository, and no
-   top-level ``agents`` module is installed.
+1. ``dagents`` is imported from the environment, not the repository, and the
+   ``dagents`` distribution installed only ``dagents/``, its ``.dist-info``
+   folder and its commands (read from its ``RECORD``). The check reads that
+   one distribution, so another package's top-level ``agents`` module, such
+   as openai-agents', does not fail it.
 2. The package version equals ``__version__`` in the repository, and the
    installed package reads no ``env/`` file from ``site-packages``.
 3. The runner finds the planner bundled in the wheel, and ``python -m dagents``
@@ -32,13 +35,23 @@ With ``--expect-planner bundled`` the script checks, in order:
 With ``--expect-planner none`` (a wheel built from the sdist, without a
 planner) steps 3, 4 and 6 check the opposite: no planner is found, the Guard
 denies the request, and each agent logs a warning that it has no planner.
-Step 5 is left out. The exit status is 0 when every check passed.
+Step 5 is left out.
+
+With ``--agents-from openai-agents`` the script also checks that a top-level
+``agents`` module is installed, that it comes from that distribution, and that
+it imports in the same process as ``dagents``. The package was renamed from
+``agents`` so that the two install together. CI's ``packaging`` job runs this
+check in an environment that has both.
+
+The exit status is 0 when every check passed.
 """
 
 from __future__ import annotations
 
 import argparse
 import ast
+import importlib
+import importlib.metadata
 import importlib.util
 import json
 import os
@@ -92,8 +105,10 @@ def check_installed(repo: Path) -> None:
     location = Path(dagents.__file__).resolve()
     check(repo.resolve() not in location.parents, f"dagents was imported from the repository ({location}), not the installed wheel")
     ok(f"dagents {dagents.__version__} imported from {location.parent}")
-    check(importlib.util.find_spec("agents") is None, "a top-level 'agents' module is installed in this environment")
-    ok("no top-level 'agents' module is installed")
+    distribution = importlib.metadata.distribution("dagents")
+    described = Path(distribution.locate_file("dagents/__init__.py")).resolve()
+    check(described == location, f"the dagents distribution's metadata describes {described}, not the imported {location}")
+    check_distribution(distribution)
     expected = repo_version(repo)
     check(dagents.__version__ == expected, f"installed version {dagents.__version__} differs from the repository's {expected}")
     ok(f"version {dagents.__version__} equals the repository's __version__")
@@ -101,6 +116,68 @@ def check_installed(repo: Path) -> None:
 
     check(not env.reads_env_files(), f"the installed package would read env files from {env.REPO_ROOT}")
     ok(f"the installed package reads no env file from {env.REPO_ROOT}")
+
+
+def canonical(name: str) -> str:
+    """A distribution name as PyPI compares it (PEP 503)."""
+    return re.sub(r"[-_.]+", "-", name).lower()
+
+
+def unexpected_files(distribution: importlib.metadata.Distribution) -> list[str]:
+    """The files a ``dagents`` distribution installed outside ``dagents/``, its ``.dist-info`` and its commands.
+
+    Commands are the console scripts the distribution declares. pip writes
+    them to the environment's ``bin`` folder, which ``RECORD`` lists as
+    ``../../../bin/NAME``.
+
+    pip also compiles each module it installs and lists the bytecode in
+    ``RECORD``. With ``PYTHONPYCACHEPREFIX`` set, that bytecode sits outside
+    site-packages. Python never imports a ``.pyc`` file in a ``__pycache__``
+    folder or under that prefix as a module of its own, and its source is in
+    ``RECORD`` too, so such files are not counted.
+    """
+    commands = {entry.name for entry in distribution.entry_points if entry.group == "console_scripts"}
+    allowed = {"dagents", f"dagents-{distribution.version}.dist-info"}
+    unexpected = []
+    for path in distribution.files or []:
+        if path.parts[0] in allowed:
+            continue
+        if path.parts[0] == ".." and path.parent.name == "bin" and path.name.removesuffix(".exe") in commands:
+            continue
+        if path.suffix == ".pyc" and (path.parent.name == "__pycache__" or path.parts[0] == ".."):
+            continue
+        unexpected.append(path.as_posix())
+    return sorted(unexpected)
+
+
+def check_distribution(distribution: importlib.metadata.Distribution) -> None:
+    """The ``dagents`` distribution installed nothing besides its package, its metadata and its commands."""
+    check(distribution.files is not None, "the dagents distribution has no RECORD, so its files cannot be checked")
+    unexpected = unexpected_files(distribution)
+    shown = ", ".join(unexpected[:5]) + (f" and {len(unexpected) - 5} more" if len(unexpected) > 5 else "")
+    check(not unexpected, f"the dagents distribution installed files outside dagents/: {shown}")
+    commands = sorted(entry.name for entry in distribution.entry_points if entry.group == "console_scripts")
+    ok(f"the dagents distribution installed only dagents/, its .dist-info and the commands {', '.join(commands)}")
+
+
+def check_other_agents(distribution_name: str) -> None:
+    """A top-level ``agents`` module from ``distribution_name`` is installed and imports next to ``dagents``."""
+    check(
+        importlib.util.find_spec("agents") is not None,
+        f"no top-level 'agents' module is installed, although {distribution_name} should provide it",
+    )
+    owners = importlib.metadata.packages_distributions().get("agents", [])
+    check(
+        [canonical(owner) for owner in owners] == [canonical(distribution_name)],
+        f"the top-level 'agents' module comes from {', '.join(owners) or 'no distribution'}, not {distribution_name}",
+    )
+    import dagents
+
+    agents = importlib.import_module("agents")
+    location = Path(agents.__file__).resolve().parent
+    check(location != Path(dagents.__file__).resolve().parent, "the 'agents' module and dagents share a folder")
+    version = importlib.metadata.version(distribution_name)
+    ok(f"the top-level 'agents' module from {distribution_name} {version} imports next to dagents ({location})")
 
 
 def check_planner(expect: str) -> None:
@@ -278,6 +355,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--repo", type=Path, required=True, help="the Dagents checkout the wheel was built from")
     parser.add_argument("--expect-planner", choices=["bundled", "none"], required=True)
     parser.add_argument(
+        "--agents-from",
+        metavar="DISTRIBUTION",
+        help="a distribution that must provide a top-level 'agents' module here, such as openai-agents",
+    )
+    parser.add_argument(
         "--ports",
         help="LMA,GMA: the ports the two agents listen on (default: two free ports the system picks)",
     )
@@ -294,6 +376,8 @@ def main(argv: list[str] | None = None) -> int:
         with tempfile.TemporaryDirectory(prefix="dagents-smoke-") as folder:
             work = Path(folder)
             check_installed(repo)
+            if args.agents_from:
+                check_other_agents(args.agents_from)
             check_planner(args.expect_planner)
             check_governance(args.expect_planner)
             if args.expect_planner == "bundled":

@@ -209,6 +209,17 @@ class CiPackagingJobTests(unittest.TestCase):
         downloads = [s for s in steps(job) if "download-artifact" in s.get("uses", "")]
         self.assertEqual("dagentsc-static", downloads[0]["with"]["name"])
 
+    def test_the_wheel_is_smoke_tested_next_to_openai_agents(self) -> None:
+        """The package was renamed from ``agents`` so that it installs next to openai-agents, whose module is ``agents``."""
+        runs = [s.get("run", "") for s in steps(self.jobs["packaging"])]
+        together = [run for run in runs if "--agents-from openai-agents" in run]
+        self.assertEqual(1, len(together), "one step runs the smoke test with openai-agents installed")
+        run = together[0]
+        self.assertRegex(run, r'pip install --quiet "\$\(ls .*/dist/\*\.whl\)\[lma,gma\]" openai-agents==\d+\.\d+\.\d+\n')
+        self.assertIn("pip check", run)
+        self.assertIn("--expect-planner bundled", run)
+        self.assertIn("env -u PYTHONPATH -u DAGENTSC_BIN", run)
+
     def test_every_build_uses_the_pinned_backend(self) -> None:
         assert_builds_use_the_pinned_backend(self, {"packaging": self.jobs["packaging"]})
 

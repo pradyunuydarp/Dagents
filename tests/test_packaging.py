@@ -10,6 +10,7 @@ These tests check the pieces those steps rely on, with synthetic inputs.
 from __future__ import annotations
 
 import base64
+import contextlib
 import hashlib
 import http.server
 import io
@@ -576,6 +577,133 @@ class CheckPublishedFilesTests(unittest.TestCase):
         self.serve(self.files)
         problems = check_published_files.check(self.index, "9.9.9", self.dist, wait_seconds=0, poll_seconds=0)
         self.assertEqual(2, len(problems), problems)
+
+
+def install(site: Path, name: str, version: str, files: dict[str, str], commands: tuple[str, ...] = (), *, record: bool = True) -> Path:
+    """Write an installed distribution into ``site`` as pip does: its files, a dist-info folder, RECORD and its commands."""
+    dist_info = site / f"{name.replace('-', '_')}-{version}.dist-info"
+    dist_info.mkdir(parents=True)
+    (dist_info / "METADATA").write_text(f"Metadata-Version: 2.1\nName: {name}\nVersion: {version}\n", encoding="utf-8")
+    listed = [f"{dist_info.name}/METADATA"]
+    if commands:
+        (dist_info / "entry_points.txt").write_text(
+            "[console_scripts]\n" + "".join(f"{command} = {name}.cli:main\n" for command in commands), encoding="utf-8"
+        )
+        listed.append(f"{dist_info.name}/entry_points.txt")
+    for path, text in files.items():
+        if not path.startswith("../"):
+            (site / path).parent.mkdir(parents=True, exist_ok=True)
+            (site / path).write_text(text, encoding="utf-8")
+        listed.append(path)
+    if record:
+        listed.append(f"{dist_info.name}/RECORD")
+        (dist_info / "RECORD").write_text("".join(f"{path},,\n" for path in listed), encoding="utf-8")
+    return dist_info
+
+
+class SmokeScriptTests(unittest.TestCase):
+    """``scripts/smoke_installed_package.py`` judges the files the dagents distribution installed, not the environment.
+
+    The package was renamed from ``agents`` so that it installs next to
+    openai-agents, whose top-level module is ``agents``. A check that no
+    ``agents`` module exists anywhere fails in exactly that environment, so
+    the script reads the distribution's RECORD instead. The ``packaging`` job
+    in ci.yml runs the script with openai-agents installed
+    (``--agents-from openai-agents``).
+    """
+
+    COMMANDS = ("dagents-lma", "dagents-gma")
+    DAGENTS_FILES = {
+        "dagents/__init__.py": "__version__ = '0'\n",
+        "dagents/_bin/dagentsc": "",
+        "dagents/__pycache__/__init__.cpython-313.pyc": "",
+        "../../../bin/dagents-lma": "",
+        "../../../bin/dagents-gma": "",
+    }
+
+    def setUp(self) -> None:
+        import smoke_installed_package
+
+        self.smoke = smoke_installed_package
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        self.folder = Path(folder.name)
+        self.site = self.folder / "site-packages"
+        self.site.mkdir()
+
+    def distribution(self, files: dict[str, str], *, record: bool = True):
+        """A ``dagents`` distribution with these files, each in a site-packages folder of its own."""
+        import importlib.metadata
+
+        site = Path(tempfile.mkdtemp(dir=self.folder))
+        return importlib.metadata.PathDistribution(install(site, "dagents", VERSION, files, self.COMMANDS, record=record))
+
+    def test_the_package_its_metadata_and_its_commands_pass(self) -> None:
+        distribution = self.distribution(self.DAGENTS_FILES)
+        self.assertEqual([], self.smoke.unexpected_files(distribution))
+        with contextlib.redirect_stdout(io.StringIO()) as printed:
+            self.smoke.check_distribution(distribution)
+        self.assertIn("the commands dagents-gma, dagents-lma", printed.getvalue())
+
+    def test_a_second_top_level_module_or_an_unknown_command_fails(self) -> None:
+        files = {**self.DAGENTS_FILES, "agents/__init__.py": "", "agents.py": "", "../../../bin/other-tool": ""}
+        distribution = self.distribution(files)
+        self.assertEqual(["../../../bin/other-tool", "agents.py", "agents/__init__.py"], self.smoke.unexpected_files(distribution))
+        with self.assertRaisesRegex(self.smoke.SmokeFailure, "agents/__init__.py"):
+            self.smoke.check_distribution(distribution)
+
+    def test_bytecode_the_installer_compiled_passes(self) -> None:
+        """pip compiles each module it installs and lists the files in RECORD.
+
+        With PYTHONPYCACHEPREFIX set, those files sit outside site-packages.
+        Python never imports a file in ``__pycache__`` or under that prefix as
+        a module of its own, so only a source file or a sourceless ``.pyc``
+        next to the packages counts.
+        """
+        prefixed = "../../../../../pycache/tmp/venv/lib/python3.13/site-packages/dagents/__init__.cpython-313.pyc"
+        distribution = self.distribution({**self.DAGENTS_FILES, prefixed: ""})
+        self.assertEqual([], self.smoke.unexpected_files(distribution))
+        files = {**self.DAGENTS_FILES, "agents.py": "", "__pycache__/agents.cpython-313.pyc": "", "other.pyc": ""}
+        self.assertEqual(["agents.py", "other.pyc"], self.smoke.unexpected_files(self.distribution(files)))
+
+    def test_a_distribution_without_a_record_fails(self) -> None:
+        with self.assertRaisesRegex(self.smoke.SmokeFailure, "RECORD"):
+            self.smoke.check_distribution(self.distribution(self.DAGENTS_FILES, record=False))
+
+    def other_agents(self, *, owner: str | None) -> subprocess.CompletedProcess[str]:
+        """Run ``check_other_agents('openai-agents')`` with ``site`` on the path and ``agents`` owned by ``owner``."""
+        install(self.site, "dagents", VERSION, self.DAGENTS_FILES, self.COMMANDS)
+        if owner is not None:
+            install(self.site, owner, "0.24.0", {"agents/__init__.py": "class Agent:\n    pass\n"})
+        code = (
+            "import sys\n"
+            f"sys.path.insert(0, {str(REPO_ROOT / 'scripts')!r})\n"
+            "import smoke_installed_package as smoke\n"
+            "try:\n"
+            "    smoke.check_other_agents('openai-agents')\n"
+            "except smoke.SmokeFailure as failure:\n"
+            "    print(failure)\n"
+            "    raise SystemExit(1)\n"
+        )
+        environment = {key: value for key, value in os.environ.items() if key != "PYTHONPATH"}
+        environment["PYTHONPATH"] = f"{self.site}{os.pathsep}{REPO_ROOT}"
+        # The working folder holds no agents/ folder, so only the site can provide one.
+        return subprocess.run([sys.executable, "-c", code], cwd=self.folder, env=environment, capture_output=True, text=True, timeout=60)
+
+    def test_an_agents_module_from_the_named_distribution_passes(self) -> None:
+        result = self.other_agents(owner="openai-agents")
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        self.assertIn("openai-agents", result.stdout)
+
+    def test_the_named_distribution_must_provide_the_agents_module(self) -> None:
+        missing = self.other_agents(owner=None)
+        self.assertEqual(1, missing.returncode, missing.stdout + missing.stderr)
+        self.assertIn("no top-level 'agents' module", missing.stdout)
+
+    def test_an_agents_module_from_another_distribution_fails(self) -> None:
+        result = self.other_agents(owner="agents")
+        self.assertEqual(1, result.returncode, result.stdout + result.stderr)
+        self.assertIn("comes from agents, not openai-agents", result.stdout)
 
 
 if __name__ == "__main__":
