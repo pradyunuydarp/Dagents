@@ -25,8 +25,12 @@ SITE_URLS = tuple(
 #: The config builds these names from the site id, so the pattern above cannot find them.
 LMA_URLS = tuple(f"HEALTHCARE_DEMO_LMA_{site}_URL" for site in ("UK_134", "IT_002", "CH_245"))
 LMA_TOKENS = tuple(f"HEALTHCARE_DEMO_LMA_{site}_TOKEN" for site in ("UK_134", "IT_002", "CH_245"))
+#: A hospital that joins while the demo runs: its LMA's address and the app's
+#: ``site`` token for it, read only with the deployer on.
+JOINING_LMA_URLS = ("HEALTHCARE_DEMO_LMA_PL_290_URL",)
+JOINING_LMA_TOKENS = ("HEALTHCARE_DEMO_LMA_PL_290_TOKEN",)
 #: Settings that hold a secret: they are set in the environment, never written down.
-TOKENS = ("HEALTHCARE_DEMO_GMA_TOKEN", *LMA_TOKENS)
+TOKENS = ("HEALTHCARE_DEMO_GMA_TOKEN", *LMA_TOKENS, *JOINING_LMA_TOKENS)
 #: A connection string with a password in it: ``scheme://user:password@``.
 CREDENTIAL = re.compile(r"[a-z]+://[^\s:/@<>]+:[^\s@<>]+@")
 
@@ -97,6 +101,33 @@ class SettingsDocumentedTests(unittest.TestCase):
         for name in ("HEALTHCARE_DEMO_AGENTS", "HEALTHCARE_DEMO_GMA_URL", *LMA_URLS, *TOKENS):
             with self.subTest(name=name):
                 self.assertTrue(name in text, f"{name} is not listed")
+
+    def test_the_joining_hospitals_names_match_the_config(self) -> None:
+        from app.core.config import lma_token_variable, lma_url_variable
+        from app.domain.dataset import JOINING_SITES
+
+        self.assertEqual(JOINING_LMA_URLS, tuple(lma_url_variable(site.site_id) for site in JOINING_SITES))
+        self.assertEqual(JOINING_LMA_TOKENS, tuple(lma_token_variable(site.site_id) for site in JOINING_SITES))
+
+    def test_the_env_file_names_the_deploy_settings(self) -> None:
+        text = ENV_FILE.read_text(encoding="utf-8")
+        for name in (*JOINING_LMA_URLS, *JOINING_LMA_TOKENS):
+            with self.subTest(name=name):
+                self.assertTrue(name in text, f"{name} is not listed")
+
+    def test_adding_a_hospital_is_off_unless_a_run_turns_it_on(self) -> None:
+        """The hosted demo never starts a process, and a local run turns it on only with --deploy."""
+        active = {
+            line.split("=", 1)[0].strip(): line.split("=", 1)[1].strip()
+            for line in ENV_FILE.read_text(encoding="utf-8").splitlines()
+            if "=" in line and not line.lstrip().startswith("#")
+        }
+        self.assertEqual("off", active["HEALTHCARE_DEMO_DEPLOYER"])
+        self.assertEqual("off", render_env()["HEALTHCARE_DEMO_DEPLOYER"]["value"])
+        for name in (*JOINING_LMA_URLS, "HEALTHCARE_DEMO_CORE_SERVICE_URL"):
+            with self.subTest(name=name):
+                self.assertNotIn(name, active)
+                self.assertNotIn("value", render_env().get(name, {}))
 
     def test_no_token_is_written_down(self) -> None:
         """Network-mode tokens come from the environment; in process the app makes its own at start."""

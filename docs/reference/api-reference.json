@@ -1,7 +1,7 @@
 {
  "generated_by": "scripts/api_reference.py",
  "regenerate": ".venv/bin/python scripts/api_reference.py --write",
- "endpoint_count": 230,
+ "endpoint_count": 232,
  "services": [
   {
    "name": "core-service",
@@ -11994,6 +11994,111 @@
      "alias_of": null
     },
     {
+     "id": "healthcare-demo-backend-get-api-v1-deployments",
+     "method": "GET",
+     "path": "/api/v1/deployments",
+     "summary": "Whether this server can add a hospital now, and if not, why.",
+     "description": "Lists every hospital that can join, with the records it starts with and\nwhether its LMA runs, and the attempts since the app started, newest\nfirst. The checks of core-service and the GMA are reused for 15\nseconds. When the GMA no longer holds the address of a hospital that\njoined, as after it restarted, the check sends it again.",
+     "status_code": 200,
+     "deprecated": false,
+     "handler": {
+      "function": "list_deployments",
+      "module": "app.api.deploy_routes",
+      "file": "apps/healthcare-demo/backend/app/api/deploy_routes.py",
+      "calls": []
+     },
+     "parameters": [],
+     "request_body": null,
+     "responses": [
+      {
+       "status": "200",
+       "description": "Successful Response",
+       "content_type": "application/json",
+       "schema": {
+        "$ref": "#/components/schemas/DeploymentsView"
+       }
+      }
+     ],
+     "alias_of": null
+    },
+    {
+     "id": "healthcare-demo-backend-post-api-v1-deployments",
+     "method": "POST",
+     "path": "/api/v1/deployments",
+     "summary": "Add a hospital to the running consortium, and report each step.",
+     "description": "core-service renders the new LMA's Compose file, the app starts that\none service, the new LMA answers and reports its site, the GMA accepts\nits address and enrols it, the app adds the hospital, and the GMA's\nplanner plans the next round. A step that fails gives `status: failed`,\nand the app undoes what this attempt did. A failed `check` keeps the\nhospital: `status` stays `joined`, and `next_round` gives the planner's\nreason.",
+     "status_code": 200,
+     "deprecated": false,
+     "handler": {
+      "function": "add_hospital",
+      "module": "app.api.deploy_routes",
+      "file": "apps/healthcare-demo/backend/app/api/deploy_routes.py",
+      "calls": []
+     },
+     "parameters": [
+      {
+       "name": "origin",
+       "in": "header",
+       "required": false,
+       "description": "Sent by a browser. When present, its host must be `127.0.0.1`, `localhost` or `::1`. A request without it, such as one from curl, passes.",
+       "schema": {
+        "anyOf": [
+         {
+          "type": "string"
+         },
+         {
+          "type": "null"
+         }
+        ],
+        "description": "Sent by a browser. When present, its host must be `127.0.0.1`, `localhost` or `::1`. A request without it, such as one from curl, passes.",
+        "title": "Origin"
+       }
+      }
+     ],
+     "request_body": {
+      "required": true,
+      "content_type": "application/json",
+      "schema": {
+       "$ref": "#/components/schemas/DeploymentRequest"
+      }
+     },
+     "responses": [
+      {
+       "status": "200",
+       "description": "Successful Response",
+       "content_type": "application/json",
+       "schema": {
+        "$ref": "#/components/schemas/Deployment"
+       }
+      },
+      {
+       "status": "403",
+       "description": "The request came from a page on another host, or adding a hospital is not available here. The detail says which, and why.",
+       "content_type": "application/json",
+       "schema": {
+        "$ref": "#/components/schemas/ErrorResponse"
+       }
+      },
+      {
+       "status": "409",
+       "description": "A pilot is running, a hospital is being added, or the hospital is already in the consortium and its LMA answers.",
+       "content_type": "application/json",
+       "schema": {
+        "$ref": "#/components/schemas/ErrorResponse"
+       }
+      },
+      {
+       "status": "422",
+       "description": "The body is not valid, or `site_id` is not a hospital that can join. The errors field says which.",
+       "content_type": "application/json",
+       "schema": {
+        "$ref": "#/components/schemas/ValidationErrorResponse"
+       }
+      }
+     ],
+     "alias_of": null
+    },
+    {
      "id": "healthcare-demo-backend-get-api-v1-extension",
      "method": "GET",
      "path": "/api/v1/extension",
@@ -13356,7 +13461,7 @@
      "method": "POST",
      "path": "/api/v1/pilot:run",
      "summary": "Run the federated pilot across every hospital, through the GMA, and return its evidence.",
-     "description": "Analytics, then evaluation of the model in use, then training rounds, then\nvalidation of the candidate, then the release Guard and gates. One pilot\nruns at a time; a request while one runs gets 409. Beyond the hourly cap\non pilots, a request gets 429.",
+     "description": "Analytics, then evaluation of the model in use, then training rounds, then\nvalidation of the candidate, then the release Guard and gates. One pilot\nruns at a time, and never while a hospital is being added; a request then\ngets 409. Beyond the hourly cap on pilots, a request gets 429.",
      "status_code": 200,
      "deprecated": false,
      "handler": {
@@ -13377,6 +13482,13 @@
         "module": "app.api.limits",
         "file": "apps/healthcare-demo/backend/app/api/limits.py",
         "name": "take"
+       },
+       {
+        "kind": "method",
+        "class": "HealthcareDemo",
+        "module": "app.services.agents",
+        "file": "apps/healthcare-demo/backend/app/services/agents.py",
+        "name": "run_pilot"
        },
        {
         "kind": "method",
@@ -13406,7 +13518,7 @@
       },
       {
        "status": "409",
-       "description": "A pilot is already running. One pilot runs at a time.",
+       "description": "A pilot is already running, or a hospital is being added. One of them runs at a time.",
        "content_type": "application/json",
        "schema": {
         "$ref": "#/components/schemas/ErrorResponse"
@@ -13583,6 +13695,302 @@
     }
    ],
    "schemas": {
+    "Deployment": {
+     "properties": {
+      "deployment_id": {
+       "type": "string",
+       "title": "Deployment Id",
+       "description": "`dep-` and 12 hex characters."
+      },
+      "kind": {
+       "type": "string",
+       "const": "lma",
+       "title": "Kind",
+       "description": "What was added. Only `lma`, a hospital's LMA."
+      },
+      "site_id": {
+       "type": "string",
+       "title": "Site Id",
+       "description": "The hospital that was added."
+      },
+      "service": {
+       "type": "string",
+       "title": "Service",
+       "description": "The service name in the Compose file, `lma-<site_id>`."
+      },
+      "applier": {
+       "type": "string",
+       "enum": [
+        "process",
+        "compose"
+       ],
+       "title": "Applier",
+       "description": "How the service was started: as a local process, or as a container with `docker compose`."
+      },
+      "status": {
+       "type": "string",
+       "enum": [
+        "joined",
+        "failed"
+       ],
+       "title": "Status",
+       "description": "`joined` when every step up to `join` is done or skipped, even if `check` failed. `failed` otherwise."
+      },
+      "adopted": {
+       "type": "boolean",
+       "title": "Adopted",
+       "description": "True when the service was already running, started earlier by this app, and was kept."
+      },
+      "compose_yaml": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Compose Yaml",
+       "description": "The Compose file core-service rendered, exactly as it came, or null when it rendered none. It holds no token and no agent address: the new LMA reads those from the env file it names."
+      },
+      "issues": {
+       "items": {
+        "$ref": "#/components/schemas/DeploymentIssue"
+       },
+       "type": "array",
+       "title": "Issues",
+       "description": "Why core-service refused to render the file. Empty when it rendered one."
+      },
+      "steps": {
+       "items": {
+        "$ref": "#/components/schemas/DeploymentStep"
+       },
+       "type": "array",
+       "title": "Steps",
+       "description": "The seven steps, in the order they run."
+      },
+      "next_round": {
+       "anyOf": [
+        {
+         "$ref": "#/components/schemas/NextRound"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "What the planner decided for the next round, or null when the check did not run or failed."
+      },
+      "started_at": {
+       "type": "string",
+       "title": "Started At",
+       "description": "When the attempt started, in UTC, as `YYYY-MM-DDTHH:MM:SSZ`."
+      },
+      "finished_at": {
+       "type": "string",
+       "title": "Finished At",
+       "description": "When it finished, in UTC, as `YYYY-MM-DDTHH:MM:SSZ`."
+      },
+      "framework_calls": {
+       "items": {
+        "$ref": "#/components/schemas/FrameworkCall"
+       },
+       "type": "array",
+       "title": "Framework Calls",
+       "description": "The calls to the Dagents agents this attempt made: the new LMA's health and site routes, and the GMA's address, refresh and round-plan routes. The core-service call is named in the `plan` step."
+      }
+     },
+     "type": "object",
+     "required": [
+      "deployment_id",
+      "kind",
+      "site_id",
+      "service",
+      "applier",
+      "status",
+      "adopted",
+      "compose_yaml",
+      "issues",
+      "steps",
+      "next_round",
+      "started_at",
+      "finished_at"
+     ],
+     "title": "Deployment",
+     "description": "One attempt to add a hospital to the running consortium."
+    },
+    "DeploymentIssue": {
+     "properties": {
+      "service": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Service",
+       "description": "The service the issue is about, or null for the whole request."
+      },
+      "code": {
+       "type": "string",
+       "title": "Code",
+       "description": "What is wrong, as core-service's issue code."
+      },
+      "value": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Value",
+       "description": "The name or number the issue is about, or null."
+      }
+     },
+     "type": "object",
+     "required": [
+      "service",
+      "code",
+      "value"
+     ],
+     "title": "DeploymentIssue",
+     "description": "One reason core-service gave for not rendering the Compose file, copied as it came."
+    },
+    "DeploymentRequest": {
+     "properties": {
+      "site_id": {
+       "type": "string",
+       "maxLength": 64,
+       "title": "Site Id",
+       "description": "The hospital to add: one of the `hospitals` that `GET /api/v1/deployments` lists, such as `pl-290`."
+      }
+     },
+     "additionalProperties": false,
+     "type": "object",
+     "required": [
+      "site_id"
+     ],
+     "title": "DeploymentRequest",
+     "description": "Add one hospital to the running consortium."
+    },
+    "DeploymentStep": {
+     "properties": {
+      "step": {
+       "type": "string",
+       "enum": [
+        "plan",
+        "start",
+        "answer",
+        "attach",
+        "enrol",
+        "join",
+        "check"
+       ],
+       "title": "Step",
+       "description": "`plan`: core-service renders the new LMA's Compose file. `start`: the app starts that service. `answer`: the new LMA answers its health check and reports its site. `attach`: the GMA accepts its address. `enrol`: the GMA enrols the site. `join`: the app adds the hospital, and its pages come from its LMA. `check`: the GMA's planner plans the next round."
+      },
+      "status": {
+       "type": "string",
+       "enum": [
+        "done",
+        "skipped",
+        "failed",
+        "undone",
+        "not_run"
+       ],
+       "title": "Status",
+       "description": "`done`, `skipped` (nothing to do), `failed`, `undone` (done, then rolled back after a later step failed) or `not_run` (an earlier step failed)."
+      },
+      "detail": {
+       "type": "string",
+       "title": "Detail",
+       "description": "One plain sentence on what happened. It never holds an address or a token."
+      },
+      "seconds": {
+       "type": "number",
+       "minimum": 0.0,
+       "title": "Seconds",
+       "description": "How long the step took, rounded to 2 decimals."
+      }
+     },
+     "type": "object",
+     "required": [
+      "step",
+      "status",
+      "detail",
+      "seconds"
+     ],
+     "title": "DeploymentStep",
+     "description": "One step of adding a hospital, and what happened in it."
+    },
+    "DeploymentsView": {
+     "properties": {
+      "available": {
+       "type": "boolean",
+       "title": "Available",
+       "description": "True when `POST /api/v1/deployments` can add a hospital now."
+      },
+      "reason": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Reason",
+       "description": "Why adding a hospital is not available, in plain words. Null when it is."
+      },
+      "applier": {
+       "type": "string",
+       "enum": [
+        "off",
+        "process",
+        "compose"
+       ],
+       "title": "Applier",
+       "description": "How a new hospital is started (`HEALTHCARE_DEMO_DEPLOYER`), or `off`."
+      },
+      "hospitals": {
+       "items": {
+        "$ref": "#/components/schemas/JoinableHospital"
+       },
+       "type": "array",
+       "title": "Hospitals",
+       "description": "Every hospital that can join, in or out of the consortium."
+      },
+      "deployments": {
+       "items": {
+        "$ref": "#/components/schemas/Deployment"
+       },
+       "type": "array",
+       "title": "Deployments",
+       "description": "The attempts since the app started, newest first, at most 20. They are kept in memory."
+      },
+      "framework_calls": {
+       "items": {
+        "$ref": "#/components/schemas/FrameworkCall"
+       },
+       "type": "array",
+       "title": "Framework Calls",
+       "description": "The calls to the Dagents agents behind this answer: the GMA's `GET /api/v1/federation/site-addresses`, at most once every 15 seconds, and an address the GMA no longer holds, sent again."
+      }
+     },
+     "type": "object",
+     "required": [
+      "available",
+      "reason",
+      "applier",
+      "hospitals",
+      "deployments"
+     ],
+     "title": "DeploymentsView",
+     "description": "Whether this server can add a hospital, which hospitals can join, and what was tried."
+    },
     "EncounterEntry": {
      "properties": {
       "age": {
@@ -14081,6 +14489,68 @@
      "title": "GuardProbeResponse",
      "description": "What a hospital's Guard would release for a probe, without the records.\n\nThe coordinator's page calls the probe, and no patient row reaches the\ncoordinator. So the answer counts the released records and names their\nfields; the values stay at the hospital. The hospital's LMA runs the Guard\n(``POST /api/v1/governance/restrictions:probe``). A key the LMA's answer\nadds that is not listed here is dropped from the response."
     },
+    "JoinableHospital": {
+     "properties": {
+      "site_id": {
+       "type": "string",
+       "title": "Site Id",
+       "description": "The hospital's id, such as `pl-290`."
+      },
+      "display_name": {
+       "type": "string",
+       "title": "Display Name",
+       "description": "The name the pages use, such as `Hospital 290`."
+      },
+      "country": {
+       "type": "string",
+       "title": "Country",
+       "description": "The country of the IST hospital."
+      },
+      "records": {
+       "type": "integer",
+       "minimum": 0.0,
+       "title": "Records",
+       "description": "How many records the hospital starts with: the rows of its IST extract, or 0 when it starts empty. The app reads this from the dataset module, never from the hospital's records."
+      },
+      "records_source": {
+       "type": "string",
+       "enum": [
+        "dataset",
+        "empty"
+       ],
+       "title": "Records Source",
+       "description": "`dataset` when the hospital loads its rows of the International Stroke Trial, `empty` otherwise."
+      },
+      "in_consortium": {
+       "type": "boolean",
+       "title": "In Consortium",
+       "description": "True once the hospital has joined the consortium in this app."
+      },
+      "service": {
+       "type": "string",
+       "enum": [
+        "running",
+        "stopped",
+        "not_started",
+        "unknown"
+       ],
+       "title": "Service",
+       "description": "Whether the hospital's LMA runs: `running`, `stopped`, `not_started`, or `unknown` when the app cannot tell, which is always the answer when adding a hospital is off."
+      }
+     },
+     "type": "object",
+     "required": [
+      "site_id",
+      "display_name",
+      "country",
+      "records",
+      "records_source",
+      "in_consortium",
+      "service"
+     ],
+     "title": "JoinableHospital",
+     "description": "A hospital that is not in the consortium at start and can join while the demo runs."
+    },
     "KyuAssessment": {
      "properties": {
       "requester_id": {
@@ -14120,6 +14590,34 @@
      ],
      "title": "KyuAssessment",
      "description": "Computed trust for one requester, with the reasoning behind it."
+    },
+    "NextRound": {
+     "properties": {
+      "selected": {
+       "type": "boolean",
+       "title": "Selected",
+       "description": "True when the planned round selects the hospital."
+      },
+      "reason": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Reason",
+       "description": "The planner's reason when the round would not select the hospital, otherwise null."
+      }
+     },
+     "type": "object",
+     "required": [
+      "selected",
+      "reason"
+     ],
+     "title": "NextRound",
+     "description": "Whether the planner selects the new hospital for the next round."
     },
     "OutcomeRequest": {
      "properties": {
@@ -32680,6 +33178,332 @@
    "defs": {}
   },
   {
+   "service": "healthcare-demo-backend",
+   "class": "app.models.Deployment",
+   "name": "Deployment",
+   "module": "app.models",
+   "file": "apps/healthcare-demo/backend/app/models.py",
+   "summary": "One attempt to add a hospital to the running consortium.",
+   "description": null,
+   "schema": {
+    "description": "One attempt to add a hospital to the running consortium.",
+    "properties": {
+     "deployment_id": {
+      "description": "`dep-` and 12 hex characters.",
+      "title": "Deployment Id",
+      "type": "string"
+     },
+     "kind": {
+      "const": "lma",
+      "description": "What was added. Only `lma`, a hospital's LMA.",
+      "title": "Kind",
+      "type": "string"
+     },
+     "site_id": {
+      "description": "The hospital that was added.",
+      "title": "Site Id",
+      "type": "string"
+     },
+     "service": {
+      "description": "The service name in the Compose file, `lma-<site_id>`.",
+      "title": "Service",
+      "type": "string"
+     },
+     "applier": {
+      "description": "How the service was started: as a local process, or as a container with `docker compose`.",
+      "enum": [
+       "process",
+       "compose"
+      ],
+      "title": "Applier",
+      "type": "string"
+     },
+     "status": {
+      "description": "`joined` when every step up to `join` is done or skipped, even if `check` failed. `failed` otherwise.",
+      "enum": [
+       "joined",
+       "failed"
+      ],
+      "title": "Status",
+      "type": "string"
+     },
+     "adopted": {
+      "description": "True when the service was already running, started earlier by this app, and was kept.",
+      "title": "Adopted",
+      "type": "boolean"
+     },
+     "compose_yaml": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "The Compose file core-service rendered, exactly as it came, or null when it rendered none. It holds no token and no agent address: the new LMA reads those from the env file it names.",
+      "title": "Compose Yaml"
+     },
+     "issues": {
+      "description": "Why core-service refused to render the file. Empty when it rendered one.",
+      "items": {
+       "$ref": "#/$defs/DeploymentIssue"
+      },
+      "title": "Issues",
+      "type": "array"
+     },
+     "steps": {
+      "description": "The seven steps, in the order they run.",
+      "items": {
+       "$ref": "#/$defs/DeploymentStep"
+      },
+      "title": "Steps",
+      "type": "array"
+     },
+     "next_round": {
+      "anyOf": [
+       {
+        "$ref": "#/$defs/NextRound"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "What the planner decided for the next round, or null when the check did not run or failed."
+     },
+     "started_at": {
+      "description": "When the attempt started, in UTC, as `YYYY-MM-DDTHH:MM:SSZ`.",
+      "title": "Started At",
+      "type": "string"
+     },
+     "finished_at": {
+      "description": "When it finished, in UTC, as `YYYY-MM-DDTHH:MM:SSZ`.",
+      "title": "Finished At",
+      "type": "string"
+     },
+     "framework_calls": {
+      "description": "The calls to the Dagents agents this attempt made: the new LMA's health and site routes, and the GMA's address, refresh and round-plan routes. The core-service call is named in the `plan` step.",
+      "items": {
+       "$ref": "#/$defs/FrameworkCall"
+      },
+      "title": "Framework Calls",
+      "type": "array"
+     }
+    },
+    "required": [
+     "deployment_id",
+     "kind",
+     "site_id",
+     "service",
+     "applier",
+     "status",
+     "adopted",
+     "compose_yaml",
+     "issues",
+     "steps",
+     "next_round",
+     "started_at",
+     "finished_at"
+    ],
+    "title": "Deployment",
+    "type": "object"
+   },
+   "defs": {
+    "DeploymentIssue": {
+     "description": "One reason core-service gave for not rendering the Compose file, copied as it came.",
+     "properties": {
+      "service": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The service the issue is about, or null for the whole request.",
+       "title": "Service"
+      },
+      "code": {
+       "description": "What is wrong, as core-service's issue code.",
+       "title": "Code",
+       "type": "string"
+      },
+      "value": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The name or number the issue is about, or null.",
+       "title": "Value"
+      }
+     },
+     "required": [
+      "service",
+      "code",
+      "value"
+     ],
+     "title": "DeploymentIssue",
+     "type": "object"
+    },
+    "DeploymentStep": {
+     "description": "One step of adding a hospital, and what happened in it.",
+     "properties": {
+      "step": {
+       "description": "`plan`: core-service renders the new LMA's Compose file. `start`: the app starts that service. `answer`: the new LMA answers its health check and reports its site. `attach`: the GMA accepts its address. `enrol`: the GMA enrols the site. `join`: the app adds the hospital, and its pages come from its LMA. `check`: the GMA's planner plans the next round.",
+       "enum": [
+        "plan",
+        "start",
+        "answer",
+        "attach",
+        "enrol",
+        "join",
+        "check"
+       ],
+       "title": "Step",
+       "type": "string"
+      },
+      "status": {
+       "description": "`done`, `skipped` (nothing to do), `failed`, `undone` (done, then rolled back after a later step failed) or `not_run` (an earlier step failed).",
+       "enum": [
+        "done",
+        "skipped",
+        "failed",
+        "undone",
+        "not_run"
+       ],
+       "title": "Status",
+       "type": "string"
+      },
+      "detail": {
+       "description": "One plain sentence on what happened. It never holds an address or a token.",
+       "title": "Detail",
+       "type": "string"
+      },
+      "seconds": {
+       "description": "How long the step took, rounded to 2 decimals.",
+       "minimum": 0,
+       "title": "Seconds",
+       "type": "number"
+      }
+     },
+     "required": [
+      "step",
+      "status",
+      "detail",
+      "seconds"
+     ],
+     "title": "DeploymentStep",
+     "type": "object"
+    },
+    "FrameworkCall": {
+     "description": "One call to a Dagents agent behind a response, as ``framework_calls`` lists it.\n\nThe app adds the list to every successful (2xx) answer whose body is a\nJSON object. Errors, a JSON list and an SVG have none. It names the route,\nnever a host, a token or a body.",
+     "properties": {
+      "service": {
+       "description": "The agent called: a hospital's `lma` or the study's `gma`.",
+       "enum": [
+        "lma",
+        "gma"
+       ],
+       "title": "Service",
+       "type": "string"
+      },
+      "site_id": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The hospital whose LMA was called. Null for the GMA.",
+       "title": "Site Id"
+      },
+      "method": {
+       "description": "The HTTP method, such as `GET` or `POST`.",
+       "title": "Method",
+       "type": "string"
+      },
+      "path": {
+       "description": "The route as the agent declares it, such as `/api/v1/federation/rounds/{round_id}`. Never a host.",
+       "title": "Path",
+       "type": "string"
+      },
+      "status": {
+       "anyOf": [
+        {
+         "type": "integer"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The status the agent answered with. Null when no answer came.",
+       "title": "Status"
+      },
+      "ms": {
+       "description": "How long the call took, in milliseconds.",
+       "title": "Ms",
+       "type": "number"
+      },
+      "via": {
+       "description": "`app` for a call the app made. `gma` for a call the GMA made to an LMA while it dispatched a round; it follows the GMA call that made it.",
+       "enum": [
+        "app",
+        "gma"
+       ],
+       "title": "Via",
+       "type": "string"
+      }
+     },
+     "required": [
+      "service",
+      "site_id",
+      "method",
+      "path",
+      "status",
+      "ms",
+      "via"
+     ],
+     "title": "FrameworkCall",
+     "type": "object"
+    },
+    "NextRound": {
+     "description": "Whether the planner selects the new hospital for the next round.",
+     "properties": {
+      "selected": {
+       "description": "True when the planned round selects the hospital.",
+       "title": "Selected",
+       "type": "boolean"
+      },
+      "reason": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The planner's reason when the round would not select the hospital, otherwise null.",
+       "title": "Reason"
+      }
+     },
+     "required": [
+      "selected",
+      "reason"
+     ],
+     "title": "NextRound",
+     "type": "object"
+    }
+   }
+  },
+  {
    "service": "gma",
    "class": "agents.common.domain.control.DeploymentPlan",
    "name": "DeploymentPlan",
@@ -32744,6 +33568,33 @@
      "created_at"
     ],
     "title": "DeploymentPlan",
+    "type": "object"
+   },
+   "defs": {}
+  },
+  {
+   "service": "healthcare-demo-backend",
+   "class": "app.models.DeploymentRequest",
+   "name": "DeploymentRequest",
+   "module": "app.models",
+   "file": "apps/healthcare-demo/backend/app/models.py",
+   "summary": "Add one hospital to the running consortium.",
+   "description": null,
+   "schema": {
+    "additionalProperties": false,
+    "description": "Add one hospital to the running consortium.",
+    "properties": {
+     "site_id": {
+      "description": "The hospital to add: one of the `hospitals` that `GET /api/v1/deployments` lists, such as `pl-290`.",
+      "maxLength": 64,
+      "title": "Site Id",
+      "type": "string"
+     }
+    },
+    "required": [
+     "site_id"
+    ],
+    "title": "DeploymentRequest",
     "type": "object"
    },
    "defs": {}
@@ -32823,6 +33674,459 @@
     "type": "object"
    },
    "defs": {}
+  },
+  {
+   "service": "healthcare-demo-backend",
+   "class": "app.models.DeploymentsView",
+   "name": "DeploymentsView",
+   "module": "app.models",
+   "file": "apps/healthcare-demo/backend/app/models.py",
+   "summary": "Whether this server can add a hospital, which hospitals can join, and what was tried.",
+   "description": null,
+   "schema": {
+    "description": "Whether this server can add a hospital, which hospitals can join, and what was tried.",
+    "properties": {
+     "available": {
+      "description": "True when `POST /api/v1/deployments` can add a hospital now.",
+      "title": "Available",
+      "type": "boolean"
+     },
+     "reason": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Why adding a hospital is not available, in plain words. Null when it is.",
+      "title": "Reason"
+     },
+     "applier": {
+      "description": "How a new hospital is started (`HEALTHCARE_DEMO_DEPLOYER`), or `off`.",
+      "enum": [
+       "off",
+       "process",
+       "compose"
+      ],
+      "title": "Applier",
+      "type": "string"
+     },
+     "hospitals": {
+      "description": "Every hospital that can join, in or out of the consortium.",
+      "items": {
+       "$ref": "#/$defs/JoinableHospital"
+      },
+      "title": "Hospitals",
+      "type": "array"
+     },
+     "deployments": {
+      "description": "The attempts since the app started, newest first, at most 20. They are kept in memory.",
+      "items": {
+       "$ref": "#/$defs/Deployment"
+      },
+      "title": "Deployments",
+      "type": "array"
+     },
+     "framework_calls": {
+      "description": "The calls to the Dagents agents behind this answer: the GMA's `GET /api/v1/federation/site-addresses`, at most once every 15 seconds, and an address the GMA no longer holds, sent again.",
+      "items": {
+       "$ref": "#/$defs/FrameworkCall"
+      },
+      "title": "Framework Calls",
+      "type": "array"
+     }
+    },
+    "required": [
+     "available",
+     "reason",
+     "applier",
+     "hospitals",
+     "deployments"
+    ],
+    "title": "DeploymentsView",
+    "type": "object"
+   },
+   "defs": {
+    "Deployment": {
+     "description": "One attempt to add a hospital to the running consortium.",
+     "properties": {
+      "deployment_id": {
+       "description": "`dep-` and 12 hex characters.",
+       "title": "Deployment Id",
+       "type": "string"
+      },
+      "kind": {
+       "const": "lma",
+       "description": "What was added. Only `lma`, a hospital's LMA.",
+       "title": "Kind",
+       "type": "string"
+      },
+      "site_id": {
+       "description": "The hospital that was added.",
+       "title": "Site Id",
+       "type": "string"
+      },
+      "service": {
+       "description": "The service name in the Compose file, `lma-<site_id>`.",
+       "title": "Service",
+       "type": "string"
+      },
+      "applier": {
+       "description": "How the service was started: as a local process, or as a container with `docker compose`.",
+       "enum": [
+        "process",
+        "compose"
+       ],
+       "title": "Applier",
+       "type": "string"
+      },
+      "status": {
+       "description": "`joined` when every step up to `join` is done or skipped, even if `check` failed. `failed` otherwise.",
+       "enum": [
+        "joined",
+        "failed"
+       ],
+       "title": "Status",
+       "type": "string"
+      },
+      "adopted": {
+       "description": "True when the service was already running, started earlier by this app, and was kept.",
+       "title": "Adopted",
+       "type": "boolean"
+      },
+      "compose_yaml": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The Compose file core-service rendered, exactly as it came, or null when it rendered none. It holds no token and no agent address: the new LMA reads those from the env file it names.",
+       "title": "Compose Yaml"
+      },
+      "issues": {
+       "description": "Why core-service refused to render the file. Empty when it rendered one.",
+       "items": {
+        "$ref": "#/$defs/DeploymentIssue"
+       },
+       "title": "Issues",
+       "type": "array"
+      },
+      "steps": {
+       "description": "The seven steps, in the order they run.",
+       "items": {
+        "$ref": "#/$defs/DeploymentStep"
+       },
+       "title": "Steps",
+       "type": "array"
+      },
+      "next_round": {
+       "anyOf": [
+        {
+         "$ref": "#/$defs/NextRound"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "What the planner decided for the next round, or null when the check did not run or failed."
+      },
+      "started_at": {
+       "description": "When the attempt started, in UTC, as `YYYY-MM-DDTHH:MM:SSZ`.",
+       "title": "Started At",
+       "type": "string"
+      },
+      "finished_at": {
+       "description": "When it finished, in UTC, as `YYYY-MM-DDTHH:MM:SSZ`.",
+       "title": "Finished At",
+       "type": "string"
+      },
+      "framework_calls": {
+       "description": "The calls to the Dagents agents this attempt made: the new LMA's health and site routes, and the GMA's address, refresh and round-plan routes. The core-service call is named in the `plan` step.",
+       "items": {
+        "$ref": "#/$defs/FrameworkCall"
+       },
+       "title": "Framework Calls",
+       "type": "array"
+      }
+     },
+     "required": [
+      "deployment_id",
+      "kind",
+      "site_id",
+      "service",
+      "applier",
+      "status",
+      "adopted",
+      "compose_yaml",
+      "issues",
+      "steps",
+      "next_round",
+      "started_at",
+      "finished_at"
+     ],
+     "title": "Deployment",
+     "type": "object"
+    },
+    "DeploymentIssue": {
+     "description": "One reason core-service gave for not rendering the Compose file, copied as it came.",
+     "properties": {
+      "service": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The service the issue is about, or null for the whole request.",
+       "title": "Service"
+      },
+      "code": {
+       "description": "What is wrong, as core-service's issue code.",
+       "title": "Code",
+       "type": "string"
+      },
+      "value": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The name or number the issue is about, or null.",
+       "title": "Value"
+      }
+     },
+     "required": [
+      "service",
+      "code",
+      "value"
+     ],
+     "title": "DeploymentIssue",
+     "type": "object"
+    },
+    "DeploymentStep": {
+     "description": "One step of adding a hospital, and what happened in it.",
+     "properties": {
+      "step": {
+       "description": "`plan`: core-service renders the new LMA's Compose file. `start`: the app starts that service. `answer`: the new LMA answers its health check and reports its site. `attach`: the GMA accepts its address. `enrol`: the GMA enrols the site. `join`: the app adds the hospital, and its pages come from its LMA. `check`: the GMA's planner plans the next round.",
+       "enum": [
+        "plan",
+        "start",
+        "answer",
+        "attach",
+        "enrol",
+        "join",
+        "check"
+       ],
+       "title": "Step",
+       "type": "string"
+      },
+      "status": {
+       "description": "`done`, `skipped` (nothing to do), `failed`, `undone` (done, then rolled back after a later step failed) or `not_run` (an earlier step failed).",
+       "enum": [
+        "done",
+        "skipped",
+        "failed",
+        "undone",
+        "not_run"
+       ],
+       "title": "Status",
+       "type": "string"
+      },
+      "detail": {
+       "description": "One plain sentence on what happened. It never holds an address or a token.",
+       "title": "Detail",
+       "type": "string"
+      },
+      "seconds": {
+       "description": "How long the step took, rounded to 2 decimals.",
+       "minimum": 0,
+       "title": "Seconds",
+       "type": "number"
+      }
+     },
+     "required": [
+      "step",
+      "status",
+      "detail",
+      "seconds"
+     ],
+     "title": "DeploymentStep",
+     "type": "object"
+    },
+    "FrameworkCall": {
+     "description": "One call to a Dagents agent behind a response, as ``framework_calls`` lists it.\n\nThe app adds the list to every successful (2xx) answer whose body is a\nJSON object. Errors, a JSON list and an SVG have none. It names the route,\nnever a host, a token or a body.",
+     "properties": {
+      "service": {
+       "description": "The agent called: a hospital's `lma` or the study's `gma`.",
+       "enum": [
+        "lma",
+        "gma"
+       ],
+       "title": "Service",
+       "type": "string"
+      },
+      "site_id": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The hospital whose LMA was called. Null for the GMA.",
+       "title": "Site Id"
+      },
+      "method": {
+       "description": "The HTTP method, such as `GET` or `POST`.",
+       "title": "Method",
+       "type": "string"
+      },
+      "path": {
+       "description": "The route as the agent declares it, such as `/api/v1/federation/rounds/{round_id}`. Never a host.",
+       "title": "Path",
+       "type": "string"
+      },
+      "status": {
+       "anyOf": [
+        {
+         "type": "integer"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The status the agent answered with. Null when no answer came.",
+       "title": "Status"
+      },
+      "ms": {
+       "description": "How long the call took, in milliseconds.",
+       "title": "Ms",
+       "type": "number"
+      },
+      "via": {
+       "description": "`app` for a call the app made. `gma` for a call the GMA made to an LMA while it dispatched a round; it follows the GMA call that made it.",
+       "enum": [
+        "app",
+        "gma"
+       ],
+       "title": "Via",
+       "type": "string"
+      }
+     },
+     "required": [
+      "service",
+      "site_id",
+      "method",
+      "path",
+      "status",
+      "ms",
+      "via"
+     ],
+     "title": "FrameworkCall",
+     "type": "object"
+    },
+    "JoinableHospital": {
+     "description": "A hospital that is not in the consortium at start and can join while the demo runs.",
+     "properties": {
+      "site_id": {
+       "description": "The hospital's id, such as `pl-290`.",
+       "title": "Site Id",
+       "type": "string"
+      },
+      "display_name": {
+       "description": "The name the pages use, such as `Hospital 290`.",
+       "title": "Display Name",
+       "type": "string"
+      },
+      "country": {
+       "description": "The country of the IST hospital.",
+       "title": "Country",
+       "type": "string"
+      },
+      "records": {
+       "description": "How many records the hospital starts with: the rows of its IST extract, or 0 when it starts empty. The app reads this from the dataset module, never from the hospital's records.",
+       "minimum": 0,
+       "title": "Records",
+       "type": "integer"
+      },
+      "records_source": {
+       "description": "`dataset` when the hospital loads its rows of the International Stroke Trial, `empty` otherwise.",
+       "enum": [
+        "dataset",
+        "empty"
+       ],
+       "title": "Records Source",
+       "type": "string"
+      },
+      "in_consortium": {
+       "description": "True once the hospital has joined the consortium in this app.",
+       "title": "In Consortium",
+       "type": "boolean"
+      },
+      "service": {
+       "description": "Whether the hospital's LMA runs: `running`, `stopped`, `not_started`, or `unknown` when the app cannot tell, which is always the answer when adding a hospital is off.",
+       "enum": [
+        "running",
+        "stopped",
+        "not_started",
+        "unknown"
+       ],
+       "title": "Service",
+       "type": "string"
+      }
+     },
+     "required": [
+      "site_id",
+      "display_name",
+      "country",
+      "records",
+      "records_source",
+      "in_consortium",
+      "service"
+     ],
+     "title": "JoinableHospital",
+     "type": "object"
+    },
+    "NextRound": {
+     "description": "Whether the planner selects the new hospital for the next round.",
+     "properties": {
+      "selected": {
+       "description": "True when the planned round selects the hospital.",
+       "title": "Selected",
+       "type": "boolean"
+      },
+      "reason": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The planner's reason when the round would not select the hospital, otherwise null.",
+       "title": "Reason"
+      }
+     },
+     "required": [
+      "selected",
+      "reason"
+     ],
+     "title": "NextRound",
+     "type": "object"
+    }
+   }
   },
   {
    "service": "gma",

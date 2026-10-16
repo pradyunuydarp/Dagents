@@ -215,6 +215,158 @@ class SuppressedRateChartTests(ApiTestCase):
         self.assertEqual("withheld: the planner could not be asked", rows["Tiny clinic"][2])
 
 
+def _colours(svg: str) -> set[str]:
+    import re
+
+    return {colour.lower() for colour in re.findall(r"#[0-9a-fA-F]{6}\b", svg)}
+
+
+def _series_colours(theme: str) -> set[str]:
+    from agents.common.infrastructure import charts as renderer
+
+    tokens = renderer.TOKENS[theme]
+    return {tokens[f"--ds-series-{n}"].lower() for n in (1, 2, 3)}
+
+
+def _neutral_ink(theme: str) -> str:
+    from agents.common.infrastructure import charts as renderer
+
+    return renderer.TOKENS[theme]["--ds-ink-2"].lower()
+
+
+@unittest.skipUnless(dagentsc_available(), "dagentsc binary is not available")
+class NeutralInkChartTests(ApiTestCase):
+    """With four hospitals no hospital has a series colour, so every chart of a hospital is in neutral ink.
+
+    The design system has three series colours, and a colour marks which
+    hospital a chart is about. A fourth hospital drawn in the first colour
+    would look like the first hospital. This is also what a run looks like
+    after Hospital 290 joins. The risk chart needs the planner.
+    """
+
+    @classmethod
+    def make_demo(cls) -> HealthcareDemo:
+        tiny, store = tiny_site(60)
+        return HealthcareDemo(sites=[*SITES, tiny], site_stores={tiny.site_id: store})
+
+    def test_a_hospital_without_a_slot_has_none(self) -> None:
+        from app.services.charts_service import _slot
+
+        self.assertIsNone(_slot(self.demo.hospital("tiny-001")))
+        self.assertIsNone(_slot(self.demo.hospital("uk-134")))
+        self.assertIsNone(_slot(object()))
+        self.assertEqual(2, _slot(mock.Mock(series_slot=2)))
+
+    def test_hospital_and_consortium_charts_use_no_series_colour(self) -> None:
+        paths = [f"/api/v1/hospitals/tiny-001/charts/{chart_id}.svg" for chart_id in SITE_CHART_IDS]
+        paths += [f"/api/v1/hospitals/uk-134/charts/{chart_id}.svg" for chart_id in SITE_CHART_IDS]
+        paths += ["/api/v1/charts/hospital-records.svg", "/api/v1/charts/hospital-outcome-rates.svg"]
+        for theme in ("light", "dark"):
+            for path in paths:
+                with self.subTest(path=path, theme=theme):
+                    response = self.client.get(f"{path}?theme={theme}")
+                    parse_svg(self, response)
+                    used = _colours(response.text)
+                    self.assertIn(_neutral_ink(theme), used)
+                    self.assertEqual(set(), used & _series_colours(theme))
+
+
+class SlotChangeTests(ApiTestCase):
+    """A hospital's colour slot is part of what its chart draws, so a cached chart follows a new slot.
+
+    A join changes every hospital's slot without changing its records.
+    """
+
+    def test_a_cached_chart_is_drawn_again_when_the_slot_changes(self) -> None:
+        path = "/api/v1/hospitals/uk-134/charts/systolic-bp.svg?theme=light"
+        first = self.client.get(path)
+        parse_svg(self, first)
+        self.assertTrue(_colours(first.text) & _series_colours("light"), "slot 1 draws in a series colour")
+        view = self.demo.views["uk-134"]
+        self.addCleanup(setattr, view, "series_slot", view.series_slot)
+        view.series_slot = None
+        second = self.client.get(path)
+        parse_svg(self, second)
+        self.assertNotEqual(first.headers["etag"], second.headers["etag"])
+        self.assertEqual(set(), _colours(second.text) & _series_colours("light"))
+        self.assertIn(_neutral_ink("light"), _colours(second.text))
+
+
+class FourHospitalConsortiumChartTests(unittest.TestCase):
+    """With four hospitals the consortium charts give no hospital a series colour.
+
+    The design system has three series colours. A chart that compares four
+    hospitals draws each in neutral ink and names it on the axis. The AUC chart
+    does not draw its two models in the first two series colours, because
+    those mark two of the hospitals. Each alt text describes the chart drawn.
+    """
+
+    @staticmethod
+    def data(count: int):
+        from app.services.charts_service import ConsortiumData
+
+        summaries = [
+            {"site_id": f"site-{n}", "display_name": f"Hospital {n}", "record_count": 100 + n, "entered_count": n,
+             "labelled_count": 90, "outcome_rate": 0.5, "outcome_rate_status": "reported"}
+            for n in range(1, count + 1)
+        ]
+        results = [{"site_id": f"site-{n}", "metrics": {"auc": 0.7}} for n in range(1, count + 1)]
+        pilot = {
+            "rounds": {"evaluation": {"results": results}, "candidate_validation": {"results": results}},
+            "model_in_use": {"version": "v1"},
+            "candidate": {"candidate_version": "v2"},
+        }
+        return ConsortiumData(summaries=summaries, last_pilot=pilot, minimum_cohort=20)
+
+    @staticmethod
+    def draw(spec, theme: str) -> str:
+        from app.services.charts_service import _DRAW
+
+        return _DRAW[spec.kind](*spec.args, theme=theme, **spec.kwargs)
+
+    def test_charts_comparing_four_hospitals_use_no_series_colour(self) -> None:
+        from app.services.charts_service import _hospital_outcome_rates, _hospital_records, _site_auc
+
+        data = self.data(4)
+        for build in (_hospital_records, _hospital_outcome_rates, _site_auc):
+            spec = build(data)
+            for theme in ("light", "dark"):
+                with self.subTest(chart=spec.chart_id, theme=theme):
+                    used = _colours(self.draw(spec, theme))
+                    self.assertIn(_neutral_ink(theme), used)
+                    self.assertEqual(set(), used & _series_colours(theme))
+
+    def test_the_auc_chart_names_each_hospital_and_model(self) -> None:
+        from app.services.charts_service import _site_auc
+
+        spec = _site_auc(self.data(4))
+        self.assertEqual("bar", spec.kind)
+        self.assertEqual(8, len(spec.args[0]))
+        self.assertEqual(["Hospital 1: model in use", "Hospital 1: candidate"], spec.args[0][:2])
+        self.assertTrue(spec.alt.startswith("Horizontal bar chart"), spec.alt)
+
+    def test_each_alt_text_names_the_chart_drawn(self) -> None:
+        from app.services.charts_service import _hospital_outcome_rates, _hospital_records, _site_auc
+
+        for count in (3, 4):
+            for build in (_hospital_records, _hospital_outcome_rates, _site_auc):
+                spec = build(self.data(count))
+                with self.subTest(chart=spec.chart_id, hospitals=count):
+                    self.assertIn("bar chart", spec.alt.lower())
+                    if "grouped" in spec.alt.lower():
+                        self.assertEqual("grouped_bar", spec.kind)
+
+    def test_three_hospitals_keep_their_series_colours(self) -> None:
+        from app.services.charts_service import _hospital_outcome_rates, _hospital_records, _site_auc
+
+        expected = {"Hospital 1": 1, "Hospital 2": 2, "Hospital 3": 3}
+        for build in (_hospital_records, _hospital_outcome_rates, _site_auc):
+            spec = build(self.data(3))
+            with self.subTest(chart=spec.chart_id):
+                self.assertEqual("grouped_bar", spec.kind)
+                self.assertEqual(expected, spec.kwargs["series_slots"])
+
+
 class GateThresholdTests(unittest.TestCase):
     """The gate chart shows the threshold the planner reported, and computes none itself."""
 

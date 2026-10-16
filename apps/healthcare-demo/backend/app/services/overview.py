@@ -109,6 +109,14 @@ class StudyOverview:
         self._engine: str | None = None
         self._services: tuple[float, list[dict[str, str]]] | None = None
 
+    def set_sites(self, sites: Sequence[Site], views: Mapping[str, HospitalView]) -> None:
+        """Use these hospitals and views from now on, as after a hospital joined.
+
+        Both are replaced, not changed in place, so a page being built sees the
+        old pair or the new one.
+        """
+        self.sites, self._views = tuple(sites), dict(views)
+
     # --- What the hospitals report --------------------------------------------------------
 
     def _site_entries(self) -> dict[str, SiteDirectoryEntry]:

@@ -15,7 +15,11 @@ What the app may import from the framework:
 - the Postgres lease, role scoping and audit sink, in the hospital store only
   (``services/site_store.py``);
 - the agent client and the LMA and GMA app factories and settings, in the
-  wiring only (``services/agents.py``).
+  wiring only (``services/agents.py``);
+- the Compose appliers (``agents.common.infrastructure.compose_apply``), in
+  the deployer only (``services/deployment.py``). They start the one service
+  in a file the planner rendered, for a hospital that joins while the demo
+  runs. They make no decision and read no data.
 
 The store keeps each hospital's audit chain, which the LMA writes to, so it
 imports the audit sink's interface and its in-memory twin from
@@ -69,6 +73,7 @@ ALLOWED_IN = {
         "agents.common.infrastructure.postgres_roles",
         "agents.common.infrastructure.postgres_audit",
     ),
+    "services/deployment.py": ("agents.common.infrastructure.compose_apply",),
     "services/agents.py": (
         "agents.common.infrastructure.agent_client",
         "agents.lma.app_factory",
@@ -160,6 +165,7 @@ class BackendBoundaryTests(unittest.TestCase):
         self.assertIn("agents.common.infrastructure.agent_client", modules)
         self.assertIn("agents.common.infrastructure.charts", modules)
         self.assertIn("agents.lma.app_factory", modules)
+        self.assertIn("agents.common.infrastructure.compose_apply", modules)
         self.assertGreater(len(imports), 20)
 
     def test_the_scan_catches_a_forbidden_import(self) -> None:
@@ -170,6 +176,8 @@ class BackendBoundaryTests(unittest.TestCase):
             FrameworkImport("services/site_store.py", 1, "agents.common.application.ethical_guard", ("EthicalGuard",)),
             FrameworkImport("services/overview.py", 1, "agents.common.infrastructure.agent_client", ("AgentNetwork",)),
             FrameworkImport("services/pilot.py", 1, "agents.gma.application.model_registry", ("ModelRegistry",)),
+            FrameworkImport("main.py", 1, "agents.common.infrastructure.compose_apply", ("LocalProcessApplier",)),
+            FrameworkImport("services/deployment.py", 1, "agents.common.infrastructure.agent_client", ("AgentNetwork",)),
         ]
         self.assertEqual(len(samples), len(boundary_violations(samples)))
 

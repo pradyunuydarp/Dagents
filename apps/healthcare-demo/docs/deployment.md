@@ -193,6 +193,7 @@ these defaults:
 | `HEALTHCARE_DEMO_AGENT_THREAD_TOKENS` | 64 | in process, how many agent handlers may run at once across the four agents; the API refuses to start with fewer than 4 × `HEALTHCARE_DEMO_MAX_IN_FLIGHT` + 8 |
 | `HEALTHCARE_DEMO_DISPATCH_CONCURRENCY` | 3 | how many hospitals the GMA sends a round's jobs to at once, from 1 to 64 |
 | `HEALTHCARE_DEMO_REQUEST_TIMEOUT_SECONDS` | 2.0 | how long each agent's health check in the status report may take |
+| `HEALTHCARE_DEMO_DEPLOYER` | `off` | whether a hospital can join while the demo runs. `render.yaml` sets `off`, and the API refuses to start with `process` or `compose` when `RENDER` is set or the agents run in process. The other `HEALTHCARE_DEMO_DEPLOY_*` settings are left unset |
 
 A public request can make nested calls to the agents, and in process every
 agent handler takes one of the shared threads. Without the cap on requests in
