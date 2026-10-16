@@ -147,7 +147,7 @@ text exactly as core-service returned it, so your program never writes Compose:
 | Applier | What it runs | What it needs |
 |---|---|---|
 | `DockerComposeApplier` | `docker compose --file F config --quiet <service>` to check the file, then `docker compose --project-name P --file F up --detach --no-build --pull never --no-deps --wait <service>` | Docker, and the image already built |
-| `LocalProcessApplier` | The service's `command`, with its `environment`, as a local process in a new process group; output goes to `<service>.log` | The program in its allowlist. No Docker. |
+| `LocalProcessApplier` | The service's `command`, with its `environment`, as a local process in a new process group; output goes to `<service>.log`, and the process id to `<service>.pid` while it runs | The program in its allowlist. No Docker. |
 
 `--no-deps` starts the new service alone, so the services it needs must already
 run. Give it its own project and the running project's network
@@ -162,8 +162,10 @@ that runs Docker. The process applier refuses `depends_on`, any key it cannot
 apply, such as `volumes`, a program that is not in its allowlist, and a `$`
 that is not written `$$`, because it does not read variables from the
 environment.
-Neither applier checks the service's health: ask the service. The tests run
-the Docker applier with a fake runner, because CI has no Docker.
+Neither applier checks the service's health: ask the service. A process in a
+new process group outlives a parent that dies without calling `close`, so
+whatever supervises your program can stop it with the pid in `<service>.pid`.
+The tests run the Docker applier with a fake runner, because CI has no Docker.
 
 Both kinds of file are generated and tested, but CI deploys neither. The plan
 for checking the Kubernetes manifests on a live cluster is in `TODO.md`.

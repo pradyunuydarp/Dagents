@@ -256,7 +256,8 @@ class Settings:
     )
 
     #: Where the deployer writes its files: in process mode the new hospital's
-    #: log, in compose mode the Compose files it passes to ``docker compose``.
+    #: log and process id, in compose mode the Compose files it passes to
+    #: ``docker compose``.
     #: Empty means a new temporary directory.
     deploy_dir: str = field(default_factory=lambda: os.getenv("HEALTHCARE_DEMO_DEPLOY_DIR", ""))
 

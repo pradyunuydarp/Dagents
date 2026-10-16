@@ -247,6 +247,22 @@ def _children(pid: int) -> list[int]:
     return found
 
 
+def deployed_pids(deploy_dir: Path) -> list[int]:
+    """The process ids in ``deploy_dir/*.pid`` that still lead their own process group.
+
+    The app's process applier writes one for each hospital it started.
+    """
+    found: list[int] = []
+    for path in sorted(deploy_dir.glob("*.pid")):
+        try:
+            pid = int(path.read_text(encoding="utf-8").strip())
+            if os.getpgid(pid) == pid:
+                found.append(pid)
+        except (OSError, ValueError):
+            continue
+    return found
+
+
 @dataclasses.dataclass(frozen=True)
 class ProcessSpec:
     """One process of a split run: ``python -m uvicorn <module>`` on 127.0.0.1.
@@ -469,6 +485,13 @@ class SplitProcesses:
             except (ProcessLookupError, PermissionError):
                 pass
         self._descendants.clear()
+        # The joined LMA runs in its own session, so it is no longer the app's
+        # child once the app has died. run_split_demo.sh finds it the same way.
+        for pid in deployed_pids(self.deploy_dir):
+            try:
+                os.killpg(pid, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError):
+                pass
         for log in self._logs:
             log.close()
         self._logs.clear()

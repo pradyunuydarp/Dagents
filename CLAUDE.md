@@ -518,7 +518,9 @@ for the file, never writes Compose itself, and hands the exact `compose_yaml`
 text to an applier in `agents/common/infrastructure/compose_apply.py`:
 
 - `LocalProcessApplier` (`process`) runs the service's `command` as a local
-  process in its own process group, with its `environment`. It starts only a
+  process in its own process group, with its `environment`, and keeps its
+  process id in `<service>.pid` while it runs, so a supervisor can stop it
+  when the owner dies without stopping it. It starts only a
   program on its allowlist, and refuses a key it cannot apply (such as a
   non-empty `depends_on`) and variable interpolation. It needs no Docker, so
   tests and CI use it.

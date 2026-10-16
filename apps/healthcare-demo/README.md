@@ -551,6 +551,10 @@ settings, which `--deploy` sets:
   to start with the deployer on.
 
 The new LMA is a child process of the app, and it stops when the app stops.
+It runs in a process group of its own, so it would outlive an app that dies
+without stopping it. The app writes its process id to `lma-pl-290.pid` in
+`HEALTHCARE_DEMO_DEPLOY_DIR`, and the run script stops that process too when it
+stops.
 [`docs/deployment.md`](docs/deployment.md#adding-a-hospital-is-off-on-every-host)
 lists every setting and the rules the app checks when it starts.
 

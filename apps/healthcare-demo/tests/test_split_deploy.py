@@ -34,6 +34,7 @@ import re
 import shutil
 import socket
 import subprocess
+import sys
 import tempfile
 import time
 import unittest
@@ -234,6 +235,14 @@ PYTHON=python3
 split_start "$3"
 """
 
+#: Runs ``split_stop`` from the script with ``SPLIT_DEPLOY_DIR`` set to ``$2``
+#: and no process of its own, as when the app died before the script stopped.
+STOP_HARNESS = r"""
+source "$1"
+SPLIT_DEPLOY_DIR="$2"
+split_stop
+"""
+
 _ASSIGNMENT = re.compile(r"^([A-Z_][A-Z0-9_]*)=(.*)$", re.DOTALL)
 
 
@@ -377,6 +386,27 @@ class SplitScriptDeployTests(unittest.TestCase):
         result = self.run_script(split, deploy=False, environ={"SPLIT_DEPLOY": "1"})
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
         self.assert_layout(parse_spawns(self.record.read_text(encoding="utf-8")), split, deploy=False)
+
+    def test_split_stop_stops_a_hospital_the_app_left_running(self) -> None:
+        # The app starts the hospital in a session of its own. When the app dies
+        # without stopping it (a crash, SIGKILL), the hospital is no longer in
+        # the app's process tree, so the script finds it by its pid file.
+        deploy_dir = self.log_dir / "deploy"
+        deploy_dir.mkdir()
+        orphan = subprocess.Popen(
+            [sys.executable, "-c", "import time; time.sleep(60)"], start_new_session=True
+        )
+        self.addCleanup(lambda: orphan.poll() is None and (orphan.kill(), orphan.wait()))
+        (deploy_dir / f"{SERVICE}.pid").write_text(f"{orphan.pid}\n", encoding="utf-8")
+        result = subprocess.run(
+            ["bash", "-c", STOP_HARNESS, "harness", str(SCRIPT), str(deploy_dir)],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,
+        )
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        self.assertEqual(-15, orphan.wait(timeout=10))
 
     def test_the_script_starts_nothing_when_the_joining_port_answers(self) -> None:
         split = SplitProcesses(self.log_dir, deploy=True)

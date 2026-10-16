@@ -191,7 +191,10 @@ class LocalProcessApplier:
 
     The process runs ``command`` with ``base_env`` plus the service's
     ``environment``, in ``cwd``, in a new session, so stopping it stops every
-    process it started. Its output goes to ``workdir/<service>.log``. Only
+    process it started. Its output goes to ``workdir/<service>.log``. While it
+    runs, its process id is in ``workdir/<service>.pid``: the new session also
+    means the process outlives a parent that dies without calling ``close``,
+    so whatever supervises the parent can stop it from that file. Only
     ``command[0]`` values in ``programs`` may start. ``image``, ``ports``,
     ``expose``, ``healthcheck``, ``networks`` and ``restart`` are read and
     ignored: the process listens where its command says, and the caller checks
@@ -227,6 +230,10 @@ class LocalProcessApplier:
     def log_path(self, service: str) -> Path:
         """Where the process for ``service`` writes its output."""
         return self._workdir / f"{service}.log"
+
+    def pid_path(self, service: str) -> Path:
+        """Where the process id of ``service`` is kept while this applier runs it."""
+        return self._workdir / f"{service}.pid"
 
     def _plan(self, compose_yaml: str, service: str) -> tuple[list[str], dict[str, str]]:
         definition = compose_service(compose_yaml, service)
@@ -277,6 +284,7 @@ class LocalProcessApplier:
             except OSError as error:
                 raise ComposeApplyError(f"`{argv[0]}` could not be started", str(error)) from error
             self._children[service] = child
+            self.pid_path(service).write_text(f"{child.pid}\n", encoding="utf-8")
         try:
             code = child.wait(timeout=min(1.0, wait_seconds))
         except subprocess.TimeoutExpired:
@@ -284,6 +292,7 @@ class LocalProcessApplier:
         with self._lock:
             if self._children.get(service) is child:
                 del self._children[service]
+                self.pid_path(service).unlink(missing_ok=True)
         raise ComposeApplyError(f"the process exited with status {code}", self._read_log(log_path))
 
     @staticmethod
@@ -320,6 +329,7 @@ class LocalProcessApplier:
             except ProcessLookupError:
                 pass
             child.wait()
+        self.pid_path(service).unlink(missing_ok=True)
 
     def close(self) -> None:
         with self._lock:

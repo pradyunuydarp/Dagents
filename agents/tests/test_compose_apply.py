@@ -282,6 +282,23 @@ class LocalProcessApplierTests(unittest.TestCase):
         self.assertEqual((seen["base"], seen["shared"]), ("base", "service"))
         self.assertEqual(os.path.realpath(seen["cwd"]), os.path.realpath(self.cwd))
 
+    def test_the_process_id_is_in_a_file_while_the_process_runs(self) -> None:
+        # The process runs in its own session, so it outlives an owner that dies
+        # without calling close. The file lets a supervisor stop it then.
+        pid_file = self.workdir / "deploy" / f"{SERVICE}.pid"
+        self.assertEqual(self.applier.pid_path(SERVICE), pid_file)
+        applied = self.start("import time; time.sleep(60)")
+        pid = int(applied.detail.rsplit(" ", 1)[1])
+        self.assertEqual(pid_file.read_text(encoding="utf-8").strip(), str(pid))
+        self.assertEqual(os.getpgid(pid), pid, "the process does not lead its own process group")
+        self.applier.stop(SERVICE, project="")
+        self.assertFalse(pid_file.exists())
+
+    def test_an_early_exit_leaves_no_process_id_file(self) -> None:
+        with self.assertRaises(ComposeApplyError):
+            self.start("import sys; sys.exit(3)")
+        self.assertFalse(self.applier.pid_path(SERVICE).exists())
+
     def test_the_output_goes_to_the_services_log(self) -> None:
         applied = self.start("import sys, time; print('hello from the service', flush=True); time.sleep(60)")
         log = self.workdir / "deploy" / f"{SERVICE}.log"

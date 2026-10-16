@@ -208,7 +208,7 @@ in the README describes the steps.
 | `HEALTHCARE_DEMO_DEPLOYER` | `off` | `off`; `process`, which starts the new hospital as a local process; or `compose`, which starts it as a container with `docker compose` |
 | `HEALTHCARE_DEMO_JOINING_LMA_URLS` | `pl-290=http://127.0.0.1:8085` | where each hospital that can join will listen. The GMA's `GMA_FEDERATION_JOINABLE_SITES` must list the same pair |
 | `HEALTHCARE_DEMO_DEPLOY_TIMEOUT_SECONDS` | 90 | how long the app waits for the new hospital to start and answer its health check |
-| `HEALTHCARE_DEMO_DEPLOY_DIR` | a new temporary directory | where the app writes its files: in process mode the new hospital's log (`lma-pl-290.log`), in compose mode the Compose files it passes to `docker compose` |
+| `HEALTHCARE_DEMO_DEPLOY_DIR` | a new temporary directory | where the app writes its files: in process mode the new hospital's log (`lma-pl-290.log`) and, while it runs, its process id (`lma-pl-290.pid`, which `run_split_demo.sh` reads when it stops); in compose mode the Compose files it passes to `docker compose` |
 | `HEALTHCARE_DEMO_DEPLOY_IMAGE` | `dagents/healthcare-demo-backend:local` | the image of the new hospital's container, in compose mode |
 | `HEALTHCARE_DEMO_DEPLOY_NETWORK` | `healthcare-demo_default` | the Compose network the container joins, in compose mode |
 

@@ -54,6 +54,9 @@ SPLIT_JOINING_SITE="pl-290"
 SPLIT_DEPLOY=0
 SPLIT_PIDS=()
 SPLIT_NAMES=()
+#: Where the app writes the process id of a hospital it added (<service>.pid).
+#: split_start sets it with --deploy.
+SPLIT_DEPLOY_DIR=""
 
 # Fail with a plain message when the framework or the planner is missing.
 split_preflight() {
@@ -92,12 +95,35 @@ split_kill_tree() {
   kill "-${signal}" "${pid}" 2>/dev/null || true
 }
 
+# The process ids of the hospitals the app added, from SPLIT_DEPLOY_DIR. The
+# app starts each one in a session of its own, so when the app dies without
+# stopping it, killing the app's tree does not reach it. A pid counts only
+# while it still leads its own process group, as the hospital's process does.
+split_deployed_pids() {
+  local file pid
+  [[ -n "${SPLIT_DEPLOY_DIR}" && -d "${SPLIT_DEPLOY_DIR}" ]] || return 0
+  for file in "${SPLIT_DEPLOY_DIR}"/*.pid; do
+    [[ -f "${file}" ]] || continue
+    pid="$(tr -dc '0-9' <"${file}")"
+    [[ -n "${pid}" ]] || continue
+    [[ "$(ps -o pgid= -p "${pid}" 2>/dev/null | tr -d ' ')" == "${pid}" ]] && echo "${pid}"
+  done
+  return 0
+}
+
 split_stop() {
   local pid waited=0
+  local -a deployed=()
+  while read -r pid; do deployed+=("${pid}"); done < <(split_deployed_pids)
   for pid in "${SPLIT_PIDS[@]}"; do split_kill_tree "${pid}" TERM; done
+  for pid in ${deployed[@]+"${deployed[@]}"}; do kill -TERM -- "-${pid}" 2>/dev/null || true; done
   while (( waited < 20 )); do
     local alive=0
     for pid in "${SPLIT_PIDS[@]}"; do kill -0 "${pid}" 2>/dev/null && alive=1; done
+    # A stopped hospital stays a zombie until its parent, the app or init, reaps it.
+    for pid in ${deployed[@]+"${deployed[@]}"}; do
+      [[ "$(ps -o stat= -p "${pid}" 2>/dev/null)" =~ ^[^Z] ]] && alive=1
+    done
     (( alive == 0 )) && break
     sleep 0.25
     waited=$((waited + 1))
@@ -106,6 +132,7 @@ split_stop() {
     split_kill_tree "${pid}" KILL
     wait "${pid}" 2>/dev/null || true
   done
+  for pid in ${deployed[@]+"${deployed[@]}"}; do kill -KILL -- "-${pid}" 2>/dev/null || true; done
   SPLIT_PIDS=()
 }
 
@@ -175,11 +202,12 @@ split_start() {
       return 1
     fi
     gma_deploy=(GMA_FEDERATION_JOINABLE_SITES="${joining}")
+    SPLIT_DEPLOY_DIR="${log_dir}/deploy"
     app_deploy=(
       HEALTHCARE_DEMO_DEPLOYER=process
       HEALTHCARE_DEMO_JOINING_LMA_URLS="${joining}"
       CORE_SERVICE_PUBLIC_URL="http://127.0.0.1:${core_port}"
-      HEALTHCARE_DEMO_DEPLOY_DIR="${log_dir}/deploy"
+      HEALTHCARE_DEMO_DEPLOY_DIR="${SPLIT_DEPLOY_DIR}"
     )
     split_spawn core-service "${log_dir}/core-service.log" "${DAGENTS_HOME}/services/core-service" \
       PYTHONPATH="${DAGENTS_HOME}:${DAGENTS_HOME}/services/core-service" \
