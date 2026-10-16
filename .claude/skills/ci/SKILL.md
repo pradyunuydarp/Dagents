@@ -104,11 +104,13 @@ too. `tests.test_network_deploy.NetworkDeployTests` starts core-service, the
 GMA, three LMAs and the API with the deployer on, adds Hospital 290 and runs a
 pilot with it; both workflows require it to run. `tests/test_ci_guards.py`
 finds it although its database fixture is a base class imported from
-`test_network_mode`. Three classes skip without a tool the runner has (Docker,
-or bash and curl), so the demo-apps job's planner step requires them to run:
-`ComposeOverrideTests` (only the API gets the Docker socket; the API and the
-UI are published on 127.0.0.1 only), `ComposeRequestTests` and
-`NetworkScriptDeployTests`. The `deploy-smoke` job runs
+`test_network_mode`. Three classes skip when something the runner has is
+missing, so the demo-apps job's planner step requires them to run:
+`ComposeOverrideTests` skips without the Docker command line and its compose
+plugin (it checks that only the API gets the Docker socket and that the API and
+the UI are published on 127.0.0.1 only), `ComposeRequestTests` skips without
+the planner, and `NetworkScriptDeployTests` skips without bash and curl. The
+`deploy-smoke` job runs
 `run_frontend_demo.sh --deploy --check` against PostgreSQL 16 and fails unless
 the smoke test prints `ok  deploy: hospital pl-290 joined`.
 

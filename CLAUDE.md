@@ -223,7 +223,8 @@ database and fails if one is missing from that list; a new class goes in both
 `ci.yml` and `healthcare-data.yml`. `scripts/ci_no_skipped_planner_tests.py
 LOG` still works; it runs the guard with `--forbid planner`.
 
-Docker and Minikube are not in CI; see **Current state**. The suites set
+CI starts no container and runs no Minikube; it uses the Docker command line
+only for `docker compose config`. See **Current state**. The suites set
 `DAGENTSC_BIN`, so they pass even when an image lacks the planner. One check
 covers the images without building them: `tests/test_planner_in_images.py`
 follows each Python image's imports from the module uvicorn runs, and fails if
