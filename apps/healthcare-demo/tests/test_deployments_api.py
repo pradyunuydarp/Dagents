@@ -318,6 +318,16 @@ class CombinedRoleTests(unittest.TestCase):
         )
         self.assertEqual(2, len(routes) - len(without))
 
+    def test_the_pilots_409_is_the_one_existing_operation_that_changed(self) -> None:
+        # A pilot and an addition share one flight, so the pilot can now be
+        # refused while a hospital is being added. Its 409 says so; this is a
+        # deliberate change to an operation the combined API already had.
+        pilot = main.app.openapi()["paths"]["/api/v1/pilot:run"]["post"]
+        self.assertEqual(
+            "A pilot is already running, or a hospital is being added. One of them runs at a time.",
+            pilot["responses"]["409"]["description"],
+        )
+
     def test_the_joining_hospital_has_no_pages_here(self) -> None:
         self.assertEqual(404, self.client.get("/api/v1/hospitals/pl-290").status_code)
         sites = [row["site_id"] for row in self.client.get("/api/v1/hospitals").json()]
