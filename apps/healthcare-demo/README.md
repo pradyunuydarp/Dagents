@@ -839,7 +839,9 @@ planner built, or install Dagents as a dependency.
   authentication: binding to 127.0.0.1, the `Origin` check and the setting are
   the controls. The app keeps a joined hospital in memory only, so a restarted
   app does not have it, and there is no way to remove one. Hospital 290 keeps
-  its records in memory even when the others use Postgres. Its charts have no
+  its records in memory even when the others use Postgres. `cohort_source`
+  leaves it out, so the page names it after the source line ("Hospital 290
+  keeps its records in memory."). Its charts have no
   colour of their own, and the consortium charts that compare hospitals lose
   their colours while it is in the consortium.
 - **Digests are not signatures.** The round digest is a content hash that

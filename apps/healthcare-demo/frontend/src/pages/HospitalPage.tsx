@@ -59,7 +59,8 @@ function StoreNote({ store }: { store: Store }) {
     <p>
       The demo server holds this hospital&rsquo;s records in memory, in a store separate from the
       other hospitals&rsquo;. Only this hospital&rsquo;s code reads it. With a database configured,
-      each hospital gets its own Postgres schema and role instead.
+      each hospital the demo starts with gets its own Postgres schema and role instead. A hospital
+      added while the demo runs always keeps its records in memory.
     </p>
   );
 }

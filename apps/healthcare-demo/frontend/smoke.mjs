@@ -30,7 +30,8 @@
  *   8. empty hospital stores show one banner and a plain sentence in place of
  *      zeros and empty tables; a failed reload is reported above the last
  *      numbers; each reason the backend gives (a missing rate, a hospital left
- *      out of a round) is shown in words;
+ *      out of a round) is shown in words; a hospital whose store differs
+ *      from the others is named in the source line;
  *   9. at 375 px the charts keep their drawn size inside their own scroll box
  *      and the page does not scroll sideways;
  *  10. with --expect-join, after every other check, the hospital joins from
@@ -941,6 +942,59 @@ try {
     // closes. That request fails, and its error is not a finding.
     await reasonPage.unrouteAll({ behavior: "ignoreErrors" });
     await reasonPage.close();
+  }
+
+  //    A hospital whose store differs from the reported source is named in
+  //    the source line, and its own page does not promise it a Postgres
+  //    schema. A hospital that joins while a database-backed demo runs keeps
+  //    its records in memory. The API's answers are rewritten in a separate
+  //    page, because this run has no database.
+  const mixedPage = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  try {
+    const memorySite = overview.hospitals[overview.hospitals.length - 1];
+    const inPostgres = (item) =>
+      item.site_id === memorySite.site_id
+        ? { ...item, store: { kind: "in-memory", memory: "process" } }
+        : { ...item, store: { kind: "postgres", schema: `site_${item.site_id.replace(/-/g, "_")}`, role: "site_role" } };
+    const rewriteMixed = (pattern, change) =>
+      mixedPage.route(pattern, async (route) => {
+        const response = await route.fetch();
+        await route.fulfill({ response, json: change(await response.json()) });
+      });
+    await rewriteMixed("**/api/v1/framework/status", (body) => ({ ...body, cohort_source: "postgres", store_layout: "schema-per-site" }));
+    await rewriteMixed("**/api/v1/overview", (body) => ({ ...body, hospitals: body.hospitals.map(inPostgres) }));
+    await mixedPage.goto(baseUrl, { timeout: 60000 });
+    const sourceLine = mixedPage.locator('[data-panel="consortium"] [data-role="records-source"]');
+    await mixedPage.locator('[data-panel="consortium"] table tbody tr').first().waitFor({ timeout: 30000 });
+    await mixedPage.waitForFunction(
+      (name) => document.querySelector('[data-role="records-source"]')?.textContent?.includes(name),
+      memorySite.display_name,
+      { timeout: 15000 }
+    ).catch(() => {});
+    const sourceSentence = (await sourceLine.count()) ? ((await sourceLine.textContent()) ?? "").trim() : "no source line";
+    check(
+      "the source line names a hospital whose store differs from the others",
+      /Stored in Postgres/.test(sourceSentence) && sourceSentence.includes(`${memorySite.display_name} keeps its records in memory.`),
+      sourceSentence
+    );
+    await mixedPage.goto(`${baseUrl}#/hospitals/${memorySite.site_id}`, { timeout: 60000 });
+    const storePanel = mixedPage.locator('[data-panel="hospital-store"]');
+    await storePanel.waitFor({ timeout: 30000 });
+    await mixedPage.waitForFunction(
+      () => /records in memory/.test(document.querySelector('[data-panel="hospital-store"]')?.textContent ?? ""),
+      null,
+      { timeout: 30000 }
+    ).catch(() => {});
+    const storeNote = ((await storePanel.innerText()) ?? "").replace(/\s+/g, " ");
+    check(
+      "a hospital page kept in memory does not promise that hospital a Postgres schema",
+      /in memory/.test(storeNote) && !/each hospital gets its own Postgres schema/.test(storeNote) &&
+        /added while the demo runs always keeps its records in memory/.test(storeNote),
+      storeNote.slice(0, 240)
+    );
+  } finally {
+    await mixedPage.unrouteAll({ behavior: "ignoreErrors" });
+    await mixedPage.close();
   }
 
   // 10. Empty stores. The API is simulated in a separate page: it reports

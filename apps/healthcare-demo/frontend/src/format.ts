@@ -350,11 +350,29 @@ export function storeText(store: Store): string {
   return store.kind;
 }
 
-/** The data source the backend reports, in a sentence. */
-export function sourceText(source: string | undefined): string {
-  if (source === "postgres") return "Stored in Postgres, one schema per hospital.";
-  if (source === "in-memory") return "Held in memory by the demo server, one store per hospital.";
-  return source ? `Reported by the server as ${source}.` : "Not reported.";
+/**
+ * The data source the backend reports, in a sentence.
+ *
+ * `cohort_source` leaves out a hospital that joined while the demo runs,
+ * because such a hospital always keeps its records in memory. Each hospital
+ * whose own store differs from that source is named after it, from the store
+ * the hospital reports.
+ */
+export function sourceText(
+  source: string | undefined,
+  hospitals: { display_name: string; store: Store }[] = []
+): string {
+  let text: string;
+  if (source === "postgres") text = "Stored in Postgres, one schema per hospital.";
+  else if (source === "in-memory") text = "Held in memory by the demo server, one store per hospital.";
+  else return source ? `Reported by the server as ${source}.` : "Not reported.";
+  const where = (store: Store) =>
+    store.kind === "in-memory" ? "in memory" : store.kind === "postgres" ? `in ${storeText(store)}` : `in a ${store.kind} store`;
+  const others = hospitals.filter((hospital) => hospital.store.kind !== source);
+  return others.reduce(
+    (sentence, hospital) => `${sentence} ${hospital.display_name} keeps its records ${where(hospital.store)}.`,
+    text
+  );
 }
 
 /** A short form of a long identifier, for narrow cells. The full value goes in a title. */

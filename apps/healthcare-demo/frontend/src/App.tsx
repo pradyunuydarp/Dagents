@@ -198,7 +198,7 @@ export default function App() {
               <p>{dataset.credit}</p>
             </>
           )}
-          {status && <p>Records: {sourceText(status.cohort_source)}</p>}
+          {status && <p>Records: {sourceText(status.cohort_source, overview?.hospitals)}</p>}
           <p>
             <strong>Not a medical device.</strong> The models here are demonstrations, not validated
             clinical tools, and nothing on this page is medical advice.

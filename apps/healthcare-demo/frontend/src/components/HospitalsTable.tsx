@@ -25,7 +25,9 @@ export function HospitalsTable({ overview, status }: { overview: Overview; statu
         </div>
         <div>
           <dt>Records</dt>
-          <dd className="plain">{sourceText(status?.cohort_source)}</dd>
+          <dd className="plain" data-role="records-source">
+            {sourceText(status?.cohort_source, overview.hospitals)}
+          </dd>
         </div>
       </dl>
       <div className="ds-table-scroll">
