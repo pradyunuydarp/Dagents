@@ -118,8 +118,9 @@ copies of one rule drift apart; this repo has had that bug (see §5).
   `compose_yaml` text core-service returned. An applier starts one service,
   without its dependencies, and the caller checks its health.
 - `LocalProcessApplier` starts only programs on its allowlist and refuses a
-  key it cannot apply. `DockerComposeApplier` sends every command through one
-  injected runner. **Never** write a test that starts a container: CI has no
+  key it cannot apply. `DockerComposeApplier` refuses a service key the
+  manifest compiler never renders, such as `privileged` or `volumes`, and
+  sends every command through one injected runner. **Never** write a test that starts a container: CI has no
   Docker daemon. Test the Docker path with a fake runner and `docker compose
   config`.
 - **The GMA accepts a site's address at run time only for an exact pair in

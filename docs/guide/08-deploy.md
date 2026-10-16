@@ -154,9 +154,14 @@ run. Give it its own project and the running project's network
 (`"placement": "own"`, `"network"` set to that network and
 `"external_network": true`), so `docker compose down` on the project does not
 remove it. When a start fails, the Docker applier removes the container it
-created. The process applier refuses `depends_on`, any key it cannot apply,
-such as `volumes`, a program that is not in its allowlist, and a `$` that is
-not written `$$`, because it does not read variables from the environment.
+created. The Docker applier refuses a service key the manifest compiler never
+renders, such as `privileged`, `pid`, `volumes` or `network_mode`, and a
+top-level network other than `{}` or `external: true`, before Docker reads the
+file. With those keys a file could give the container control of the machine
+that runs Docker. The process applier refuses `depends_on`, any key it cannot
+apply, such as `volumes`, a program that is not in its allowlist, and a `$`
+that is not written `$$`, because it does not read variables from the
+environment.
 Neither applier checks the service's health: ask the service. The tests run
 the Docker applier with a fake runner, because CI has no Docker.
 

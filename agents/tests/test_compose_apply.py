@@ -346,6 +346,58 @@ class DockerComposeApplierTests(unittest.TestCase):
             applier.check(self.text, "other")
         self.assertEqual(runner.calls, [])
 
+    def test_check_refuses_a_key_the_planner_never_renders_before_running_docker(self) -> None:
+        # With the Docker socket, any of these would give the container the host.
+        for extra in (
+            "    privileged: true",
+            '    pid: "host"',
+            '    volumes: ["/:/host"]',
+            '    network_mode: "host"',
+            '    cap_add: ["SYS_ADMIN"]',
+        ):
+            key = extra.split(":")[0].strip()
+            with self.subTest(key=key):
+                applier, runner = self.applier()
+                with self.assertRaises(ComposeApplyError) as raised:
+                    applier.check(rendered(command=["uvicorn", "app.main:app"], extra=extra), SERVICE)
+                self.assertEqual(raised.exception.message, f"the compose applier cannot apply `{key}`")
+                self.assertEqual(runner.calls, [])
+                with self.assertRaises(ComposeApplyError):
+                    applier.apply(
+                        rendered(command=["uvicorn", "app.main:app"], extra=extra),
+                        SERVICE,
+                        project=self.PROJECT,
+                        wait_seconds=5,
+                    )
+                self.assertEqual(runner.calls, [])
+
+    def test_check_accepts_every_key_the_planner_renders(self) -> None:
+        text = rendered(
+            command=["uvicorn", "app.main:app"],
+            environment={"A": "1"},
+            extra='    env_file:\n      - "site.env"\n    expose:\n      - "9000"\n'
+            '    depends_on:\n      "gma":\n        condition: service_healthy',
+        )
+        applier, runner = self.applier()
+        applier.check(text, SERVICE)
+        self.assertEqual(1, len(runner.calls))
+
+    def test_check_refuses_a_network_the_planner_never_renders(self) -> None:
+        for network in ('{"name": "host", "external": true}', '{"driver": "macvlan"}'):
+            with self.subTest(network=network):
+                text = rendered(command=["uvicorn", "app.main:app"]).replace('"default": {}', f'"default": {network}')
+                applier, runner = self.applier()
+                with self.assertRaises(ComposeApplyError) as raised:
+                    applier.check(text, SERVICE)
+                self.assertEqual(
+                    raised.exception.message, "the compose applier applies a network only as {} or external: true"
+                )
+                self.assertEqual(runner.calls, [])
+        external = rendered(command=["uvicorn", "app.main:app"]).replace('"default": {}', '"default":\n    external: true')
+        applier, runner = self.applier()
+        applier.check(external, SERVICE)
+        self.assertEqual(1, len(runner.calls))
+
     def test_a_refused_file_raises_with_the_end_of_stderr(self) -> None:
         stderr = "\n".join(f"error {n}" for n in range(25))
         applier, _ = self.applier(lambda args: CommandResult(15, "", stderr))

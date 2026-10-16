@@ -45,6 +45,29 @@ _PROCESS_KEYS = frozenset(
     {"image", "command", "environment", "ports", "expose", "healthcheck", "depends_on", "networks", "restart"}
 )
 
+#: The service keys the manifest compiler renders. The Compose applier refuses
+#: every other key. Keys such as ``privileged``, ``pid``, ``volumes`` or
+#: ``network_mode`` would give the container control of the machine that runs
+#: Docker, and the planner never writes them.
+_COMPOSE_KEYS = frozenset(
+    {
+        "image",
+        "command",
+        "env_file",
+        "environment",
+        "expose",
+        "ports",
+        "healthcheck",
+        "depends_on",
+        "networks",
+        "restart",
+    }
+)
+
+#: What a top-level network may say. The compiler renders ``{}`` for the
+#: file's own network and ``external: true`` for a network that exists.
+_NETWORK_DEFINITIONS = ({}, {"external": True})
+
 ServiceState = Literal["running", "stopped", "not_started", "unknown"]
 
 
@@ -103,13 +126,7 @@ class ComposeApplier(Protocol):
         """Release what the applier holds when its owner stops."""
 
 
-def compose_service(compose_yaml: str, service: str) -> dict[str, Any]:
-    """Return the one service of a rendered file, or raise :class:`ComposeApplyError`.
-
-    The file must be a mapping with a ``services`` mapping that holds exactly
-    one service, named ``service``. A top-level ``networks`` key is allowed;
-    any other top-level key is refused.
-    """
+def _compose_document(compose_yaml: str) -> dict[str, Any]:
     import yaml  # PyYAML is needed only where a file is parsed.
 
     try:
@@ -118,6 +135,17 @@ def compose_service(compose_yaml: str, service: str) -> dict[str, Any]:
         raise ComposeApplyError("the file is not valid YAML", str(error)) from error
     if not isinstance(document, dict):
         raise ComposeApplyError("the file is not a Compose mapping")
+    return document
+
+
+def compose_service(compose_yaml: str, service: str) -> dict[str, Any]:
+    """Return the one service of a rendered file, or raise :class:`ComposeApplyError`.
+
+    The file must be a mapping with a ``services`` mapping that holds exactly
+    one service, named ``service``. A top-level ``networks`` key is allowed;
+    any other top-level key is refused.
+    """
+    document = _compose_document(compose_yaml)
     unknown = sorted(str(key) for key in document if key not in _TOP_LEVEL_KEYS)
     if unknown:
         raise ComposeApplyError(f"the file has a top-level key this applier does not apply: {unknown[0]}")
@@ -341,6 +369,11 @@ class DockerComposeApplier:
     and without building or pulling an image. A container outlives the
     applier, so ``close`` leaves it running and a later applier adopts it.
 
+    It applies only what the manifest compiler renders: a service key the
+    compiler never writes, such as ``privileged`` or ``volumes``, and a
+    top-level network other than ``{}`` or ``external: true`` are refused
+    before Docker sees the file.
+
     Params:
     - `workdir`: where the files passed to ``docker compose`` are written.
     - `docker`: the Docker command.
@@ -387,7 +420,15 @@ class DockerComposeApplier:
         ]
 
     def check(self, compose_yaml: str, service: str) -> None:
-        compose_service(compose_yaml, service)
+        definition = compose_service(compose_yaml, service)
+        for key in definition:
+            if key not in _COMPOSE_KEYS:
+                raise ComposeApplyError(f"the compose applier cannot apply `{key}`")
+        networks = _compose_document(compose_yaml).get("networks") or {}
+        if not isinstance(networks, dict) or any(
+            network not in _NETWORK_DEFINITIONS for network in networks.values()
+        ):
+            raise ComposeApplyError("the compose applier applies a network only as {} or external: true")
         path = self._write(f"check-{service}.yml", compose_yaml)
         result = self._run(["compose", "--file", str(path), "config", "--quiet", service], self._timeout)
         if result.returncode != 0:

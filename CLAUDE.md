@@ -522,10 +522,12 @@ text to an applier in `agents/common/infrastructure/compose_apply.py`:
   program on its allowlist, and refuses a key it cannot apply (such as a
   non-empty `depends_on`) and variable interpolation. It needs no Docker, so
   tests and CI use it.
-- `DockerComposeApplier` (`compose`) checks the file with `docker compose
-  config`, then runs `docker compose up --detach --no-build --pull never
-  --no-deps --wait` for the one service, in its own project. Every command
-  goes through one runner, so tests replace it with a fake.
+- `DockerComposeApplier` (`compose`) refuses a service key the manifest
+  compiler never renders (such as `privileged`, `pid` or `volumes`) and a
+  network other than `{}` or `external: true`. It then checks the file with
+  `docker compose config` and runs `docker compose up --detach --no-build
+  --pull never --no-deps --wait` for the one service, in its own project.
+  Every command goes through one runner, so tests replace it with a fake.
 
 Both accept a file with exactly one service. PyYAML is imported only when a
 file is parsed. The caller checks the service's health itself, and stops what
