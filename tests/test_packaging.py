@@ -250,6 +250,14 @@ class ProjectMetadataTests(unittest.TestCase):
             self.assertEqual({"fastapi", "uvicorn", "httpx"}, names, extra)
         self.assertEqual(["pydantic>=2.11,<3"], PYPROJECT["project"]["dependencies"])
 
+    def test_the_compose_extra_allows_the_pyyaml_ci_tests(self) -> None:
+        """compose_apply.py imports PyYAML when it parses a file; the agents job installs the same range."""
+        extras = PYPROJECT["project"]["optional-dependencies"]
+        self.assertEqual(["pyyaml>=6.0,<7"], extras["compose"])
+        self.assertIn("compose", extras["all"][0])
+        workflow = (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+        self.assertIn('"pyyaml>=6.0,<7"', workflow)
+
     def test_ci_tests_the_lowest_version_each_agent_extra_allows(self) -> None:
         """The agents job pins FastAPI and uvicorn; the extras start at those pins and stop below 1.0.
 
