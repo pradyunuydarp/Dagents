@@ -435,11 +435,18 @@ openai-agents and imports in the same process as `dagents`.
    This run has one job, **Tag the version and start the release**. It
    creates the annotated tag `v<version>` on the run's commit with the
    workflow's token (`scripts/release_version.py --create-tag`), then starts
-   the workflow again on the tag. The job stops, and creates nothing, when
-   `main` has moved on since the run started (run it again) or when the tag
-   already names another commit (change the version). When the tag already
-   names this commit, the job does not create it again and starts a new
-   release run on it.
+   the workflow again on the tag. The tag's message names the person who
+   started the run and links to the run. The job stops, and creates nothing,
+   in two cases:
+   - `main` has moved on since the run started. Start a new run from **Run
+     workflow**. Re-running this run checks the same commit again and stops
+     again.
+   - The tag already names another commit. Change the version.
+
+   When the tag already names this commit, the job does not create it again
+   and starts a new release run on it. If the job created the tag but the
+   release run did not start, run the workflow on the tag: **Use workflow
+   from**, **Tags**, `v<version>`, with the box unticked.
 
    A maintainer who can push tags can push the tag instead; it starts the
    same release run:
@@ -461,7 +468,8 @@ openai-agents and imports in the same process as `dagents`.
    same way and creates the GitHub Release. An `a`, `b` or `rc` version is
    marked as a pre-release. The run is on the tag, whichever way it started,
    so environment rules that allow only `v*` tags still apply, and the
-   reviewer on `pypi` approves the upload to PyPI.
+   reviewer on `pypi` approves the upload to PyPI (see **Approve the upload
+   to PyPI** below).
 
 A manual run with the box unticked, on any branch, is a dry run: it builds
 and checks everything and publishes nothing. With the box ticked on any other
@@ -470,12 +478,59 @@ failed, re-run its failed jobs, or run the workflow on the tag (**Use workflow
 from**, **Tags**) with the box unticked.
 
 A second run of the tag job, or a second run on the same tag, cannot publish
-different files. TestPyPI skips files it already has and the next job
-compares their hashes, PyPI refuses a file it already has, and the GitHub
-Release step fails when the release exists. So when an earlier run already
-published, the new run fails at one of those steps and publishes nothing new.
-When the earlier run failed before publishing, the new run is a normal
-release run.
+different files:
+
+- TestPyPI skips files it already has, and the next job compares their
+  hashes with the files this run built.
+- PyPI accepts a file identical to one it has without changing anything, and
+  refuses a different file with the same name.
+- The GitHub Release step fails when the release exists.
+
+So when PyPI already has the version, the new run publishes nothing new, but
+it still asks the `pypi` reviewer to approve; reject that request. When the
+earlier run failed before publishing, the new run is a normal release run.
+
+**Approve the upload to PyPI.** The run waits at **Publish to PyPI** until
+the `pypi` environment's reviewer approves. Before approving:
+
+1. Check that the run's commit is on `main`. The run page shows the commit.
+   `gh api repos/pradyunuydarp/Dagents/compare/main...<commit> --jq .status`
+   prints `behind` or `identical` for a commit on `main`, and `ahead` or
+   `diverged` for any other. Check this on GitHub, not in the run's logs or
+   summary. The workflow file at the tagged commit writes those, and a
+   commit that is not on `main` can carry a changed workflow file.
+2. Read who asked for the release. The summary of **Read the version and
+   check the tag** shows the tag's tagger and message. A tag made from the
+   Actions tab names the person who started the run and links to that run.
+3. Reject the request when PyPI already has this version (see above).
+
+The tag job starts the release run with the workflow token, so that run's
+actor is `github-actions[bot]`, not the person who ticked the box. The
+environment setting **Prevent self-review** stops the user who started a
+deployment from approving it, and here that user is `github-actions[bot]`.
+So the setting does not stop the person who started the release from
+approving it.
+
+**Who can publish.** Anyone with write access to the repository can start a
+release from the Actions tab. The workflow token pushes the tag, and a tag
+ruleset that restricts creations would refuse that push, so the setup below
+restricts only updates and deletions of `v*` tags. As a result, anyone with
+write access can also push a `v*` tag on any commit, including one that is
+not on `main`. A run on that tag uses the workflow file of that commit, which
+can leave out the version and `main` checks, and the environments admit it
+because they check only the tag's name. So:
+
+- The `pypi` reviewer is the only check before an upload to PyPI. This is why
+  the reviewer checks the commit (step 1 above), and why the reviewer is a
+  required part of the setup.
+- `testpypi` has no reviewer unless the owner adds one, so such a run can
+  upload to TestPyPI. Its files can take that version's file names there,
+  and a later release of the same version then fails its TestPyPI hash
+  check.
+
+Limiting tag creation to admins again would need a GitHub App token, stored
+in an environment limited to `main`, instead of the workflow token. That is
+not set up.
 
 **Trusted Publishing.** The workflow holds no token. PyPI and TestPyPI trust
 this repository's `release.yml` through OpenID Connect, and each upload
@@ -488,16 +543,15 @@ carries a PEP 740 attestation. Once, before the first release, the owner:
    environment `testpypi`.
 3. In the repository settings (Environments), creates the environments
    `testpypi` and `pypi`. On each, sets the deployment branches and tags rule
-   to selected tags with the pattern `v*`, and adds a required reviewer to
-   `pypi`, so a person approves each upload.
+   to selected tags with the pattern `v*`. On `pypi`, adds a required
+   reviewer, so a person approves each upload. This step is required: see
+   **Who can publish**. A reviewer on `testpypi` as well makes TestPyPI
+   uploads wait for a person too.
 4. In the repository settings (Rules, Rulesets), adds a tag ruleset that
    targets `v*` and restricts updates and deletions. Then nobody can move a
    release tag to another commit or delete it. Do not restrict creations:
    the release job creates the tag with the workflow's token, and a ruleset
    that restricts creations refuses that push.
-
-Anyone with write access to the repository can run the workflow, so the
-required reviewer on `pypi` is the person who approves each release.
 
 Only the publish jobs get `id-token: write`, only the tag job gets
 `actions: write`, and every action in `release.yml` is pinned to a commit;

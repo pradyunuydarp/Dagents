@@ -210,6 +210,48 @@ class ReleaseVersionTests(unittest.TestCase):
                 self.assertEqual(2, completed.returncode)
                 self.assertIn("not allowed with argument --create-tag", completed.stderr)
 
+    def test_each_option_is_refused_without_the_mode_it_belongs_to(self) -> None:
+        script = str(REPO_ROOT / "scripts" / "release_version.py")
+        for extra, needed in (
+            (["--requested-by", "octocat"], "--create-tag"),
+            (["--run-url", "https://github.com/owner/repo/actions/runs/1"], "--create-tag"),
+            (["--summary", "summary.md"], "--tag"),
+            (["--create-tag", "--summary", "summary.md"], "--tag"),
+        ):
+            with self.subTest(extra=extra):
+                completed = subprocess.run([sys.executable, script, *extra], capture_output=True, text=True)
+                self.assertEqual(2, completed.returncode)
+                self.assertIn(f"needs {needed}", completed.stderr)
+
+    def test_the_tag_message_records_who_asked_for_the_release(self) -> None:
+        """A run started by the tag job has github-actions[bot] as its actor, so the tag names the person and the run."""
+        url = "https://github.com/owner/repo/actions/runs/123"
+        self.assertEqual("dagents 0.1.0a1", release_version.tag_message("0.1.0a1"))
+        for login in ("octocat", "octo-cat", "a", "x" * 39, "renovate[bot]"):
+            with self.subTest(login=login):
+                self.assertEqual(f"dagents 0.1.0a1\n\nRequested by {login} in {url}", release_version.tag_message("0.1.0a1", login, url))
+        for address in (url, f"{url}/attempts/2", "https://github.example.com/owner/my.repo/actions/runs/9"):
+            with self.subTest(address=address):
+                self.assertTrue(release_version.tag_message("0.1.0a1", "octocat", address).endswith(f" in {address}"))
+
+    def test_the_tag_message_refuses_text_that_is_not_a_login_or_a_run_address(self) -> None:
+        url = "https://github.com/owner/repo/actions/runs/123"
+        for login, address in (
+            ("octo cat", url),
+            ("octocat\nSigned-off-by: someone", url),
+            ("", url),
+            ("-octocat", url),
+            ("x" * 40, url),
+            ("octocat", "http://github.com/owner/repo/actions/runs/123"),
+            ("octocat", f"{url} and more"),
+            ("octocat", f"{url}\nmore"),
+            ("octocat", "https://github.com/owner/repo/pull/1"),
+            ("octocat", None),
+            (None, url),
+        ):
+            with self.subTest(login=login, address=address), self.assertRaises(release_version.ReleaseError):
+                release_version.tag_message("0.1.0a1", login, address)
+
 
 #: The identity the release workflow gives git for the tag it creates.
 TAGGER = {"GIT_COMMITTER_NAME": "github-actions[bot]", "GIT_COMMITTER_EMAIL": "41898282+github-actions[bot]@users.noreply.github.com"}
@@ -271,6 +313,23 @@ class CreateTagTests(unittest.TestCase):
         body = git_in(self.remote, "cat-file", "-p", "refs/tags/v0.1.0a1")
         self.assertIn("tagger github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>", body)
         self.assertTrue(body.endswith("dagents 0.1.0a1"))
+
+    def test_the_tag_names_who_asked_for_the_release_and_the_run(self) -> None:
+        url = "https://github.com/owner/repo/actions/runs/123"
+        created = release_version.create_tag(
+            "0.1.0a1", self.head, remote=TEST_REMOTE, branch="main", cwd=self.work, requested_by="octo-cat", run_url=url
+        )
+        self.assertTrue(created)
+        body = git_in(self.remote, "cat-file", "-p", "refs/tags/v0.1.0a1")
+        self.assertTrue(body.endswith(f"dagents 0.1.0a1\n\nRequested by octo-cat in {url}"), body)
+
+    def test_a_requester_it_cannot_record_creates_no_tag(self) -> None:
+        with self.assertRaisesRegex(release_version.ReleaseError, "login"):
+            release_version.create_tag(
+                "0.1.0a1", self.head, remote=TEST_REMOTE, branch="main", cwd=self.work,
+                requested_by="octocat\nSigned-off-by: someone", run_url="https://github.com/owner/repo/actions/runs/1",
+            )  # fmt: skip
+        self.assertIsNone(self.remote_tag())
 
     def test_a_second_run_finds_the_tag_and_leaves_it_alone(self) -> None:
         self.assertTrue(self.create(self.head))
@@ -337,14 +396,17 @@ class CreateTagTests(unittest.TestCase):
     def test_the_command_creates_the_tag_once_and_writes_the_outputs(self) -> None:
         script = str(REPO_ROOT / "scripts" / "release_version.py")
         output = self.work.parent / "github-output"
+        url = "https://github.com/owner/repo/actions/runs/123"
         command = [
             sys.executable, script, "--create-tag", "--remote", TEST_REMOTE, "--branch", "main", "--commit", self.head,
+            "--requested-by", "octocat", "--run-url", url,
             "--github-output", str(output), "--repo", str(self.work), "--version-file", str(self.version_file),
         ]  # fmt: skip
         first = subprocess.run(command, capture_output=True, text=True)
         self.assertEqual(0, first.returncode, first.stderr)
         self.assertIn("created tag v0.1.0a1", first.stdout)
         self.assertEqual("version=0.1.0a1\nprerelease=true\ntag=v0.1.0a1\ncreated=true\n", output.read_text(encoding="utf-8"))
+        self.assertTrue(git_in(self.remote, "cat-file", "-p", "refs/tags/v0.1.0a1").endswith(f"Requested by octocat in {url}"))
         output.unlink()
         second = subprocess.run(command, capture_output=True, text=True)
         self.assertEqual(0, second.returncode, second.stderr)
@@ -364,6 +426,72 @@ class CreateTagTests(unittest.TestCase):
         self.assertEqual(1, completed.returncode)
         self.assertIn("before 1.0.0", completed.stderr)
         self.assertIsNone(subprocess.run(["git", "rev-parse", "--verify", "--quiet", "refs/tags/v0.2.0"], cwd=self.remote, capture_output=True, text=True).stdout.strip() or None)
+
+
+class TagSummaryTests(unittest.TestCase):
+    """``release_version.py --tag ... --summary FILE`` shows the reviewer the tag a release run is on.
+
+    A run the tag job starts has github-actions[bot] as its actor, so the
+    summary is where the tagger and the message, which names the person who
+    asked for the release, become visible in the run that asks for approval.
+    """
+
+    URL = "https://github.com/owner/repo/actions/runs/123"
+
+    def setUp(self) -> None:
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        self.repo = Path(folder.name) / "repo"
+        self.repo.mkdir()
+        git_in(self.repo, "init", "--quiet", "--initial-branch=main")
+        (self.repo / "dagents").mkdir()
+        self.version_file = self.repo / "dagents" / "__init__.py"
+        self.version_file.write_text('__version__ = "0.1.0a1"\n', encoding="utf-8")
+        git_in(self.repo, "add", "-A")
+        git_in(self.repo, "commit", "--quiet", "--message", "version 0.1.0a1")
+        self.head = git_in(self.repo, "rev-parse", "HEAD")
+        self.summary = Path(folder.name) / "summary.md"
+        environment = mock.patch.dict(os.environ, TAGGER)
+        environment.start()
+        self.addCleanup(environment.stop)
+
+    def run_check(self, tag: str = "v0.1.0a1") -> int:
+        argv = ["--tag", tag, "--require-on-branch", "main", "--summary", str(self.summary), "--repo", str(self.repo), "--version-file", str(self.version_file)]
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            return release_version.main(argv)
+
+    def test_an_annotated_tag_shows_its_tagger_and_message(self) -> None:
+        git_in(self.repo, "tag", "--annotate", "--message", release_version.tag_message("0.1.0a1", "octocat", self.URL), "v0.1.0a1")
+        self.assertEqual(0, self.run_check())
+        summary = self.summary.read_text(encoding="utf-8")
+        self.assertIn(f"The tag v0.1.0a1 names commit {self.head}, which is on main.", summary)
+        self.assertIn("\n    tagger github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com> ", summary)
+        self.assertIn("\n    dagents 0.1.0a1\n", summary)
+        self.assertIn(f"\n    Requested by octocat in {self.URL}\n", summary)
+
+    def test_a_lightweight_tag_says_it_records_no_tagger(self) -> None:
+        git_in(self.repo, "tag", "v0.1.0a1")
+        self.assertEqual(0, self.run_check())
+        summary = self.summary.read_text(encoding="utf-8")
+        self.assertIn(f"The tag v0.1.0a1 names commit {self.head}, which is on main.", summary)
+        self.assertIn("lightweight tag, so it records no tagger and no message", summary)
+        self.assertNotIn("    tagger", summary)
+
+    def test_text_from_the_tag_stays_inside_a_code_block(self) -> None:
+        """Anyone who can push a tag writes its message, so none of it is read as Markdown."""
+        message = "dagents 0.1.0a1\n\n```\n# Approved by the owner\n<b>yes</b>"
+        git_in(self.repo, "tag", "--annotate", "--cleanup=verbatim", "--message", message, "v0.1.0a1")
+        self.assertEqual(0, self.run_check())
+        block = self.summary.read_text(encoding="utf-8").split("annotated tag:\n\n", 1)[1]
+        self.assertIn("    # Approved by the owner", block)
+        for line in block.rstrip("\n").splitlines():
+            with self.subTest(line=line):
+                self.assertTrue(line.startswith("    "), line)
+
+    def test_a_failed_check_writes_no_summary(self) -> None:
+        git_in(self.repo, "tag", "v0.1.0a2")
+        self.assertEqual(1, self.run_check("v0.1.0a2"))
+        self.assertFalse(self.summary.exists())
 
 
 class ProjectMetadataTests(unittest.TestCase):

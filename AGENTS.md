@@ -435,10 +435,12 @@ full steps are in the "Releasing" section of `CLAUDE.md`. In short:
 - The owner starts a release from the Actions tab: workflow **Release**, **Run workflow** on
   `main`, with the box **Tag the head of main as `v<version>` and publish it** ticked. That run's
   only job creates the annotated tag `v<version>` on the head of `main` with the workflow's token
-  and starts `.github/workflows/release.yml` again on the tag. Pushing the tag `v<version>` starts
-  the same release run. The job stops when `main` has moved on since the run started or when the
-  tag already names another commit; when the tag already names this commit, it starts a new release
-  run on it, which cannot publish different files.
+  and starts `.github/workflows/release.yml` again on the tag. The tag's message names the person
+  who started the run and links to it, because the release run's actor is `github-actions[bot]`.
+  Pushing the tag `v<version>` starts the same release run. The job stops when `main` has moved on
+  since the run started (start a new run; a re-run checks the same commit) or when the tag already
+  names another commit; when the tag already names this commit, it starts a new release run on it,
+  which cannot publish different files.
 - The release run on the tag stops when the tag differs from the version or the tagged commit is
   not on `main`, builds the planner on Linux x86_64, Linux aarch64 and macOS arm64, builds the
   sdist and one wheel per platform with that planner inside, checks and smoke-tests every wheel in
@@ -449,7 +451,10 @@ full steps are in the "Releasing" section of `CLAUDE.md`. In short:
   environments accept only `v*` tags, and the `pypi` environment needs a reviewer's approval. The
   run that publishes is always on the tag, so these rules apply however the release started. A
   tag ruleset may restrict updates and deletions of `v*` tags, but not creations, because the
-  workflow's token creates the tag.
+  workflow's token creates the tag. So anyone with write access can push a `v*` tag on any commit,
+  whose own workflow file can skip the checks. The `pypi` reviewer, who checks on GitHub that the
+  run's commit is on `main` before approving, is then the only check before PyPI; "Who can
+  publish" in `CLAUDE.md` has the details.
 - Every build uses the hatchling version pinned in `.github/build-constraints.txt`.
 - A manual run with the box unticked is a dry run that builds and checks everything and publishes
   nothing. CI's `packaging` job builds and smoke-tests a Linux wheel on every pull request, also in an

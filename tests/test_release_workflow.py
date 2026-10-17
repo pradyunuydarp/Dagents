@@ -66,7 +66,7 @@ def describe(context: dict) -> str:
 # --- A small evaluator for the GitHub expressions the job conditions use ------
 #
 # It covers literals, context paths, `!`, `==`, `!=`, `&&`, `||`, parentheses,
-# startsWith and the status functions, with GitHub's rules: strings compare
+# startsWith, format and the status functions, with GitHub's rules: strings compare
 # without case, operands of different types are compared as numbers, and a
 # condition without a status function also needs every earlier job to succeed.
 
@@ -214,7 +214,27 @@ class _Expression:
             return {"success": self.needs_succeeded, "always": True, "failure": False, "cancelled": False}[name]
         if name == "startsWith":
             return _text(arguments[0]).casefold().startswith(_text(arguments[1]).casefold())
+        if name == "format":
+            values = [_text(value) for value in arguments[1:]]
+            return re.sub(
+                r"\{\{|\}\}|\{(\d+)\}",
+                lambda match: values[int(match.group(1))] if match.group(1) is not None else match.group(0)[0],
+                _text(arguments[0]),
+            )
         raise ValueError(f"the test evaluator does not know the function {name}()")
+
+
+def evaluate(text: str, context: dict) -> object:
+    """The value of an expression that is not a job condition."""
+    return _Expression(text, context, needs_succeeded=True).evaluate()
+
+
+def field_value(text: str, context: dict) -> object:
+    """The value of a workflow field such as the concurrency group: text in which each ``${{ }}`` is evaluated."""
+    whole = re.fullmatch(r"\s*\$\{\{(.*?)\}\}\s*", text, re.DOTALL)
+    if whole is not None and "${{" not in whole.group(1):
+        return evaluate(whole.group(1), context)
+    return re.sub(r"\$\{\{(.*?)\}\}", lambda match: _text(evaluate(match.group(1), context)), text, flags=re.DOTALL)
 
 
 def job_starts(condition: object, context: dict, needs_succeeded: bool) -> bool:
@@ -428,6 +448,35 @@ class ReleaseWorkflowTests(unittest.TestCase):
         ):
             with self.subTest(condition=condition, needs_succeeded=ok):
                 self.assertEqual(expected, job_starts(condition, context, ok))
+        for expression, expected in (
+            ("format('release-{0}', github.ref)", "release-refs/tags/v1"),
+            ("format('{{x}}-{1}-{0}', 'a', 'b')", "{x}-b-a"),
+            ("true && 'tag' || 'build'", "tag"),  # && and || give an operand, not a boolean
+            ("false && 'tag' || 'build'", "build"),
+        ):
+            with self.subTest(expression=expression):
+                self.assertEqual(expected, evaluate(expression, context))
+        self.assertEqual("release-refs/tags/v1", field_value("release-${{ github.ref }}", context))
+        self.assertEqual("release-refs/tags/v1", field_value("${{ format('release-{0}', github.ref) }}", context))
+
+    def test_the_tag_run_has_a_concurrency_group_of_its_own(self) -> None:
+        """The run that creates the tag neither waits behind a dry run on main nor is cancelled by one queued after it.
+
+        Every other run queues behind the runs on its own ref, so two release
+        runs on one tag never overlap, and a tag pushed by hand and a run
+        started on that tag share the queue.
+        """
+        concurrency = self.workflow["concurrency"]
+        self.assertIs(False, concurrency["cancel-in-progress"])
+        tag_run = {"github": {"event_name": "workflow_dispatch", "ref": "refs/heads/main"}, "inputs": {"release_tag": True}}
+        tag_group = field_value(concurrency["group"], tag_run)
+        for context in contexts():
+            if context == tag_run:
+                continue
+            with self.subTest(context=describe(context)):
+                group = field_value(concurrency["group"], context)
+                self.assertEqual(f"release-{context['github']['ref']}", group)
+                self.assertNotEqual(tag_group, group)
 
     def test_testpypi_comes_before_pypi_and_each_has_its_environment(self) -> None:
         self.assertEqual("testpypi", self.jobs["publish-testpypi"]["environment"]["name"])
@@ -496,6 +545,9 @@ class ReleaseWorkflowTests(unittest.TestCase):
                 command = " ".join(calls[0])
                 self.assertIn("scripts/release_version.py --tag v0.1.0a1 --require-on-branch origin/main", command)
                 self.assertIn("--github-output", command)
+                # The run's actor may be github-actions[bot], so the summary shows the tag's tagger and message.
+                self.assertIn("--summary", calls[0])
+                self.assertEqual("GITHUB_STEP_SUMMARY", Path(calls[0][calls[0].index("--summary") + 1]).name)
 
     def test_the_version_job_checks_no_tag_in_a_dry_run(self) -> None:
         for ref in ("refs/heads/main", "refs/heads/feature"):
@@ -505,6 +557,7 @@ class ReleaseWorkflowTests(unittest.TestCase):
                 self.assertEqual(0, completed.returncode, completed.stderr)
                 self.assertEqual(1, len(calls))
                 self.assertNotIn("--tag", calls[0])
+                self.assertNotIn("--summary", calls[0])
                 self.assertIn("--github-output", calls[0])
 
     def test_the_input_is_refused_on_any_ref_but_main(self) -> None:
@@ -543,7 +596,16 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertEqual("tag", tag_step[0].get("id"))
         run = tag_step[0]["run"]
         self.assertIn("scripts/release_version.py --create-tag", run)
-        for option in ('--commit "${GITHUB_SHA}"', "--branch main", "--remote origin", '--github-output "${GITHUB_OUTPUT}"'):
+        for option in (
+            '--commit "${GITHUB_SHA}"',
+            "--branch main",
+            "--remote origin",
+            '--github-output "${GITHUB_OUTPUT}"',
+            # The release run this job starts has github-actions[bot] as its
+            # actor, so the tag names the person who started this run, and the run.
+            '--requested-by "${GITHUB_TRIGGERING_ACTOR}"',
+            '--run-url "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"',
+        ):
             self.assertIn(option, run)
         dispatch = step_named(job, "Start the release")
         self.assertGreater(steps(job).index(dispatch), steps(job).index(tag_step[0]))
