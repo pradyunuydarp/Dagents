@@ -4,6 +4,12 @@ This step builds the planner, creates a Python environment and starts the
 services. At the end, every service answers its health check and the worked
 example runs.
 
+It works from a clone of the repository, which holds the worked example, the
+framework services and the tests. To use Dagents in your own application, you
+can install the package from PyPI instead
+([Install the package](00-install.md)). The worked example also runs on the
+package ([section 5 of that page](00-install.md#5-run-the-worked-example-on-the-package)).
+
 ## What you need
 
 | Tool | Version | Used for |
@@ -16,8 +22,7 @@ You do not need Docker, a database or a GPU for Steps 1 to 7.
 
 ## 1. Get the code
 
-Dagents is not published as a package, so your application uses a copy of the
-repository:
+Clone the repository:
 
 ```bash
 git clone https://github.com/pradyunuydarp/Dagents.git

@@ -21,15 +21,26 @@ did before sites existed.
 
 ## Run it
 
+From the `dagents` package on PyPI, whose wheels for Linux x86_64, Linux
+aarch64 and macOS arm64 include the planner:
+
+```bash
+pip install "dagents[lma]"
+dagents-lma
+```
+
+From a clone of the repository, with the planner built:
+
 ```bash
 export DAGENTSC_BIN=$PWD/bindings/ocaml/_build/default/bin/dagentsc.exe
 PYTHONPATH=. .venv/bin/uvicorn dagents.lma.main:app --port 8010
 ```
 
-`PYTHONPATH=. .venv/bin/python -m dagents.lma` does the same. It listens on
-`--host` and `--port`, else `LMA_API_HOST` and `LMA_API_PORT`, else
-`127.0.0.1:8010`. An installed `dagents` package also provides it as the
-`dagents-lma` command.
+`PYTHONPATH=. .venv/bin/python -m dagents.lma` does the same as `dagents-lma`.
+Both listen on `--host` and `--port`, else `LMA_API_HOST` and `LMA_API_PORT`,
+else `127.0.0.1:8010`. The guide's
+[Install the package](../../docs/guide/00-install.md) page covers the package,
+its extras and platforms without a planner.
 
 `dagents/lma/main.py` builds the app with `create_app(Settings.from_env())`.
 Nothing reads the environment when a module is imported, so one process can
@@ -70,11 +81,11 @@ environment.
 | Variable | Default | Meaning |
 |---|---|---|
 | `LMA_APP_NAME`, `LMA_APP_ENV`, `LMA_LOG_LEVEL` | `dagents-lma`, `development`, `info` | Names and logging |
-| `LMA_API_HOST`, `LMA_API_PORT` | none | Where uvicorn serves the LMA in the container; the app does not read them |
+| `LMA_API_HOST`, `LMA_API_PORT` | none | Where `dagents-lma` listens, and where uvicorn serves the LMA in the container; the app itself does not read them |
 | `LMA_SITE_ID`, `LMA_CONDITION_ID` | none | The site the LMA serves and its condition pack. Without `LMA_SITE_ID` the LMA is generic |
 | `LMA_STUDY_ID`, `LMA_REPORTING_PURPOSE` | the condition id, the pack's first approved purpose | Who asks for the site's summary and why; the label-rate decision uses them |
 | `LMA_PROFILE_FIELDS` | every field of the contract | Comma-separated fields the running profile tracks |
-| `LMA_CAPABILITIES`, `LMA_POLICY_VERSION` | none, `site-policy-v1` | What the site's registration says |
+| `LMA_CAPABILITIES`, `LMA_POLICY_VERSION` | none, `site-policy-v1` | What the site's registration says. A round selects only sites that have every capability in its `required_capabilities` |
 | `LMA_EXTENSIONS` | none | `module:attribute,...`: extensions loaded into this LMA's own registry. Without it the LMA reads the default registry |
 | `LMA_SITE_SOURCE` | none | The name of a site source factory an extension contributes (`site_sources()`). The LMA reads the site's records through it |
 | `LMA_DATABASE_URL`, `LMA_SITE_ROLE` | none | The site's database and the role every operation acts as. Never shown in a log or a response |
@@ -88,6 +99,61 @@ environment.
 
 `env/.env.lma` sets only the names, the port and the GMA address. Set the rest
 in the environment; never commit a token or a database address.
+
+## Postgres tables
+
+The LMA does not create its tables, and the package has no migrations. Before
+you start an LMA with `LMA_AUDIT_TABLE` or `LMA_JOB_LOG_TABLE`, create the
+tables they name. Create them as `LMA_SITE_ROLE`, so that role owns them. The
+login in `LMA_DATABASE_URL` must be a member of that role, and the role must be
+allowed to create tables in the schema.
+
+For a site role `site_north` that owns the schema `site_north`, with
+`LMA_AUDIT_TABLE=site_north.lma_audit`,
+`LMA_AUDIT_ANCHOR_TABLE=site_north.lma_audit_anchor` and
+`LMA_JOB_LOG_TABLE=site_north.lma_jobs`:
+
+```sql
+set role site_north;
+
+create table site_north.lma_audit (
+  seq bigint generated always as identity primary key,
+  audit_id text not null unique,
+  recorded_at bigint not null,
+  boundary text not null,
+  decision text not null,
+  permitted boolean not null,
+  record jsonb not null,
+  previous_digest text not null unique,
+  digest text not null unique
+);
+
+create table site_north.lma_audit_anchor (
+  id boolean primary key default true check (id),
+  seq bigint not null,
+  digest text not null,
+  record_count bigint not null,
+  verified_at timestamptz not null default now()
+);
+
+create table site_north.lma_jobs (
+  contribution_id bigint generated always as identity primary key,
+  round_id text not null check (length(round_id) between 1 and 200),
+  phase text not null check (length(phase) between 1 and 64),
+  payload jsonb not null,
+  submitted_at timestamptz not null default now()
+);
+
+reset role;
+```
+
+The anchor table is optional. Without `LMA_AUDIT_ANCHOR_TABLE`, the LMA keeps
+the anchor in memory, and the first check of the audit chain after a restart
+reads every record.
+
+When a table is missing, every route that reads or writes the audit chain or
+the job log answers `503` `store_not_set_up`. In 0.1.0a1 its message ends with
+"Apply the migrations."; it means that a table in this section is missing.
 
 ## Routes
 

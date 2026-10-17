@@ -42,7 +42,9 @@ Check each item before your application handles real data.
 
 **Deployment and tests**
 
-- [ ] `dagentsc` is on `PATH` in every container that decides.
+- [ ] Every container that decides has a planner: inside the package's wheel,
+      named by `DAGENTSC_BIN`, or on `PATH`. `python -m dagents` exits with
+      status 0 in it.
 - [ ] The LMA and GMA run with tokens and `LMA_REQUIRE_TOKENS=1` /
       `GMA_REQUIRE_TOKENS=1`. The framework services check no identity, so
       they run on a private network or behind a gateway that authenticates

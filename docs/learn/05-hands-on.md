@@ -6,9 +6,48 @@
 - Node.js 22 and npm, for the demo's web interface
 - OCaml 5.1 with opam, for the planner. See [Learn OCaml](https://ocaml.org/docs) for installation.
 
-No database, GPU or Docker is needed for anything on this page.
+No database, GPU or Docker is needed for anything on this page. On Linux
+x86_64, Linux aarch64 and macOS arm64, trying the agents from the package
+(section 1) needs Python alone.
 
-## 1. Get the code
+## 1. Get Dagents
+
+You can install the Python framework from PyPI, or clone the repository:
+
+| | Install the package | Clone the repository |
+|---|---|---|
+| What you get | The Python framework: the LMA and GMA, the Guard, federated rounds and the extension interface | The framework, the planner's source code, the framework services, the demos and the tests |
+| The planner | Inside the package on Linux x86_64, Linux aarch64 and macOS arm64 | Built from source with OCaml (section 2) |
+| Enough for | Starting an LMA and a GMA, and building your own application | Every section of this page |
+
+### Install the package
+
+```bash
+python3 -m venv .venv
+.venv/bin/pip install "dagents[lma,gma]"
+.venv/bin/python -m dagents
+```
+
+`python -m dagents` prints the installed version and the planner it found. On
+a platform other than the three in the table, the package has no planner, and
+the Guard denies every request until `DAGENTSC_BIN` names one or `dagentsc` is
+on `PATH`. Start the agents, each in its own terminal:
+
+```bash
+.venv/bin/dagents-lma   # an LMA on 127.0.0.1:8010
+.venv/bin/dagents-gma   # a GMA on 127.0.0.1:8020
+```
+
+The GMA answers the requests in
+[Step 4, walkthrough 2](04-apis.md#walkthrough-2-the-framework-apis-on-your-machine).
+An installed package reads its settings only from the environment. It is an
+alpha, so its APIs can change before version 1.0.0. The guide's
+[Install the package](../guide/00-install.md) page explains the extras, the
+settings and what to do on a platform without a planner.
+
+### Clone the repository
+
+The rest of this page works from a clone:
 
 ```bash
 git clone https://github.com/pradyunuydarp/Dagents.git

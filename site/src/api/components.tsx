@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
 
 import { renderDiagrams, useColorScheme } from "../Mermaid";
-import { COPY_BUTTON_INNER, COPY_LABEL } from "../codeCopy";
+import { CopyButton } from "../CopyButton";
 import { highlight } from "../highlight";
 import { apiRoute, renderMarkdown } from "../markdown";
 import { commandSamples, httpSamples, type CodeSample } from "./codegen";
@@ -112,19 +112,6 @@ function JsonBlock({ value }: { value: unknown }) {
         <code dangerouslySetInnerHTML={{ __html: highlight(text, isText ? undefined : "json") }} />
       </pre>
     </div>
-  );
-}
-
-/** The copy button of a code block. `codeCopy.ts` handles its clicks. */
-function CopyButton() {
-  return (
-    <button
-      type="button"
-      className="code-copy"
-      aria-label={COPY_LABEL}
-      title={COPY_LABEL}
-      dangerouslySetInnerHTML={{ __html: COPY_BUTTON_INNER }}
-    />
   );
 }
 

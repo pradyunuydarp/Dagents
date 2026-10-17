@@ -24,6 +24,17 @@ PYTHONPATH=. .venv/bin/python examples/getting-started/step4_federated_round.py
 PYTHONPATH=. .venv/bin/python examples/getting-started/step5_agents_over_http.py
 ```
 
+With the `dagents` package installed from PyPI in `.venv` instead, leave out
+`PYTHONPATH=.` and `DAGENTSC_BIN`: Python then imports the installed package,
+whose wheels for Linux x86_64, Linux aarch64 and macOS arm64 include the
+planner. Steps 1 to 4 need `pip install dagents`, and step 5 needs
+`pip install "dagents[lma,gma]"`
+([Install the package](../../docs/guide/00-install.md#5-run-the-worked-example-on-the-package)).
+
+```bash
+.venv/bin/python examples/getting-started/step1_register.py
+```
+
 Steps 1 to 4 call framework classes in the script's own process. Step 5 runs
 the same round through the Dagents agents: one LMA per store and one GMA,
 called through their HTTP APIs. The agents run inside the script's process

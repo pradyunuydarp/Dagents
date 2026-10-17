@@ -19,6 +19,7 @@ const files = import.meta.glob("../../docs/guide/*.md", {
 /** Reading order. Files not listed here are not shown. */
 const ORDER: { file: string; label: string }[] = [
   { file: "README.md", label: "Overview" },
+  { file: "00-install.md", label: "Install the package" },
   { file: "01-setup.md", label: "1. Set up" },
   { file: "02-describe-your-data.md", label: "2. Describe your data" },
   { file: "03-store-per-source.md", label: "3. A store per source" },

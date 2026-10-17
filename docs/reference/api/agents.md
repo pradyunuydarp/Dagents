@@ -166,7 +166,7 @@ The settings that start an LMA for a site:
 | `LMA_AUDIT_TABLE`, `LMA_AUDIT_ANCHOR_TABLE`, `LMA_JOB_LOG_TABLE` | Where the audit chain and the job log are kept in that database. Without them both are in memory. |
 | `LMA_STUDY_ID`, `LMA_REPORTING_PURPOSE` | Who asks for the site's summary, and why. The defaults are the condition id and the pack's first approved purpose. |
 | `LMA_PROFILE_FIELDS` | The fields the running profile tracks. The default is every field of the feature contract. |
-| `LMA_CAPABILITIES`, `LMA_POLICY_VERSION` | What the site's registration says. The default policy version is `site-policy-v1`. |
+| `LMA_CAPABILITIES`, `LMA_POLICY_VERSION` | What the site's registration says. A round selects only sites that have every capability in its `required_capabilities`. The default policy version is `site-policy-v1`. |
 | `LMA_GMA_ENDPOINT`, `LMA_GMA_TOKEN` | The GMA's address, and the GMA token bound to this site |
 | `LMA_SITE_TOKEN`, `LMA_COORDINATOR_TOKEN`, `LMA_REQUIRE_TOKENS` | The tokens this LMA accepts ([Tokens](#tokens-errors-and-calls-between-agents)) |
 | `LMA_SOURCE_MAX_STALENESS_MS` | How long the LMA uses the records it read before it asks the source for its version again. Default 30000. |

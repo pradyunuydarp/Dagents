@@ -112,14 +112,15 @@ tells readers to clone the repository and put its root on `PYTHONPATH`.
 followed by the steps of `examples/getting-started/` gives the output shown in
 `docs/guide/`. No `PYTHONPATH` setting is needed.
 
-**Status.** Prepared, not yet published. The package `agents` was renamed to
-`dagents`, because another project owns `agents` on PyPI. A root
-`pyproject.toml` builds the whole `dagents/` package (without its tests) as
-version 0.1.0a1, and `.github/workflows/release.yml` publishes to TestPyPI and
-then PyPI from a tag. `scripts/smoke_installed_package.py` checks the "done
+**Status.** Published to PyPI as `dagents` 0.1.0a1, an alpha. The package
+`agents` was renamed to `dagents`, because another project owns `agents` on
+PyPI. A root `pyproject.toml` builds the whole `dagents/` package (without its
+tests), and `.github/workflows/release.yml` publishes each tagged release to
+TestPyPI and then PyPI. `scripts/smoke_installed_package.py` checks the "done
 when" condition on every pull request (CI's `packaging` job) and in every
-release. The guide still tells readers to use a checkout until the first
-release is out.
+release. The guide's install page (`docs/guide/00-install.md`) installs the
+package and runs the worked example on it without `PYTHONPATH`. Step 1 keeps
+the checkout route.
 
 ### A2. Ship the planner as a prebuilt binary (P0, M)
 
@@ -140,7 +141,7 @@ users. Without the binary the Guard denies every request, as designed.
 **Done when.** On a machine with no OCaml installed, a fresh install runs the
 Guard tests in `dagents/tests/test_governance.py` and none of them skip.
 
-**Status.** Prepared, not yet published. The release workflow builds `dagentsc`
+**Status.** Published with 0.1.0a1. The release workflow builds `dagentsc`
 for Linux x86-64, Linux arm64 and macOS arm64, bundles it in a platform wheel
 at `dagents/_bin/dagentsc`, and attaches each binary and `SHA256SUMS` to the
 GitHub release. The runner finds the bundled binary after `DAGENTSC_BIN` and
@@ -562,6 +563,17 @@ stability promise for the Guard and planner JSON contracts.
 
 **Done when.** A release page lists the package, the binaries, their checksums
 and the changes.
+
+**Status.** Partly done. `v0.1.0a1` is the first release, a pre-release. Its
+GitHub Release lists the sdist, the three platform wheels, the three planner
+binaries and `SHA256SUMS`, and the package is on PyPI. The release notes link
+to PyPI, describe the files, and then give GitHub's generated list of merged
+pull requests. `dagents/lma/CHANGELOG.md` and `dagents/gma/CHANGELOG.md` list
+user-visible changes to the agents, but only under "Unreleased", with no
+section for 0.1.0a1. There is no change log by version for the whole package
+yet. The README says that the Python APIs, settings, routes and package layout
+can change before 1.0.0. It does not say what stability the Guard and planner
+JSON contracts have.
 
 ### F5. Make the site readable without JavaScript (P2, M)
 

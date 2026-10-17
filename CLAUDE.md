@@ -467,9 +467,9 @@ openai-agents and imports in the same process as `dagents`.
    (`scripts/check_published_files.py`), publishes to PyPI, checks PyPI the
    same way and creates the GitHub Release. An `a`, `b` or `rc` version is
    marked as a pre-release. The run is on the tag, whichever way it started,
-   so environment rules that allow only `v*` tags still apply, and the
-   reviewer on `pypi` approves the upload to PyPI (see **Approve the upload
-   to PyPI** below).
+   so environment rules that allow only `v*` tags still apply. Once the owner
+   has done step 3 of **Trusted Publishing**, the reviewer on `pypi` approves
+   the upload to PyPI (see **Approve the upload to PyPI** below).
 
 A manual run with the box unticked, on any branch, is a dry run: it builds
 and checks everything and publishes nothing. With the box ticked on any other
@@ -486,12 +486,16 @@ different files:
   refuses a different file with the same name.
 - The GitHub Release step fails when the release exists.
 
-So when PyPI already has the version, the new run publishes nothing new, but
-it still asks the `pypi` reviewer to approve; reject that request. When the
-earlier run failed before publishing, the new run is a normal release run.
+So when PyPI already has the version, the new run publishes nothing new.
+With a reviewer on `pypi`, it still asks the reviewer to approve. Reject that
+request. When the earlier run failed before publishing, the new run is a
+normal release run.
 
-**Approve the upload to PyPI.** The run waits at **Publish to PyPI** until
-the `pypi` environment's reviewer approves. Before approving:
+**Approve the upload to PyPI.** When the `pypi` environment has a required
+reviewer, the run waits at **Publish to PyPI** until that reviewer approves.
+Step 3 of **Trusted Publishing** below adds the reviewer, and that section
+says whether it is done. Without a reviewer, the run uploads to PyPI without
+waiting. Before approving:
 
 1. Check that the run's commit is on `main`. The run page shows the commit.
    `gh api repos/pradyunuydarp/Dagents/compare/main...<commit> --jq .status`
@@ -522,7 +526,8 @@ because they check only the tag's name. So:
 
 - The `pypi` reviewer is the only check before an upload to PyPI. This is why
   the reviewer checks the commit (step 1 above), and why the reviewer is a
-  required part of the setup.
+  required part of the setup. Until the owner adds the reviewer (step 3 of
+  **Trusted Publishing**), such a run can upload to PyPI.
 - `testpypi` has no reviewer unless the owner adds one, so such a run can
   upload to TestPyPI. Its files can take that version's file names there,
   and a later release of the same version then fails its TestPyPI hash
@@ -534,19 +539,27 @@ not set up.
 
 **Trusted Publishing.** The workflow holds no token. PyPI and TestPyPI trust
 this repository's `release.yml` through OpenID Connect, and each upload
-carries a PEP 740 attestation. Once, before the first release, the owner:
+carries a PEP 740 attestation. The owner registered the Trusted Publishers
+once, before 0.1.0a1, and they stay in place for every release:
 
-1. On <https://pypi.org/manage/account/publishing/>, adds a pending publisher:
-   project `dagents`, owner `pradyunuydarp`, repository `Dagents`, workflow
-   `release.yml`, environment `pypi`.
-2. Does the same on <https://test.pypi.org/manage/account/publishing/> with
-   environment `testpypi`.
-3. In the repository settings (Environments), creates the environments
-   `testpypi` and `pypi`. On each, sets the deployment branches and tags rule
-   to selected tags with the pattern `v*`. On `pypi`, adds a required
-   reviewer, so a person approves each upload. This step is required: see
-   **Who can publish**. A reviewer on `testpypi` as well makes TestPyPI
-   uploads wait for a person too.
+1. On PyPI, a publisher for project `dagents`, owner `pradyunuydarp`,
+   repository `Dagents`, workflow `release.yml`, environment `pypi`. It was
+   added as a pending publisher on
+   <https://pypi.org/manage/account/publishing/>, because the project did not
+   exist yet. It now shows under the project's Publishing settings on PyPI,
+   where any change is made.
+2. The same on TestPyPI, with environment `testpypi`.
+
+The owner must also do steps 3 and 4. As of 0.1.0a1 they are not done: the
+PyPI upload of release run 39016551221 went ahead without a reviewer's
+approval, and the repository's only ruleset protects `main`.
+
+3. In the repository settings (Environments), on the environments
+   `testpypi` and `pypi` (the 0.1.0a1 run deployed to both), sets the
+   deployment branches and tags rule to selected tags with the pattern
+   `v*`. On `pypi`, adds a required reviewer, so a person approves each
+   upload. This step is required: see **Who can publish**. A reviewer on
+   `testpypi` as well makes TestPyPI uploads wait for a person too.
 4. In the repository settings (Rules, Rulesets), adds a tag ruleset that
    targets `v*` and restricts updates and deletions. Then nobody can move a
    release tag to another commit or delete it. Do not restrict creations:

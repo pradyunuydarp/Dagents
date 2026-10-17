@@ -19,6 +19,10 @@ export const SITE_URL = "https://pradyunuydarp.github.io/Dagents/";
 /** Raw files on the main branch, for images in the guide. */
 export const RAW_URL = "https://raw.githubusercontent.com/pradyunuydarp/Dagents/main";
 
+/** The Python framework's page on PyPI, and the command that installs it. */
+export const PYPI_URL = "https://pypi.org/project/dagents/";
+export const INSTALL_COMMAND = "pip install dagents";
+
 export const REPO_LINKS = {
   contributing: `${REPO_URL}/blob/main/AGENTS.md`,
   serviceInventory: `${REPO_URL}/blob/main/docs/reference/service-inventory.md`,

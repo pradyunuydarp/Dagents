@@ -214,6 +214,20 @@
   color: var(--ds-ink);
 }
 
+/* The install command under the hero's buttons. The block uses the code block
+ * styles and copy button of the guide pages. */
+.install {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-2);
+  max-width: 34em;
+}
+
+.install-label {
+  color: var(--ds-ink-2);
+  font-size: var(--ds-step--1);
+}
+
 /* The hero figure: the topology drawn in Topology.tsx. */
 .topology {
   margin: 0;
@@ -491,6 +505,7 @@
   .hero-text > :nth-child(3) { animation-delay: 120ms; }
   .hero-text > :nth-child(4) { animation-delay: 180ms; }
   .hero-text > :nth-child(5) { animation-delay: 240ms; }
+  .hero-text > :nth-child(6) { animation-delay: 300ms; }
   .topology { animation-delay: 200ms; }
 
   @supports (animation-timeline: view()) {

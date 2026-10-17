@@ -110,6 +110,19 @@ Current implementation includes:
 
 `dagents/gma/README.md` lists the settings and routes.
 
+### Starting an agent
+
+- From PyPI: `pip install "dagents[lma,gma]"`, then `dagents-lma` (port 8010) and `dagents-gma`
+  (port 8020). The wheels for Linux x86_64, Linux aarch64 and macOS arm64 include the planner;
+  elsewhere `DAGENTSC_BIN` or `dagentsc` on `PATH` must provide one. `python -m dagents` prints
+  the planner the runner found. An installed package reads its settings only from the process
+  environment, never from `env/`.
+- From a clone: build the planner, set `DAGENTSC_BIN`, and run
+  `PYTHONPATH=. uvicorn dagents.lma.main:app --port 8010` or `dagents.gma.main:app --port 8020`.
+  The agents then also read `env/.env.shared` and their own env file.
+
+`docs/guide/00-install.md` covers the package route step by step.
+
 ## Shared Run Flow
 
 The intended operating flow across the framework is:
@@ -447,10 +460,12 @@ full steps are in the "Releasing" section of `CLAUDE.md`. In short:
   a clean environment, publishes to TestPyPI first and then to PyPI, and creates a GitHub Release
   (a pre-release for `a`, `b` and `rc` versions) with the planner binaries and their checksums.
 - Publishing uses Trusted Publishing: PyPI trusts the workflow through OpenID Connect, so no token
-  exists to leak. The owner registers the publisher on pypi.org and test.pypi.org once, both
-  environments accept only `v*` tags, and the `pypi` environment needs a reviewer's approval. The
-  run that publishes is always on the tag, so these rules apply however the release started. A
-  tag ruleset may restrict updates and deletions of `v*` tags, but not creations, because the
+  exists to leak. The owner registered the publisher on pypi.org and test.pypi.org once. The
+  intended setup also limits both environments to `v*` tags and makes the `pypi` environment wait
+  for a reviewer's approval. As of 0.1.0a1 the `pypi` environment has no reviewer: that upload
+  went ahead without an approval. "Trusted Publishing" in `CLAUDE.md` lists the steps still to do.
+  The run that publishes is always on the tag, so these rules apply however the release started.
+  A tag ruleset may restrict updates and deletions of `v*` tags, but not creations, because the
   workflow's token creates the tag. So anyone with write access can push a `v*` tag on any commit,
   whose own workflow file can skip the checks. The `pypi` reviewer, who checks on GitHub that the
   run's commit is on `main` before approving, is then the only check before PyPI; "Who can

@@ -24,7 +24,7 @@ pip install "dagents[lma,gma]"     # adds FastAPI, uvicorn and httpx, to serve a
 ```
 
 The other extras are `postgres` (the Postgres audit chain, job log, model
-registry and source adapter), `charts` (the SVG chart renderer), `compose`
+registry, lease and source adapter), `charts` (the SVG chart renderer), `compose`
 (PyYAML, for the appliers that start a service from a Compose file) and `all`.
 While every release is a pre-release, `pip install dagents` installs the
 newest one. After 1.0.0, a pre-release needs `pip install --pre dagents` or an
@@ -34,15 +34,21 @@ The wheels for Linux x86_64, Linux aarch64 and macOS arm64 include the
 planner, `dagentsc`. On other systems, such as Windows and Intel Macs, pip
 builds the package from its source distribution, which has no planner. There
 the Ethical Guard denies every request until `DAGENTSC_BIN` names a planner
-binary. Each [GitHub Release](https://github.com/pradyunuydarp/Dagents/releases)
-has the planner for the three platforms, and
+binary or `dagentsc` is on `PATH`. Each
+[GitHub Release](https://github.com/pradyunuydarp/Dagents/releases) has the
+planner for the three platforms, and
 [`bindings/ocaml/`](bindings/ocaml/README.md) shows how to build it.
-`python -m dagents` prints the installed version and the planner it found.
+`python -m dagents` prints the installed version and the planner it found, and
+exits with status 1 when it finds none.
 
-`dagents-lma` and `dagents-gma` start an agent. An installed package reads its
-settings only from the process environment; the [LMA](dagents/lma/README.md)
+`dagents-lma` and `dagents-gma` start an agent, by default on `127.0.0.1:8010`
+and `127.0.0.1:8020`. An installed package reads its settings only from the
+process environment, never from an env file; the [LMA](dagents/lma/README.md)
 and [GMA](dagents/gma/README.md) READMEs list them. The services in
 `services/`, the Spring services and the demos are not in the package.
+
+The guide's [Install the package](docs/guide/00-install.md) page shows each
+step with its output, including how to run the worked example on the package.
 
 ## Links
 
@@ -96,9 +102,10 @@ PowerPoint files and PDFs. The list is
 ## Build an application on Dagents
 
 The [guide to building an application](docs/guide/README.md) shows, step by
-step, how to use Dagents in your own code: choose one of three ways to build on
-it, describe your data, give each source its own store, govern every read, run
-a federated round, call the framework services, deploy and test. Read it on the
+step, how to use Dagents in your own code: install the package or clone the
+repository, choose one of three ways to build on it, describe your data, give
+each source its own store, govern every read, run a federated round, call the
+framework services, deploy and test. Read it on the
 [framework site](https://pradyunuydarp.github.io/Dagents/#/guide) or in
 [`docs/guide/`](docs/guide/README.md). Its code comes from a small application
 in [`examples/getting-started/`](examples/getting-started/README.md), and a
@@ -148,7 +155,17 @@ pipeline steps and model adapters, and call the LMA and GMA through their APIs.
 
 ## Run it
 
-Build the planner, then run the stroke triage demo locally (no Docker or
+The demos are not in the package. They run from a clone of the repository:
+
+```bash
+git clone https://github.com/pradyunuydarp/Dagents.git
+cd Dagents
+```
+
+The stroke triage demo needs OCaml with opam, Node.js 22 with npm, and a Python
+virtual environment in `.venv` with the demo's requirements.
+[Step 5 of the learning guide](docs/learn/05-hands-on.md) shows how to set up
+each one. Then build the planner and run the demo locally (no Docker or
 database needed):
 
 ```bash
@@ -157,8 +174,7 @@ export DAGENTSC_BIN=$PWD/bindings/ocaml/_build/default/bin/dagentsc.exe
 apps/healthcare-demo/scripts/run_frontend_demo.sh
 ```
 
-[Step 5 of the guide](docs/learn/05-hands-on.md) covers setup, tests and
-exercises.
+Step 5 of the learning guide also covers the tests and exercises.
 
 To run the whole stack in containers, with the committed configuration:
 

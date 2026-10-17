@@ -33,6 +33,12 @@ built from your own Dockerfile needs the same stage and `COPY` line if its
 service calls the planner. Without them its Guard denies every request.
 `tests/test_planner_in_images.py` checks the repository's Dockerfiles for it.
 
+An image that installs the `dagents` package from PyPI on Linux x86_64 or
+Linux aarch64 gets the planner inside the wheel and needs no OCaml stage
+([Install the package](00-install.md#2-check-that-the-package-has-a-planner)).
+Add `RUN python -m dagents` after the install: it exits with status 1 when it
+finds no planner, so the build stops.
+
 An LMA without the planner also refuses every federated job. A GMA without it
 cannot plan a round, decide readiness, evaluate release gates or change a model
 version's status, and its release Guard denies every request. A route that only
@@ -65,7 +71,9 @@ deployment, not as a tested one.
   runs. Never write a URL or a port into your code.
 - **Precedence.** A service loads `env/.env.shared` and its own file, and a
   variable already set in the environment wins. Set production values in the
-  environment, and keep the committed files free of secrets.
+  environment, and keep the committed files free of secrets. An LMA or a GMA
+  from the installed `dagents` package reads no env file, only the
+  environment.
 - **One connection per source.** Give each source's store its own database
   login, and read it from a variable per source. The stroke demo uses
   `HEALTHCARE_DEMO_SITE_<SITE>_DATABASE_URL`, for example
@@ -232,7 +240,7 @@ The same client code reaches the agents in two ways
 | Built with | `AgentNetwork.in_process()`, then `network.add_app(name, create_app(...))` for each agent | `AgentNetwork.over_http({name: base_url, ...})`; each agent runs under uvicorn with its settings |
 | A call goes through | The agent's real routes, request checks and token checks, through `httpx.ASGITransport`, without a socket | HTTP, with one kept-alive client per agent |
 | Use it for | One application that hosts its agents, such as a demo on one server | Sources on their own machines |
-| Example | `examples/getting-started/shop/agents.py` ([Step 6](06-federated-rounds.md#6-run-the-round-through-the-lma-and-gma)); the stroke demo's published API (`apps/healthcare-demo/backend/app/services/agents.py`) | `PYTHONPATH=. uvicorn dagents.lma.main:app` and `dagents.gma.main:app`, configured from the environment; `apps/healthcare-demo/scripts/run_local_demo.sh --agents network` |
+| Example | `examples/getting-started/shop/agents.py` ([Step 6](06-federated-rounds.md#6-run-the-round-through-the-lma-and-gma)); the stroke demo's published API (`apps/healthcare-demo/backend/app/services/agents.py`) | `dagents-lma` and `dagents-gma` from the installed package, or `PYTHONPATH=. uvicorn dagents.lma.main:app` and `dagents.gma.main:app` in a clone, configured from the environment; `apps/healthcare-demo/scripts/run_local_demo.sh --agents network` |
 
 Rules that apply in process:
 
@@ -296,6 +304,13 @@ as one role, in a transaction that starts with `SET LOCAL ROLE`:
 |---|---|---|
 | LMA | The audit chain (`LMA_AUDIT_TABLE`, `LMA_AUDIT_ANCHOR_TABLE`) and the job log (`LMA_JOB_LOG_TABLE`), with `LMA_DATABASE_URL` and `LMA_SITE_ROLE` | The records it read and the running profile, which it rebuilds from the site's source |
 | GMA | The model registry (`GMA_MODEL_TABLE`) and the release Guard's audit chain (`GMA_AUDIT_TABLE`, `GMA_AUDIT_ANCHOR_TABLE`), with `GMA_DATABASE_URL` and `GMA_DATABASE_ROLE` | Enrolments, rounds and the clipped updates of rounds still running |
+
+The agents do not create these tables, and the `dagents` package has no
+migrations. Create each table before you start the agent, as the "Postgres
+tables" section of the [LMA README](../../dagents/lma/README.md#postgres-tables)
+and the [GMA README](../../dagents/gma/README.md#postgres-tables) shows. Until
+then, the routes that use a missing table answer `503` with the code
+`store_not_set_up`.
 
 A GMA restart during a round loses the round and its stored updates, so the
 round cannot be aggregated. It fails closed. Model versions, release decisions

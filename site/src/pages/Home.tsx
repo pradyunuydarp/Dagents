@@ -1,9 +1,10 @@
 import { useLayoutEffect } from "react";
 
+import { CopyButton } from "../CopyButton";
 import { Diagram } from "../Mermaid";
 import { StepArt, type StepArtKind } from "../StepArt";
 import { Topology } from "../Topology";
-import { DEMOS, REPO_URL, demoHref } from "../config";
+import { DEMOS, INSTALL_COMMAND, PYPI_URL, REPO_URL, demoHref } from "../config";
 import { BUILD_GUIDE } from "../guide";
 import { GUIDE, firstDiagram } from "../learn";
 import { href } from "../router";
@@ -30,7 +31,7 @@ const PARTS = [
   {
     part: "Agents",
     folder: "dagents/",
-    purpose: "The LMA and GMA services, and the client and tokens they call each other with"
+    purpose: "The Python framework, released on PyPI as dagents: the LMA and GMA services, and the client and tokens they call each other with"
   },
   { part: "Planners", folder: "bindings/ocaml/", purpose: "The OCaml decision modules and the dagentsc tool" },
   { part: "Framework services", folder: "services/", purpose: "Core, pipeline and model services, and their Spring Boot versions" },
@@ -40,6 +41,7 @@ const PARTS = [
 ];
 
 const STATUS = [
+  "The Python framework is released on PyPI as the package dagents, an alpha. On Linux x86_64, Linux aarch64 and macOS arm64 the package includes the planner. On other platforms the Guard denies every request until DAGENTSC_BIN or dagentsc on PATH provides one. The framework services, the Spring services and the demos are not in the package.",
   "The agents deliver messages in memory, and the GMA keeps its enrolments and rounds in memory. With a database, an LMA keeps its audit chain and job log in Postgres, and the GMA keeps its model registry and audit chain there. With a database, the stroke demo keeps each hospital's records in its own Postgres schema; without one, in memory.",
   "The GMA can send each round's jobs to the LMAs over their HTTP APIs and combine training updates through a model kind the application contributes. It is not a secure-aggregation protocol: the GMA sees each site's clipped update. The in-process engine is a simulator for tests and the getting-started example.",
   "The LMA and GMA accept bearer tokens with fixed scopes. The framework services check no identity, so they belong on a private network.",
@@ -85,6 +87,20 @@ export function Home({ anchor }: { anchor: string | null }) {
             <a className="ds-btn" href={REPO_URL}>
               View on GitHub
             </a>
+          </div>
+          <div className="install">
+            <p className="install-label">Install the Python framework from PyPI:</p>
+            <div className="code-block" data-copy-scope>
+              <CopyButton />
+              <pre className="ds-code">
+                <code>{INSTALL_COMMAND}</code>
+              </pre>
+            </div>
+            <p className="ds-note">
+              The package is an alpha, so its APIs can change before version 1.0.0. See{" "}
+              <a href={href("guide/00-install")}>Install the package</a> for the extras and the
+              platforms whose package includes the planner, or <a href={PYPI_URL}>dagents on PyPI</a>.
+            </p>
           </div>
         </div>
         <Topology />

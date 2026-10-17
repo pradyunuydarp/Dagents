@@ -12,15 +12,26 @@ shows where it fits, and every endpoint is in the
 
 ## Run it
 
+From the `dagents` package on PyPI, whose wheels for Linux x86_64, Linux
+aarch64 and macOS arm64 include the planner:
+
+```bash
+pip install "dagents[gma]"
+dagents-gma
+```
+
+From a clone of the repository, with the planner built:
+
 ```bash
 export DAGENTSC_BIN=$PWD/bindings/ocaml/_build/default/bin/dagentsc.exe
 PYTHONPATH=. .venv/bin/uvicorn dagents.gma.main:app --port 8020
 ```
 
-`PYTHONPATH=. .venv/bin/python -m dagents.gma` does the same. It listens on
-`--host` and `--port`, else `GMA_API_HOST` and `GMA_API_PORT`, else
-`127.0.0.1:8020`. An installed `dagents` package also provides it as the
-`dagents-gma` command.
+`PYTHONPATH=. .venv/bin/python -m dagents.gma` does the same as `dagents-gma`.
+Both listen on `--host` and `--port`, else `GMA_API_HOST` and `GMA_API_PORT`,
+else `127.0.0.1:8020`. The guide's
+[Install the package](../../docs/guide/00-install.md) page covers the package,
+its extras and platforms without a planner.
 
 `dagents/gma/main.py` builds the app with `create_app(Settings.from_env())`. A
 GMA with nothing configured behaves as it did before these settings existed:
@@ -62,7 +73,7 @@ environment.
 | Variable | Default | Meaning |
 |---|---|---|
 | `GMA_APP_NAME`, `GMA_APP_ENV`, `GMA_LOG_LEVEL` | `dagents-gma`, `development`, `info` | Names and logging |
-| `GMA_API_HOST`, `GMA_API_PORT` | none | Where uvicorn serves the GMA in the container; the app does not read them |
+| `GMA_API_HOST`, `GMA_API_PORT` | none | Where `dagents-gma` listens, and where uvicorn serves the GMA in the container; the app itself does not read them |
 | `GMA_ENGINE` | `in-process` | `in-process` (the simulator) or `http` (jobs go to the LMAs over their HTTP API) |
 | `GMA_SITE_ENDPOINTS` | none | `SITE=URL,...`: each LMA's base address. Only these addresses are called, so an enrolment cannot point the GMA elsewhere |
 | `GMA_JOINABLE_SITE_ENDPOINTS` | none | `SITE=URL,...`: sites that may join while the GMA runs, each with the one address the GMA accepts for it. See [Sites that join while the GMA runs](#sites-that-join-while-the-gma-runs) |
@@ -85,6 +96,67 @@ environment; never commit a token or a database address. A GMA whose
 configured registry has condition packs runs its Guard strict about
 classifications: a request whose inline classification differs from the
 registered one answers `409`.
+
+## Postgres tables
+
+The GMA does not create its tables, and the package has no migrations. Before
+you start a GMA with `GMA_MODEL_TABLE` or `GMA_AUDIT_TABLE`, create the tables
+they name. Create them as `GMA_DATABASE_ROLE`, so that role owns them. The
+login in `GMA_DATABASE_URL` must be a member of that role, and the role must be
+allowed to create tables in the schema.
+
+For a coordinator role `coord` that owns the schema `coord`, with
+`GMA_MODEL_TABLE=coord.models`, `GMA_AUDIT_TABLE=coord.audit` and
+`GMA_AUDIT_ANCHOR_TABLE=coord.audit_anchor`:
+
+```sql
+set role coord;
+
+create table coord.models (
+  version text primary key check (length(version) between 1 and 200),
+  kind text not null check (length(kind) between 1 and 64),
+  params jsonb not null,
+  digest text not null check (length(digest) between 1 and 200),
+  parent_version text references coord.models (version),
+  created_at timestamptz not null default now(),
+  status text not null check (status in ('candidate', 'released', 'rejected', 'superseded')),
+  release_decision jsonb,
+  decided_at timestamptz
+);
+
+-- At most one released version at a time.
+create unique index models_one_release on coord.models ((true)) where status = 'released';
+
+create table coord.audit (
+  seq bigint generated always as identity primary key,
+  audit_id text not null unique,
+  recorded_at bigint not null,
+  boundary text not null,
+  decision text not null,
+  permitted boolean not null,
+  record jsonb not null,
+  previous_digest text not null unique,
+  digest text not null unique
+);
+
+create table coord.audit_anchor (
+  id boolean primary key default true check (id),
+  seq bigint not null,
+  digest text not null,
+  record_count bigint not null,
+  verified_at timestamptz not null default now()
+);
+
+reset role;
+```
+
+The anchor table is optional. Without `GMA_AUDIT_ANCHOR_TABLE`, the GMA keeps
+the anchor in memory, and the first check of the audit chain after a restart
+reads every record.
+
+When a table is missing, the routes that use it answer `503`
+`store_not_set_up`. In 0.1.0a1 the message says to apply the migrations; it
+means that a table in this section is missing.
 
 ## Routes
 

@@ -320,6 +320,12 @@ export DAGENTSC_BIN=$PWD/bindings/ocaml/_build/default/bin/dagentsc.exe
 PYTHONPATH=. .venv/bin/uvicorn dagents.gma.main:app --port 8020
 ```
 
+With the package installed from PyPI instead, `.venv/bin/dagents-gma` starts
+the same GMA on port 8020. On Linux x86_64, Linux aarch64 and macOS arm64 it
+uses the planner inside the package
+([Step 5, section 1](05-hands-on.md#install-the-package)). Run the `curl`
+commands below from a clone, where the request files are.
+
 The example request bodies are in [`docs/learn/examples/`](examples/).
 
 ### Plan a governed request

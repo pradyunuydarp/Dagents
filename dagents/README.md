@@ -5,6 +5,26 @@ the Python package `dagents`: `pyproject.toml` at the repository root builds it,
 and a wheel holds this folder without `tests/`. `python -m dagents` prints the
 installed version and which planner the runner would start.
 
+## Install and start the agents
+
+The package is on PyPI. Install it with the `lma` and `gma` extras, check that
+it found a planner, and start an agent:
+
+```bash
+pip install "dagents[lma,gma]"
+python -m dagents   # the version and the planner; exits with status 1 without one
+dagents-lma         # an LMA on 127.0.0.1:8010
+dagents-gma         # a GMA on 127.0.0.1:8020
+```
+
+The wheels for Linux x86_64, Linux aarch64 and macOS arm64 include the planner.
+On other platforms, set `DAGENTSC_BIN` to a planner built from
+`bindings/ocaml/`. In a clone, `python -m dagents.lma` and
+`python -m dagents.gma`, run from the repository root, start the agents from
+this folder instead, and they need `DAGENTSC_BIN` too. The guide's
+[Install the package](../docs/guide/00-install.md) page has every step, and the
+[LMA](lma/README.md) and [GMA](gma/README.md) READMEs list the settings.
+
 ## Agents
 
 - `lma/`: Local Monitoring Agent
