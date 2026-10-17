@@ -425,24 +425,34 @@ This keeps failure isolation, upgrade independence, explicit contracts, and simp
 
 ## Releasing
 
-Maintainers release the Python framework to PyPI from a tag; nobody uploads by hand. The full steps
-are in the "Releasing" section of `CLAUDE.md`. In short:
+Maintainers release the Python framework to PyPI from a tag on `main`; nobody uploads by hand. The
+full steps are in the "Releasing" section of `CLAUDE.md`. In short:
 
 - `__version__` in `dagents/__init__.py` is the only place the version is written. Versions are
   PEP 440 pre-releases until 1.0: `0.1.0a1` (alpha), then `0.x.0bN` (beta), `1.0.0rcN` and `1.0.0`.
   The `Development Status` classifier in `pyproject.toml` follows the stage. The README is the PyPI
   description, which PyPI never lets a release change, so it must be right before the tag.
-- Pushing the tag `v<version>` runs `.github/workflows/release.yml`. It stops when the tag differs
-  from the version or the tagged commit is not on `main`, builds the planner on Linux x86_64, Linux aarch64 and macOS arm64, builds the
+- The owner starts a release from the Actions tab: workflow **Release**, **Run workflow** on
+  `main`, with the box **Tag the head of main as `v<version>` and publish it** ticked. That run's
+  only job creates the annotated tag `v<version>` on the head of `main` with the workflow's token
+  and starts `.github/workflows/release.yml` again on the tag. Pushing the tag `v<version>` starts
+  the same release run. The job stops when `main` has moved on since the run started or when the
+  tag already names another commit; when the tag already names this commit, it starts a new release
+  run on it, which cannot publish different files.
+- The release run on the tag stops when the tag differs from the version or the tagged commit is
+  not on `main`, builds the planner on Linux x86_64, Linux aarch64 and macOS arm64, builds the
   sdist and one wheel per platform with that planner inside, checks and smoke-tests every wheel in
   a clean environment, publishes to TestPyPI first and then to PyPI, and creates a GitHub Release
   (a pre-release for `a`, `b` and `rc` versions) with the planner binaries and their checksums.
 - Publishing uses Trusted Publishing: PyPI trusts the workflow through OpenID Connect, so no token
   exists to leak. The owner registers the publisher on pypi.org and test.pypi.org once, both
-  environments accept only `v*` tags, and the `pypi` environment needs a reviewer's approval.
+  environments accept only `v*` tags, and the `pypi` environment needs a reviewer's approval. The
+  run that publishes is always on the tag, so these rules apply however the release started. A
+  tag ruleset may restrict updates and deletions of `v*` tags, but not creations, because the
+  workflow's token creates the tag.
 - Every build uses the hatchling version pinned in `.github/build-constraints.txt`.
-- A manual run of the workflow is a dry run that builds and checks everything and publishes nothing.
-  CI's `packaging` job builds and smoke-tests a Linux wheel on every pull request, also in an
+- A manual run with the box unticked is a dry run that builds and checks everything and publishes
+  nothing. CI's `packaging` job builds and smoke-tests a Linux wheel on every pull request, also in an
   environment that has openai-agents (whose top-level module is `agents`), and runs the agent
   suite on the newest FastAPI and uvicorn the `lma` and `gma` extras allow.
 

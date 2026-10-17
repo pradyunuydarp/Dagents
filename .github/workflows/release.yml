@@ -3,9 +3,19 @@ name: Release
 # Publishes the Python framework to PyPI as `dagents`, and the planner
 # binaries to a GitHub Release.
 #
-# A tag `vX.Y.Z`, `vX.Y.ZaN`, `vX.Y.ZbN` or `vX.Y.ZrcN` starts a release. The
-# tag must equal `__version__` in dagents/__init__.py, and the tagged commit
-# must be on main, or the first job stops the run. The order is:
+# A release starts in one of two ways:
+#
+#   - A push of the tag `vX.Y.Z`, `vX.Y.ZaN`, `vX.Y.ZbN` or `vX.Y.ZrcN`.
+#   - A manual run on main with the input `release_tag` ticked (Actions,
+#     Release, Run workflow). That run has one job, release-tag. It creates
+#     the annotated tag v<version> on the head of main with the workflow's
+#     token, then starts this workflow again on the tag. GitHub starts no
+#     push run for a tag pushed with that token, so the job starts the run.
+#
+# Either way, the run that publishes is a run on refs/tags/v<version>, so the
+# environments' rules for `v*` tags apply to it. The tag must equal
+# `__version__` in dagents/__init__.py, and the tagged commit must be on main,
+# or the first job stops the run. The order is:
 #
 #   1. Build the planner (dagentsc) for Linux x86_64, Linux aarch64 and macOS
 #      arm64, each on a runner of that platform, and run the OCaml tests there.
@@ -23,7 +33,8 @@ name: Release
 #      and their SHA-256 checksums. An alpha, beta or release candidate is
 #      marked as a pre-release.
 #
-# A manual run (workflow_dispatch) is a dry run: steps 1 to 3 only.
+# A manual run without the input, on any branch, is a dry run: steps 1 to 3
+# only. The input works only on main; on any other branch or tag the run stops.
 #
 # Before the first release, the owner registers a Trusted Publisher for this
 # repository, this workflow file and the environments `testpypi` and `pypi`,
@@ -37,6 +48,12 @@ on:
     tags:
       - "v*"
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Tag the head of main as v<version> and publish it. Works only on main. Leave unticked for a dry run."
+        type: boolean
+        required: false
+        default: false
 
 permissions: {}
 
@@ -50,8 +67,66 @@ env:
   TWINE_VERSION: "7.0.0"
 
 jobs:
+  release-tag:
+    name: Tag the version and start the release
+    # Only in a manual run on main with release_tag ticked, and then alone:
+    # the version job is skipped in that run, so every job that needs it is
+    # skipped too. The release itself runs in the run this job starts.
+    if: github.event_name == 'workflow_dispatch' && inputs.release_tag == true && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write # push the tag
+      actions: write # start the run on the tag
+    steps:
+      # The only checkout here that keeps the token in the local git config,
+      # because the next step pushes the tag with git. The job runs no other
+      # action and uploads nothing.
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: true
+
+      - name: Tag the head of main as v<version>, unless that tag is already there
+        id: tag
+        # Stops when main has moved on since the run started, or when the tag
+        # names another commit. git records github-actions[bot] as the tagger.
+        env:
+          GIT_COMMITTER_NAME: github-actions[bot]
+          GIT_COMMITTER_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
+        run: |
+          python3 scripts/release_version.py --create-tag --remote origin --branch main \
+            --commit "${GITHUB_SHA}" --github-output "${GITHUB_OUTPUT}"
+
+      - name: Start the release run on the tag
+        # The token may start a workflow_dispatch run, and the new run is on
+        # refs/tags/v<version>: it checks the tag again and publishes. When the
+        # tag was already there, this starts another run on it; that run
+        # cannot publish different files (see CLAUDE.md, "Releasing").
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ steps.tag.outputs.tag }}
+          CREATED: ${{ steps.tag.outputs.created }}
+        run: |
+          if ! [[ "${TAG}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+((a|b|rc)[0-9]+)?$ ]]; then
+            echo "::error::The tag step did not give a release tag."
+            exit 1
+          fi
+          gh api --method POST "repos/${GH_REPO}/actions/workflows/release.yml/dispatches" -f "ref=refs/tags/${TAG}"
+          {
+            if [ "${CREATED}" = "true" ]; then
+              echo "The tag ${TAG} was created on this commit, the head of main."
+            else
+              echo "The tag ${TAG} was already on this commit, the head of main, so it was not created again."
+            fi
+            echo
+            echo "The release run on ${TAG} has started. Actions, Release lists it with ${TAG} as its branch:"
+            echo "${GITHUB_SERVER_URL}/${GH_REPO}/actions/workflows/release.yml"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
   version:
     name: Read the version and check the tag
+    # Skipped only in the run that creates the tag (see release-tag).
+    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.release_tag == true && github.ref == 'refs/heads/main') }}
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -70,19 +145,33 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
+      - name: The release_tag input is used only on main
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          if [ "${RELEASE_TAG}" = "true" ]; then
+            echo "::error::The release_tag input works only on main. To publish a tag that exists, run the workflow on that tag with the box unticked."
+            exit 1
+          fi
+
       - name: The tag equals the package version and the commit is on main
         id: version
+        # A run on a tag publishes, whether a tag push or a manual run on the
+        # tag started it, so both get the same checks.
         env:
-          EVENT_NAME: ${{ github.event_name }}
+          REF: ${{ github.ref }}
           REF_NAME: ${{ github.ref_name }}
         run: |
-          if [ "${EVENT_NAME}" = "push" ]; then
-            python scripts/release_version.py --tag "${REF_NAME}" --require-on-branch origin/main \
-              --github-output "${GITHUB_OUTPUT}"
-          else
-            echo "Dry run: no tag to check."
-            python scripts/release_version.py --github-output "${GITHUB_OUTPUT}"
-          fi
+          case "${REF}" in
+            refs/tags/*)
+              python scripts/release_version.py --tag "${REF_NAME}" --require-on-branch origin/main \
+                --github-output "${GITHUB_OUTPUT}"
+              ;;
+            *)
+              echo "Dry run on ${REF}: no tag to check, and nothing is published."
+              python scripts/release_version.py --github-output "${GITHUB_OUTPUT}"
+              ;;
+          esac
 
   planner:
     name: Planner (${{ matrix.target }})
@@ -351,20 +440,26 @@ jobs:
           if-no-files-found: error
 
       - name: Say what happens next
+        # The same rule as the publish jobs' condition: a run on a v* tag publishes.
         env:
-          EVENT_NAME: ${{ github.event_name }}
+          REF: ${{ github.ref }}
           VERSION: ${{ needs.version.outputs.version }}
         run: |
-          if [ "${EVENT_NAME}" = "push" ]; then
-            echo "dagents ${VERSION} passed every check; publishing to TestPyPI, then PyPI." >> "${GITHUB_STEP_SUMMARY}"
-          else
-            echo "Dry run: dagents ${VERSION} built and passed every check. Nothing was published." >> "${GITHUB_STEP_SUMMARY}"
-          fi
+          case "${REF}" in
+            refs/tags/v*)
+              echo "dagents ${VERSION} passed every check; publishing to TestPyPI, then PyPI." >> "${GITHUB_STEP_SUMMARY}"
+              ;;
+            *)
+              echo "Dry run: dagents ${VERSION} built and passed every check. Nothing was published." >> "${GITHUB_STEP_SUMMARY}"
+              ;;
+          esac
 
   publish-testpypi:
     name: Publish to TestPyPI
     needs: [version, check]
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    # A run on a v* tag publishes, whether a tag push or a manual run on the
+    # tag started it. A run on a branch never does.
+    if: startsWith(github.ref, 'refs/tags/v') && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-24.04
     environment:
       name: testpypi
@@ -415,7 +510,7 @@ jobs:
   publish-pypi:
     name: Publish to PyPI
     needs: [version, verify-testpypi]
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-24.04
     environment:
       name: pypi
@@ -460,7 +555,7 @@ jobs:
   github-release:
     name: Publish the GitHub Release
     needs: [version, verify-pypi]
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-24.04
     permissions:
       contents: write
