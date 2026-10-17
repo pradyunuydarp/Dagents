@@ -10,8 +10,7 @@ Every Guard and round decision comes from `dagentsc`. A test with a stub planner
 only shows that your code calls something. Run your governance and federation
 tests against the real binary.
 
-Find the planner the way the services do, and skip with a clear message when it
-is missing:
+Find the planner, and skip with a clear message when it is missing:
 
 <!-- source: tests/test_getting_started_example.py -->
 ```python
@@ -39,6 +38,13 @@ class ExampleRunTests(unittest.TestCase):
 
 Use the exact reason `dagentsc binary is not available`. The CI guard in
 section 3 recognises it.
+
+This test runs the example in a clone, so it looks in `DAGENTSC_BIN`, on `PATH`
+and in the dune build folder. A test in an application that installs the
+package can ask the framework instead: `find_planner()` in
+`dagents.common.infrastructure.dagents_runner` returns the planner's path and
+the rule that found it (`DAGENTSC_BIN`, `bundled`, `PATH` or `none`), in the
+order the Guard uses.
 
 ## 2. Test the refusals
 

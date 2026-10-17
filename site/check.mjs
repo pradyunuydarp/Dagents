@@ -598,6 +598,22 @@ try {
   check("the home page renders", home === "Dagents", home);
   check("the home page diagram draws", (await diagrams()).length === 0);
 
+  // 1b. The hero shows the install command in a code block with its copy
+  //     button, and links to the guide's install page.
+  const install = await page.evaluate(() => {
+    const block = document.querySelector(".hero .install [data-copy-scope]");
+    return {
+      command: block?.querySelector("pre")?.textContent?.trim() ?? null,
+      button: Boolean(block?.querySelector("button.code-copy")),
+      link: document.querySelector('.hero .install a[href="#/guide/00-install"]') !== null
+    };
+  });
+  check(
+    "the home page shows pip install dagents with a copy button and the install page",
+    install.command === "pip install dagents" && install.button && install.link,
+    JSON.stringify(install)
+  );
+
   // 2. Every page of the learning guide (#/learn) and of the guide to building
   //    an application (#/guide) renders, and every diagram on it draws. Each
   //    page list comes from that guide's own navigation, so a new page is
@@ -605,7 +621,7 @@ try {
   const guide = [];
   for (const [route, name, minimum] of [
     ["learn", "Learn", 7],
-    ["guide", "Guide", 11]
+    ["guide", "Guide", 12]
   ]) {
     await open(`#/${route}`);
     const pages = await page.$$eval(".learn-nav a", (links) => links.map((a) => a.getAttribute("href")));

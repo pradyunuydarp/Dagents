@@ -102,9 +102,14 @@ which block to update.
 
 ## The method
 
+There are two ways to get Dagents. Install the package from PyPI to use it in
+your own application, or clone the repository to also run the framework
+services, the demos and the tests. The worked example runs either way.
+
 | Step | Page | What you have at the end |
 |---|---|---|
-| 1 | [Set up](01-setup.md) | The planner, a Python environment and the services running |
+| | [Install the package](00-install.md) | `dagents` installed from PyPI, its planner found, and an LMA and a GMA running |
+| 1 | [Set up](01-setup.md) | A clone with the planner built, a Python environment and the services running |
 | 2 | [Describe your data](02-describe-your-data.md) | A feature contract, a classification and a condition pack, registered as an extension |
 | 3 | [Give each source its own store](03-store-per-source.md) | One store per source, in memory or in Postgres |
 | 4 | [Govern every read](04-govern-every-read.md) | Every read goes through the Guard and is recorded |
@@ -117,8 +122,10 @@ which block to update.
 
 ## Limits that apply to every step
 
-- Dagents is not published as a Python package. You clone the repository and
-  put its root on `PYTHONPATH`, as the demos do.
+- The package is an alpha. Before 1.0.0, a release can change the Python APIs,
+  settings, routes and package layout. This guide follows the repository's
+  `main` branch, which can be newer than the newest release
+  ([Install the package](00-install.md#versions)).
 - The LMA and GMA keep site enrolments, rounds and pending model updates in
   memory, so a restart loses them. Their audit chains, the LMA's job log and
   the GMA's model registry can be kept in Postgres

@@ -12,15 +12,26 @@ shows where it fits, and every endpoint is in the
 
 ## Run it
 
+From the `dagents` package on PyPI, whose wheels for Linux x86_64, Linux
+aarch64 and macOS arm64 include the planner:
+
+```bash
+pip install "dagents[gma]"
+dagents-gma
+```
+
+From a clone of the repository, with the planner built:
+
 ```bash
 export DAGENTSC_BIN=$PWD/bindings/ocaml/_build/default/bin/dagentsc.exe
 PYTHONPATH=. .venv/bin/uvicorn dagents.gma.main:app --port 8020
 ```
 
-`PYTHONPATH=. .venv/bin/python -m dagents.gma` does the same. It listens on
-`--host` and `--port`, else `GMA_API_HOST` and `GMA_API_PORT`, else
-`127.0.0.1:8020`. An installed `dagents` package also provides it as the
-`dagents-gma` command.
+`PYTHONPATH=. .venv/bin/python -m dagents.gma` does the same as `dagents-gma`.
+Both listen on `--host` and `--port`, else `GMA_API_HOST` and `GMA_API_PORT`,
+else `127.0.0.1:8020`. The guide's
+[Install the package](../../docs/guide/00-install.md) page covers the package,
+its extras and platforms without a planner.
 
 `dagents/gma/main.py` builds the app with `create_app(Settings.from_env())`. A
 GMA with nothing configured behaves as it did before these settings existed:
@@ -62,7 +73,7 @@ environment.
 | Variable | Default | Meaning |
 |---|---|---|
 | `GMA_APP_NAME`, `GMA_APP_ENV`, `GMA_LOG_LEVEL` | `dagents-gma`, `development`, `info` | Names and logging |
-| `GMA_API_HOST`, `GMA_API_PORT` | none | Where uvicorn serves the GMA in the container; the app does not read them |
+| `GMA_API_HOST`, `GMA_API_PORT` | none | Where `dagents-gma` listens, and where uvicorn serves the GMA in the container; the app itself does not read them |
 | `GMA_ENGINE` | `in-process` | `in-process` (the simulator) or `http` (jobs go to the LMAs over their HTTP API) |
 | `GMA_SITE_ENDPOINTS` | none | `SITE=URL,...`: each LMA's base address. Only these addresses are called, so an enrolment cannot point the GMA elsewhere |
 | `GMA_JOINABLE_SITE_ENDPOINTS` | none | `SITE=URL,...`: sites that may join while the GMA runs, each with the one address the GMA accepts for it. See [Sites that join while the GMA runs](#sites-that-join-while-the-gma-runs) |

@@ -21,15 +21,26 @@ did before sites existed.
 
 ## Run it
 
+From the `dagents` package on PyPI, whose wheels for Linux x86_64, Linux
+aarch64 and macOS arm64 include the planner:
+
+```bash
+pip install "dagents[lma]"
+dagents-lma
+```
+
+From a clone of the repository, with the planner built:
+
 ```bash
 export DAGENTSC_BIN=$PWD/bindings/ocaml/_build/default/bin/dagentsc.exe
 PYTHONPATH=. .venv/bin/uvicorn dagents.lma.main:app --port 8010
 ```
 
-`PYTHONPATH=. .venv/bin/python -m dagents.lma` does the same. It listens on
-`--host` and `--port`, else `LMA_API_HOST` and `LMA_API_PORT`, else
-`127.0.0.1:8010`. An installed `dagents` package also provides it as the
-`dagents-lma` command.
+`PYTHONPATH=. .venv/bin/python -m dagents.lma` does the same as `dagents-lma`.
+Both listen on `--host` and `--port`, else `LMA_API_HOST` and `LMA_API_PORT`,
+else `127.0.0.1:8010`. The guide's
+[Install the package](../../docs/guide/00-install.md) page covers the package,
+its extras and platforms without a planner.
 
 `dagents/lma/main.py` builds the app with `create_app(Settings.from_env())`.
 Nothing reads the environment when a module is imported, so one process can
@@ -70,7 +81,7 @@ environment.
 | Variable | Default | Meaning |
 |---|---|---|
 | `LMA_APP_NAME`, `LMA_APP_ENV`, `LMA_LOG_LEVEL` | `dagents-lma`, `development`, `info` | Names and logging |
-| `LMA_API_HOST`, `LMA_API_PORT` | none | Where uvicorn serves the LMA in the container; the app does not read them |
+| `LMA_API_HOST`, `LMA_API_PORT` | none | Where `dagents-lma` listens, and where uvicorn serves the LMA in the container; the app itself does not read them |
 | `LMA_SITE_ID`, `LMA_CONDITION_ID` | none | The site the LMA serves and its condition pack. Without `LMA_SITE_ID` the LMA is generic |
 | `LMA_STUDY_ID`, `LMA_REPORTING_PURPOSE` | the condition id, the pack's first approved purpose | Who asks for the site's summary and why; the label-rate decision uses them |
 | `LMA_PROFILE_FIELDS` | every field of the contract | Comma-separated fields the running profile tracks |

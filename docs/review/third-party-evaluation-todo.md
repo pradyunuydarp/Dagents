@@ -118,8 +118,9 @@ followed by the steps of `examples/getting-started/` gives the output shown in
 version 0.1.0a1, and `.github/workflows/release.yml` publishes to TestPyPI and
 then PyPI from a tag. `scripts/smoke_installed_package.py` checks the "done
 when" condition on every pull request (CI's `packaging` job) and in every
-release. The guide still tells readers to use a checkout until the first
-release is out.
+release. The guide's install page (`docs/guide/00-install.md`) installs the
+package and runs the worked example on it without `PYTHONPATH`; Step 1 keeps
+the checkout route.
 
 ### A2. Ship the planner as a prebuilt binary (P0, M)
 

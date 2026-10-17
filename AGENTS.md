@@ -110,6 +110,19 @@ Current implementation includes:
 
 `dagents/gma/README.md` lists the settings and routes.
 
+### Starting an agent
+
+- From PyPI: `pip install "dagents[lma,gma]"`, then `dagents-lma` (port 8010) and `dagents-gma`
+  (port 8020). The wheels for Linux x86_64, Linux aarch64 and macOS arm64 include the planner;
+  elsewhere `DAGENTSC_BIN` or `dagentsc` on `PATH` must provide one. `python -m dagents` prints
+  the planner the runner found. An installed package reads its settings only from the process
+  environment, never from `env/`.
+- From a clone: build the planner, set `DAGENTSC_BIN`, and run
+  `PYTHONPATH=. uvicorn dagents.lma.main:app --port 8010` or `dagents.gma.main:app --port 8020`.
+  The agents then also read `env/.env.shared` and their own env file.
+
+`docs/guide/00-install.md` covers the package route step by step.
+
 ## Shared Run Flow
 
 The intended operating flow across the framework is:
