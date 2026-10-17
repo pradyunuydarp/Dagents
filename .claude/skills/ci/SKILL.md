@@ -503,25 +503,84 @@ tests skipped is not a pass.
   same way: every `python -m build` step in both workflows sets
   `PIP_CONSTRAINT` and `PIP_BUILD_CONSTRAINT` to `.github/build-constraints.txt`,
   and the test fails on a build step without them.
-- **Only a publish job gets `id-token: write`**, and only when the run is a
-  tag push. In `release.yml` those are `publish-testpypi`, `publish-pypi` and
-  `github-release`; every other job has `contents: read`. Never add a PyPI
-  token or password; publishing uses Trusted Publishing.
+- **Only a publish job gets `id-token: write`**, and only in a run on a
+  `refs/tags/v*` ref, whether a tag push or a manual run on the tag started it.
+  In `release.yml` those are `publish-testpypi`, `publish-pypi` and
+  `github-release`. Two jobs may write: `release-tag` has `contents: write`
+  and `actions: write`, to push the tag and start the run on it, and
+  `github-release` has `contents: write`, to create the release. Every other
+  job has `contents: read` only. Never add a PyPI token or password;
+  publishing uses Trusted Publishing.
 
 ## 5. Releasing
 
-`.github/workflows/release.yml` publishes the `dagents` package. A tag
-`v<version>` starts it; a manual run is a dry run that publishes nothing. The
-order is fixed: the tag must equal `__version__` and the tagged commit must
-be on `main` (`scripts/release_version.py`), the planners build on their own
-platforms, the wheels build from the sdist,
+`.github/workflows/release.yml` publishes the `dagents` package. A release
+starts in one of two ways:
+
+- **A push of the tag `v<version>`.**
+- **A manual run on `main` with the `release_tag` input ticked.** That run has
+  one job, `release-tag`. It runs `scripts/release_version.py --create-tag`,
+  which creates the annotated tag `v<version>` on the run's commit and pushes
+  it with the workflow token. Then the job starts the workflow again with
+  `workflow_dispatch` on `refs/tags/v<version>`. GitHub starts no push run for
+  a tag pushed with the workflow token, so the job has to start the run itself.
+
+Either way, the run that publishes is a run on the tag, so the environments'
+rules for `v*` tags apply to it. A manual run without the input, on any
+branch, is a dry run that publishes nothing. The input works only on `main`;
+on any other branch or tag, the version job stops the run.
+
+`--create-tag` stops when the run's commit is no longer the head of `main`. It
+asks the remote with `git ls-remote`, because `actions/checkout` moves its copy
+of `origin/main` to the run's commit. It also stops when the tag names another
+commit, because a released version never moves. When the tag already names the
+run's commit, it leaves the tag alone and the job starts another release run.
+That run cannot publish different files: TestPyPI skips files it has and the
+hash check compares them, PyPI accepts a file identical to one it has without
+changing anything and refuses a different file with the same name, and the
+GitHub Release step fails when the release exists. After a run that failed
+before publishing, the new run is a normal release run.
+
+The release run that the tag job starts has `github-actions[bot]` as its
+actor. So the tag message names the person who started the tag job and links
+to that run (`--requested-by`, `--run-url`), and in every run on a tag the
+version job writes the tag's tagger and message to the run summary
+(`--summary`), inside a code block, because anyone who can push a tag writes
+that text.
+
+The run that creates the tag has a concurrency group of its own,
+`release-tag`. Every other run uses `release-<ref>`, so runs on one tag wait
+for each other. In the group of `main`, the tag run would wait behind a dry
+run, and GitHub cancels a waiting run when another run joins the group.
+
+A tag ruleset that restricts creations would refuse the tag the workflow
+token pushes, so `v*` creations stay open to anyone with write access. A
+`v*` tag on a commit that is not on `main` runs that commit's workflow file,
+which can skip the checks, and the environments admit it. The `pypi` reviewer,
+who checks on GitHub that the run's commit is on `main`, is then the only
+check before PyPI. CLAUDE.md, "Who can publish", has the details.
+
+The order of a release run is fixed: the tag must equal `__version__` and the
+tagged commit must be on `main` (`scripts/release_version.py`), the planners
+build on their own platforms, the wheels build from the sdist,
 every file is checked and every wheel is smoke-tested on its platform, then
 TestPyPI, a hash check of what TestPyPI serves
 (`scripts/check_published_files.py`), PyPI, the same check against PyPI, and
 the GitHub Release. Never reorder these steps, never publish from another
-workflow, and never upload by hand. The steps for a maintainer, including the
-one-time Trusted Publisher setup, are in the "Releasing" section of
-`CLAUDE.md`.
+workflow, and never upload by hand.
+
+`tests/test_release_workflow.py` evaluates every job's `if:` for each
+combination of event (push or manual), ref (main, a branch, a release tag,
+another tag) and input. It fails when a run that is not on a `v*` tag would
+publish, when `release-tag` would run anywhere but in a ticked manual run on
+`main`, or when that run would start any other job. It evaluates the
+concurrency group for the same combinations, and runs the version job's
+steps and the dispatch step with stand-in `python` and `gh` commands.
+`tests/test_packaging.py` runs `--create-tag` against a bare repository and
+`--summary` against annotated and lightweight tags.
+
+The steps for a maintainer, including the one-time Trusted Publisher setup,
+are in the "Releasing" section of `CLAUDE.md`.
 
 ## 6. Known limits
 
