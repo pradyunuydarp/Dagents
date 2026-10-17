@@ -6,8 +6,9 @@
 - Node.js 22 and npm, for the demo's web interface
 - OCaml 5.1 with opam, for the planner. See [Learn OCaml](https://ocaml.org/docs) for installation.
 
-No database, GPU or Docker is needed for anything on this page. To try only
-the agents from the package (section 1), you need Python alone.
+No database, GPU or Docker is needed for anything on this page. On Linux
+x86_64, Linux aarch64 and macOS arm64, trying the agents from the package
+(section 1) needs Python alone.
 
 ## 1. Get Dagents
 

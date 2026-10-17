@@ -41,10 +41,16 @@ section 3 recognises it.
 
 This test runs the example in a clone, so it looks in `DAGENTSC_BIN`, on `PATH`
 and in the dune build folder. A test in an application that installs the
-package can ask the framework instead: `find_planner()` in
-`dagents.common.infrastructure.dagents_runner` returns the planner's path and
-the rule that found it (`DAGENTSC_BIN`, `bundled`, `PATH` or `none`), in the
-order the Guard uses.
+package can ask the framework instead. `planner_problem()` in
+`dagents.common.infrastructure.dagents_runner` returns why the framework cannot
+start a planner, or `None` when it can. It looks in the order the Guard uses,
+so a test class can skip with
+`@unittest.skipIf(planner_problem(), "dagentsc binary is not available")`.
+
+To report which planner a run used, call `find_planner()` from the same module.
+It returns a `(path, source)` pair, where `source` is `DAGENTSC_BIN`,
+`bundled`, `PATH` or `none`. It does not check that the file can run, so do not
+use it to decide whether to skip.
 
 ## 2. Test the refusals
 

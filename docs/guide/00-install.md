@@ -21,6 +21,7 @@ planner runner. Everything else is only in the repository:
 |---|---|---|
 | Python | 3.11 or later | The package |
 | curl | any | Calling the agents on this page |
+| git | any | Cloning the repository for the worked example ([section 5](#5-run-the-worked-example-on-the-package)) |
 
 On Linux x86_64, Linux aarch64 and macOS arm64 you do not need OCaml, because
 the package includes the planner. Other platforms need a planner built from the
@@ -72,14 +73,23 @@ newer than the newest release.
 
 The planner, `dagentsc`, makes every decision: what a request may see, which
 sources may join a round and whether a model may be released. The Python code
-starts it as a separate program. Whether the package includes it depends on
-your platform:
+starts it as a separate program.
+
+When PyPI has a wheel for your platform, pip installs it. A wheel is a
+ready-built file of the package for one platform. Otherwise pip builds the
+package from its source distribution, which holds the Python code and no
+planner. Whether you get a planner depends on which of the two pip used:
 
 | Platform | Planner |
 |---|---|
-| Linux x86_64 and Linux aarch64 | In the wheel. It is statically linked, so it runs on glibc and musl distributions |
+| Linux x86_64 and Linux aarch64 | In the wheel |
 | macOS arm64 (Apple silicon), macOS 11 or later | In the wheel |
-| Any other platform, such as Windows or macOS on Intel | None. pip builds the package from its source distribution, which has no planner |
+| Any other platform, such as Windows or macOS on Intel | None. pip builds the package from its source distribution |
+
+The Linux planner is statically linked, so it needs no system library. pip
+installs the Linux wheel when the system's C library is glibc 2.17 or later,
+as on current Debian, Ubuntu and Fedora releases, or musl 1.1 or later, as on
+Alpine.
 
 Check what you installed:
 
@@ -135,8 +145,9 @@ reason when it starts.
 
 ## 3. Start an LMA and a GMA
 
-The `lma` and `gma` extras install two commands, `dagents-lma` and
-`dagents-gma`. Start each in its own terminal:
+The package installs two commands, `dagents-lma` and `dagents-gma`. They need
+the `lma` or `gma` extra. Without it, the command prints how to install the
+extra and exits with status 2. Start each command in its own terminal:
 
 ```bash
 # Terminal 1: the LMA, on 127.0.0.1:8010
