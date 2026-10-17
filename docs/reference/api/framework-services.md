@@ -703,7 +703,7 @@ service: pipeline-service
 status: complete
 code: services/pipeline-service/app/api/routes.py
 classes:
-- DefaultSourceResolver (agents/common/infrastructure/sources.py)
+- DefaultSourceResolver (dagents/common/infrastructure/sources.py)
 endpoints:
 - GET /api/v1/sources
 - POST /api/v1/sources
@@ -1175,7 +1175,7 @@ status: complete
 code: services/model-service/app/api/routes.py
 classes:
 - ModelTrainingService (services/model-service/app/services/training_service.py)
-- DefaultSourceResolver (agents/common/infrastructure/sources.py)
+- DefaultSourceResolver (dagents/common/infrastructure/sources.py)
 endpoints:
 - GET /api/v1/sources
 - POST /api/v1/sources

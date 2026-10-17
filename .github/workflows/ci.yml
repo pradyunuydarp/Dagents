@@ -84,6 +84,27 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
+      - name: Build the statically linked planner for the wheel
+        # The packaging job puts this binary into a Linux wheel, as the
+        # release workflow does. A manylinux tag needs a static binary, and
+        # hatch_build.py refuses any other. It is built after the upload
+        # above, so the other jobs keep the planner they always had.
+        working-directory: bindings/ocaml
+        run: |
+          opam exec -- dune build --profile static ./bin/dagentsc.exe
+          file _build/default/bin/dagentsc.exe
+          file _build/default/bin/dagentsc.exe | grep -q "statically linked"
+          ./_build/default/bin/dagentsc.exe model route --task classification --output json
+          mkdir -p "${RUNNER_TEMP}/planner-static"
+          cp _build/default/bin/dagentsc.exe "${RUNNER_TEMP}/planner-static/dagentsc-linux-x86_64"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dagentsc-static
+          path: ${{ runner.temp }}/planner-static/dagentsc-linux-x86_64
+          if-no-files-found: error
+          retention-days: 1
+
   # ---------------------------------------------------------------------------
   # The agent layer and the control plane, with the planner reachable so the
   # governance and federation tests actually run.
@@ -100,7 +121,7 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
           cache-dependency-path: |
-            agents/*/requirements.txt
+            dagents/*/requirements.txt
 
       - uses: actions/download-artifact@v4
         with:
@@ -122,8 +143,8 @@ jobs:
         # run, in the range of apps/healthcare-demo/requirements.txt.
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -r agents/lma/requirements.txt \
-                                -r agents/gma/requirements.txt \
+          python -m pip install -r dagents/lma/requirements.txt \
+                                -r dagents/gma/requirements.txt \
                                 "matplotlib>=3.9,<4" \
                                 "numpy>=2,<3" \
                                 "pyyaml>=6.0,<7"
@@ -133,10 +154,10 @@ jobs:
           DAGENTSC_BIN: ${{ env.PLANNER_DIR }}/dagentsc.exe
         run: |
           set -o pipefail
-          python -m unittest discover -s agents/tests -t . -v 2>&1 | tee agents-suite.log
+          python -m unittest discover -s dagents/tests -t . -v 2>&1 | tee agents-suite.log
 
       - name: Fail if the governance or chart tests skipped
-        # This job has no database, so the database tests in agents/tests
+        # This job has no database, so the database tests in dagents/tests
         # skip here. They run in the demo-apps job, which has a PostgreSQL
         # service. --forbid planner covers every planner test; the classes
         # below must also have run: the Guard, the round controller, the
@@ -152,25 +173,25 @@ jobs:
           python scripts/ci_no_skipped_tests.py \
             --forbid planner \
             --forbid charts \
-            --require-ran agents.tests.test_governance.EthicalGuardTests \
-            --require-ran agents.tests.test_federation.RoundLifecycleTests \
-            --require-ran agents.tests.test_charts.RenderTests \
-            --require-ran agents.tests.test_lma_federation_jobs.OfferTests \
-            --require-ran agents.tests.test_lma_federation_jobs.ExecuteTests \
-            --require-ran agents.tests.test_lma_federation_jobs.RunTests \
-            --require-ran agents.tests.test_gma_http_engine.HttpEngineTests \
-            --require-ran agents.tests.test_gma_http_engine.UploadThreadTests \
-            --require-ran agents.tests.test_gma_release.ReleaseEvaluationTests \
-            --require-ran agents.tests.test_gma_release.SimulatorRoundFlowTests \
-            --require-ran agents.tests.test_agent_client.NetworkClientTests \
-            --require-ran agents.tests.test_agent_network_flow.InProcessStudyTests \
-            --require-ran agents.tests.test_agent_network_flow.OverHttpStudyTests \
-            --require-ran agents.tests.test_gma_site_addresses.SiteAddressBookTests \
-            --require-ran agents.tests.test_gma_site_addresses.SiteAddressRouteTests \
-            --require-ran agents.tests.test_gma_site_addresses.OverHttpJoinTests \
-            --require-ran agents.tests.test_compose_apply.LocalProcessApplierTests \
-            --require-ran agents.tests.test_compose_apply.LocalProcessEnvFileTests \
-            --require-ran agents.tests.test_compose_apply.DockerComposeApplierTests \
+            --require-ran dagents.tests.test_governance.EthicalGuardTests \
+            --require-ran dagents.tests.test_federation.RoundLifecycleTests \
+            --require-ran dagents.tests.test_charts.RenderTests \
+            --require-ran dagents.tests.test_lma_federation_jobs.OfferTests \
+            --require-ran dagents.tests.test_lma_federation_jobs.ExecuteTests \
+            --require-ran dagents.tests.test_lma_federation_jobs.RunTests \
+            --require-ran dagents.tests.test_gma_http_engine.HttpEngineTests \
+            --require-ran dagents.tests.test_gma_http_engine.UploadThreadTests \
+            --require-ran dagents.tests.test_gma_release.ReleaseEvaluationTests \
+            --require-ran dagents.tests.test_gma_release.SimulatorRoundFlowTests \
+            --require-ran dagents.tests.test_agent_client.NetworkClientTests \
+            --require-ran dagents.tests.test_agent_network_flow.InProcessStudyTests \
+            --require-ran dagents.tests.test_agent_network_flow.OverHttpStudyTests \
+            --require-ran dagents.tests.test_gma_site_addresses.SiteAddressBookTests \
+            --require-ran dagents.tests.test_gma_site_addresses.SiteAddressRouteTests \
+            --require-ran dagents.tests.test_gma_site_addresses.OverHttpJoinTests \
+            --require-ran dagents.tests.test_compose_apply.LocalProcessApplierTests \
+            --require-ran dagents.tests.test_compose_apply.LocalProcessEnvFileTests \
+            --require-ran dagents.tests.test_compose_apply.DockerComposeApplierTests \
             agents-suite.log
 
       - name: Run the getting-started example and check the guide
@@ -283,7 +304,7 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
           cache-dependency-path: |
-            agents/*/requirements.txt
+            dagents/*/requirements.txt
             services/*/requirements.txt
             services/nl2sql-demo/backend/requirements.txt
             apps/healthcare-demo/requirements.txt
@@ -322,8 +343,8 @@ jobs:
         # against the code rather than against a document.
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -r agents/lma/requirements.txt \
-                                -r agents/gma/requirements.txt \
+          python -m pip install -r dagents/lma/requirements.txt \
+                                -r dagents/gma/requirements.txt \
                                 -r services/core-service/requirements.txt \
                                 -r services/pipeline-service/requirements.txt \
                                 -r services/model-service/requirements.txt \
@@ -477,11 +498,11 @@ jobs:
         run: |
           set -o pipefail
           python -m unittest -v \
-            agents.tests.test_postgres_roles \
-            agents.tests.test_postgres_lease \
-            agents.tests.test_model_registry \
-            agents.tests.test_job_log \
-            agents.tests.test_gma_release \
+            dagents.tests.test_postgres_roles \
+            dagents.tests.test_postgres_lease \
+            dagents.tests.test_model_registry \
+            dagents.tests.test_job_log \
+            dagents.tests.test_gma_release \
             2>&1 | tee framework-database.log
 
       - name: Fail if the database tests skipped
@@ -491,7 +512,7 @@ jobs:
         # reason the pattern does not match. Both logs are checked before the
         # step fails, so one run reports every problem. healthcare-data.yml
         # requires the same classes; tests/test_ci_guards.py checks that, and
-        # that every database class in agents/tests and the healthcare tests
+        # that every database class in dagents/tests and the healthcare tests
         # is listed here.
         run: |
           status=0
@@ -521,18 +542,18 @@ jobs:
           python scripts/ci_no_skipped_tests.py \
             --forbid database \
             --forbid planner \
-            --require-ran agents.tests.test_postgres_roles.ActingAsTests \
-            --require-ran agents.tests.test_postgres_roles.ConnectTests \
-            --require-ran agents.tests.test_postgres_roles.AdapterRoleTests \
-            --require-ran agents.tests.test_postgres_roles.PostgresAuditSinkTests \
-            --require-ran agents.tests.test_postgres_lease.KeptConnectionPostgresTests \
-            --require-ran agents.tests.test_postgres_lease.LeaseErrorTextPostgresTests \
-            --require-ran agents.tests.test_postgres_lease.LeaseAuditSinkPostgresTests \
-            --require-ran agents.tests.test_postgres_lease.SourceAdapterPostgresTests \
-            --require-ran agents.tests.test_model_registry.PostgresModelStoreTests \
-            --require-ran agents.tests.test_model_registry.PostgresModelRegistryTests \
-            --require-ran agents.tests.test_job_log.PostgresJobLogTests \
-            --require-ran agents.tests.test_gma_release.GmaPostgresWiringTests \
+            --require-ran dagents.tests.test_postgres_roles.ActingAsTests \
+            --require-ran dagents.tests.test_postgres_roles.ConnectTests \
+            --require-ran dagents.tests.test_postgres_roles.AdapterRoleTests \
+            --require-ran dagents.tests.test_postgres_roles.PostgresAuditSinkTests \
+            --require-ran dagents.tests.test_postgres_lease.KeptConnectionPostgresTests \
+            --require-ran dagents.tests.test_postgres_lease.LeaseErrorTextPostgresTests \
+            --require-ran dagents.tests.test_postgres_lease.LeaseAuditSinkPostgresTests \
+            --require-ran dagents.tests.test_postgres_lease.SourceAdapterPostgresTests \
+            --require-ran dagents.tests.test_model_registry.PostgresModelStoreTests \
+            --require-ran dagents.tests.test_model_registry.PostgresModelRegistryTests \
+            --require-ran dagents.tests.test_job_log.PostgresJobLogTests \
+            --require-ran dagents.tests.test_gma_release.GmaPostgresWiringTests \
             framework-database.log || status=1
           exit "${status}"
 
@@ -820,6 +841,121 @@ jobs:
           fi
 
   # ---------------------------------------------------------------------------
+  # The PyPI package. Builds the sdist and, from it, a Linux x86_64 wheel with
+  # the static planner inside, the way .github/workflows/release.yml does, and
+  # installs the wheel into clean environments outside the checkout. Then runs
+  # the agent suite on the newest versions the package's extras allow, because
+  # the agents job tests only the lowest. Nothing is published here.
+  # ---------------------------------------------------------------------------
+  packaging:
+    name: Python package
+    runs-on: ubuntu-latest
+    needs: planners
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          # The versions the classifiers in pyproject.toml list; the last is
+          # the default python.
+          python-version: |
+            3.12
+            3.13
+            ${{ env.PYTHON_VERSION }}
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: dagentsc-static
+          path: ${{ env.PLANNER_DIR }}
+
+      - name: Build the sdist, then the wheel from the sdist
+        # The build backend comes from the pins in .github/build-constraints.txt.
+        env:
+          PIP_CONSTRAINT: ${{ github.workspace }}/.github/build-constraints.txt
+          PIP_BUILD_CONSTRAINT: ${{ github.workspace }}/.github/build-constraints.txt
+        run: |
+          # Artifacts lose the executable bit; hatch_build.py refuses a planner without it.
+          chmod +x "${PLANNER_DIR}/dagentsc-linux-x86_64"
+          python -m pip install build==1.6.1 twine==7.0.0
+          python -m build --sdist --outdir dist
+          mkdir -p "${RUNNER_TEMP}/unpacked"
+          tar -xzf dist/dagents-*.tar.gz -C "${RUNNER_TEMP}/unpacked"
+          DAGENTS_PLANNER_BINARY="${PLANNER_DIR}/dagentsc-linux-x86_64" \
+          DAGENTS_WHEEL_PLATFORM=manylinux_2_17_x86_64.manylinux2014_x86_64.musllinux_1_1_x86_64 \
+            python -m build --wheel --outdir dist "${RUNNER_TEMP}"/unpacked/dagents-*
+          python -m build --wheel --outdir "${RUNNER_TEMP}/pure" "${RUNNER_TEMP}"/unpacked/dagents-*
+
+      - name: Check the files and the metadata
+        run: |
+          python scripts/check_dist.py dist --list --require-platform manylinux_2_17_x86_64 \
+            --build-constraints .github/build-constraints.txt
+          python scripts/check_dist.py "${RUNNER_TEMP}/pure" --build-constraints .github/build-constraints.txt
+          python -m twine check --strict dist/* "${RUNNER_TEMP}"/pure/*
+
+      - name: Install the wheel into clean environments and run the smoke test
+        # Outside the checkout, with no PYTHONPATH and no DAGENTSC_BIN, so the
+        # runner must find the planner inside the wheel. The wheel built
+        # without a planner must make the Guard deny.
+        run: |
+          wheel=$(ls "${GITHUB_WORKSPACE}"/dist/*.whl)
+          for version in 3.11 3.12 3.13; do
+            venv="${RUNNER_TEMP}/smoke-${version}"
+            "python${version}" -m venv "${venv}"
+            "${venv}/bin/python" -m pip install --quiet "${wheel}[lma,gma]"
+            (cd "${RUNNER_TEMP}" && env -u PYTHONPATH -u DAGENTSC_BIN "${venv}/bin/python" -I \
+              "${GITHUB_WORKSPACE}/scripts/smoke_installed_package.py" \
+              --repo "${GITHUB_WORKSPACE}" --expect-planner bundled)
+          done
+          venv="${RUNNER_TEMP}/smoke-pure"
+          python -m venv "${venv}"
+          "${venv}/bin/python" -m pip install --quiet "$(ls "${RUNNER_TEMP}"/pure/*.whl)[lma,gma]"
+          (cd "${RUNNER_TEMP}" && env -u PYTHONPATH -u DAGENTSC_BIN "${venv}/bin/python" -I \
+            "${GITHUB_WORKSPACE}/scripts/smoke_installed_package.py" \
+            --repo "${GITHUB_WORKSPACE}" --expect-planner none)
+
+      - name: Install the wheel next to openai-agents and run the smoke test
+        # openai-agents installs a top-level module named agents, the old name
+        # of this package. The package was renamed so that both install into
+        # one environment, so this step installs both and runs the smoke test
+        # there. The smoke test reads only the files the dagents distribution
+        # installed, and --agents-from checks that agents comes from
+        # openai-agents and imports next to dagents.
+        run: |
+          venv="${RUNNER_TEMP}/smoke-openai-agents"
+          python3.13 -m venv "${venv}"
+          "${venv}/bin/python" -m pip install --quiet "$(ls "${GITHUB_WORKSPACE}"/dist/*.whl)[lma,gma]" openai-agents==0.24.0
+          "${venv}/bin/python" -m pip check
+          (cd "${RUNNER_TEMP}" && env -u PYTHONPATH -u DAGENTSC_BIN "${venv}/bin/python" -I \
+            "${GITHUB_WORKSPACE}/scripts/smoke_installed_package.py" \
+            --repo "${GITHUB_WORKSPACE}" --expect-planner bundled --agents-from openai-agents)
+
+      - name: Run the agent suite on the newest versions the extras allow
+        # The agents job pins FastAPI 0.115.0 and uvicorn 0.30.6, the lowest
+        # versions the lma and gma extras accept. pip gives a user the newest
+        # versions instead, so this step installs the wheel with all its
+        # extras (the agents job installs psycopg, matplotlib and PyYAML too)
+        # on the newest Python the classifiers list, removes the package
+        # itself, and runs the suite from the checkout against those versions.
+        env:
+          DAGENTSC_BIN: ${{ env.PLANNER_DIR }}/dagentsc-linux-x86_64
+        run: |
+          set -o pipefail
+          venv="${RUNNER_TEMP}/newest"
+          python3.13 -m venv "${venv}"
+          "${venv}/bin/python" -m pip install --quiet "$(ls dist/*.whl)[all]"
+          "${venv}/bin/python" -m pip uninstall --yes --quiet dagents
+          "${venv}/bin/python" -c "import fastapi, starlette, uvicorn, pydantic; print('fastapi', fastapi.__version__, '| starlette', starlette.__version__, '| uvicorn', uvicorn.__version__, '| pydantic', pydantic.__version__)"
+          "${venv}/bin/python" -m unittest discover -s dagents/tests -t . -v 2>&1 | tee newest-suite.log
+          python scripts/ci_no_skipped_tests.py \
+            --forbid planner \
+            --forbid charts \
+            --require-ran dagents.tests.test_agent_api.TokenScopeTests \
+            --require-ran dagents.tests.test_agent_api.RoutePairConventionTests \
+            --require-ran dagents.tests.test_gma_http_engine.RouteTokenTests \
+            --require-ran dagents.tests.test_agent_network_flow.OverHttpStudyTests \
+            newest-suite.log
+
+  # ---------------------------------------------------------------------------
   # One check to require on the branch, so adding a job above does not mean
   # editing branch protection.
   # ---------------------------------------------------------------------------
@@ -836,6 +972,7 @@ jobs:
       - demo-apps
       - frontends
       - deploy-smoke
+      - packaging
       - docs-impact
     steps:
       - name: Report the outcome
@@ -843,6 +980,7 @@ jobs:
         # the gate.
         env:
           DOCS_IMPACT: ${{ needs.docs-impact.result }}
+          PACKAGING: ${{ needs.packaging.result }}
         run: |
           echo "planners:           ${{ needs.planners.result }}"
           echo "agents:             ${{ needs.agents.result }}"
@@ -852,6 +990,7 @@ jobs:
           echo "demo-apps:          ${{ needs.demo-apps.result }}"
           echo "frontends:          ${{ needs.frontends.result }}"
           echo "deploy-smoke:       ${{ needs.deploy-smoke.result }}"
+          echo "packaging:          ${PACKAGING}"
           echo "docs-impact:        ${DOCS_IMPACT}"
           if [ "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}" = "true" ]; then
             echo "::error::At least one CI job did not succeed."

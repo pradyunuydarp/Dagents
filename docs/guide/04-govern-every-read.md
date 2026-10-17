@@ -105,7 +105,7 @@ your application has checked it.
 ```python
 """Step 2: read orders at one store through the Guard, as three different people."""
 
-from agents.common.domain.governance import KyuAttribute, Requester
+from dagents.common.domain.governance import KyuAttribute, Requester
 
 from shop.extension import install
 from shop.store import load_store

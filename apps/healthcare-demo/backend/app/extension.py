@@ -24,8 +24,8 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
-from agents.common.domain.governance import DataClassification
-from agents.common.extensions import ConditionPack, FeatureContract, ModelKind, SiteSourceFactory, register_extension
+from dagents.common.domain.governance import DataClassification
+from dagents.common.extensions import ConditionPack, FeatureContract, ModelKind, SiteSourceFactory, register_extension
 
 from app.domain import stroke_rule
 from app.domain.conditions import (
@@ -125,7 +125,7 @@ def install(registry: Any | None = None) -> HealthcareStrokeExtension:
     """
     extension = HealthcareStrokeExtension()
     if registry is None:
-        from agents.common.extensions import default_registry
+        from dagents.common.extensions import default_registry
 
         registry = default_registry
     for existing in registry.extensions():

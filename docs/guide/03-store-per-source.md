@@ -106,7 +106,7 @@ In Postgres, each source gets:
 Your service logs in with one connection string. Before each operation it
 switches to the source's role for one transaction only. Dagents provides the
 switch: `acting_as` in
-[`agents/common/infrastructure/postgres_roles.py`](../../agents/common/infrastructure/postgres_roles.py).
+[`dagents/common/infrastructure/postgres_roles.py`](../../dagents/common/infrastructure/postgres_roles.py).
 It sends `BEGIN`, `SET LOCAL ROLE <role>` and `SELECT current_user` as one
 message, checks the user it gets back, runs your queries and commits. The role
 ends with the transaction.
@@ -135,7 +135,7 @@ roles and schemas:
 ```
 
 Its store keeps one connection, a `KeptConnection` from
-[`agents/common/infrastructure/postgres_lease.py`](../../agents/common/infrastructure/postgres_lease.py).
+[`dagents/common/infrastructure/postgres_lease.py`](../../dagents/common/infrastructure/postgres_lease.py).
 The store builds the connection itself, or runs on one it is given:
 
 <!-- source: apps/healthcare-demo/backend/app/services/site_store.py -->
@@ -202,7 +202,7 @@ Rules for a Postgres store:
   optional connection string per hospital,
   `HEALTHCARE_DEMO_SITE_<SITE>_DATABASE_URL`, for this.
 - **Keep the audit chain next to the records.**
-  `PostgresAuditSink` (in `agents/common/infrastructure/postgres_audit.py`)
+  `PostgresAuditSink` (in `dagents/common/infrastructure/postgres_audit.py`)
   writes each source's audit chain to a table in that source's schema, as that
   source's role.
 

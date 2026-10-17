@@ -63,7 +63,7 @@ Check each item before your application handles real data.
 | Treating `release` as a deployment | Aggregation produces a candidate, never a release | Record a person's approval before any source uses the candidate |
 | A session-level `SET ROLE` on a pooled connection | Every database operation runs in one transaction that starts with `SET LOCAL ROLE` | Use `acting_as` |
 | Patching a framework file to add your domain | Applications contribute through extensions | Register an extension; if it cannot express what you need, propose a change to the extension interface |
-| A domain word, such as a field name, in `agents/` | Nothing in `agents/` knows an application's domain | Keep domain code in your application |
+| A domain word, such as a field name, in `dagents/` | Nothing in `dagents/` knows an application's domain | Keep domain code in your application |
 | A test with a stub planner | Governance and federation tests use the real planner | Find the planner and skip with `dagentsc binary is not available`; forbid the skip in CI |
 | Marking an attribute verified because it was supplied | `verified` defaults to `False` on purpose | Mark it verified only after your application checked it |
 

@@ -2045,7 +2045,7 @@ let lma_merge_json =
     {
       "name": "lma-hospital-d",
       "image": "dagents/healthcare-demo-backend:local",
-      "args": ["uvicorn", "agents.lma.main:app", "--host", "0.0.0.0", "--port", "8085"],
+      "args": ["uvicorn", "dagents.lma.main:app", "--host", "0.0.0.0", "--port", "8085"],
       "envFiles": ["../../env/.env.shared", "lma-hospital-d.env"],
       "env": [
         {"name": "LMA_SITE_ID", "value": "hospital-d"},
@@ -2064,7 +2064,7 @@ let lma_merge_yaml =
   {|services:
   "lma-hospital-d":
     image: "dagents/healthcare-demo-backend:local"
-    command: ["uvicorn", "agents.lma.main:app", "--host", "0.0.0.0", "--port", "8085"]
+    command: ["uvicorn", "dagents.lma.main:app", "--host", "0.0.0.0", "--port", "8085"]
     env_file:
       - "../../env/.env.shared"
       - "lma-hospital-d.env"

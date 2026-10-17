@@ -4,8 +4,8 @@ Dagents runs two kinds of agent. Both are FastAPI apps.
 
 | Agent | Code | Port | What it is for |
 |---|---|---|---|
-| LMA, the local monitoring agent | `agents/lma/` | 8010 | One per data source (a tenant, database, service, event stream or environment). It profiles the source's data, runs local models and monitoring bundles, publishes telemetry, and applies the Guard at three of the four boundaries: before data is read, before training and before anything is sent. Started for a site, it also serves that site's records, summary and Guard probe, and runs the site's part of each federated round. |
-| GMA, the global monitoring agent | `agents/gma/` | 8020 | The coordinator. It registers LMAs, keeps their telemetry and desired deployments, runs aggregate models, plans federated rounds and sends their jobs to the LMAs, stores the sites' clipped updates until it combines them, keeps the model registry, and decides releases. Its Guard stands at the fourth boundary, before a release. |
+| LMA, the local monitoring agent | `dagents/lma/` | 8010 | One per data source (a tenant, database, service, event stream or environment). It profiles the source's data, runs local models and monitoring bundles, publishes telemetry, and applies the Guard at three of the four boundaries: before data is read, before training and before anything is sent. Started for a site, it also serves that site's records, summary and Guard probe, and runs the site's part of each federated round. |
+| GMA, the global monitoring agent | `dagents/gma/` | 8020 | The coordinator. It registers LMAs, keeps their telemetry and desired deployments, runs aggregate models, plans federated rounds and sends their jobs to the LMAs, stores the sites' clipped updates until it combines them, keeps the model registry, and decides releases. Its Guard stands at the fourth boundary, before a release. |
 
 Both agents use the same layout: `domain/` for typed models with no I/O,
 `application/` for the use cases, `adapters/` and `infrastructure/` for the
@@ -20,7 +20,7 @@ an LMA can keep its audit chain and its job log in Postgres, and a GMA its
 model registry and its audit chain. Rounds, site enrolments and stored updates
 are always in memory.
 
-The governance and federation code is shared, in `agents/common/`:
+The governance and federation code is shared, in `dagents/common/`:
 `GovernanceService` and the `EthicalGuard` behind the governance endpoints of
 both agents, `FederatedRoundController` behind the GMA's round endpoints, and
 `LocalFederatedWorker` behind the LMA's job endpoints. Each asks the planner,
@@ -61,7 +61,7 @@ GMA in one process and calls them through their APIs.
 This part applies to both agents.
 
 **Calls between agents.** The GMA calls each LMA, and an LMA calls the GMA,
-through `AgentNetwork` (`agents/common/infrastructure/agent_client.py`). It
+through `AgentNetwork` (`dagents/common/infrastructure/agent_client.py`). It
 has two transports behind the same typed clients, `LmaClient` and `GmaClient`:
 
 | Transport | Built with | Used when |
@@ -147,12 +147,12 @@ its site and job routes answer `404`.
 
 | | |
 |---|---|
-| Code | `agents/lma/`: the routes in `routes.py`, the app built by `app_factory.py` from `config.py` and `di.py`, the use cases in `application/` (`monitoring_service.py`, `site_service.py`, `federation_jobs.py`), the GMA link and update channel in `adapters/`, and the stores and job log in `infrastructure/` |
-| Shared code it serves | `agents/common/`: sources (`infrastructure/sources.py`), profiles and model runs (`application/ml_orchestration.py`), governance (`application/governance_service.py`, `application/ethical_guard.py`), the site's part of a round (`application/federation_worker.py`), the running profile (`application/running_profile.py`), the agent client and tokens (`infrastructure/agent_client.py`, `infrastructure/agent_auth.py`) and extensions (`extensions/registry.py`) |
+| Code | `dagents/lma/`: the routes in `routes.py`, the app built by `app_factory.py` from `config.py` and `di.py`, the use cases in `application/` (`monitoring_service.py`, `site_service.py`, `federation_jobs.py`), the GMA link and update channel in `adapters/`, and the stores and job log in `infrastructure/` |
+| Shared code it serves | `dagents/common/`: sources (`infrastructure/sources.py`), profiles and model runs (`application/ml_orchestration.py`), governance (`application/governance_service.py`, `application/ethical_guard.py`), the site's part of a round (`application/federation_worker.py`), the running profile (`application/running_profile.py`), the agent client and tokens (`infrastructure/agent_client.py`, `infrastructure/agent_auth.py`) and extensions (`extensions/registry.py`) |
 | Port | 8010 (`LMA_API_PORT` in `env/.env.lma`, read by uvicorn) |
-| Settings | `env/.env.shared`, then `env/.env.lma`, read by `Settings.from_env()` in `agents/lma/config.py`. A variable already set in the environment wins. |
+| Settings | `env/.env.shared`, then `env/.env.lma`, read by `Settings.from_env()` in `dagents/lma/config.py`. A variable already set in the environment wins. |
 | Planner | `dagentsc governance restrict` for the plan, enforce and probe endpoints, the site's label rate and the Guard of each job; `dagentsc federation round digest` when the LMA checks a job offer |
-| Start it | `PYTHONPATH=. .venv/bin/uvicorn agents.lma.main:app --port 8010`, from the repository root, with `DAGENTSC_BIN` set ([how](overview.md#run-a-service-to-try-the-examples)). The container image builds `dagentsc` and puts it on its `PATH`. |
+| Start it | `PYTHONPATH=. .venv/bin/uvicorn dagents.lma.main:app --port 8010`, from the repository root, with `DAGENTSC_BIN` set ([how](overview.md#run-a-service-to-try-the-examples)). The container image builds `dagentsc` and puts it on its `PATH`. |
 | Its own docs | `http://127.0.0.1:8010/docs` and `/openapi.json` |
 
 The settings that start an LMA for a site:
@@ -206,7 +206,7 @@ How the LMA relates to the other modules:
 
 ```mermaid
 flowchart TB
-    Caller["Caller, with a site or coordinator token"] --> Routes["agents/lma/routes.py"]
+    Caller["Caller, with a site or coordinator token"] --> Routes["dagents/lma/routes.py"]
     Routes --> Monitoring["MonitoringService"]
     Routes --> Governance["GovernanceService"]
     Routes --> Site["SiteService"]
@@ -267,9 +267,9 @@ table for them.
 ```api-interface
 service: lma
 status: complete
-code: agents/lma/routes.py
+code: dagents/lma/routes.py
 classes:
-- MonitoringService (agents/lma/application/monitoring_service.py)
+- MonitoringService (dagents/lma/application/monitoring_service.py)
 endpoints:
 - GET /health
 - GET /api/v1/health
@@ -304,10 +304,10 @@ counted here.
 ```api-interface
 service: lma
 status: complete
-code: agents/lma/routes.py
+code: dagents/lma/routes.py
 classes:
-- MonitoringService (agents/lma/application/monitoring_service.py)
-- DefaultSourceResolver (agents/common/infrastructure/sources.py)
+- MonitoringService (dagents/lma/application/monitoring_service.py)
+- DefaultSourceResolver (dagents/common/infrastructure/sources.py)
 endpoints:
 - GET /api/v1/sources
 - POST /api/v1/sources
@@ -463,11 +463,11 @@ source has this id.
 ```api-interface
 service: lma
 status: complete
-code: agents/lma/routes.py
+code: dagents/lma/routes.py
 classes:
-- MonitoringService (agents/lma/application/monitoring_service.py)
-- DefaultSourceResolver (agents/common/infrastructure/sources.py)
-- InMemoryModelRunRepository (agents/lma/infrastructure/state.py)
+- MonitoringService (dagents/lma/application/monitoring_service.py)
+- DefaultSourceResolver (dagents/common/infrastructure/sources.py)
+- InMemoryModelRunRepository (dagents/lma/infrastructure/state.py)
 endpoints:
 - POST /datasets/profile
 - POST /api/v1/datasets:profile
@@ -481,7 +481,7 @@ A **profile** counts a set of records, sorts their fields into numeric and
 categorical, and suggests model families. A **model run** profiles the records
 the same way, then records a run with estimated metrics. The functions are
 `build_dataset_profile` and `execute_model_run` in
-`agents/common/application/ml_orchestration.py`. The GMA uses the same ones.
+`dagents/common/application/ml_orchestration.py`. The GMA uses the same ones.
 
 Where the records come from, in this order:
 
@@ -597,13 +597,13 @@ number leaves out that many of the oldest runs.
 ```api-interface
 service: lma
 status: complete
-code: agents/lma/routes.py
+code: dagents/lma/routes.py
 classes:
-- MonitoringService (agents/lma/application/monitoring_service.py)
-- InMemoryBundleRepository (agents/lma/infrastructure/state.py)
-- InMemoryRunHistoryRepository (agents/lma/infrastructure/state.py)
-- InMemoryMonitoringRunner (agents/lma/adapters/runner.py)
-- InMemoryTelemetryPublisher (agents/lma/infrastructure/messaging.py)
+- MonitoringService (dagents/lma/application/monitoring_service.py)
+- InMemoryBundleRepository (dagents/lma/infrastructure/state.py)
+- InMemoryRunHistoryRepository (dagents/lma/infrastructure/state.py)
+- InMemoryMonitoringRunner (dagents/lma/adapters/runner.py)
+- InMemoryTelemetryPublisher (dagents/lma/infrastructure/messaging.py)
 endpoints:
 - GET /bundles
 - POST /bundles/deploy
@@ -737,12 +737,12 @@ telemetry has a caller post it to the
 ```api-interface
 service: lma
 status: complete
-code: agents/lma/routes.py
+code: dagents/lma/routes.py
 classes:
-- GovernanceService (agents/common/application/governance_service.py)
-- EthicalGuard (agents/common/application/ethical_guard.py)
-- DagentscRestrictionPlanner (agents/common/application/ethical_guard.py)
-- InMemoryAuditLog (agents/common/application/ethical_guard.py)
+- GovernanceService (dagents/common/application/governance_service.py)
+- EthicalGuard (dagents/common/application/ethical_guard.py)
+- DagentscRestrictionPlanner (dagents/common/application/ethical_guard.py)
+- InMemoryAuditLog (dagents/common/application/ethical_guard.py)
 endpoints:
 - GET /governance/classifications
 - GET /api/v1/governance/classifications
@@ -823,7 +823,7 @@ sequenceDiagram
 **The three boundaries at the LMA.** The Guard stands at four boundaries. The
 first three are at the site. The boundary is a field of the request, chosen by
 the caller. In a federated round, the LMA's job endpoints make these three
-calls through `LocalFederatedWorker` (`agents/common/application/federation_worker.py`):
+calls through `LocalFederatedWorker` (`dagents/common/application/federation_worker.py`):
 the offer makes the first, the execution the other two
 ([LMA federated jobs](#lma-federated-jobs)). A caller of the LMA's HTTP API can
 make the same calls through the enforce endpoint:
@@ -962,9 +962,9 @@ negative number leaves out that many of the oldest records.
 ```api-interface
 service: lma
 status: complete
-code: agents/lma/routes.py
+code: dagents/lma/routes.py
 classes:
-- ExtensionRegistry (agents/common/extensions/registry.py)
+- ExtensionRegistry (dagents/common/extensions/registry.py)
 endpoints:
 - GET /extensions
 - GET /api/v1/extensions
@@ -1003,12 +1003,12 @@ here.
 ```api-interface
 service: lma
 status: complete
-code: agents/lma/routes.py
+code: dagents/lma/routes.py
 classes:
-- SiteService (agents/lma/application/site_service.py)
-- RunningProfile (agents/common/application/running_profile.py)
-- GovernanceService (agents/common/application/governance_service.py)
-- GmaLink (agents/lma/adapters/gma_link.py)
+- SiteService (dagents/lma/application/site_service.py)
+- RunningProfile (dagents/common/application/running_profile.py)
+- GovernanceService (dagents/common/application/governance_service.py)
+- GmaLink (dagents/lma/adapters/gma_link.py)
 endpoints:
 - GET /site
 - GET /api/v1/site
@@ -1031,7 +1031,7 @@ endpoints:
 What an LMA started for a site serves about that site. A **site** is one data
 source in a study, such as one store. Its records come from a **site source**:
 an object with `records()`, `count()`, `version()`, `location()` and `close()`
-(the `SiteRecordSource` port in `agents/common/application/ports.py`). An
+(the `SiteRecordSource` port in `dagents/common/application/ports.py`). An
 extension contributes the factory that builds it, named in `LMA_SITE_SOURCE`,
 or an application hands the LMA its own source.
 
@@ -1259,13 +1259,13 @@ It calls no planner command and stores nothing.
 ```api-interface
 service: lma
 status: complete
-code: agents/lma/routes.py
+code: dagents/lma/routes.py
 classes:
-- FederationJobService (agents/lma/application/federation_jobs.py)
-- LocalFederatedWorker (agents/common/application/federation_worker.py)
-- HttpUpdateChannel (agents/lma/adapters/http_update_channel.py)
-- InMemoryJobLog (agents/lma/infrastructure/job_log.py)
-- PostgresJobLog (agents/lma/infrastructure/job_log.py)
+- FederationJobService (dagents/lma/application/federation_jobs.py)
+- LocalFederatedWorker (dagents/common/application/federation_worker.py)
+- HttpUpdateChannel (dagents/lma/adapters/http_update_channel.py)
+- InMemoryJobLog (dagents/lma/infrastructure/job_log.py)
+- PostgresJobLog (dagents/lma/infrastructure/job_log.py)
 endpoints:
 - GET /federation/registration
 - GET /api/v1/federation/registration
@@ -1474,12 +1474,12 @@ Terms used in this part of the page:
 
 | | |
 |---|---|
-| Code | `agents/gma/`: the routes in `routes.py`, the app built by `app_factory.py` from `config.py`, the use cases in `application/` (`aggregation_service.py`, `model_registry.py`, `release_service.py`, `site_directory.py`, `site_addresses.py`), the HTTP engine in `adapters/http_federation_engine.py`, and the stores in `infrastructure/` (`persistence.py`, `update_store.py`, `postgres_models.py`) |
-| Shared code it serves | `agents/common/`: federated rounds (`application/federation.py`, `domain/federation.py`), governance (`application/governance_service.py`, `application/ethical_guard.py`), sources (`infrastructure/sources.py`), profiles and model runs (`application/ml_orchestration.py`), the agent client and tokens (`infrastructure/agent_client.py`, `infrastructure/agent_auth.py`) and extensions (`extensions/registry.py`) |
+| Code | `dagents/gma/`: the routes in `routes.py`, the app built by `app_factory.py` from `config.py`, the use cases in `application/` (`aggregation_service.py`, `model_registry.py`, `release_service.py`, `site_directory.py`, `site_addresses.py`), the HTTP engine in `adapters/http_federation_engine.py`, and the stores in `infrastructure/` (`persistence.py`, `update_store.py`, `postgres_models.py`) |
+| Shared code it serves | `dagents/common/`: federated rounds (`application/federation.py`, `domain/federation.py`), governance (`application/governance_service.py`, `application/ethical_guard.py`), sources (`infrastructure/sources.py`), profiles and model runs (`application/ml_orchestration.py`), the agent client and tokens (`infrastructure/agent_client.py`, `infrastructure/agent_auth.py`) and extensions (`extensions/registry.py`) |
 | Port | 8020 (`GMA_API_PORT` in `env/.env.gma`, read by uvicorn) |
-| Settings | `env/.env.shared`, then `env/.env.gma`, read by `Settings.from_env()` in `agents/gma/config.py`. A variable already set in the environment wins. |
+| Settings | `env/.env.shared`, then `env/.env.gma`, read by `Settings.from_env()` in `dagents/gma/config.py`. A variable already set in the environment wins. |
 | Planner | `dagentsc governance restrict` for governance and the release Guard; `dagentsc federation round plan`, `federation aggregate readiness`, `federation release evaluate` and `federation model lifecycle` for rounds and model versions |
-| Start it | `PYTHONPATH=. .venv/bin/uvicorn agents.gma.main:app --port 8020`, from the repository root, with `DAGENTSC_BIN` set ([how](overview.md#run-a-service-to-try-the-examples)). The container image builds `dagentsc` and puts it on its `PATH`. |
+| Start it | `PYTHONPATH=. .venv/bin/uvicorn dagents.gma.main:app --port 8020`, from the repository root, with `DAGENTSC_BIN` set ([how](overview.md#run-a-service-to-try-the-examples)). The container image builds `dagentsc` and puts it on its `PATH`. |
 | Its own docs | `http://127.0.0.1:8020/docs` and `/openapi.json` |
 
 The settings beyond the app name and log level. A GMA with none of them set
@@ -1545,7 +1545,7 @@ How the GMA relates to the other modules:
 
 ```mermaid
 flowchart TB
-    Caller["Caller, with an admin or site token"] --> Routes["agents/gma/routes.py"]
+    Caller["Caller, with an admin or site token"] --> Routes["dagents/gma/routes.py"]
     Routes --> Aggregation["AggregationService"]
     Routes --> Governance["GovernanceService"]
     Routes --> Rounds["FederatedRoundController"]
@@ -1616,9 +1616,9 @@ except the stored updates.
 ```api-interface
 service: gma
 status: complete
-code: agents/gma/routes.py
+code: dagents/gma/routes.py
 classes:
-- AggregationService (agents/gma/application/aggregation_service.py)
+- AggregationService (dagents/gma/application/aggregation_service.py)
 endpoints:
 - GET /health
 - GET /api/v1/health
@@ -1675,11 +1675,11 @@ its record holds a desired bundle that differs from the bundle it last reported
 ```api-interface
 service: gma
 status: complete
-code: agents/gma/routes.py
+code: dagents/gma/routes.py
 classes:
-- AggregationService (agents/gma/application/aggregation_service.py)
-- InMemoryAgentRegistryRepository (agents/gma/infrastructure/persistence.py)
-- InMemoryTelemetryRepository (agents/gma/infrastructure/persistence.py)
+- AggregationService (dagents/gma/application/aggregation_service.py)
+- InMemoryAgentRegistryRepository (dagents/gma/infrastructure/persistence.py)
+- InMemoryTelemetryRepository (dagents/gma/infrastructure/persistence.py)
 endpoints:
 - POST /register
 - PUT /api/v1/agents/{agent_id}/registration
@@ -1851,11 +1851,11 @@ There is no versioned path.
 ```api-interface
 service: gma
 status: complete
-code: agents/gma/routes.py
+code: dagents/gma/routes.py
 classes:
-- AggregationService (agents/gma/application/aggregation_service.py)
-- InMemoryControlPlaneRepository (agents/gma/infrastructure/persistence.py)
-- InMemoryAgentRegistryRepository (agents/gma/infrastructure/persistence.py)
+- AggregationService (dagents/gma/application/aggregation_service.py)
+- InMemoryControlPlaneRepository (dagents/gma/infrastructure/persistence.py)
+- InMemoryAgentRegistryRepository (dagents/gma/infrastructure/persistence.py)
 endpoints:
 - POST /deployments/plan
 - PUT /api/v1/agents/{agent_id}/desired-deployment
@@ -1988,10 +1988,10 @@ dispatch, and a negative number leaves out that many of the oldest.
 ```api-interface
 service: gma
 status: complete
-code: agents/gma/routes.py
+code: dagents/gma/routes.py
 classes:
-- AggregationService (agents/gma/application/aggregation_service.py)
-- DefaultSourceResolver (agents/common/infrastructure/sources.py)
+- AggregationService (dagents/gma/application/aggregation_service.py)
+- DefaultSourceResolver (dagents/common/infrastructure/sources.py)
 endpoints:
 - GET /api/v1/sources
 - POST /api/v1/sources
@@ -2089,11 +2089,11 @@ lists what each kind checks.
 ```api-interface
 service: gma
 status: complete
-code: agents/gma/routes.py
+code: dagents/gma/routes.py
 classes:
-- AggregationService (agents/gma/application/aggregation_service.py)
-- DefaultSourceResolver (agents/common/infrastructure/sources.py)
-- InMemoryModelRunRepository (agents/gma/infrastructure/persistence.py)
+- AggregationService (dagents/gma/application/aggregation_service.py)
+- DefaultSourceResolver (dagents/common/infrastructure/sources.py)
+- InMemoryModelRunRepository (dagents/gma/infrastructure/persistence.py)
 endpoints:
 - POST /datasets/profile
 - POST /api/v1/datasets:profile
@@ -2105,7 +2105,7 @@ endpoints:
 
 The GMA profiles and runs models on **assimilated** data: records combined from
 several sources. It uses the same functions as the LMA, `build_dataset_profile`
-and `execute_model_run` in `agents/common/application/ml_orchestration.py`, so
+and `execute_model_run` in `dagents/common/application/ml_orchestration.py`, so
 [LMA dataset profiling and model runs](#lma-dataset-profiling-and-model-runs)
 describes where the records come from and how models are suggested. Three
 things differ:
@@ -2186,12 +2186,12 @@ integer.
 ```api-interface
 service: gma
 status: complete
-code: agents/gma/routes.py
+code: dagents/gma/routes.py
 classes:
-- GovernanceService (agents/common/application/governance_service.py)
-- EthicalGuard (agents/common/application/ethical_guard.py)
-- DagentscRestrictionPlanner (agents/common/application/ethical_guard.py)
-- InMemoryAuditLog (agents/common/application/ethical_guard.py)
+- GovernanceService (dagents/common/application/governance_service.py)
+- EthicalGuard (dagents/common/application/ethical_guard.py)
+- DagentscRestrictionPlanner (dagents/common/application/ethical_guard.py)
+- InMemoryAuditLog (dagents/common/application/ethical_guard.py)
 endpoints:
 - GET /governance/classifications
 - GET /api/v1/governance/classifications
@@ -2208,7 +2208,7 @@ endpoints:
 ```
 
 The GMA has its own `GovernanceService`, `EthicalGuard` and audit log, built by
-`build_governance_service` in `agents/gma/di.py`. The endpoints, the planner
+`build_governance_service` in `dagents/gma/di.py`. The endpoints, the planner
 command and the Guard's behaviour are the same as the LMA's.
 [LMA governance](#lma-governance) explains classifications, restriction plans,
 the strategies and the audit chain. What differs at the GMA:
@@ -2380,12 +2380,12 @@ calls no planner command and stores nothing.
 ```api-interface
 service: gma
 status: complete
-code: agents/gma/routes.py
+code: dagents/gma/routes.py
 classes:
-- FederatedRoundController (agents/common/application/federation.py)
-- InMemorySiteRegistry (agents/common/application/federation.py)
-- SiteDirectory (agents/gma/application/site_directory.py)
-- SiteAddressBook (agents/gma/application/site_addresses.py)
+- FederatedRoundController (dagents/common/application/federation.py)
+- InMemorySiteRegistry (dagents/common/application/federation.py)
+- SiteDirectory (dagents/gma/application/site_directory.py)
+- SiteAddressBook (dagents/gma/application/site_addresses.py)
 endpoints:
 - PUT /federation/sites/{site_id}
 - PUT /api/v1/federation/sites/{site_id}
@@ -2590,14 +2590,14 @@ answers two empty lists (the first example). It reads memory only.
 ```api-interface
 service: gma
 status: complete
-code: agents/gma/routes.py
+code: dagents/gma/routes.py
 classes:
-- FederatedRoundController (agents/common/application/federation.py)
-- HttpFederationEngine (agents/gma/adapters/http_federation_engine.py)
-- InProcessFederationEngine (agents/common/application/federation.py)
-- InMemoryRoundRepository (agents/common/application/federation.py)
-- InMemorySiteRegistry (agents/common/application/federation.py)
-- ReleaseService (agents/gma/application/release_service.py)
+- FederatedRoundController (dagents/common/application/federation.py)
+- HttpFederationEngine (dagents/gma/adapters/http_federation_engine.py)
+- InProcessFederationEngine (dagents/common/application/federation.py)
+- InMemoryRoundRepository (dagents/common/application/federation.py)
+- InMemorySiteRegistry (dagents/common/application/federation.py)
+- ReleaseService (dagents/gma/application/release_service.py)
 endpoints:
 - POST /federation/rounds:plan
 - POST /api/v1/federation/rounds:plan
@@ -3083,10 +3083,10 @@ read.
 ```api-interface
 service: gma
 status: complete
-code: agents/gma/routes.py
+code: dagents/gma/routes.py
 classes:
-- InMemoryUpdateStore (agents/gma/infrastructure/update_store.py)
-- ModelRegistry (agents/gma/application/model_registry.py)
+- InMemoryUpdateStore (dagents/gma/infrastructure/update_store.py)
+- ModelRegistry (dagents/gma/application/model_registry.py)
 endpoints:
 - PUT /federation/rounds/{round_id}/updates/{site_id}
 - PUT /api/v1/federation/rounds/{round_id}/updates/{site_id}
@@ -3139,11 +3139,11 @@ does not define, or an update value that is not a finite number.
 ```api-interface
 service: gma
 status: complete
-code: agents/gma/routes.py
+code: dagents/gma/routes.py
 classes:
-- ModelRegistry (agents/gma/application/model_registry.py)
-- InMemoryModelStore (agents/gma/infrastructure/postgres_models.py)
-- PostgresModelStore (agents/gma/infrastructure/postgres_models.py)
+- ModelRegistry (dagents/gma/application/model_registry.py)
+- InMemoryModelStore (dagents/gma/infrastructure/postgres_models.py)
+- PostgresModelStore (dagents/gma/infrastructure/postgres_models.py)
 endpoints:
 - GET /model-versions
 - GET /api/v1/model-versions
@@ -3317,9 +3317,9 @@ show, and also when another approval changed the release meanwhile. `503`
 ```api-interface
 service: gma
 status: complete
-code: agents/gma/routes.py
+code: dagents/gma/routes.py
 classes:
-- ExtensionRegistry (agents/common/extensions/registry.py)
+- ExtensionRegistry (dagents/common/extensions/registry.py)
 endpoints:
 - GET /extensions
 - GET /api/v1/extensions
@@ -3357,7 +3357,7 @@ come from the classes each object names.
 ### The InlineSourceSpec object
 
 ```api-object
-class: agents.common.domain.sources.InlineSourceSpec
+class: dagents.common.domain.sources.InlineSourceSpec
 service: lma
 example: lma register-inline-source /response/body
 ```
@@ -3370,7 +3370,7 @@ source shapes at `POST /api/v1/sources`, and in `dataset.source`.
 ### The PostgresSourceSpec object
 
 ```api-object
-class: agents.common.domain.sources.PostgresSourceSpec
+class: dagents.common.domain.sources.PostgresSourceSpec
 service: lma
 example: lma get-source /response/body
 ```
@@ -3385,7 +3385,7 @@ role, inside one transaction that starts with `SET LOCAL ROLE`. See
 ### The MongoSourceSpec object
 
 ```api-object
-class: agents.common.domain.sources.MongoSourceSpec
+class: dagents.common.domain.sources.MongoSourceSpec
 service: lma
 ```
 
@@ -3396,7 +3396,7 @@ and fails when there are none.
 ### The ObjectStorageSourceSpec object
 
 ```api-object
-class: agents.common.domain.sources.ObjectStorageSourceSpec
+class: dagents.common.domain.sources.ObjectStorageSourceSpec
 service: lma
 example: lma register-csv-source /response/body
 ```
@@ -3408,7 +3408,7 @@ categorical.
 ### The DatasetInput object
 
 ```api-object
-class: agents.common.domain.sources.DatasetInput
+class: dagents.common.domain.sources.DatasetInput
 service: lma
 example: lma profile-registered-source /request/json/dataset
 ```
@@ -3420,7 +3420,7 @@ then `source_id`. An object with none of the three fails validation with `422`.
 ### The SourceValidationResult object
 
 ```api-object
-class: agents.common.domain.sources.SourceValidationResult
+class: dagents.common.domain.sources.SourceValidationResult
 service: lma
 example: lma validate-reserved-role /response/body
 ```
@@ -3432,7 +3432,7 @@ each kind of source checks.
 ### The DatasetProfile object
 
 ```api-object
-class: agents.common.domain.datasets.DatasetProfile
+class: dagents.common.domain.datasets.DatasetProfile
 service: lma
 example: lma profile-registered-source /response/body
 ```
@@ -3444,7 +3444,7 @@ means.
 ### The ModelRunRecord object
 
 ```api-object
-class: agents.common.domain.datasets.ModelRunRecord
+class: dagents.common.domain.datasets.ModelRunRecord
 service: lma
 example: lma run-model-job /response/body/run
 ```
@@ -3456,7 +3456,7 @@ listed by `GET /api/v1/model-jobs`. No model is trained in this version, so
 ### The BundleRecord object
 
 ```api-object
-class: agents.common.domain.control.BundleRecord
+class: dagents.common.domain.control.BundleRecord
 service: lma
 example: lma list-bundles /response/body/0
 ```
@@ -3467,7 +3467,7 @@ record per `bundle_id` and `bundle_version` pair.
 ### The RunRecord object
 
 ```api-object
-class: agents.common.domain.control.RunRecord
+class: dagents.common.domain.control.RunRecord
 service: lma
 example: lma run-bundle /response/body/run
 ```
@@ -3478,7 +3478,7 @@ A monitoring run as the LMA stores it after `POST /run`, and lists it at
 ### The TelemetryEnvelope object
 
 ```api-object
-class: agents.common.domain.control.TelemetryEnvelope
+class: dagents.common.domain.control.TelemetryEnvelope
 service: lma
 example: lma run-bundle /response/body/telemetry
 ```
@@ -3490,7 +3490,7 @@ LMA's stub runner always names the agent `lma-dev-1`.
 ### The DataClassification object
 
 ```api-object
-class: agents.common.domain.governance.DataClassification
+class: dagents.common.domain.governance.DataClassification
 service: lma
 example: lma register-classification /response/body
 ```
@@ -3506,7 +3506,7 @@ which cannot replace an extension's.
 ### The RestrictionRequest object
 
 ```api-object
-class: agents.common.domain.governance.RestrictionRequest
+class: dagents.common.domain.governance.RestrictionRequest
 service: lma
 example: lma enforce-rows /request/json/request
 ```
@@ -3520,7 +3520,7 @@ trust score, not proof of identity: the agent does not check it.
 ### The RestrictionPlan object
 
 ```api-object
-class: agents.common.domain.governance.RestrictionPlan
+class: dagents.common.domain.governance.RestrictionPlan
 service: lma
 example: lma plan-narrow /response/body
 ```
@@ -3533,7 +3533,7 @@ same plan.
 ### The GuardDecision object
 
 ```api-object
-class: agents.common.domain.governance.GuardDecision
+class: dagents.common.domain.governance.GuardDecision
 service: lma
 example: lma enforce-rows /response/body
 ```
@@ -3546,7 +3546,7 @@ changed, so a narrowed answer is not mistaken for a complete one.
 ### The AuditRecord object
 
 ```api-object
-class: agents.common.domain.governance.AuditRecord
+class: dagents.common.domain.governance.AuditRecord
 service: lma
 example: lma audit-log /response/body/records/1
 ```
@@ -3559,7 +3559,7 @@ norm before (1.56) and after (1.0) clipping. Records are listed by
 ### The GuardEnforcementRequest object
 
 ```api-object
-class: agents.lma.routes.GuardEnforcementRequest
+class: dagents.lma.routes.GuardEnforcementRequest
 service: lma
 example: lma enforce-rows /request/json
 ```
@@ -3573,7 +3573,7 @@ The GMA declares a class of the same name with the same fields.
 ### The ModelExecutionRequest object
 
 ```api-object
-class: agents.common.domain.datasets.ModelExecutionRequest
+class: dagents.common.domain.datasets.ModelExecutionRequest
 service: lma
 example: lma run-model /request/json
 ```
@@ -3586,7 +3586,7 @@ It trains no model.
 ### The ModelExecutionResponse object
 
 ```api-object
-class: agents.common.domain.datasets.ModelExecutionResponse
+class: dagents.common.domain.datasets.ModelExecutionResponse
 service: lma
 example: lma run-model /response/body
 ```
@@ -3598,7 +3598,7 @@ stored.
 ### The RegisterRequest object
 
 ```api-object
-class: agents.common.domain.control.RegisterRequest
+class: dagents.common.domain.control.RegisterRequest
 service: gma
 example: gma register /request/json
 ```
@@ -3611,7 +3611,7 @@ into the answer. On the versioned path, the id in the path replaces
 ### The AgentSnapshot object
 
 ```api-object
-class: agents.common.domain.control.AgentSnapshot
+class: dagents.common.domain.control.AgentSnapshot
 service: gma
 example: gma get-agent /response/body
 ```
@@ -3626,7 +3626,7 @@ has the version `unknown`.
 ### The DeploymentPlan object
 
 ```api-object
-class: agents.common.domain.control.DeploymentPlan
+class: dagents.common.domain.control.DeploymentPlan
 service: gma
 example: gma plan-deployment /response/body
 ```
@@ -3639,7 +3639,7 @@ config changes, so a tool can tell whether the plan it holds is current.
 ### The DeploymentSyncResponse object
 
 ```api-object
-class: agents.common.domain.control.DeploymentSyncResponse
+class: dagents.common.domain.control.DeploymentSyncResponse
 service: gma
 example: gma sync-behind /response/body
 ```
@@ -3650,7 +3650,7 @@ install the bundle the answer names.
 ### The DispatchedRun object
 
 ```api-object
-class: agents.common.domain.control.DispatchedRun
+class: dagents.common.domain.control.DispatchedRun
 service: gma
 example: gma list-dispatches /response/body/0
 ```
@@ -3662,7 +3662,7 @@ example: gma list-dispatches /response/body/0
 ### The TelemetrySummary object
 
 ```api-object
-class: agents.common.domain.control.TelemetrySummary
+class: dagents.common.domain.control.TelemetrySummary
 service: gma
 example: gma telemetry-summary /response/body/0
 ```
@@ -3673,7 +3673,7 @@ example: gma telemetry-summary /response/body/0
 ### The FleetOverview object
 
 ```api-object
-class: agents.common.domain.control.FleetOverview
+class: dagents.common.domain.control.FleetOverview
 service: gma
 example: gma overview /response/body
 ```
@@ -3683,7 +3683,7 @@ The five counts [`GET /overview`](#gma-get-overview) returns.
 ### The SiteRegistration object
 
 ```api-object
-class: agents.common.domain.federation.SiteRegistration
+class: dagents.common.domain.federation.SiteRegistration
 service: gma
 example: gma enrol-north /response/body
 ```
@@ -3699,7 +3699,7 @@ eligibility checks, and `policy_version` is stored only.
 ### The SiteAddressState object
 
 ```api-object
-class: agents.common.domain.federation.SiteAddressState
+class: dagents.common.domain.federation.SiteAddressState
 service: gma
 example: gma site-address-accepted /response/body
 ```
@@ -3712,7 +3712,7 @@ never holds the address. It is the answer of
 ### The SiteAddressList object
 
 ```api-object
-class: agents.common.domain.federation.SiteAddressList
+class: dagents.common.domain.federation.SiteAddressList
 service: gma
 example: gma joined-site-addresses /response/body
 ```
@@ -3724,7 +3724,7 @@ are empty on a GMA with no HTTP network.
 ### The RoundManifest object
 
 ```api-object
-class: agents.common.domain.federation.RoundManifest
+class: dagents.common.domain.federation.RoundManifest
 service: gma
 example: gma plan-round /request/json
 ```
@@ -3739,7 +3739,7 @@ their order does not change the digest but any other change does. Only
 ### The AggregationMethod object
 
 ```api-object
-class: agents.common.domain.federation.AggregationMethod
+class: dagents.common.domain.federation.AggregationMethod
 service: gma
 example: gma plan-round /response/body/aggregation
 ```
@@ -3753,7 +3753,7 @@ method with the planner's defaults filled in: `mu` 0.01 for `fedprox` and
 ### The RoundPlan object
 
 ```api-object
-class: agents.common.domain.federation.RoundPlan
+class: dagents.common.domain.federation.RoundPlan
 service: gma
 example: gma plan-round /response/body
 ```
@@ -3765,7 +3765,7 @@ returns it, and a dispatched round stores it as `plan`.
 ### The SiteResult object
 
 ```api-object
-class: agents.common.domain.federation.SiteResult
+class: dagents.common.domain.federation.SiteResult
 service: gma
 example: gma submit-north /request/json
 ```
@@ -3783,7 +3783,7 @@ The readiness check decides whether a result counts; the
 ### The AggregationReadiness object
 
 ```api-object
-class: agents.common.domain.federation.AggregationReadiness
+class: dagents.common.domain.federation.AggregationReadiness
 service: gma
 example: gma readiness /response/body
 ```
@@ -3796,7 +3796,7 @@ round as `readiness`.
 ### The CandidateModel object
 
 ```api-object
-class: agents.common.domain.federation.CandidateModel
+class: dagents.common.domain.federation.CandidateModel
 service: gma
 example: gma aggregate-training /response/body
 ```
@@ -3812,7 +3812,7 @@ round holds metrics only.
 ### The ReleaseGate object
 
 ```api-object
-class: agents.common.domain.federation.ReleaseGate
+class: dagents.common.domain.federation.ReleaseGate
 service: gma
 example: gma evaluate-release /request/json/gates/1
 ```
@@ -3826,7 +3826,7 @@ another round instead of rejecting the candidate.
 ### The GateResult object
 
 ```api-object
-class: agents.common.domain.federation.GateResult
+class: dagents.common.domain.federation.GateResult
 service: gma
 example: gma evaluate-release-missing-metric /response/body/decision/gate_results/2
 ```
@@ -3838,7 +3838,7 @@ evaluated, and because it is blocking, the candidate is rejected.
 ### The ReleaseDecision object
 
 ```api-object
-class: agents.common.domain.federation.ReleaseDecision
+class: dagents.common.domain.federation.ReleaseDecision
 service: gma
 example: gma evaluate-release-round-flow /response/body/decision
 ```
@@ -3851,7 +3851,7 @@ the people who approve releases; nothing in Dagents deploys the candidate.
 ### The RoundRecord object
 
 ```api-object
-class: agents.common.domain.federation.RoundRecord
+class: dagents.common.domain.federation.RoundRecord
 service: gma
 example: gma get-training-round /response/body
 ```
@@ -3867,7 +3867,7 @@ aggregation and discard.
 ### The ReleaseEvaluationRequest object
 
 ```api-object
-class: agents.common.domain.federation.ReleaseEvaluationRequest
+class: dagents.common.domain.federation.ReleaseEvaluationRequest
 service: gma
 example: gma evaluate-release-round-flow /request/json
 ```
@@ -3883,7 +3883,7 @@ whose metric is missing blocks the release.
 ### The SiteInfo object
 
 ```api-object
-class: agents.common.domain.site.SiteInfo
+class: dagents.common.domain.site.SiteInfo
 service: lma
 example: lma site-info /response/body
 ```
@@ -3896,7 +3896,7 @@ string. `source_version` changes whenever the records change.
 ### The SiteSummary object
 
 ```api-object
-class: agents.common.domain.site.SiteSummary
+class: dagents.common.domain.site.SiteSummary
 service: lma
 example: lma site-summary /response/body
 ```
@@ -3909,7 +3909,7 @@ reads it for its [site summaries](#gma-get-api-v1-federation-sites-summaries).
 ### The SourceState object
 
 ```api-object
-class: agents.common.domain.site.SourceState
+class: dagents.common.domain.site.SourceState
 service: lma
 example: lma source-refresh /response/body
 ```
@@ -3920,7 +3920,7 @@ count and the source's version after the LMA asked the source again.
 ### The ModelInUse object
 
 ```api-object
-class: agents.common.domain.site.ModelInUse
+class: dagents.common.domain.site.ModelInUse
 service: lma
 example: lma site-model /response/body
 ```
@@ -3932,7 +3932,7 @@ the site's own staff may read it.
 ### The LocalEvaluation object
 
 ```api-object
-class: agents.common.domain.site.LocalEvaluation
+class: dagents.common.domain.site.LocalEvaluation
 service: lma
 example: lma site-model-evaluate /response/body
 ```
@@ -3943,7 +3943,7 @@ Only the metrics leave the LMA.
 ### The ProbeRequest object
 
 ```api-object
-class: agents.common.domain.site.ProbeRequest
+class: dagents.common.domain.site.ProbeRequest
 service: lma
 example: lma probe-rows /request/json
 ```
@@ -3956,7 +3956,7 @@ key is refused with `422`.
 ### The ProbeResponse object
 
 ```api-object
-class: agents.common.domain.site.ProbeResponse
+class: dagents.common.domain.site.ProbeResponse
 service: lma
 example: lma probe-rows /response/body
 ```
@@ -3968,7 +3968,7 @@ decision is in the site's audit chain under `audit_id`.
 ### The AuditSummary object
 
 ```api-object
-class: agents.common.domain.site.AuditSummary
+class: dagents.common.domain.site.AuditSummary
 service: lma
 example: lma audit-summary /response/body
 ```
@@ -3981,7 +3981,7 @@ and the GMA returns its own at
 ### The JobLogEntry object
 
 ```api-object
-class: agents.common.domain.site.JobLogEntry
+class: dagents.common.domain.site.JobLogEntry
 service: lma
 example: lma job-log /response/body/1
 ```
@@ -3993,7 +3993,7 @@ returned to the GMA, and the reason for a refusal; never a record or an update.
 ### The FederatedJob object
 
 ```api-object
-class: agents.common.domain.federation.FederatedJob
+class: dagents.common.domain.federation.FederatedJob
 service: lma
 example: lma offer-job /request/json
 ```
@@ -4008,7 +4008,7 @@ checks every part before it reads any data.
 ### The JobModel object
 
 ```api-object
-class: agents.common.domain.federation.JobModel
+class: dagents.common.domain.federation.JobModel
 service: lma
 example: lma offer-job /request/json/parameters/model
 ```
@@ -4020,7 +4020,7 @@ the digest again and refuses a job whose parameters do not match.
 ### The JobAcceptance object
 
 ```api-object
-class: agents.common.domain.federation.JobAcceptance
+class: dagents.common.domain.federation.JobAcceptance
 service: lma
 example: lma offer-job /response/body
 ```
@@ -4031,7 +4031,7 @@ reason; the GMA stores each answer in the round's `acceptances`.
 ### The JobRun object
 
 ```api-object
-class: agents.common.domain.federation.JobRun
+class: dagents.common.domain.federation.JobRun
 service: lma
 example: lma run-job /response/body
 ```
@@ -4042,7 +4042,7 @@ answer to the offer and, for a job it accepted, the result of running it.
 ### The SiteDirectoryEntry object
 
 ```api-object
-class: agents.common.domain.site.SiteDirectoryEntry
+class: dagents.common.domain.site.SiteDirectoryEntry
 service: gma
 example: gma site-summaries /response/body/0
 ```
@@ -4054,7 +4054,7 @@ when asked, its [audit summary](#the-auditsummary-object). It holds no row.
 ### The DispatchCall object
 
 ```api-object
-class: agents.common.domain.federation.DispatchCall
+class: dagents.common.domain.federation.DispatchCall
 service: gma
 example: gma dispatch-http /response/body/dispatch/0
 ```
@@ -4068,7 +4068,7 @@ order the calls finished.
 ### The UpdateUpload object
 
 ```api-object
-class: agents.common.domain.federation.UpdateUpload
+class: dagents.common.domain.federation.UpdateUpload
 service: gma
 example: gma upload-update /request/json
 ```
@@ -4080,7 +4080,7 @@ be a finite number, and an unknown key is refused with `422`.
 ### The UpdateReceipt object
 
 ```api-object
-class: agents.common.domain.federation.UpdateReceipt
+class: dagents.common.domain.federation.UpdateReceipt
 service: gma
 example: gma upload-update /response/body
 ```
@@ -4091,7 +4091,7 @@ model kind. The site compares it with its own digest of what it sent.
 ### The DiscardRequest object
 
 ```api-object
-class: agents.gma.domain.models.DiscardRequest
+class: dagents.gma.domain.models.DiscardRequest
 service: gma
 example: gma discard-training /request/json
 ```
@@ -4102,7 +4102,7 @@ Why a round is given up, in words. The round keeps the first reason in
 ### The ModelVersion object
 
 ```api-object
-class: agents.common.domain.federation.ModelVersion
+class: dagents.common.domain.federation.ModelVersion
 service: gma
 example: gma released-model /response/body
 ```
@@ -4116,7 +4116,7 @@ as in the example; every other endpoint leaves it null.
 ### The ModelVersionRegistration object
 
 ```api-object
-class: agents.common.domain.federation.ModelVersionRegistration
+class: dagents.common.domain.federation.ModelVersionRegistration
 service: gma
 example: gma register-start /request/json
 ```
@@ -4128,7 +4128,7 @@ with `422`.
 ### The ModelVersionList object
 
 ```api-object
-class: agents.common.domain.federation.ModelVersionList
+class: dagents.common.domain.federation.ModelVersionList
 service: gma
 example: gma list-model-versions /response/body
 ```
@@ -4138,7 +4138,7 @@ The released version and the newest versions, without their parameters.
 ### The ModelReleaseDecision object
 
 ```api-object
-class: agents.common.domain.federation.ModelReleaseDecision
+class: dagents.common.domain.federation.ModelReleaseDecision
 service: gma
 example: gma get-model-version /response/body/release_decision
 ```
@@ -4153,7 +4153,7 @@ a version that is no longer released.
 ### The ReleaseEvaluation object
 
 ```api-object
-class: agents.common.domain.federation.ReleaseEvaluation
+class: dagents.common.domain.federation.ReleaseEvaluation
 service: gma
 example: gma evaluate-release-round-flow /response/body
 ```
@@ -4167,7 +4167,7 @@ registry after the evaluation, where the metrics came from (`rounds` or
 ### The ReleaseGuardCheck object
 
 ```api-object
-class: agents.common.domain.federation.ReleaseGuardCheck
+class: dagents.common.domain.federation.ReleaseGuardCheck
 service: gma
 example: gma evaluate-release-round-flow /response/body/guard
 ```
@@ -4180,7 +4180,7 @@ plan narrows the model update with `clip_contribution:1`.
 ### The ApprovalResult object
 
 ```api-object
-class: agents.common.domain.federation.ApprovalResult
+class: dagents.common.domain.federation.ApprovalResult
 service: gma
 example: gma approve /response/body
 ```

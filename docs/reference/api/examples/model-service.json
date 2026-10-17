@@ -160,7 +160,7 @@
        "default_checkpoint": null,
        "extra_requirements": [],
        "requires_download": false,
-       "notes": "`custom` is the planner's escape hatch: a consumer app registers a named model adapter through agents.common.extensions, so the framework has nothing to implement here."
+       "notes": "`custom` is the planner's escape hatch: a consumer app registers a named model adapter through dagents.common.extensions, so the framework has nothing to implement here."
       },
       {
        "family": "custom",
@@ -171,7 +171,7 @@
        "default_checkpoint": null,
        "extra_requirements": [],
        "requires_download": false,
-       "notes": "`custom` is the planner's escape hatch: a consumer app registers a named model adapter through agents.common.extensions, so the framework has nothing to implement here."
+       "notes": "`custom` is the planner's escape hatch: a consumer app registers a named model adapter through dagents.common.extensions, so the framework has nothing to implement here."
       },
       {
        "family": "custom",
@@ -182,7 +182,7 @@
        "default_checkpoint": null,
        "extra_requirements": [],
        "requires_download": false,
-       "notes": "`custom` is the planner's escape hatch: a consumer app registers a named model adapter through agents.common.extensions, so the framework has nothing to implement here."
+       "notes": "`custom` is the planner's escape hatch: a consumer app registers a named model adapter through dagents.common.extensions, so the framework has nothing to implement here."
       },
       {
        "family": "custom",
@@ -193,7 +193,7 @@
        "default_checkpoint": null,
        "extra_requirements": [],
        "requires_download": false,
-       "notes": "`custom` is the planner's escape hatch: a consumer app registers a named model adapter through agents.common.extensions, so the framework has nothing to implement here."
+       "notes": "`custom` is the planner's escape hatch: a consumer app registers a named model adapter through dagents.common.extensions, so the framework has nothing to implement here."
       },
       {
        "family": "custom",
@@ -204,7 +204,7 @@
        "default_checkpoint": null,
        "extra_requirements": [],
        "requires_download": false,
-       "notes": "`custom` is the planner's escape hatch: a consumer app registers a named model adapter through agents.common.extensions, so the framework has nothing to implement here."
+       "notes": "`custom` is the planner's escape hatch: a consumer app registers a named model adapter through dagents.common.extensions, so the framework has nothing to implement here."
       },
       {
        "family": "gru",
@@ -261,7 +261,7 @@
        "default_checkpoint": null,
        "extra_requirements": [],
        "requires_download": false,
-       "notes": "`custom` is the planner's escape hatch: a consumer app registers a named model adapter through agents.common.extensions, so the framework has nothing to implement here."
+       "notes": "`custom` is the planner's escape hatch: a consumer app registers a named model adapter through dagents.common.extensions, so the framework has nothing to implement here."
       },
       {
        "family": "custom",
@@ -272,7 +272,7 @@
        "default_checkpoint": null,
        "extra_requirements": [],
        "requires_download": false,
-       "notes": "`custom` is the planner's escape hatch: a consumer app registers a named model adapter through agents.common.extensions, so the framework has nothing to implement here."
+       "notes": "`custom` is the planner's escape hatch: a consumer app registers a named model adapter through dagents.common.extensions, so the framework has nothing to implement here."
       },
       {
        "family": "custom",
@@ -283,7 +283,7 @@
        "default_checkpoint": null,
        "extra_requirements": [],
        "requires_download": false,
-       "notes": "`custom` is the planner's escape hatch: a consumer app registers a named model adapter through agents.common.extensions, so the framework has nothing to implement here."
+       "notes": "`custom` is the planner's escape hatch: a consumer app registers a named model adapter through dagents.common.extensions, so the framework has nothing to implement here."
       },
       {
        "family": "custom",
@@ -294,7 +294,7 @@
        "default_checkpoint": null,
        "extra_requirements": [],
        "requires_download": false,
-       "notes": "`custom` is the planner's escape hatch: a consumer app registers a named model adapter through agents.common.extensions, so the framework has nothing to implement here."
+       "notes": "`custom` is the planner's escape hatch: a consumer app registers a named model adapter through dagents.common.extensions, so the framework has nothing to implement here."
       },
       {
        "family": "custom",
@@ -305,7 +305,7 @@
        "default_checkpoint": null,
        "extra_requirements": [],
        "requires_download": false,
-       "notes": "`custom` is the planner's escape hatch: a consumer app registers a named model adapter through agents.common.extensions, so the framework has nothing to implement here."
+       "notes": "`custom` is the planner's escape hatch: a consumer app registers a named model adapter through dagents.common.extensions, so the framework has nothing to implement here."
       },
       {
        "family": "random_forest",
@@ -1221,9 +1221,9 @@
      "content-type": "application/json"
     },
     "body": {
-     "job_id": "model-job-1791979711334",
+     "job_id": "model-job-1792133159981",
      "status": "queued",
-     "submitted_at": 1791979711,
+     "submitted_at": 1792133159,
      "started_at": null,
      "completed_at": null,
      "result": null,
@@ -1375,10 +1375,10 @@
      "train_rows": 13,
      "test_rows": 4,
      "metrics": {
-      "mae": 39.47056198120117,
-      "mse": 1587.1126708984375,
-      "rmse": 39.8385826918885,
-      "r2": -53.37644958496094
+      "mae": 38.92762756347656,
+      "mse": 1544.547607421875,
+      "rmse": 39.30073291201928,
+      "r2": -51.91811752319336
      }
     },
     "trimmed": []
@@ -1544,10 +1544,10 @@
     "body": {
      "jobs": [
       {
-       "job_id": "model-job-1791979711334",
+       "job_id": "model-job-1792133159981",
        "status": "running",
-       "submitted_at": 1791979711,
-       "started_at": 1791979711,
+       "submitted_at": 1792133159,
+       "started_at": 1792133159,
        "completed_at": null,
        "result": null,
        "error": null
@@ -1607,7 +1607,7 @@
    ],
    "request": {
     "method": "GET",
-    "path": "/api/v1/model-jobs/model-job-1791979711334"
+    "path": "/api/v1/model-jobs/model-job-1792133159981"
    },
    "request_template": {
     "path": "/api/v1/model-jobs/{from:submit-job:/job_id}"
@@ -1618,10 +1618,10 @@
      "content-type": "application/json"
     },
     "body": {
-     "job_id": "model-job-1791979711334",
+     "job_id": "model-job-1792133159981",
      "status": "running",
-     "submitted_at": 1791979711,
-     "started_at": 1791979711,
+     "submitted_at": 1792133159,
+     "started_at": 1792133159,
      "completed_at": null,
      "result": null,
      "error": null

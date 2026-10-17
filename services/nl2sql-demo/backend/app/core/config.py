@@ -6,7 +6,7 @@ from dataclasses import dataclass
 import os
 from pathlib import Path
 
-from agents.common.env import load_env_files
+from dagents.common.env import load_env_files
 
 load_env_files("env/.env.shared", "env/.env.nl2sql-demo")
 

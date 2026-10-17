@@ -147,7 +147,7 @@ not a row but still carries signal derived from records. `ModelUpdateGrain` is t
 granularity, and the invariant that it never resolves to `AllowFull` is enforced by test.
 
 Enforcement deliberately stays outside OCaml. The **Ethical Guard** lives in the LMA and GMA
-request paths, in `agents/common/application/ethical_guard.py`, because applying a decision needs
+request paths, in `dagents/common/application/ethical_guard.py`, because applying a decision needs
 real data, a real requester, and somewhere to write an audit record.
 
 ### `federation_compiler`
@@ -305,7 +305,7 @@ A Compose workload spec that adds one hospital's LMA to a running Compose
 project (`dagentsc manifest compile --input -`). The example assumes a project
 that runs the services listed in `existingServices`, among them a GMA named
 `gma`, as the stroke demo's Compose file does. It also assumes an image that
-contains the Dagents LMA (`agents.lma.main:app`), and a settings file,
+contains the Dagents LMA (`dagents.lma.main:app`), and a settings file,
 `lma-hospital-d.env`, with the new LMA's other `LMA_*` settings and its tokens.
 The planner checks none of these assumptions: it sees only the names in
 `existingServices`, not the running project, the image or the file.
@@ -339,7 +339,7 @@ The spec:
     {
       "name": "lma-hospital-d",
       "image": "dagents/healthcare-demo-backend:local",
-      "args": ["uvicorn", "agents.lma.main:app", "--host", "0.0.0.0", "--port", "8085"],
+      "args": ["uvicorn", "dagents.lma.main:app", "--host", "0.0.0.0", "--port", "8085"],
       "envFiles": ["../../env/.env.shared", "lma-hospital-d.env"],
       "env": [
         {"name": "LMA_SITE_ID", "value": "hospital-d"},
@@ -360,7 +360,7 @@ The Compose file it prints:
 services:
   "lma-hospital-d":
     image: "dagents/healthcare-demo-backend:local"
-    command: ["uvicorn", "agents.lma.main:app", "--host", "0.0.0.0", "--port", "8085"]
+    command: ["uvicorn", "dagents.lma.main:app", "--host", "0.0.0.0", "--port", "8085"]
     env_file:
       - "../../env/.env.shared"
       - "lma-hospital-d.env"
@@ -421,6 +421,13 @@ Transform operations:
 opam exec -- dune build ./bin/dagentsc.exe
 opam exec -- dune test
 ```
+
+`opam exec -- dune build --profile static ./bin/dagentsc.exe` links the
+binary statically and strips it, so one Linux build runs on any distribution,
+glibc or musl. The profile is defined in `bindings/ocaml/dune`. The release
+workflow builds the planner this way for the Linux wheels of the `dagents`
+Python package, and CI's `planners` job uploads it as `dagentsc-static`. macOS
+cannot link statically, so the macOS planner uses `--profile release`.
 
 ## Conservative Defaults in the Codecs
 

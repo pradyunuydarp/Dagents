@@ -44,9 +44,9 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from agents.common.domain.governance import KyuAttribute, Requester
-from agents.common.domain.site import ProbeRequest
-from agents.common.infrastructure.charts import ChartsUnavailableError
+from dagents.common.domain.governance import KyuAttribute, Requester
+from dagents.common.domain.site import ProbeRequest
+from dagents.common.infrastructure.charts import ChartsUnavailableError
 
 from app.api.app_header import APP_HEADER, AppHeader
 from app.api.deploy_routes import build_deploy_router

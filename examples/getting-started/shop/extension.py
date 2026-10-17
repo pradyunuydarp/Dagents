@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
-from agents.common.domain.governance import DataClassification
-from agents.common.extensions import (
+from dagents.common.domain.governance import DataClassification
+from dagents.common.extensions import (
     ConditionPack,
     ExtensionRegistry,
     FeatureContract,

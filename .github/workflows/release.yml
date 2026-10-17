@@ -1,0 +1,510 @@
+name: Release
+
+# Publishes the Python framework to PyPI as `dagents`, and the planner
+# binaries to a GitHub Release.
+#
+# A tag `vX.Y.Z`, `vX.Y.ZaN`, `vX.Y.ZbN` or `vX.Y.ZrcN` starts a release. The
+# tag must equal `__version__` in dagents/__init__.py, and the tagged commit
+# must be on main, or the first job stops the run. The order is:
+#
+#   1. Build the planner (dagentsc) for Linux x86_64, Linux aarch64 and macOS
+#      arm64, each on a runner of that platform, and run the OCaml tests there.
+#   2. Build the sdist, then one wheel per platform from the sdist, with that
+#      platform's planner inside (hatch_build.py). Every build uses the backend
+#      versions pinned in .github/build-constraints.txt.
+#   3. Check every file (scripts/check_dist.py, twine check) and install each
+#      wheel into a clean virtual environment on its own platform
+#      (scripts/smoke_installed_package.py). A wheel built from the sdist
+#      without a planner must deny every Guard request.
+#   4. Publish to TestPyPI, check that TestPyPI serves the same files, then
+#      publish to PyPI. Both use Trusted Publishing: no token is stored
+#      anywhere, and each upload carries a PEP 740 attestation.
+#   5. Create the GitHub Release with the planner binaries, the distributions
+#      and their SHA-256 checksums. An alpha, beta or release candidate is
+#      marked as a pre-release.
+#
+# A manual run (workflow_dispatch) is a dry run: steps 1 to 3 only.
+#
+# Before the first release, the owner registers a Trusted Publisher for this
+# repository, this workflow file and the environments `testpypi` and `pypi`,
+# on test.pypi.org and on pypi.org. CLAUDE.md, "Releasing", has the steps.
+#
+# Every action is pinned to a full commit SHA, with its version in a comment,
+# because the publish jobs can mint a PyPI upload credential.
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  PYTHON_VERSION: "3.11"
+  BUILD_VERSION: "1.6.1"
+  TWINE_VERSION: "7.0.0"
+
+jobs:
+  version:
+    name: Read the version and check the tag
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+    steps:
+      # The whole history, so the check below can see whether the tagged
+      # commit is on main.
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: The tag equals the package version and the commit is on main
+        id: version
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          if [ "${EVENT_NAME}" = "push" ]; then
+            python scripts/release_version.py --tag "${REF_NAME}" --require-on-branch origin/main \
+              --github-output "${GITHUB_OUTPUT}"
+          else
+            echo "Dry run: no tag to check."
+            python scripts/release_version.py --github-output "${GITHUB_OUTPUT}"
+          fi
+
+  planner:
+    name: Planner (${{ matrix.target }})
+    needs: version
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          # Linux builds link statically (the `static` profile in
+          # bindings/ocaml/dune), so one binary runs on every distribution,
+          # glibc or musl. macOS cannot link statically; its binary links only
+          # libSystem, and MACOSX_DEPLOYMENT_TARGET sets the oldest macOS it
+          # runs on, which hatch_build.py checks against the wheel tag.
+          - target: linux-x86_64
+            runner: ubuntu-24.04
+            profile: static
+          - target: linux-aarch64
+            runner: ubuntu-24.04-arm
+            profile: static
+          - target: macos-arm64
+            runner: macos-15
+            profile: release
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+    env:
+      MACOSX_DEPLOYMENT_TARGET: "11.0"
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+
+      - uses: ocaml/setup-ocaml@93303b622b2522e4411e295f9e77411a24912ac7 # v3.9.0
+        with:
+          ocaml-compiler: "5.1"
+          dune-cache: true
+          opam-pin: false
+
+      - name: Install OCaml dependencies
+        run: opam install --yes dune yojson
+
+      - name: Build dagentsc
+        working-directory: bindings/ocaml
+        env:
+          PROFILE: ${{ matrix.profile }}
+        run: opam exec -- dune build --profile "${PROFILE}" ./bin/dagentsc.exe
+
+      - name: Test the compilers
+        working-directory: bindings/ocaml
+        env:
+          PROFILE: ${{ matrix.profile }}
+        run: opam exec -- dune test --profile "${PROFILE}" --display short
+
+      - name: Check how the binary is linked, and that it answers
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          binary=bindings/ocaml/_build/default/bin/dagentsc.exe
+          case "${TARGET}" in
+            linux-*)
+              file "${binary}"
+              file "${binary}" | grep -q "statically linked"
+              ;;
+            macos-*)
+              otool -L "${binary}"
+              if otool -L "${binary}" | tail -n +2 | grep -v -E "^[[:space:]]*/usr/lib/libSystem\.B\.dylib"; then
+                echo "::error::the macOS planner links a library other than libSystem"
+                exit 1
+              fi
+              ;;
+          esac
+          "${binary}" model route --task classification --output json
+          mkdir -p planner-out
+          cp "${binary}" "planner-out/dagentsc-${TARGET}"
+          chmod 755 "planner-out/dagentsc-${TARGET}"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: planner-${{ matrix.target }}
+          path: planner-out/dagentsc-${{ matrix.target }}
+          if-no-files-found: error
+
+  sdist:
+    name: Source distribution
+    needs: version
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Build the sdist
+        env:
+          PIP_CONSTRAINT: ${{ github.workspace }}/.github/build-constraints.txt
+          PIP_BUILD_CONSTRAINT: ${{ github.workspace }}/.github/build-constraints.txt
+        run: |
+          python -m pip install "build==${BUILD_VERSION}"
+          python -m build --sdist --outdir sdist
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: sdist
+          path: sdist/*.tar.gz
+          if-no-files-found: error
+
+  wheels:
+    name: Wheel (${{ matrix.target }})
+    needs: [version, planner, sdist]
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - target: linux-x86_64
+            runner: ubuntu-24.04
+            platform: manylinux_2_17_x86_64.manylinux2014_x86_64.musllinux_1_1_x86_64
+            check: manylinux_2_17_x86_64
+          - target: linux-aarch64
+            runner: ubuntu-24.04-arm
+            platform: manylinux_2_17_aarch64.manylinux2014_aarch64.musllinux_1_1_aarch64
+            check: manylinux_2_17_aarch64
+          - target: macos-arm64
+            runner: macos-15
+            platform: macosx_11_0_arm64
+            check: macosx_11_0_arm64
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+    steps:
+      # The checkout supplies the check and smoke scripts, the getting-started
+      # example and the guide's recorded outputs. The wheel is built from the
+      # sdist, not from the checkout.
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: |
+            3.13
+            ${{ env.PYTHON_VERSION }}
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: planner-${{ matrix.target }}
+          path: planner
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: sdist
+          path: sdist
+
+      - name: Build the wheel from the sdist, with the planner inside
+        env:
+          TARGET: ${{ matrix.target }}
+          DAGENTS_WHEEL_PLATFORM: ${{ matrix.platform }}
+          PIP_CONSTRAINT: ${{ github.workspace }}/.github/build-constraints.txt
+          PIP_BUILD_CONSTRAINT: ${{ github.workspace }}/.github/build-constraints.txt
+        run: |
+          # Artifacts lose the executable bit; hatch_build.py refuses a planner without it.
+          chmod 755 "planner/dagentsc-${TARGET}"
+          export DAGENTS_PLANNER_BINARY="${GITHUB_WORKSPACE}/planner/dagentsc-${TARGET}"
+          python -m pip install "build==${BUILD_VERSION}" "twine==${TWINE_VERSION}"
+          mkdir -p "${RUNNER_TEMP}/unpacked"
+          tar -xzf sdist/dagents-*.tar.gz -C "${RUNNER_TEMP}/unpacked"
+          python -m build --wheel --outdir "${GITHUB_WORKSPACE}/wheelhouse" "${RUNNER_TEMP}"/unpacked/dagents-*
+
+      - name: Check the wheel's files and metadata
+        env:
+          CHECK_PLATFORM: ${{ matrix.check }}
+        run: |
+          python scripts/check_dist.py wheelhouse --list --require-platform "${CHECK_PLATFORM}" \
+            --build-constraints .github/build-constraints.txt
+          python -m twine check --strict wheelhouse/*
+
+      - name: Install the wheel into clean environments and run the smoke test
+        # Outside the repository, with no PYTHONPATH and no DAGENTSC_BIN, so
+        # the runner must find the planner inside the wheel.
+        run: |
+          wheel=$(ls "${GITHUB_WORKSPACE}"/wheelhouse/*.whl)
+          for version in 3.11 3.13; do
+            venv="${RUNNER_TEMP}/smoke-${version}"
+            "python${version}" -m venv "${venv}"
+            "${venv}/bin/python" -m pip install --quiet "${wheel}[lma,gma]"
+            (cd "${RUNNER_TEMP}" && env -u PYTHONPATH -u DAGENTSC_BIN "${venv}/bin/python" -I \
+              "${GITHUB_WORKSPACE}/scripts/smoke_installed_package.py" \
+              --repo "${GITHUB_WORKSPACE}" --expect-planner bundled)
+          done
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: wheel-${{ matrix.target }}
+          path: wheelhouse/*.whl
+          if-no-files-found: error
+
+  check:
+    name: Check every distribution
+    needs: [version, sdist, wheels]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: wheel-*
+          path: dist
+          merge-multiple: true
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: sdist
+          path: dist
+
+      - name: Every platform is present and every file passes
+        run: |
+          python -m pip install "build==${BUILD_VERSION}" "twine==${TWINE_VERSION}"
+          python scripts/check_dist.py dist \
+            --require-platform manylinux_2_17_x86_64 \
+            --require-platform manylinux_2_17_aarch64 \
+            --require-platform macosx_11_0_arm64 \
+            --build-constraints .github/build-constraints.txt
+          python -m twine check --strict dist/*
+
+      - name: Build a wheel from the sdist without a planner
+        # This is what pip builds on a platform without a platform wheel.
+        env:
+          PIP_CONSTRAINT: ${{ github.workspace }}/.github/build-constraints.txt
+          PIP_BUILD_CONSTRAINT: ${{ github.workspace }}/.github/build-constraints.txt
+        run: |
+          mkdir -p "${RUNNER_TEMP}/unpacked" "${RUNNER_TEMP}/pure"
+          tar -xzf dist/dagents-*.tar.gz -C "${RUNNER_TEMP}/unpacked"
+          python -m build --wheel --outdir "${RUNNER_TEMP}/pure" "${RUNNER_TEMP}"/unpacked/dagents-*
+          python scripts/check_dist.py "${RUNNER_TEMP}/pure" --build-constraints .github/build-constraints.txt
+
+      - name: The wheel without a planner makes the Guard deny and the agents warn
+        run: |
+          venv="${RUNNER_TEMP}/smoke-pure"
+          python -m venv "${venv}"
+          "${venv}/bin/python" -m pip install --quiet "$(ls "${RUNNER_TEMP}"/pure/*.whl)[lma,gma]"
+          (cd "${RUNNER_TEMP}" && env -u PYTHONPATH -u DAGENTSC_BIN "${venv}/bin/python" -I \
+            "${GITHUB_WORKSPACE}/scripts/smoke_installed_package.py" \
+            --repo "${GITHUB_WORKSPACE}" --expect-planner none)
+
+      - name: Print the checksums
+        run: (cd dist && sha256sum -- *)
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: dist
+          path: |
+            dist/*.whl
+            dist/*.tar.gz
+          if-no-files-found: error
+
+      - name: Say what happens next
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          if [ "${EVENT_NAME}" = "push" ]; then
+            echo "dagents ${VERSION} passed every check; publishing to TestPyPI, then PyPI." >> "${GITHUB_STEP_SUMMARY}"
+          else
+            echo "Dry run: dagents ${VERSION} built and passed every check. Nothing was published." >> "${GITHUB_STEP_SUMMARY}"
+          fi
+
+  publish-testpypi:
+    name: Publish to TestPyPI
+    needs: [version, check]
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    environment:
+      name: testpypi
+      url: https://test.pypi.org/project/dagents/${{ needs.version.outputs.version }}/
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: dist
+          path: dist
+
+      - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
+        with:
+          repository-url: https://test.pypi.org/legacy/
+          attestations: true
+          # A re-run of this workflow run uploads the same files again;
+          # verify-testpypi still compares every file's hash.
+          skip-existing: true
+
+  verify-testpypi:
+    name: TestPyPI serves the files that were built
+    needs: [version, publish-testpypi]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: dist
+          path: dist
+
+      - name: Compare every file TestPyPI serves with the built files
+        # Only the hashes are compared; nothing is installed from TestPyPI,
+        # where anyone can upload a package.
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: python scripts/check_published_files.py --index https://test.pypi.org --version "${VERSION}" dist
+
+  publish-pypi:
+    name: Publish to PyPI
+    needs: [version, verify-testpypi]
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    environment:
+      name: pypi
+      url: https://pypi.org/project/dagents/${{ needs.version.outputs.version }}/
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: dist
+          path: dist
+
+      - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
+        with:
+          attestations: true
+
+  verify-pypi:
+    name: PyPI serves the files that were built
+    needs: [version, publish-pypi]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: dist
+          path: dist
+
+      - name: Compare every file PyPI serves with the built files
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: python scripts/check_published_files.py --index https://pypi.org --version "${VERSION}" dist
+
+  github-release:
+    name: Publish the GitHub Release
+    needs: [version, verify-pypi]
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: planner-*
+          path: release
+          merge-multiple: true
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: dist
+          path: release
+
+      - name: Write the checksums
+        run: |
+          set -o pipefail
+          chmod 755 release/dagentsc-*
+          cd release
+          sha256sum -- dagentsc-* *.whl *.tar.gz | tee SHA256SUMS
+
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: release/dagentsc-*
+
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+          VERSION: ${{ needs.version.outputs.version }}
+          PRERELEASE: ${{ needs.version.outputs.prerelease }}
+        run: |
+          {
+            echo "dagents ${VERSION} is on PyPI: https://pypi.org/project/dagents/${VERSION}/"
+            echo
+            echo "The files below are the planner (dagentsc) for each platform, the wheels and the sdist."
+            echo "SHA256SUMS lists their SHA-256 checksums, and each planner binary has a build provenance attestation."
+          } > notes.md
+          flags=(--title "dagents ${VERSION}" --notes-file notes.md --generate-notes --verify-tag)
+          if [ "${PRERELEASE}" = "true" ]; then
+            flags+=(--prerelease)
+          fi
+          gh release create "${TAG}" "${flags[@]}" release/*

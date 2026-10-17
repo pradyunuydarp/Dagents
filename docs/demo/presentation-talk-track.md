@@ -58,7 +58,7 @@ Narrate each step:
 
 ## 16-19 min: Integration Story
 
-Show `agents/common/infrastructure/dagents_runner.py`.
+Show `dagents/common/infrastructure/dagents_runner.py`.
 
 Explain:
 

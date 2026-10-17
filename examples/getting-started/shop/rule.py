@@ -6,7 +6,7 @@ import hashlib
 import json
 from typing import Any, Mapping
 
-from agents.common.domain.errors import ModelVerificationError
+from dagents.common.domain.errors import ModelVerificationError
 
 #: The rule the stores evaluate in this example.
 RULE_VERSION = "return-check-rule-v2"

@@ -36,7 +36,7 @@ Each language does the work it suits best:
 | Layer | Owns | Never owns |
 |---|---|---|
 | **OCaml** (`bindings/ocaml/`) | Pure planning: validate, compile, route, render | Database connections, training loops, API servers |
-| **Python** (`agents/`, `services/`) | FastAPI services, model training and inference, source I/O, runtime state | Deterministic planning rules |
+| **Python** (`dagents/`, `services/`) | FastAPI services, model training and inference, source I/O, runtime state | Deterministic planning rules |
 | **Spring Boot** (`services/spring-services/`) | Orchestration APIs, policy entry points, external integration | Machine learning |
 
 Decisions go in the OCaml planners. Anything with side effects goes in Python or
@@ -49,12 +49,14 @@ its own, and keeps the Kubernetes deployment simple.
 ## Repository map
 
 ```text
-agents/
+dagents/         the Python framework, packaged for PyPI as `dagents`
   common/        shared domain contracts, the extension registry, dagents_runner (the dagentsc
                  bridge), and agent_client and agent_auth (how agents call each other)
   lma/           Local Monitoring Agent service
   gma/           Global Monitoring Agent service
-  tests/         agent + control-plane + runner tests
+  tests/         agent + control-plane + runner tests (not in the wheel)
+pyproject.toml   the package's metadata, built with hatchling
+hatch_build.py   the build hook that puts the planner into a platform wheel
 bindings/ocaml/  the planners (dune workspace)
   lib/common_ir           shared typed IR + JSON codecs
   lib/dataset_compiler    source validation, profiling, schema contracts, quality, transforms
@@ -112,12 +114,12 @@ is the fastest test loop in the repo, so prefer it.
 
 ### Python tests
 
-Tests import as `agents.common...`, so run them from the repository root.
+Tests import as `dagents.common...`, so run them from the repository root.
 FastAPI and the other dependencies are in the gitignored `.venv/`, not system
 Python:
 
 ```bash
-.venv/bin/python -m unittest discover -s agents/tests -t .
+.venv/bin/python -m unittest discover -s dagents/tests -t .
 ```
 
 If `.venv/` is missing (a fresh clone), create it and install the requirements
@@ -129,7 +131,7 @@ adds its backend to the path itself, so it also runs from the root.
 
 `tests/` at the root holds checks that span more than one service, such as the
 endpoint inventory and the API conventions. They need every Python service
-importable, while `agents/tests` needs only the agent requirements:
+importable, while `dagents/tests` needs only the agent requirements:
 
 ```bash
 .venv/bin/python -m unittest discover -s tests -t .
@@ -174,7 +176,7 @@ admin login:
 
 ```bash
 export HEALTHCARE_DEMO_TEST_DATABASE_URL=postgresql://admin:pw@127.0.0.1:5432/postgres  # healthcare suite
-export DAGENTS_TEST_DATABASE_URL=postgresql://admin:pw@127.0.0.1:5432/postgres          # agents/tests: role scoping, the lease, the model store, the job log, the GMA's Postgres wiring
+export DAGENTS_TEST_DATABASE_URL=postgresql://admin:pw@127.0.0.1:5432/postgres          # dagents/tests: role scoping, the lease, the model store, the job log, the GMA's Postgres wiring
 ```
 
 Without them these tests skip with a message that starts `database test
@@ -186,19 +188,24 @@ both store implementations are tested. The same holds for the agents' twins:
 ### CI
 
 `.github/workflows/ci.yml` runs the same commands, one job per layer: `planners`
-(builds OCaml, runs `dune test`, and uploads `dagentsc` for the other jobs),
-`agents`, `framework-services` (core-service twice, with and without
-`DAGENTSC_BIN`), `contracts`, `spring`, `demo-apps`, `frontends`,
-`deploy-smoke` (the healthcare UI in network mode with `--deploy` against
-PostgreSQL 16, where the smoke test adds Hospital 290 from the page),
-`docs-impact`, and a `ci` gate job that is the single required check.
+(builds OCaml, runs `dune test`, and uploads `dagentsc` for the other jobs and
+a statically linked `dagentsc-static` for `packaging`), `agents`,
+`framework-services` (core-service twice, with and without `DAGENTSC_BIN`),
+`contracts`, `spring`, `demo-apps`, `frontends`, `deploy-smoke` (the
+healthcare UI in network mode with `--deploy` against PostgreSQL 16, where the
+smoke test adds Hospital 290 from the page), `packaging` (builds the sdist and
+a Linux wheel with the planner, installs the wheel into clean environments,
+one of them with openai-agents, and runs the agent suite on the newest
+versions the package's extras allow; see **Releasing**), `docs-impact`, and a
+`ci` gate job that is the single required check.
 
 `docs-impact` runs `scripts/check_docs_impact.py` on pull requests and pushes
-to `main`. It fails when a change touches a code area (`agents/`, `services/`,
+to `main`. It fails when a change touches a code area (`dagents/`, `services/`,
 `bindings/ocaml/`, `apps/`, `contracts/`, `scripts/`, `examples/`, `env/`, the
-compose file, a workflow, or a deck) and none of the docs that area feeds,
-unless a commit message has a line `Docs-Impact: none [area] (reason)` that
-names the area. Run it before pushing:
+compose file, a workflow, `pyproject.toml`, `hatch_build.py` or
+`.github/build-constraints.txt`, or a deck) and none of the docs that area
+feeds, unless a commit message has a line `Docs-Impact: none [area] (reason)`
+that names the area. Run it before pushing:
 
 ```bash
 .venv/bin/python scripts/check_docs_impact.py --base origin/main
@@ -207,7 +214,7 @@ names the area. Run it before pushing:
 Two guard scripts catch runs that look green but are not:
 
 ```bash
-python -m unittest discover -s agents/tests -t . -v 2>&1 | tee suite.log
+python -m unittest discover -s dagents/tests -t . -v 2>&1 | tee suite.log
 python scripts/ci_no_skipped_tests.py --forbid planner --forbid charts suite.log  # fails on a forbidden skip
 .venv/bin/python scripts/service_inventory.py --check                             # fails when a route is undocumented
 ```
@@ -349,6 +356,135 @@ Look at the new PDF, then commit it with `resources.json`.
 step, or when a deck or note under `docs/presentation/` is neither listed nor
 excluded with a reason.
 
+### Releasing
+
+The Python framework (`dagents/`) is released to PyPI as `dagents`, from a
+tag on `main`, by the release workflow; nobody uploads by hand. The services
+in `services/`, the Spring services and the demos are not in the package.
+
+**Versions.** `__version__` in `dagents/__init__.py` is the only place the
+version is written; the build reads it. Versions follow PEP 440 and the
+project's stages: `0.1.0a1`, `0.1.0a2` for alphas, `0.x.0b1` for betas,
+`1.0.0rc1` for a release candidate and `1.0.0` for general availability. One
+distribution name, `dagents`, serves every stage. Every version before 1.0.0
+is a pre-release, so `scripts/release_version.py` refuses a final `0.Y.Z`.
+While only pre-releases exist, `pip install dagents` installs the newest one;
+once 1.0.0 exists, a pre-release needs `--pre` or an exact version. The
+`Development Status` classifier in `pyproject.toml` must be the one for the
+stage: `3 - Alpha` for an `a` version, `4 - Beta` for a `b` or `rc` version,
+and `5 - Production/Stable` for a final version. `scripts/check_dist.py` fails
+when the built metadata has another one, or more than one.
+
+**The PyPI page.** The README is the package's description on PyPI, and PyPI
+never lets a release's description change after the upload. So the README on
+the tagged commit must be right for that release: its status line and its
+install section. `scripts/check_dist.py` fails when the description does not
+show `pip install dagents`.
+
+**What a release builds.** One sdist and three platform wheels: Linux x86_64,
+Linux aarch64 and macOS arm64. Each wheel bundles the planner for its platform
+at `dagents/_bin/dagentsc`. The Linux planners link statically (`dune build
+--profile static`), so one wheel covers glibc and musl distributions. Other
+platforms (Windows, macOS on Intel) install from the sdist and get no planner,
+and the Guard denies every request until `DAGENTSC_BIN` or `dagentsc` on PATH
+provides one. The build prints a notice, but pip shows a build's output only
+with `-v`, so `python -m dagents` and the warning an LMA or GMA logs when it is
+built are what tell the user. The GitHub Release also carries the three
+planner binaries with `SHA256SUMS`.
+
+Every build uses the backend versions pinned in `.github/build-constraints.txt`
+(hatchling and its dependencies): the workflows pass the file as
+`PIP_CONSTRAINT` and `PIP_BUILD_CONSTRAINT`, and `scripts/check_dist.py
+--build-constraints` fails unless each wheel names the pinned hatchling. Update
+the pins on purpose, as with the action pins.
+
+The `lma` and `gma` extras accept FastAPI from 0.115.0 and uvicorn from
+0.30.6, the versions the agents job pins, to below 1.0. The `packaging` job
+runs `dagents/tests` again on the newest versions those ranges allow, on
+Python 3.13.
+
+**The old name.** The package was called `agents` before 0.1.0a1. Another
+project owns that name on PyPI, and openai-agents installs a top-level module
+called `agents`. The smoke test's first check reads only the files the
+`dagents` distribution installed (its `RECORD`), so another package's `agents`
+module does not fail it. The `packaging` job installs the wheel together with
+`openai-agents`, runs `pip check`, and runs the smoke test with
+`--agents-from openai-agents`, which checks that `agents` comes from
+openai-agents and imports in the same process as `dagents`.
+
+**Make a release:**
+
+1. Change `__version__` (and the classifier when the stage changes), check
+   that the README's status line and install section are right for this
+   release, and land the change on `main` through a pull request.
+2. Tag the merge commit and push the tag:
+
+   ```bash
+   git tag -a v0.1.0a1 -m "dagents 0.1.0a1"
+   git push origin v0.1.0a1
+   ```
+
+3. `.github/workflows/release.yml` runs: it stops unless the tag is `v` plus
+   the version and the tagged commit is on `main`
+   (`scripts/release_version.py`), builds the planners on their
+   own platforms, builds the sdist and the wheels from it, checks every file
+   (`scripts/check_dist.py`, `twine check`), installs each wheel into clean
+   environments on its platform (`scripts/smoke_installed_package.py`),
+   publishes to TestPyPI, checks that TestPyPI serves the same files
+   (`scripts/check_published_files.py`), publishes to PyPI, checks PyPI the
+   same way and creates the GitHub Release. An `a`, `b` or `rc` version is
+   marked as a pre-release.
+
+A manual run of the workflow (Actions, Release, Run workflow) is a dry run: it
+builds and checks everything and publishes nothing.
+
+**Trusted Publishing.** The workflow holds no token. PyPI and TestPyPI trust
+this repository's `release.yml` through OpenID Connect, and each upload
+carries a PEP 740 attestation. Once, before the first release, the owner:
+
+1. On <https://pypi.org/manage/account/publishing/>, adds a pending publisher:
+   project `dagents`, owner `pradyunuydarp`, repository `Dagents`, workflow
+   `release.yml`, environment `pypi`.
+2. Does the same on <https://test.pypi.org/manage/account/publishing/> with
+   environment `testpypi`.
+3. In the repository settings (Environments), creates the environments
+   `testpypi` and `pypi`. On each, sets the deployment branches and tags rule
+   to selected tags with the pattern `v*`, and adds a required reviewer to
+   `pypi`, so a person approves each upload.
+4. In the repository settings (Rules, Rulesets), adds a tag ruleset that
+   targets `v*`, restricts creations, updates and deletions, and lets only
+   the repository admins bypass it. Then only an admin can push a release
+   tag, and nobody can move one to another commit.
+
+Only the publish jobs get `id-token: write`, and every action in
+`release.yml` is pinned to a commit; `tests/test_release_workflow.py` checks
+both.
+
+**Build and check locally**, without publishing. The static build replaces
+the planner in `_build/default/bin/`; it is the same code, so the suites can
+keep using it.
+
+```bash
+.venv/bin/python -m pip install build twine
+export PIP_CONSTRAINT=$PWD/.github/build-constraints.txt PIP_BUILD_CONSTRAINT=$PWD/.github/build-constraints.txt
+.venv/bin/python -m build --sdist --outdir dist                       # the sdist
+cd bindings/ocaml && opam exec -- dune build --profile static ./bin/dagentsc.exe && cd -
+mkdir -p /tmp/dagents-sdist && tar -xzf dist/dagents-*.tar.gz -C /tmp/dagents-sdist
+DAGENTS_PLANNER_BINARY=$PWD/bindings/ocaml/_build/default/bin/dagentsc.exe \
+DAGENTS_WHEEL_PLATFORM=manylinux_2_17_x86_64.manylinux2014_x86_64.musllinux_1_1_x86_64 \
+  .venv/bin/python -m build --wheel --outdir dist /tmp/dagents-sdist/dagents-*   # the wheel, from the sdist
+unset PIP_CONSTRAINT PIP_BUILD_CONSTRAINT
+.venv/bin/python scripts/check_dist.py dist --list --build-constraints .github/build-constraints.txt
+.venv/bin/python -m twine check --strict dist/*
+python3.11 -m venv /tmp/dagents-smoke
+/tmp/dagents-smoke/bin/pip install "$(ls dist/*.whl)[lma,gma]"
+REPO=$PWD; (cd /tmp && env -u PYTHONPATH -u DAGENTSC_BIN /tmp/dagents-smoke/bin/python -I \
+  "$REPO/scripts/smoke_installed_package.py" --repo "$REPO" --expect-planner bundled)
+```
+
+Without the two `DAGENTS_*` variables the wheel is pure Python (`py3-none-any`)
+and has no planner, which is what pip builds from the sdist.
+
 ### Full stack
 
 ```bash
@@ -457,7 +593,10 @@ and a bundle only prove that the app compiles. The smoke test exits 2 and prints
 
 Configuration comes from `env/.env.shared` plus a file per service. Never
 hardcode URLs or ports. Each service has a `*_PUBLIC_URL` (host) and a
-`*_INTERNAL_URL` (compose network).
+`*_INTERNAL_URL` (compose network). The env files are read only from a source
+tree (a checkout, or an image that copies `dagents/` and `env/` side by side);
+an installed `dagents` package reads only the process environment
+(`dagents/common/env.py`).
 
 ## Conventions
 
@@ -472,7 +611,7 @@ that regenerates each generated doc. Never edit a generated doc by hand.
 
 ### Agent layout
 
-`agents/lma/` and `agents/gma/` use the same layout, and new agents should too:
+`dagents/lma/` and `dagents/gma/` use the same layout, and new agents should too:
 
 ```text
 domain/          typed models, no I/O
@@ -487,10 +626,15 @@ can be replaced by a message broker and a database without restructuring.
 
 ### Calling the OCaml layer from Python
 
-Use `agents/common/infrastructure/dagents_runner.py`. It converts keys between
-snake_case and camelCase and runs the subprocess. The binary comes from
-`DAGENTSC_BIN`, or from `dagentsc` on PATH (containers install it there; local
-runs point at the dune build).
+Use `dagents/common/infrastructure/dagents_runner.py`. It converts keys between
+snake_case and camelCase and runs the subprocess. It looks for the binary in
+this order: `DAGENTSC_BIN` (local runs point it at the dune build), the planner
+a platform wheel bundles at `dagents/_bin/dagentsc`, then `dagentsc` on PATH
+(containers install it there). A `DAGENTSC_BIN` that names a missing file is
+used as it is, so a wrong setting fails instead of running another planner.
+When nothing is found the runner raises `PlannerUnavailableError` and the Guard
+denies. `python -m dagents` prints which planner it found, and an LMA or GMA
+that cannot start one logs a warning when it is built (`warn_if_no_planner`).
 
 An image whose service calls the planner builds it in an `ocaml/opam` stage and
 copies it to `/usr/local/bin/dagentsc`. Copy that stage from
@@ -636,7 +780,7 @@ Governance follows the same split as the rest of the code:
   `select_strategy` matches every combination. Adding a level fails to compile
   until every combination is handled.
 - **Enforcing** needs real data and an audit log, so it is in
-  `agents/common/application/ethical_guard.py`. The Guard applies the plan,
+  `dagents/common/application/ethical_guard.py`. The Guard applies the plan,
   drops every field the request did not ask for, and writes an audit record that
   includes the digest of the previous record.
 - **Policy** is configuration: a `DataClassification` contributed by an
@@ -667,7 +811,7 @@ hospital when no database is configured. These rules hold for both:
 - **Every read or write of a site's data goes through that site's store, acting
   as that site's role.** Each database operation runs in one transaction that
   starts with `SET LOCAL ROLE` and checks `current_user`
-  (`agents/common/infrastructure/postgres_roles.py`, `acting_as`). Never use a
+  (`dagents/common/infrastructure/postgres_roles.py`, `acting_as`). Never use a
   session-level `SET ROLE`; a pooled connection would keep it.
 - **The coordinator never reads site rows.** It sees what sites report: counts,
   rates the site's planner permits (at least the minimum cohort), round
@@ -706,18 +850,18 @@ login and database; the store reads an optional per-site connection string,
 eligibility, quorum, aggregation readiness (which counts only the sites the
 plan selected), release gates, and every change of a model version's status
 (`dagentsc federation model lifecycle`).
-`agents/common/application/federation.py` holds state and side effects and calls
+`dagents/common/application/federation.py` holds state and side effects and calls
 the planner for the rest; the GMA's model registry
-(`agents/gma/application/model_registry.py`) applies the lifecycle answer and
+(`dagents/gma/application/model_registry.py`) applies the lifecycle answer and
 keeps no status rule of its own. Do not write a planning rule again in Python.
 
 The federated protocol belongs to a dedicated runtime behind `FederationEngine`.
 The in-process engine is a simulator for tests and the getting-started example;
 do not turn it into a federated optimizer. The GMA's HTTP engine
-(`agents/gma/adapters/http_federation_engine.py`) moves jobs to the LMAs and
+(`dagents/gma/adapters/http_federation_engine.py`) moves jobs to the LMAs and
 holds clipped updates until aggregation; how updates are combined comes from
 the model kind an extension contributes (`ModelKind.combine`), so no averaging
-rule lives in `agents/`. The healthcare demo runs its pilot on the HTTP engine:
+rule lives in `dagents/`. The healthcare demo runs its pilot on the HTTP engine:
 its study operator (`apps/healthcare-demo/backend/app/services/pilot.py`)
 calls only the GMA, and its logistic regression is the model kind
 (`app/domain/model_kinds.py`).
@@ -732,7 +876,7 @@ accepts.
 
 ### Extending the framework from an application
 
-An application contributes through `agents/common/extensions`, never by patching
+An application contributes through `dagents/common/extensions`, never by patching
 the framework. An extension supplies feature contracts, data classifications,
 condition packs (with their label field and approved purposes), model kinds
 (how the LMA trains and evaluates a model and how the GMA checks and combines
@@ -761,16 +905,16 @@ The two demos show the boundary:
   (contributed as a model kind, including how an update is checked and
   combined), the study sequence, the FHIR mapping and the intended-use
   statement. It calls the LMA and GMA APIs through
-  `agents/common/infrastructure/agent_client.py`. Dagents owns governance,
+  `dagents/common/infrastructure/agent_client.py`. Dagents owns governance,
   federation (the LMA and GMA APIs, job dispatch, the update store, the model
   registry and approval), role scoping, the running profile, the chart renderer
   and everything else generic. See `apps/healthcare-demo/backend/app/extension.py`
   for the extension and `apps/healthcare-demo/backend/app/services/agents.py`
   for how the app builds or connects to the agents.
 
-Nothing in `agents/` knows what a stroke is, and nothing in the healthcare app
+Nothing in `dagents/` knows what a stroke is, and nothing in the healthcare app
 implements a quorum rule. Apply that test to a new capability: if it would need a
-domain word in `agents/`, it belongs in the application.
+domain word in `dagents/`, it belongs in the application.
 
 ## Writing style
 
@@ -794,7 +938,7 @@ The agents deliver messages in memory, and broker-backed messaging is deferred.
 An LMA can serve one site (its records, profile, Guard probe, federated jobs and
 job log), and a GMA can dispatch rounds to the LMAs over HTTP, keep model
 versions and handle approvals. They call each other through
-`agents/common/infrastructure/agent_client.py`, in one process through
+`dagents/common/infrastructure/agent_client.py`, in one process through
 `httpx.ASGITransport` or over HTTP, with bearer tokens of fixed scopes
 (`agent_auth.py`). With a database, an LMA keeps its audit chain and job log in
 Postgres and the GMA keeps its model registry and audit chain there; the GMA's

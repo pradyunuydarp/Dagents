@@ -38,21 +38,21 @@ def missing_names(report: impact.Report) -> list[str]:
 
 class MatchingTests(unittest.TestCase):
     def test_double_star_crosses_folders_and_single_star_does_not(self) -> None:
-        self.assertTrue(impact.matches("agents/lma/main.py", ("agents/**",)))
+        self.assertTrue(impact.matches("dagents/lma/main.py", ("dagents/**",)))
         self.assertTrue(impact.matches("docs/guide/01-setup.md", ("docs/guide/**",)))
         self.assertTrue(impact.matches("README.md", ("**/*.md",)))
         self.assertTrue(impact.matches("a/b/c/README.md", ("**/*.md",)))
         self.assertTrue(impact.matches("docs/reference/api/examples/lma.json", ("docs/reference/api/examples/lma.*",)))
         self.assertFalse(impact.matches("docs/reference/api/examples/lma/x.json", ("docs/reference/api/examples/lma.*",)))
-        self.assertFalse(impact.matches("agentsx/main.py", ("agents/**",)))
+        self.assertFalse(impact.matches("dagentsx/main.py", ("dagents/**",)))
         self.assertFalse(impact.matches("docs/presentation/x.pptx.bak", ("docs/presentation/**/*.pptx",)))
 
     def test_markdown_tests_and_lockfiles_in_a_code_area_are_not_code(self) -> None:
         [agents] = [area for area in impact.AREAS if area.name == "agents"]
         [healthcare] = [area for area in impact.AREAS if area.name == "healthcare-demo"]
-        self.assertTrue(impact.is_code("agents/lma/main.py", agents))
-        self.assertFalse(impact.is_code("agents/tests/test_governance.py", agents))
-        self.assertFalse(impact.is_code("agents/README.md", agents))
+        self.assertTrue(impact.is_code("dagents/lma/main.py", agents))
+        self.assertFalse(impact.is_code("dagents/tests/test_governance.py", agents))
+        self.assertFalse(impact.is_code("dagents/README.md", agents))
         self.assertFalse(impact.is_code("apps/healthcare-demo/frontend/package-lock.json", healthcare))
         self.assertFalse(impact.is_code("apps/healthcare-demo/tests/test_api.py", healthcare))
         self.assertTrue(impact.is_code("apps/healthcare-demo/frontend/src/App.tsx", healthcare))
@@ -60,18 +60,18 @@ class MatchingTests(unittest.TestCase):
 
 class DecisionTests(unittest.TestCase):
     def test_code_without_docs_fails_and_names_the_area(self) -> None:
-        report = impact.evaluate(["agents/lma/main.py"], ["Change the LMA"])
+        report = impact.evaluate(["dagents/lma/main.py"], ["Change the LMA"])
         self.assertFalse(report.passed)
         self.assertEqual(["agents"], missing_names(report))
         text = impact.format_report(report)
-        self.assertIn("agents changed: agents/lma/main.py", text)
+        self.assertIn("agents changed: dagents/lma/main.py", text)
         self.assertIn("docs/reference/api/agents.md", text)
         self.assertIn("scripts/api_reference.py --write", text)
         self.assertIn("Docs-Impact: none [agents] (say in a few words why no page changes)", text)
         self.assertIn(".claude/skills/docs-sync/SKILL.md", text)
 
     def test_code_with_one_of_its_docs_passes(self) -> None:
-        report = impact.evaluate(["agents/lma/main.py", "docs/reference/api/agents.md"], ["x"])
+        report = impact.evaluate(["dagents/lma/main.py", "docs/reference/api/agents.md"], ["x"])
         self.assertTrue(report.passed)
         self.assertEqual(["agents"], area_names(report))
 
@@ -82,7 +82,7 @@ class DecisionTests(unittest.TestCase):
         self.assertTrue(report.passed)
 
     def test_a_doc_of_another_area_does_not_count(self) -> None:
-        report = impact.evaluate(["agents/lma/main.py", "docs/presentation/resources.json"], ["x"])
+        report = impact.evaluate(["dagents/lma/main.py", "docs/presentation/resources.json"], ["x"])
         self.assertFalse(report.passed)
 
     def test_each_area_is_checked_on_its_own(self) -> None:
@@ -99,7 +99,7 @@ class DecisionTests(unittest.TestCase):
 
     def test_tests_and_docs_alone_need_nothing(self) -> None:
         for changed in (
-            ["agents/tests/test_governance.py"],
+            ["dagents/tests/test_governance.py"],
             ["services/core-service/README.md"],
             ["docs/learn/02-privacy-and-governance.md"],
             ["site/src/App.tsx"],
@@ -144,14 +144,14 @@ class TrailerTests(unittest.TestCase):
     def test_a_line_exempts_only_the_areas_it_names(self) -> None:
         # A line written for a script comment must not hide a planner and an agent
         # change made later in the same pull request.
-        changed = [*self.CHANGE, "agents/gma/main.py", "scripts/export_presentations.py"]
+        changed = [*self.CHANGE, "dagents/gma/main.py", "scripts/export_presentations.py"]
         report = impact.evaluate(changed, ["Fix a comment\n\nDocs-Impact: none [scripts] (comment typo, no page quotes it)", "Change the planner"])
         self.assertFalse(report.passed)
         self.assertEqual(["planners", "agents"], [result.area.name for result in report.unexcused])
         self.assertIn("Docs-Impact: none [planners, agents]", impact.format_report(report))
 
     def test_one_line_may_name_several_areas(self) -> None:
-        changed = [*self.CHANGE, "agents/gma/main.py"]
+        changed = [*self.CHANGE, "dagents/gma/main.py"]
         report = impact.evaluate(changed, ["x\n\nDocs-Impact: none [planners, agents] (rename of private helpers only)"])
         self.assertTrue(report.passed)
 
@@ -212,7 +212,7 @@ class GitRangeTests(unittest.TestCase):
         self.addCleanup(self.temporary.cleanup)
         self.repo = Path(self.temporary.name)
         _git(self.repo, "init", "--quiet", "--initial-branch=main")
-        self.base = _commit(self.repo, {"agents/lma/main.py": "a = 1\n", "docs/learn/README.md": "# Learn\n"}, "Start")
+        self.base = _commit(self.repo, {"dagents/lma/main.py": "a = 1\n", "docs/learn/README.md": "# Learn\n"}, "Start")
 
     def run_check(self, *arguments: str) -> tuple[int, str]:
         output = io.StringIO()
@@ -221,38 +221,38 @@ class GitRangeTests(unittest.TestCase):
         return code, output.getvalue()
 
     def test_a_code_only_range_fails_and_a_trailer_in_any_commit_passes(self) -> None:
-        _commit(self.repo, {"agents/lma/main.py": "a = 2\n"}, "Change the LMA")
-        head = _commit(self.repo, {"agents/tests/test_x.py": "pass\n"}, "Add a test")
+        _commit(self.repo, {"dagents/lma/main.py": "a = 2\n"}, "Change the LMA")
+        head = _commit(self.repo, {"dagents/tests/test_x.py": "pass\n"}, "Add a test")
         code, output = self.run_check("--base", self.base, "--head", head)
         self.assertEqual(1, code, output)
-        self.assertIn("agents changed: agents/lma/main.py", output)
+        self.assertIn("agents changed: dagents/lma/main.py", output)
 
         head = _commit(self.repo, {}, "Note\n\nDocs-Impact: none [agents] (the value is internal)")
         self.assertEqual(0, self.run_check("--base", self.base, "--head", head)[0])
 
     def test_an_earlier_trailer_for_another_area_does_not_cover_a_later_change(self) -> None:
         _commit(self.repo, {"scripts/tool.py": "# a comment\n"}, "Fix a comment\n\nDocs-Impact: none [scripts] (comment typo, no page quotes it)")
-        head = _commit(self.repo, {"agents/lma/main.py": "a = 2\n"}, "Change the LMA")
+        head = _commit(self.repo, {"dagents/lma/main.py": "a = 2\n"}, "Change the LMA")
         code, output = self.run_check("--base", self.base, "--head", head)
         self.assertEqual(1, code, output)
-        self.assertIn("agents changed: agents/lma/main.py", output)
+        self.assertIn("agents changed: dagents/lma/main.py", output)
         self.assertIn("scripts: 1 code file(s), no docs changed, exempted", output)
 
     def test_docs_in_a_later_commit_of_the_range_pass(self) -> None:
-        _commit(self.repo, {"agents/lma/main.py": "a = 2\n"}, "Change the LMA")
+        _commit(self.repo, {"dagents/lma/main.py": "a = 2\n"}, "Change the LMA")
         head = _commit(self.repo, {"docs/learn/README.md": "# Learn\n\nNew.\n"}, "Describe it")
         code, output = self.run_check("--base", self.base, "--head", head)
         self.assertEqual(0, code, output)
 
     def test_a_file_moved_out_of_an_area_counts_on_both_sides(self) -> None:
-        _git(self.repo, "mv", "agents/lma/main.py", "notes.py")
+        _git(self.repo, "mv", "dagents/lma/main.py", "notes.py")
         head = _commit(self.repo, {}, "Move it")
         code, output = self.run_check("--base", self.base, "--head", head)
         self.assertEqual(1, code, output)
 
     def test_an_empty_or_zero_base_checks_the_head_commit_alone(self) -> None:
-        _commit(self.repo, {"agents/lma/main.py": "a = 2\n", "docs/learn/README.md": "x\n"}, "Both")
-        head = _commit(self.repo, {"agents/lma/main.py": "a = 3\n"}, "Code only")
+        _commit(self.repo, {"dagents/lma/main.py": "a = 2\n", "docs/learn/README.md": "x\n"}, "Both")
+        head = _commit(self.repo, {"dagents/lma/main.py": "a = 3\n"}, "Code only")
         for base in ("", "0" * 40):
             with self.subTest(base=base):
                 code, output = self.run_check("--base", base, "--head", head)
@@ -260,7 +260,7 @@ class GitRangeTests(unittest.TestCase):
                 self.assertIn("only the head commit is checked", output)
 
     def test_a_base_missing_from_the_clone_checks_the_head_commit_alone(self) -> None:
-        head = _commit(self.repo, {"agents/lma/main.py": "a = 2\n", "docs/learn/README.md": "x\n"}, "Both")
+        head = _commit(self.repo, {"dagents/lma/main.py": "a = 2\n", "docs/learn/README.md": "x\n"}, "Both")
         code, output = self.run_check("--base", "1" * 40, "--head", head)
         self.assertEqual(0, code, output)
         self.assertIn("is not in this clone", output)
@@ -279,7 +279,7 @@ class GitRangeTests(unittest.TestCase):
         self.assertEqual(2, self.run_check()[0])
 
     def test_ci_gets_an_error_annotation(self) -> None:
-        head = _commit(self.repo, {"agents/lma/main.py": "a = 2\n"}, "Change the LMA")
+        head = _commit(self.repo, {"dagents/lma/main.py": "a = 2\n"}, "Change the LMA")
         previous = os.environ.get("GITHUB_ACTIONS")
         os.environ["GITHUB_ACTIONS"] = "true"
         try:

@@ -1,6 +1,6 @@
 ---
 name: backend
-description: Strict rules for changing Dagents backend code — the OCaml planners in bindings/ocaml, the Python agents in agents/, and the FastAPI and Spring Boot services in services/. Use before adding or changing an endpoint, a planner rule, a governance or federation decision, a model family, a source adapter, or anything under agents/, services/ or bindings/ocaml. States where each kind of decision is allowed to live and the test-first loop that must pass before the change is finished.
+description: Strict rules for changing Dagents backend code — the OCaml planners in bindings/ocaml, the Python agents in dagents/, and the FastAPI and Spring Boot services in services/. Use before adding or changing an endpoint, a planner rule, a governance or federation decision, a model family, a source adapter, or anything under dagents/, services/ or bindings/ocaml. States where each kind of decision is allowed to live and the test-first loop that must pass before the change is finished.
 ---
 
 # Dagents backend
@@ -18,24 +18,33 @@ Each language does the work it suits best:
 | Layer | Owns | Never owns |
 |---|---|---|
 | **OCaml** `bindings/ocaml/` | Pure planning: validate, compile, route, render | Database connections, training loops, API servers |
-| **Python** `agents/`, `services/` | FastAPI services, model training and inference, source I/O, runtime state | Deterministic planning rules |
+| **Python** `dagents/`, `services/` | FastAPI services, model training and inference, source I/O, runtime state | Deterministic planning rules |
 | **Spring Boot** `services/spring-services/` | Orchestration APIs, policy entry points, external integration | Machine learning |
 
 The two agents:
 
-- **LMA** (`agents/lma/`): one per data source (a tenant, database, service,
+- **LMA** (`dagents/lma/`): one per data source (a tenant, database, service,
   event stream or environment). It profiles data, splits work, runs local
   models, publishes summaries, and enforces governance at three of the four
   guard boundaries.
-- **GMA** (`agents/gma/`): registers LMAs, combines their outputs, runs
+- **GMA** (`dagents/gma/`): registers LMAs, combines their outputs, runs
   aggregate models, coordinates dispatch, and runs federated rounds and release
   decisions.
 
 Python calls OCaml through the `dagentsc` command-line program, sending JSON on
 standard input. **Never** link the languages directly (FFI). Always go through
-`agents/common/infrastructure/dagents_runner.py`, which converts between
-snake_case and camelCase and runs the subprocess. The binary comes from
-`DAGENTSC_BIN`, or from `dagentsc` on PATH.
+`dagents/common/infrastructure/dagents_runner.py`, which converts between
+snake_case and camelCase and runs the subprocess. It looks for the binary in
+`DAGENTSC_BIN`, then in the planner a platform wheel bundles at
+`dagents/_bin/dagentsc`, then `dagentsc` on PATH. When none is found it raises
+`PlannerUnavailableError`, and the Guard denies. **Never** add a lookup that
+falls through from a configured `DAGENTSC_BIN` that does not exist to another
+planner. An agent built without a planner it can start logs one warning
+(`warn_if_no_planner`), because it still answers `/health`.
+
+**An installed package reads no env file.** `dagents/common/env.py` reads
+`env/.env.*` only next to a source tree's `dagents/` folder, never from
+`site-packages`, where another distribution could install an `env/` folder.
 
 **Every image whose service calls the planner must contain it.** Build it in an
 `ocaml/opam` stage and copy it to `/usr/local/bin/dagentsc`, as
@@ -81,7 +90,7 @@ copies of one rule drift apart; this repo has had that bug (see §5).
   trust, granularity and strategy are algebraic data types, and
   `select_strategy` matches every combination of the three inputs. Adding a
   level must fail to compile until every combination has a strategy.
-- Enforcing happens in `agents/common/application/ethical_guard.py`: apply the
+- Enforcing happens in `dagents/common/application/ethical_guard.py`: apply the
   plan, drop every field the request did not ask for, and write an audit record
   that includes the digest of the previous record.
 - Policy is configuration: a `DataClassification`, contributed by an extension
@@ -96,7 +105,7 @@ copies of one rule drift apart; this repo has had that bug (see §5).
 
 - `bindings/ocaml/lib/federation_compiler` decides eligibility, quorum,
   aggregation readiness and release gates.
-  `agents/common/application/federation.py` holds state and side effects and
+  `dagents/common/application/federation.py` holds state and side effects and
   calls the planner for the rest.
 - **Aggregation produces a candidate, never a release.** A release needs its
   gates to pass and a person to approve it.
@@ -115,7 +124,7 @@ consumer that stores site data:
 
 - **Every read or write of a site's data goes through that site's store, acting
   as that site's role.** Use `acting_as` from
-  `agents/common/infrastructure/postgres_roles.py`: one transaction that starts
+  `dagents/common/infrastructure/postgres_roles.py`: one transaction that starts
   with `SET LOCAL ROLE` and checks `current_user`. **Never** use a session-level
   `SET ROLE`, and never bind a role name as a query parameter; it is validated
   and quoted as an identifier.
@@ -154,7 +163,7 @@ consumer that stores site data:
 
 ### Agent layout
 
-`agents/lma/` and `agents/gma/` use the same layout, and a new agent must too:
+`dagents/lma/` and `dagents/gma/` use the same layout, and a new agent must too:
 
 ```text
 domain/          typed models, no I/O
@@ -191,13 +200,13 @@ replaced by a message broker and a database without restructuring.
 ### Scope
 
 Product-specific code belongs in Dagents only if several consumers can reuse it.
-The test: **if a capability needs a domain word in `agents/`, it belongs in the
-consumer**, through `agents/common/extensions`. Nothing in `agents/` knows what
+The test: **if a capability needs a domain word in `dagents/`, it belongs in the
+consumer**, through `dagents/common/extensions`. Nothing in `dagents/` knows what
 a stroke is, and nothing in `apps/healthcare-demo/` implements a quorum rule.
 
 A consumer contributes feature contracts, data classifications, condition packs,
 model kinds, site sources, named pipeline steps and named model adapters through
-`agents/common/extensions`. It never patches the framework. Registration is
+`dagents/common/extensions`. It never patches the framework. Registration is
 explicit, and two extensions registering the same id is an error, because
 otherwise a guard decision would depend on import order.
 `apps/healthcare-demo/backend/app/extension.py` is the reference: one
@@ -210,7 +219,7 @@ contract, the dataset extract, the per-hospital stores, the scoring rule, the
 logistic regression model (contributed as a model kind, including how an update
 is checked and combined), the study sequence, the FHIR mapping and the
 intended-use statement. It calls the LMA and GMA APIs through
-`agents/common/infrastructure/agent_client.py`; `app/services/agents.py` is the
+`dagents/common/infrastructure/agent_client.py`; `app/services/agents.py` is the
 only module that builds or connects to the agents. Dagents owns governance,
 federation (the LMA and GMA APIs, job dispatch, the update store, the model
 registry and approval), role scoping, the running profile, the chart renderer
@@ -221,7 +230,7 @@ lists what each app file may import.
 
 Adding a hospital while the demo runs keeps the same split. core-service's
 OCaml manifest compiler renders the new LMA's Compose file; an applier from
-`agents/common/infrastructure/compose_apply.py` starts it and makes no
+`dagents/common/infrastructure/compose_apply.py` starts it and makes no
 decision; the GMA accepts only the address `GMA_JOINABLE_SITE_ENDPOINTS` lists
 for the site; the GMA's planner decides whether the next round selects it.
 The app (`app/services/deployment.py`) only orders the steps and undoes them
@@ -257,11 +266,11 @@ Docker, database or GPU, so this is the fastest test loop in the repo.
 
 ### Python
 
-Tests import as `agents.common...`, so run them from the repository root, with
+Tests import as `dagents.common...`, so run them from the repository root, with
 the gitignored `.venv/` rather than system Python:
 
 ```bash
-.venv/bin/python -m unittest discover -s agents/tests -t .
+.venv/bin/python -m unittest discover -s dagents/tests -t .
 ```
 
 Each service has its own suite under `services/<name>/tests/`. The healthcare
@@ -299,7 +308,7 @@ cd apps/healthcare-demo && PYTHONPATH=../..:backend ../../.venv/bin/python -m un
 
   ```bash
   export HEALTHCARE_DEMO_TEST_DATABASE_URL=postgresql://admin:pw@127.0.0.1:5432/postgres  # healthcare suite
-  export DAGENTS_TEST_DATABASE_URL=postgresql://admin:pw@127.0.0.1:5432/postgres          # agents/tests/test_postgres_roles.py
+  export DAGENTS_TEST_DATABASE_URL=postgresql://admin:pw@127.0.0.1:5432/postgres          # dagents/tests/test_postgres_roles.py
   ```
 - No test may need the network. Pin fixtures; never download a model or a
   dataset inside a test.
@@ -312,7 +321,7 @@ cd bindings/ocaml && opam exec -- dune build ./bin/dagentsc.exe && opam exec -- 
 
 # 2. agents and control plane, with the planner available
 DAGENTSC_BIN=$PWD/bindings/ocaml/_build/default/bin/dagentsc.exe \
-  .venv/bin/python -m unittest discover -s agents/tests -t .
+  .venv/bin/python -m unittest discover -s dagents/tests -t .
 
 # 3. the service suite you changed, both ways (see §3)
 

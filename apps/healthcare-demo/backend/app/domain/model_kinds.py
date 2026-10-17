@@ -1,6 +1,6 @@
 """The app's two models, as model kinds that the Dagents agents run.
 
-A model kind (``agents.common.extensions.ModelKind``) is how the LMA and the
+A model kind (``dagents.common.extensions.ModelKind``) is how the LMA and the
 GMA run an application's model without importing it. ``app.extension``
 contributes the two kinds below:
 
@@ -33,9 +33,9 @@ from __future__ import annotations
 import math
 from typing import Any, Callable, Iterable, Mapping
 
-from agents.common.domain.errors import ModelVerificationError
-from agents.common.domain.federation import ModelVersionRegistration
-from agents.common.extensions import TrainingOutcome
+from dagents.common.domain.errors import ModelVerificationError
+from dagents.common.domain.federation import ModelVersionRegistration
+from dagents.common.extensions import TrainingOutcome
 
 from app.domain import stroke_model, stroke_rule
 

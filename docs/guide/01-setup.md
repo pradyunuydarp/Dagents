@@ -55,7 +55,7 @@ Expected output:
 
 ```bash
 python3 -m venv .venv
-.venv/bin/pip install -r agents/lma/requirements.txt -r agents/gma/requirements.txt \
+.venv/bin/pip install -r dagents/lma/requirements.txt -r dagents/gma/requirements.txt \
   -r services/core-service/requirements.txt -r services/pipeline-service/requirements.txt
 ```
 
@@ -64,7 +64,7 @@ service also needs `services/model-service/requirements.txt`, which installs
 PyTorch and scikit-learn. On Linux the default PyTorch package brings the CUDA
 libraries with it, about 6 GB in all.
 
-The example and the agents import the framework as `agents.common...`, so
+The example and the agents import the framework as `dagents.common...`, so
 Python must find the repository root. Each command below sets
 `PYTHONPATH=.` for that.
 
@@ -92,10 +92,10 @@ export `DAGENTSC_BIN` as in section 2. Then:
 
 ```bash
 # Terminal 1: the LMA
-.venv/bin/python -m uvicorn agents.lma.main:app --port 8010
+.venv/bin/python -m uvicorn dagents.lma.main:app --port 8010
 
 # Terminal 2: the GMA
-.venv/bin/python -m uvicorn agents.gma.main:app --port 8020
+.venv/bin/python -m uvicorn dagents.gma.main:app --port 8020
 
 # Terminal 3: core-service
 PYTHONPATH=. .venv/bin/python -m uvicorn app.main:app --app-dir services/core-service --port 8040
@@ -142,7 +142,7 @@ section 5. It uses the framework as a Python library.
 
 | What you see | Why | What to do |
 |---|---|---|
-| `ModuleNotFoundError: No module named 'agents'` | Python cannot find the repository root | Run from the repository root with `PYTHONPATH=.` |
+| `ModuleNotFoundError: No module named 'dagents'` | Python cannot find the repository root | Run from the repository root with `PYTHONPATH=.` |
 | Every Guard decision is `deny` with "The planner could not be reached, so the Guard denied the request." | `DAGENTSC_BIN` is not set in that terminal, or points to a missing file | Export it again (section 2). The Guard fails closed on purpose |
 | `[Errno 98] error while attempting to bind on address ... address already in use` | Another process uses the port | Stop it, or choose another port with `--port` |
 | `opam: command not found`, or `dune` is too old | The OCaml tools are missing | Install opam, then OCaml 5.1, then `opam install dune yojson` |

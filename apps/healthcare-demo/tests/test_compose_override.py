@@ -35,7 +35,7 @@ sys.path.insert(0, str(FRAMEWORK_ROOT))
 
 import yaml  # noqa: E402
 
-from agents.common.infrastructure.compose_apply import parse_env_file  # noqa: E402
+from dagents.common.infrastructure.compose_apply import parse_env_file  # noqa: E402
 
 from app.domain.dataset import JOINING_SITES, SITES  # noqa: E402
 from app.services.deployment import COMPOSE_SERVICES  # noqa: E402

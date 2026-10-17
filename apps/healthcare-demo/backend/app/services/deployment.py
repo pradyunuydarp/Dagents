@@ -11,7 +11,7 @@ every decision and does every side effect except the join:
    never writes Compose. It checks that the file holds only the service it
    asked for, with the image, command, environment, env file, health check and
    network it asked for.
-2. ``start``: a :class:`~agents.common.infrastructure.compose_apply.ComposeApplier`
+2. ``start``: a :class:`~dagents.common.infrastructure.compose_apply.ComposeApplier`
    starts the one service in that exact file, as a local process or with
    ``docker compose``. The new LMA is a stock Dagents LMA; it reads its tokens,
    its database address and the GMA's address from the env file the Compose
@@ -67,7 +67,7 @@ from urllib.parse import urlsplit
 
 import yaml
 
-from agents.common.infrastructure.compose_apply import (
+from dagents.common.infrastructure.compose_apply import (
     ComposeApplier,
     ComposeApplyError,
     DockerComposeApplier,
@@ -357,7 +357,7 @@ def write_env_file(path: Path, values: Mapping[str, str], *, owner: tuple[int, i
     (``(uid, gid)``) when one is named, set to ``mode``, then moved into place,
     so no other user can read it at any moment. Values are written in the form
     the appliers and Docker Compose read the same way
-    (:func:`~agents.common.infrastructure.compose_apply.format_env_file`). Raises
+    (:func:`~dagents.common.infrastructure.compose_apply.format_env_file`). Raises
     ``ValueError`` for a value outside that form; the message names the
     variable, never the value.
     """
@@ -377,7 +377,7 @@ def write_env_file(path: Path, values: Mapping[str, str], *, owner: tuple[int, i
 
 
 def framework_root() -> Path:
-    """The Dagents checkout a new LMA process starts in: ``DAGENTS_HOME``, or the folder that holds ``agents/``."""
+    """The Dagents checkout a new LMA process starts in: ``DAGENTS_HOME``, or the folder that holds ``dagents/``."""
     home = os.environ.get("DAGENTS_HOME", "").strip()
     if home:
         return Path(home).resolve()
@@ -389,7 +389,7 @@ def lma_compose_request(
 ) -> dict[str, Any]:
     """The workload spec core-service renders for a new hospital's LMA. Pure.
 
-    The LMA is a stock Dagents LMA (``agents.lma.main:app``) with the
+    The LMA is a stock Dagents LMA (``dagents.lma.main:app``) with the
     hospital's ``LMA_*`` settings (:func:`~app.services.agents.lma_environment`)
     and ``PORT``, which its health check reads. Its tokens, its database
     address and the GMA's address are in its env file (:func:`env_file_path`),
@@ -407,7 +407,7 @@ def lma_compose_request(
         raise ValueError(f"{lma_url_variable(site.site_id)} needs http, a host and an explicit port")
     host, port = address
     environment = {**lma_environment(site, database=True), "PORT": str(port)}
-    serve = ["agents.lma.main:app", "--host", host if mode == "process" else "0.0.0.0", "--port", str(port)]
+    serve = ["dagents.lma.main:app", "--host", host if mode == "process" else "0.0.0.0", "--port", str(port)]
     serve += ["--log-level", "warning"]
     if mode == "process":
         args = [sys.executable, "-m", "uvicorn", *serve]

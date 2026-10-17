@@ -42,7 +42,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, Callable, Sequence
 
-from agents.common.domain.federation import (
+from dagents.common.domain.federation import (
     AggregationMethod,
     CandidateModel,
     DispatchCall,
@@ -52,7 +52,7 @@ from agents.common.domain.federation import (
     RoundPhase,
     RoundPlan,
 )
-from agents.common.domain.governance import KyuAttribute, Requester
+from dagents.common.domain.governance import KyuAttribute, Requester
 
 from app.domain import stroke_model
 from app.domain.conditions import (

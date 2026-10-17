@@ -7,16 +7,16 @@ test reads the app's source and fails on an import that would let it do so.
 
 What the app may import from the framework:
 
-- domain types (``agents.common.domain``) and the extension interface
-  (``agents.common.extensions``), anywhere;
-- the settings loader (``agents.common.env``) and the chart renderer
-  (``agents.common.infrastructure.charts``), a library call that holds no data
+- domain types (``dagents.common.domain``) and the extension interface
+  (``dagents.common.extensions``), anywhere;
+- the settings loader (``dagents.common.env``) and the chart renderer
+  (``dagents.common.infrastructure.charts``), a library call that holds no data
   and makes no decision, anywhere;
 - the Postgres lease, role scoping and audit sink, in the hospital store only
   (``services/site_store.py``);
 - the agent client and the LMA and GMA app factories and settings, in the
   wiring only (``services/agents.py``);
-- the Compose appliers (``agents.common.infrastructure.compose_apply``), in
+- the Compose appliers (``dagents.common.infrastructure.compose_apply``), in
   the deployer only (``services/deployment.py``). They start the one service
   in a file the planner rendered, for a hospital that joins while the demo
   runs. They make no decision and read no data.
@@ -50,44 +50,44 @@ FRONTEND = APP_ROOT / "frontend" / "src"
 #: Framework modules the app must never import: the parts the LMA and GMA run
 #: for it. Matching a module also matches every module below it.
 FORBIDDEN = (
-    "agents.common.application.governance_service",
-    "agents.common.application.ethical_guard",
-    "agents.common.application.federation",
-    "agents.common.application.federation_worker",
-    "agents.common.application.running_profile",
-    "agents.common.infrastructure.dagents_runner",
+    "dagents.common.application.governance_service",
+    "dagents.common.application.ethical_guard",
+    "dagents.common.application.federation",
+    "dagents.common.application.federation_worker",
+    "dagents.common.application.running_profile",
+    "dagents.common.infrastructure.dagents_runner",
 )
 
 #: Framework modules any app file may import.
 ALLOWED_EVERYWHERE = (
-    "agents.common.domain",
-    "agents.common.extensions",
-    "agents.common.env",
-    "agents.common.infrastructure.charts",
+    "dagents.common.domain",
+    "dagents.common.extensions",
+    "dagents.common.env",
+    "dagents.common.infrastructure.charts",
 )
 
 #: Framework modules one app file may import, by its path under ``backend/app``.
 ALLOWED_IN = {
     "services/site_store.py": (
-        "agents.common.infrastructure.postgres_lease",
-        "agents.common.infrastructure.postgres_roles",
-        "agents.common.infrastructure.postgres_audit",
+        "dagents.common.infrastructure.postgres_lease",
+        "dagents.common.infrastructure.postgres_roles",
+        "dagents.common.infrastructure.postgres_audit",
     ),
-    "services/deployment.py": ("agents.common.infrastructure.compose_apply",),
+    "services/deployment.py": ("dagents.common.infrastructure.compose_apply",),
     "services/agents.py": (
-        "agents.common.infrastructure.agent_client",
-        "agents.lma.app_factory",
-        "agents.lma.config",
-        "agents.lma.infrastructure.job_log",
-        "agents.gma.app_factory",
-        "agents.gma.config",
+        "dagents.common.infrastructure.agent_client",
+        "dagents.lma.app_factory",
+        "dagents.lma.config",
+        "dagents.lma.infrastructure.job_log",
+        "dagents.gma.app_factory",
+        "dagents.gma.config",
     ),
 }
 
 #: Names one file may import from a forbidden module, and why: the hospital
 #: store holds the audit chain the hospital's LMA writes to.
 ALLOWED_NAMES = {
-    ("services/site_store.py", "agents.common.application.ethical_guard"): {"AuditSink", "InMemoryAuditLog"},
+    ("services/site_store.py", "dagents.common.application.ethical_guard"): {"AuditSink", "InMemoryAuditLog"},
 }
 
 
@@ -108,11 +108,11 @@ def _under(module: str, prefixes: tuple[str, ...]) -> bool:
 
 
 def framework_imports(root: Path, base: Path | None = None) -> list[FrameworkImport]:
-    """Every import of an ``agents`` module in the Python files under ``root``, at any depth in the code.
+    """Every import of a ``dagents`` module in the Python files under ``root``, at any depth in the code.
 
-    ``from agents.common.infrastructure import charts`` counts as an import of
-    ``agents.common.infrastructure.charts``; ``import agents.x.y`` as one of
-    ``agents.x.y``. Imports inside functions count too.
+    ``from dagents.common.infrastructure import charts`` counts as an import of
+    ``dagents.common.infrastructure.charts``; ``import dagents.x.y`` as one of
+    ``dagents.x.y``. Imports inside functions count too.
     """
     base = base or root
     found: list[FrameworkImport] = []
@@ -122,10 +122,10 @@ def framework_imports(root: Path, base: Path | None = None) -> list[FrameworkImp
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
                 for alias in node.names:
-                    if alias.name == "agents" or alias.name.startswith("agents."):
+                    if alias.name == "dagents" or alias.name.startswith("dagents."):
                         found.append(FrameworkImport(relative, node.lineno, alias.name, ()))
             elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
-                if not (node.module == "agents" or node.module.startswith("agents.")):
+                if not (node.module == "dagents" or node.module.startswith("dagents.")):
                     continue
                 for alias in node.names:
                     submodule = f"{node.module}.{alias.name}"
@@ -162,22 +162,22 @@ class BackendBoundaryTests(unittest.TestCase):
         """A scan that finds nothing would pass on any code."""
         imports = framework_imports(BACKEND)
         modules = {item.module for item in imports}
-        self.assertIn("agents.common.infrastructure.agent_client", modules)
-        self.assertIn("agents.common.infrastructure.charts", modules)
-        self.assertIn("agents.lma.app_factory", modules)
-        self.assertIn("agents.common.infrastructure.compose_apply", modules)
+        self.assertIn("dagents.common.infrastructure.agent_client", modules)
+        self.assertIn("dagents.common.infrastructure.charts", modules)
+        self.assertIn("dagents.lma.app_factory", modules)
+        self.assertIn("dagents.common.infrastructure.compose_apply", modules)
         self.assertGreater(len(imports), 20)
 
     def test_the_scan_catches_a_forbidden_import(self) -> None:
         samples = [
-            FrameworkImport("services/pilot.py", 1, "agents.common.application.federation", ("FederatedRoundController",)),
-            FrameworkImport("services/hospital_views.py", 1, "agents.common.application.governance_service", ()),
-            FrameworkImport("main.py", 1, "agents.common.infrastructure.dagents_runner", ("plan_restrictions",)),
-            FrameworkImport("services/site_store.py", 1, "agents.common.application.ethical_guard", ("EthicalGuard",)),
-            FrameworkImport("services/overview.py", 1, "agents.common.infrastructure.agent_client", ("AgentNetwork",)),
-            FrameworkImport("services/pilot.py", 1, "agents.gma.application.model_registry", ("ModelRegistry",)),
-            FrameworkImport("main.py", 1, "agents.common.infrastructure.compose_apply", ("LocalProcessApplier",)),
-            FrameworkImport("services/deployment.py", 1, "agents.common.infrastructure.agent_client", ("AgentNetwork",)),
+            FrameworkImport("services/pilot.py", 1, "dagents.common.application.federation", ("FederatedRoundController",)),
+            FrameworkImport("services/hospital_views.py", 1, "dagents.common.application.governance_service", ()),
+            FrameworkImport("main.py", 1, "dagents.common.infrastructure.dagents_runner", ("plan_restrictions",)),
+            FrameworkImport("services/site_store.py", 1, "dagents.common.application.ethical_guard", ("EthicalGuard",)),
+            FrameworkImport("services/overview.py", 1, "dagents.common.infrastructure.agent_client", ("AgentNetwork",)),
+            FrameworkImport("services/pilot.py", 1, "dagents.gma.application.model_registry", ("ModelRegistry",)),
+            FrameworkImport("main.py", 1, "dagents.common.infrastructure.compose_apply", ("LocalProcessApplier",)),
+            FrameworkImport("services/deployment.py", 1, "dagents.common.infrastructure.agent_client", ("AgentNetwork",)),
         ]
         self.assertEqual(len(samples), len(boundary_violations(samples)))
 
@@ -185,9 +185,9 @@ class BackendBoundaryTests(unittest.TestCase):
         self.assertEqual([], boundary_violations(framework_imports(BACKEND)))
 
     def test_the_scan_finds_the_framework_in_an_extracted_copy(self) -> None:
-        """``from agents.common.infrastructure import charts`` is read as the module, wherever the framework is."""
-        self.assertTrue(_is_module("agents.common.infrastructure.charts"))
-        self.assertFalse(_is_module("agents.common.infrastructure.charts.ChartsUnavailableError"))
+        """``from dagents.common.infrastructure import charts`` is read as the module, wherever the framework is."""
+        self.assertTrue(_is_module("dagents.common.infrastructure.charts"))
+        self.assertFalse(_is_module("dagents.common.infrastructure.charts.ChartsUnavailableError"))
 
     def test_the_scripts_import_no_framework_internals(self) -> None:
         """The scripts use the app's services, so they reach the agents the same way.

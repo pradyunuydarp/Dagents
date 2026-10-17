@@ -60,7 +60,7 @@ class ImportTimeTests(unittest.TestCase):
                 # The agents' app factories load on first use, so the health
                 # check answers before they are imported and compiled.
                 import sys
-                loaded = [name for name in ("agents.lma.app_factory", "agents.gma.app_factory") if name in sys.modules]
+                loaded = [name for name in ("dagents.lma.app_factory", "dagents.gma.app_factory") if name in sys.modules]
                 assert not loaded, loaded
             print("ok")
             """
@@ -126,8 +126,8 @@ class DeployedDependencyTests(unittest.TestCase):
         self.assertRegex(self.REQUIREMENTS.read_text(encoding="utf-8"), r"(?m)^matplotlib\b")
 
     def test_the_adapter_is_what_fails_without_the_driver(self) -> None:
-        from agents.common.domain.sources import ConnectionRef, PostgresSelection, PostgresSourceSpec, SourceBatching
-        from agents.common.infrastructure import sources
+        from dagents.common.domain.sources import ConnectionRef, PostgresSelection, PostgresSourceSpec, SourceBatching
+        from dagents.common.infrastructure import sources
 
         spec = PostgresSourceSpec(
             source_id="stroke-encounters-test",

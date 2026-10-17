@@ -73,7 +73,7 @@
    * a legend, so identity never depends on colour alone. The three values were
    * checked as a set (lightness band, chroma, colour-vision-deficiency
    * separation for every pair, 3:1 contrast against --ds-panel) in each theme.
-   * agents/common/infrastructure/charts.py mirrors these values, and a test
+   * dagents/common/infrastructure/charts.py mirrors these values, and a test
    * fails when the two differ. */
   --ds-series-1: #289ebf;
   --ds-series-2: #8665f0;

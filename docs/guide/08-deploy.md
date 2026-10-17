@@ -83,8 +83,8 @@ deployment, not as a tested one.
   needs the source's entries in `GMA_LMA_TOKENS` and `GMA_SITE_TOKENS` from the
   start. The stroke demo does this when Hospital 290 joins a `--deploy` run:
   core-service renders the new LMA's Compose file, an applier starts it, and
-  the app sends its address to the GMA. The full lists are in [`agents/lma/README.md`](../../agents/lma/README.md) and
-  [`agents/gma/README.md`](../../agents/gma/README.md). Tokens and database
+  the app sends its address to the GMA. The full lists are in [`dagents/lma/README.md`](../../dagents/lma/README.md) and
+  [`dagents/gma/README.md`](../../dagents/gma/README.md). Tokens and database
   addresses come from the environment and are never committed.
 
 ## 4. Keep each source on its own machine
@@ -137,7 +137,7 @@ docker compose --env-file env/.env.compose -f docker-compose.yml -f store-south.
 ```
 
 A program can apply a rendered file itself, for example to add a service when
-a person presses a button. `agents/common/infrastructure/compose_apply.py` has
+a person presses a button. `dagents/common/infrastructure/compose_apply.py` has
 two appliers for a file that holds one service. Each takes the `compose_yaml`
 text exactly as core-service returned it, so your program never writes Compose:
 
@@ -225,14 +225,14 @@ What the tokens do not do:
 ## 7. Run the agents in your process or as separate processes
 
 The same client code reaches the agents in two ways
-(`agents/common/infrastructure/agent_client.py`):
+(`dagents/common/infrastructure/agent_client.py`):
 
 | | In process | Separate processes |
 |---|---|---|
 | Built with | `AgentNetwork.in_process()`, then `network.add_app(name, create_app(...))` for each agent | `AgentNetwork.over_http({name: base_url, ...})`; each agent runs under uvicorn with its settings |
 | A call goes through | The agent's real routes, request checks and token checks, through `httpx.ASGITransport`, without a socket | HTTP, with one kept-alive client per agent |
 | Use it for | One application that hosts its agents, such as a demo on one server | Sources on their own machines |
-| Example | `examples/getting-started/shop/agents.py` ([Step 6](06-federated-rounds.md#6-run-the-round-through-the-lma-and-gma)); the stroke demo's published API (`apps/healthcare-demo/backend/app/services/agents.py`) | `PYTHONPATH=. uvicorn agents.lma.main:app` and `agents.gma.main:app`, configured from the environment; `apps/healthcare-demo/scripts/run_local_demo.sh --agents network` |
+| Example | `examples/getting-started/shop/agents.py` ([Step 6](06-federated-rounds.md#6-run-the-round-through-the-lma-and-gma)); the stroke demo's published API (`apps/healthcare-demo/backend/app/services/agents.py`) | `PYTHONPATH=. uvicorn dagents.lma.main:app` and `dagents.gma.main:app`, configured from the environment; `apps/healthcare-demo/scripts/run_local_demo.sh --agents network` |
 
 Rules that apply in process:
 

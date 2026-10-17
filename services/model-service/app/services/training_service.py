@@ -9,7 +9,7 @@ from typing import Protocol
 
 import numpy as np
 import pandas as pd
-from agents.common.infrastructure.sources import DefaultSourceResolver
+from dagents.common.infrastructure.sources import DefaultSourceResolver
 from app.core.config import settings
 from app.ml.checks import run_classification_check, run_forecasting_check, run_regression_check
 from app.ml.datasets import DatasetDescriptor, TabularDataset, load_dataset, list_datasets

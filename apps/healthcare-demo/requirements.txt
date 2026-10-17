@@ -9,11 +9,11 @@ httpx<1
 # The `binary` extra avoids needing libpq and a compiler in the image.
 psycopg[binary]>=3.2,<3.4
 # Charts. The backend draws its charts as SVG with matplotlib's Agg backend
-# (agents/common/infrastructure/charts.py); without it the chart endpoints
+# (dagents/common/infrastructure/charts.py); without it the chart endpoints
 # have nothing to serve. Wheels exist for Linux, macOS and Windows, so the
 # image needs no compiler.
 matplotlib>=3.9,<4
 numpy>=2,<3
 # Adding a hospital while the demo runs. The appliers read the Compose file
-# core-service renders (agents/common/infrastructure/compose_apply.py).
+# core-service renders (dagents/common/infrastructure/compose_apply.py).
 pyyaml>=6.0,<7

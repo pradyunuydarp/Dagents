@@ -111,7 +111,7 @@
               "image": "dagents/healthcare-demo-backend:local",
               "args": [
                 "uvicorn",
-                "agents.lma.main:app",
+                "dagents.lma.main:app",
                 "--host",
                 "0.0.0.0",
                 "--port",
@@ -214,7 +214,7 @@
               "image": "dagents/healthcare-demo-backend:local",
               "args": [
                 "uvicorn",
-                "agents.lma.main:app",
+                "dagents.lma.main:app",
                 "--host",
                 "0.0.0.0",
                 "--port",

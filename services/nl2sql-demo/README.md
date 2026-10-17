@@ -17,8 +17,8 @@ folder's README says how to change them.
 
 ## What it uses from Dagents
 
-- `agents.common.domain`: shared Pydantic contracts and base models.
-- `agents.common.infrastructure.dagents_runner`: the bridge to the OCaml planner.
+- `dagents.common.domain`: shared Pydantic contracts and base models.
+- `dagents.common.infrastructure.dagents_runner`: the bridge to the OCaml planner.
 - `bindings/ocaml`: source validation, extraction planning, schema validation,
   quality rules, pipeline planning, model routing and manifest rendering.
 - The framework services. The UI shows a status check of each one, and a trace

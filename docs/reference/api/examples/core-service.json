@@ -216,7 +216,7 @@
      "content-type": "application/json"
     },
     "body": {
-     "plan_id": "workload-plan-1792133899731",
+     "plan_id": "workload-plan-1792165759509",
      "namespace": "dagents-batch",
      "manifests": [
       {
@@ -487,7 +487,7 @@
        "image": "dagents/healthcare-demo-backend:local",
        "args": [
         "uvicorn",
-        "agents.lma.main:app",
+        "dagents.lma.main:app",
         "--host",
         "0.0.0.0",
         "--port",
@@ -544,7 +544,7 @@
       "lma-hospital-d"
      ],
      "issues": [],
-     "compose_yaml": "services:\n  \"lma-hospital-d\":\n    image: \"dagents/healthcare-demo-backend:local\"\n    command: [\"uvicorn\", \"agents.lma.main:app\", \"--host\", \"0.0.0.0\", \"--port\", \"8085\"]\n    env_file:\n      - \"../../env/.env.shared\"\n      - \"lma-hospital-d.env\"\n    environment:\n      \"LMA_SITE_ID\": \"hospital-d\"\n      \"LMA_SITE_SOURCE\": \"healthcare_site_store\"\n      \"LMA_API_PORT\": \"8085\"\n    ports:\n      - \"127.0.0.1:8085:8085\"\n    healthcheck:\n      test: [\"CMD\", \"python\", \"-c\", \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8085/api/v1/health')\"]\n      interval: 30s\n      timeout: 5s\n      retries: 3\n      start_period: 10s\n    depends_on:\n      \"gma\":\n        condition: service_healthy\n    networks:\n      - \"default\"\n    restart: unless-stopped\nnetworks:\n  \"default\": {}"
+     "compose_yaml": "services:\n  \"lma-hospital-d\":\n    image: \"dagents/healthcare-demo-backend:local\"\n    command: [\"uvicorn\", \"dagents.lma.main:app\", \"--host\", \"0.0.0.0\", \"--port\", \"8085\"]\n    env_file:\n      - \"../../env/.env.shared\"\n      - \"lma-hospital-d.env\"\n    environment:\n      \"LMA_SITE_ID\": \"hospital-d\"\n      \"LMA_SITE_SOURCE\": \"healthcare_site_store\"\n      \"LMA_API_PORT\": \"8085\"\n    ports:\n      - \"127.0.0.1:8085:8085\"\n    healthcheck:\n      test: [\"CMD\", \"python\", \"-c\", \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8085/api/v1/health')\"]\n      interval: 30s\n      timeout: 5s\n      retries: 3\n      start_period: 10s\n    depends_on:\n      \"gma\":\n        condition: service_healthy\n    networks:\n      - \"default\"\n    restart: unless-stopped\nnetworks:\n  \"default\": {}"
     },
     "trimmed": []
    },
@@ -578,7 +578,7 @@
        "image": "dagents/healthcare-demo-backend:local",
        "args": [
         "uvicorn",
-        "agents.lma.main:app",
+        "dagents.lma.main:app",
         "--host",
         "0.0.0.0",
         "--port",

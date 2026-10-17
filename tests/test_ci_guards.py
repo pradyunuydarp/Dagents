@@ -36,13 +36,13 @@ sys.path.insert(0, str(REPO_ROOT / "scripts"))
 import ci_no_skipped_planner_tests as planner_guard  # noqa: E402  (needs the sys.path entry)
 import ci_no_skipped_tests as guard  # noqa: E402
 
-AGENT_TESTS = REPO_ROOT / "agents" / "tests"
+AGENT_TESTS = REPO_ROOT / "dagents" / "tests"
 HEALTHCARE_TESTS = REPO_ROOT / "apps" / "healthcare-demo" / "tests"
 WORKFLOWS = REPO_ROOT / ".github" / "workflows"
 CI_WORKFLOW = WORKFLOWS / "ci.yml"
 DATA_WORKFLOW = WORKFLOWS / "healthcare-data.yml"
 #: The logs of the steps that run the database tests on a PostgreSQL service:
-#: the healthcare suite, and the framework's database tests from agents/tests.
+#: the healthcare suite, and the framework's database tests from dagents/tests.
 HEALTHCARE_LOG = "healthcare-suite.log"
 FRAMEWORK_DATABASE_LOG = "framework-database.log"
 #: Where a module named in `--require-ran` can live: the suites run from the
@@ -375,17 +375,17 @@ def clean_environment(*remove: str) -> dict[str, str]:
 class RealSuiteTests(unittest.TestCase):
     def test_the_role_tests_without_a_database_fail_the_guard(self) -> None:
         log = run_suite(
-            ["-m", "unittest", "agents.tests.test_postgres_roles", "-v"],
+            ["-m", "unittest", "dagents.tests.test_postgres_roles", "-v"],
             clean_environment("DAGENTS_TEST_DATABASE_URL"),
         )
         self.assertIn("database test skipped", log, log[-2000:])
         self.assertEqual(1, run_guard(log, "--forbid", "database"))
         self.assertEqual(
-            1, run_guard(log, "--require-ran", "agents.tests.test_postgres_roles.ActingAsTests")
+            1, run_guard(log, "--require-ran", "dagents.tests.test_postgres_roles.ActingAsTests")
         )
         # The tests that need no database still ran, so the log is parsed.
         self.assertEqual(
-            0, run_guard(log, "--require-ran", "agents.tests.test_postgres_roles.RoleNameTests")
+            0, run_guard(log, "--require-ran", "dagents.tests.test_postgres_roles.RoleNameTests")
         )
 
     def test_the_chart_tests_without_matplotlib_fail_the_guard(self) -> None:
@@ -393,15 +393,15 @@ class RealSuiteTests(unittest.TestCase):
         # and the import fail, as if the package were not installed.
         program = (
             "import sys; sys.modules['matplotlib'] = None; import unittest; "
-            "unittest.main(module=None, argv=['unittest', '-v', 'agents.tests.test_charts.RenderTests'])"
+            "unittest.main(module=None, argv=['unittest', '-v', 'dagents.tests.test_charts.RenderTests'])"
         )
         log = run_suite(["-c", program], clean_environment())
         self.assertIn("matplotlib is not installed", log, log[-2000:])
         self.assertEqual(1, run_guard(log, "--forbid", "charts"))
-        self.assertEqual(1, run_guard(log, "--require-ran", "agents.tests.test_charts.RenderTests"))
+        self.assertEqual(1, run_guard(log, "--require-ran", "dagents.tests.test_charts.RenderTests"))
 
     def test_a_real_passing_suite_passes_the_guard(self) -> None:
-        log = run_suite(["-m", "unittest", "agents.tests.test_source_connection_args", "-v"], clean_environment())
+        log = run_suite(["-m", "unittest", "dagents.tests.test_source_connection_args", "-v"], clean_environment())
         self.assertRegex(log, r"\nOK\n", log[-2000:])
         self.assertEqual(
             0,
@@ -409,7 +409,7 @@ class RealSuiteTests(unittest.TestCase):
                 log,
                 *forbid_all(),
                 "--require-ran",
-                "agents.tests.test_source_connection_args.PostgresConnectionArgsTests",
+                "dagents.tests.test_source_connection_args.PostgresConnectionArgsTests",
             ),
         )
 
@@ -721,8 +721,8 @@ class WorkflowGuardTests(unittest.TestCase):
         )
 
     def test_every_framework_database_class_is_required_to_run(self) -> None:
-        needed = database_test_classes(AGENT_TESTS, "agents.tests.")
-        self.assertIn("agents.tests.test_postgres_roles.ActingAsTests", needed, "the class finder found nothing")
+        needed = database_test_classes(AGENT_TESTS, "dagents.tests.")
+        self.assertIn("dagents.tests.test_postgres_roles.ActingAsTests", needed, "the class finder found nothing")
         missing = sorted(needed - set(self.demo_apps_call(FRAMEWORK_DATABASE_LOG).require_ran))
         self.assertEqual(
             [],

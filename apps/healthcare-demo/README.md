@@ -255,7 +255,7 @@ framework makes every decision and does every side effect except the join:
    checks the file against what it asked for before anything runs.
 2. `start`: the one service in that file starts, as a local process or with
    `docker compose`, through an applier from
-   `agents/common/infrastructure/compose_apply.py`.
+   `dagents/common/infrastructure/compose_apply.py`.
 3. `answer`: the new LMA answers its health check and reports site `pl-290`,
    read from its schema in Postgres.
 4. `attach`: the GMA accepts the LMA's address, but only the one its
@@ -492,7 +492,7 @@ flowchart TB
 ```
 
 The app calls the agents through their HTTP APIs with the framework's agent
-client (`agents/common/infrastructure/agent_client.py`). Each token has one
+client (`dagents/common/infrastructure/agent_client.py`). Each token has one
 scope:
 
 | Caller | Calls | Token |
@@ -613,7 +613,7 @@ is the only module that builds or connects to the agents.
 | Role-scoped Postgres access (`postgres_roles.py`) | a library call | FHIR mapping into the contract |
 | The SVG chart renderer | a library call | Which charts each view shows, and their text |
 
-Nothing in `agents/` knows what a stroke is, and nothing here implements a quorum
+Nothing in `dagents/` knows what a stroke is, and nothing here implements a quorum
 rule. A second condition needs another `ConditionPack`, not a framework change.
 
 `GET /api/v1/extension` returns this split from the running app, with the

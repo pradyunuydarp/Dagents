@@ -14,7 +14,7 @@ This directory captures the reusable agentic ML orchestration patterns in Dagent
 
 ## Conventions
 
-The agent scaffolds in `agents/` follow the same layered shape used across agent-oriented systems:
+The agent scaffolds in `dagents/` follow the same layered shape used across agent-oriented systems:
 
 - `domain/`: pure typed models
 - `application/`: orchestration/use-cases

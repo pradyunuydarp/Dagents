@@ -1,6 +1,6 @@
 """Step 3: describe each store's orders locally, then combine what each store may report."""
 
-from agents.common.domain.governance import KyuAttribute, Requester
+from dagents.common.domain.governance import KyuAttribute, Requester
 
 from shop.extension import install
 from shop.store import SITE_IDS, load_store

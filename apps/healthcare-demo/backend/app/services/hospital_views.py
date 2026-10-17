@@ -26,7 +26,7 @@ from __future__ import annotations
 import threading
 from typing import TYPE_CHECKING, Any, Callable, Mapping
 
-from agents.common.domain.site import JobLogEntry, ModelInUse, ProbeRequest, SiteSummary
+from dagents.common.domain.site import JobLogEntry, ModelInUse, ProbeRequest, SiteSummary
 
 from app.domain import stroke_rule
 from app.domain.conditions import STROKE_FEATURE_CONTRACT, STROKE_FIELD_DOMAINS, STROKE_LABEL_FIELD

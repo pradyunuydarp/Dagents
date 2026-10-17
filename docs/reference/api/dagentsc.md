@@ -11,8 +11,8 @@ the service, and lets either side be upgraded alone.
 | Build | `cd bindings/ocaml && opam exec -- dune build ./bin/dagentsc.exe` |
 | Test | `cd bindings/ocaml && opam exec -- dune test` |
 | Binary | `bindings/ocaml/_build/default/bin/dagentsc.exe` locally, `dagentsc` on `PATH` in the containers |
-| How services find it | `DAGENTSC_BIN`, or `dagentsc` on `PATH` |
-| Python wrapper | `agents/common/infrastructure/dagents_runner.py` |
+| How services find it | `DAGENTSC_BIN`, then the planner bundled in a platform wheel of the `dagents` package (`dagents/_bin/dagentsc`), then `dagentsc` on `PATH`. `python -m dagents` prints which one it found, and an LMA or GMA that cannot start one logs a warning |
+| Python wrapper | `dagents/common/infrastructure/dagents_runner.py` |
 | Commands | 18, in six groups |
 
 Every command is pure: it reads its input, decides, and prints the result. It
@@ -677,7 +677,7 @@ endpoints:
 
 Govern a federated study without running one. The first four commands make
 every deterministic decision of a round; the round controller
-(`agents/common/application/federation.py`) holds the state and calls them.
+(`dagents/common/application/federation.py`) holds the state and calls them.
 The fifth decides how each event changes a model version's status, so a model
 registry applies its answer and keeps no status rule of its own. The federated
 protocol itself belongs to a runtime behind `FederationEngine`.

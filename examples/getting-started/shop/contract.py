@@ -7,9 +7,9 @@ declares them here and registers them through its extension (``extension.py``).
 
 from __future__ import annotations
 
-from agents.common.domain.federation import GateComparison, ReleaseGate
-from agents.common.domain.governance import DataClassification
-from agents.common.extensions import ConditionPack, FeatureContract, FeatureField
+from dagents.common.domain.federation import GateComparison, ReleaseGate
+from dagents.common.domain.governance import DataClassification
+from dagents.common.extensions import ConditionPack, FeatureContract, FeatureField
 
 #: Every store taking part produces records in this version of the contract.
 #: A store on another version is excluded from a round by the planner.

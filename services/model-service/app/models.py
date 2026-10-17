@@ -10,7 +10,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from agents.common.domain.models import DatasetInput
+from dagents.common.domain.models import DatasetInput
 
 
 class AppModel(BaseModel):

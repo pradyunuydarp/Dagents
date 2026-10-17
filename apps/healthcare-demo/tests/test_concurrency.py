@@ -31,7 +31,7 @@ from unittest import mock
 import httpx
 from fastapi.testclient import TestClient
 
-from agents.common.infrastructure.agent_client import AgentClient
+from dagents.common.infrastructure.agent_client import AgentClient
 
 import app.main as main
 from app.domain.dataset import SITES, load_site_records
