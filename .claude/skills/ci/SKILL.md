@@ -558,7 +558,8 @@ token pushes, so `v*` creations stay open to anyone with write access. A
 `v*` tag on a commit that is not on `main` runs that commit's workflow file,
 which can skip the checks, and the environments admit it. The `pypi` reviewer,
 who checks on GitHub that the run's commit is on `main`, is then the only
-check before PyPI. CLAUDE.md, "Who can publish", has the details.
+check before PyPI. Until the owner adds that reviewer, such a run uploads
+without one. CLAUDE.md, "Who can publish", has the details.
 
 The order of a release run is fixed: the tag must equal `__version__` and the
 tagged commit must be on `main` (`scripts/release_version.py`), the planners
