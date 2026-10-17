@@ -238,6 +238,7 @@ AREAS: tuple[Area, ...] = (
         code=("env/**", "docker-compose*.yml", ".github/workflows/**"),
         docs=(
             ".claude/skills/ci/SKILL.md",
+            "docs/guide/00-install.md",
             "docs/guide/01-setup.md",
             "docs/guide/08-deploy.md",
             "docs/guide/09-test-your-integration.md",
@@ -251,6 +252,7 @@ AREAS: tuple[Area, ...] = (
         code=("pyproject.toml", "hatch_build.py", ".github/build-constraints.txt"),
         docs=(
             ".claude/skills/ci/SKILL.md",
+            "docs/guide/00-install.md",
             *REPO_GUIDES,
         ),
     ),

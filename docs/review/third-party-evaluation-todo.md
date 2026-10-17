@@ -564,6 +564,17 @@ stability promise for the Guard and planner JSON contracts.
 **Done when.** A release page lists the package, the binaries, their checksums
 and the changes.
 
+**Status.** Partly done. `v0.1.0a1` is the first release, a pre-release. Its
+GitHub Release lists the sdist, the three platform wheels, the three planner
+binaries and `SHA256SUMS`, and the package is on PyPI. The release notes link
+to PyPI, describe the files, and then give GitHub's generated list of merged
+pull requests. `dagents/lma/CHANGELOG.md` and `dagents/gma/CHANGELOG.md` list
+user-visible changes to the agents, but only under "Unreleased", with no
+section for 0.1.0a1. There is no change log by version for the whole package
+yet. The README says that the Python APIs, settings, routes and package layout
+can change before 1.0.0. It does not say what stability the Guard and planner
+JSON contracts have.
+
 ### F5. Make the site readable without JavaScript (P2, M)
 
 **Finding.** A fetch of the site root returned the title and meta tags but no

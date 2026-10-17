@@ -36,9 +36,10 @@ name: Release
 # A manual run without the input, on any branch, is a dry run: steps 1 to 3
 # only. The input works only on main; on any other branch or tag the run stops.
 #
-# Before the first release, the owner registers a Trusted Publisher for this
+# Before the first release, the owner registered a Trusted Publisher for this
 # repository, this workflow file and the environments `testpypi` and `pypi`,
-# on test.pypi.org and on pypi.org. CLAUDE.md, "Releasing", has the steps.
+# on test.pypi.org and on pypi.org. CLAUDE.md, "Releasing", has the steps,
+# including the ones still to do.
 #
 # Every action is pinned to a full commit SHA, with its version in a comment,
 # because the publish jobs can mint a PyPI upload credential.

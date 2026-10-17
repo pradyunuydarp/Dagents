@@ -305,6 +305,13 @@ as one role, in a transaction that starts with `SET LOCAL ROLE`:
 | LMA | The audit chain (`LMA_AUDIT_TABLE`, `LMA_AUDIT_ANCHOR_TABLE`) and the job log (`LMA_JOB_LOG_TABLE`), with `LMA_DATABASE_URL` and `LMA_SITE_ROLE` | The records it read and the running profile, which it rebuilds from the site's source |
 | GMA | The model registry (`GMA_MODEL_TABLE`) and the release Guard's audit chain (`GMA_AUDIT_TABLE`, `GMA_AUDIT_ANCHOR_TABLE`), with `GMA_DATABASE_URL` and `GMA_DATABASE_ROLE` | Enrolments, rounds and the clipped updates of rounds still running |
 
+The agents do not create these tables, and the `dagents` package has no
+migrations. Create each table before you start the agent, as the "Postgres
+tables" section of the [LMA README](../../dagents/lma/README.md#postgres-tables)
+and the [GMA README](../../dagents/gma/README.md#postgres-tables) shows. Until
+then, the routes that use a missing table answer `503` with the code
+`store_not_set_up`.
+
 A GMA restart during a round loses the round and its stored updates, so the
 round cannot be aggregated. It fails closed. Model versions, release decisions
 and audit chains survive.

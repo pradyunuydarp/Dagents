@@ -155,7 +155,17 @@ pipeline steps and model adapters, and call the LMA and GMA through their APIs.
 
 ## Run it
 
-Build the planner, then run the stroke triage demo locally (no Docker or
+The demos are not in the package. They run from a clone of the repository:
+
+```bash
+git clone https://github.com/pradyunuydarp/Dagents.git
+cd Dagents
+```
+
+The stroke triage demo needs OCaml with opam, Node.js 22 with npm, and a Python
+virtual environment in `.venv` with the demo's requirements.
+[Step 5 of the learning guide](docs/learn/05-hands-on.md) shows how to set up
+each one. Then build the planner and run the demo locally (no Docker or
 database needed):
 
 ```bash
@@ -164,8 +174,7 @@ export DAGENTSC_BIN=$PWD/bindings/ocaml/_build/default/bin/dagentsc.exe
 apps/healthcare-demo/scripts/run_frontend_demo.sh
 ```
 
-[Step 5 of the guide](docs/learn/05-hands-on.md) covers setup, tests and
-exercises.
+Step 5 of the learning guide also covers the tests and exercises.
 
 To run the whole stack in containers, with the committed configuration:
 

@@ -139,7 +139,7 @@ source, with a reason, when:
 | `site was not invited to this round` | The source is not in `invited_sites` |
 | `site has not approved condition order_returns` | The source has not agreed to this study |
 | `site feature contract retail-orders-v0 does not match round contract retail-orders-v1` | The source produces another contract version |
-| `site lacks required capability evaluate` | The source cannot do what the round needs |
+| `site lacks required capability evaluate` | The source cannot do what the round needs. An LMA started from settings lists what its source can do in `LMA_CAPABILITIES`; one built in code, in `SiteConfig.capabilities` |
 | `site cohort 12 is below the per-site minimum 20` | The source has too few records |
 | `invited site has no registration` | An invited source never enrolled |
 

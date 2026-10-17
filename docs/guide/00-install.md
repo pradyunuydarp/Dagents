@@ -30,7 +30,8 @@ repository ([section 2](#2-check-that-the-package-has-a-planner)).
 ## 1. Install the package
 
 Create a virtual environment in your project and install the package with the
-extras you need:
+extras you need. `python3 --version` must print 3.11 or later. If it prints an
+older version, use `python3.11` or a later version in place of `python3`.
 
 ```bash
 python3 -m venv .venv
@@ -137,7 +138,26 @@ export DAGENTSC_BIN=/path/to/Dagents/bindings/ocaml/_build/default/bin/dagentsc.
 
 Each GitHub Release also has the planners for the three platforms in the table,
 as the files `dagentsc-linux-x86_64`, `dagentsc-linux-aarch64` and
-`dagentsc-macos-arm64`, with their SHA-256 checksums in `SHA256SUMS`.
+`dagentsc-macos-arm64`, with their SHA-256 checksums in `SHA256SUMS`. To use
+one, download it with the checksum file, check it, make it executable and set
+`DAGENTSC_BIN` to its path. Take the files from the release whose version you
+installed:
+
+```bash
+PLANNER=dagentsc-linux-x86_64   # or dagentsc-linux-aarch64, or dagentsc-macos-arm64
+curl -LO https://github.com/pradyunuydarp/Dagents/releases/download/v0.1.0a1/$PLANNER
+curl -LO https://github.com/pradyunuydarp/Dagents/releases/download/v0.1.0a1/SHA256SUMS
+grep " $PLANNER\$" SHA256SUMS | sha256sum -c -
+chmod +x $PLANNER
+export DAGENTSC_BIN=$PWD/$PLANNER
+.venv/bin/python -m dagents
+```
+
+`sha256sum -c` prints `dagentsc-linux-x86_64: OK` when the file matches its
+checksum. On macOS, if `sha256sum` is missing, use `shasum -a 256 -c -` in its
+place. A downloaded file cannot run until `chmod +x` makes it executable.
+Before that, `python -m dagents` reports that `DAGENTSC_BIN` names a file it
+cannot run.
 
 Without a planner, the Ethical Guard denies every request. An LMA or a GMA
 without one still starts and answers `/health`, and logs a warning with the
@@ -200,6 +220,7 @@ study over HTTP (path B):
 | `LMA_EXTENSIONS` | Your extension, as `module:attribute`. Several are separated by commas |
 | `LMA_SITE_ID`, `LMA_CONDITION_ID` | The source this LMA serves, and the condition pack from your extension it plans against |
 | `LMA_SITE_SOURCE` | The site source your extension contributes, which reads the source's records. Required with `LMA_SITE_ID` |
+| `LMA_CAPABILITIES` | What the source can do, comma-separated, such as `evaluate`. The names are free text and must match the round's `required_capabilities` exactly. A round selects only the sources that have every capability it requires. Without this variable the LMA registers none, and such a round excludes it with `site lacks required capability ...` |
 | `LMA_SITE_TOKEN`, `LMA_COORDINATOR_TOKEN` | The tokens the LMA accepts: `site` for the source's own application, `coordinator` for the GMA |
 | `LMA_GMA_ENDPOINT`, `LMA_GMA_TOKEN` | The GMA's address, and the GMA token bound to this source |
 | `LMA_REQUIRE_TOKENS` | `1` refuses to start without a token |
@@ -218,8 +239,11 @@ And the GMA that coordinates them:
 
 The [LMA README](../../dagents/lma/README.md#settings) and the
 [GMA README](../../dagents/gma/README.md#settings) list every setting with its
-default, including the Postgres settings. [Step 8](08-deploy.md#3-configure-from-the-environment)
-covers configuration for a deployment.
+default, including the Postgres settings. The agents do not create the Postgres
+tables those settings name, and the package has no migrations. Create the
+tables first, as the "Postgres tables" section of each README shows.
+[Step 8](08-deploy.md#3-configure-from-the-environment) covers configuration
+for a deployment.
 
 `dagents-lma` and `dagents-gma` import each extension from the packages
 installed in the environment and from `PYTHONPATH`, not from the current
@@ -282,8 +306,10 @@ at the release you installed, check out that release's tag, such as
 
 | What you see | Why | What to do |
 |---|---|---|
-| `python -m dagents` prints `planner: none found` and exits with status 1 | There is no wheel with a planner for your platform, `DAGENTSC_BIN` is not set, and `dagentsc` is not on `PATH` | Build the planner and set `DAGENTSC_BIN` (section 2) |
-| `planner: DAGENTSC_BIN names /opt/dagentsc, which is not a file this process can run.` | `DAGENTSC_BIN` names a missing file, or one without permission to run | Correct the path, or unset `DAGENTSC_BIN` to use the planner in the package |
+| pip prints `(from versions: none)` and `No matching distribution found for dagents`. pip 23 and later first print a line that ends with `Requires-Python >=3.11` | The virtual environment uses Python 3.10 or older. `.venv/bin/python --version` shows which | Create the environment again with Python 3.11 or later, for example `python3.11 -m venv --clear .venv`, then install again |
+| `python -m dagents` prints `planner: none found` and exits with status 1 | There is no wheel with a planner for your platform, `DAGENTSC_BIN` is not set, and `dagentsc` is not on `PATH` | Download or build the planner and set `DAGENTSC_BIN` (section 2) |
+| `planner: DAGENTSC_BIN names /opt/dagentsc, which is not a file this process can run.` | `DAGENTSC_BIN` names a missing file, or one without permission to run | Correct the path. For a planner you downloaded, run `chmod +x` on it (section 2). Or unset `DAGENTSC_BIN` to use the planner in the package |
+| An agent answers `503` with the code `store_not_set_up` | A table that a Postgres setting names does not exist. In 0.1.0a1 the message says to apply the migrations, but the package has none | Create the tables in the "Postgres tables" section of the [LMA README](../../dagents/lma/README.md#postgres-tables) or the [GMA README](../../dagents/gma/README.md#postgres-tables) |
 | `The LMA needs uvicorn and FastAPI. Install them with: pip install 'dagents[lma]'` | The package was installed without the `lma` extra (or `gma` for the GMA) | Install the extra |
 | `ExtensionError: extension spec 'shop.extension:ReturnsExtension': cannot import module shop.extension: No module named 'shop'` | The agent imports extensions from the environment and `PYTHONPATH`, not from the current folder | Install your application in the environment, or add its folder to `PYTHONPATH` (section 4) |
 | A value in an `env/` file has no effect | An installed package reads no env file | Set the variable in the process's environment |

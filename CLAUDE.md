@@ -534,16 +534,25 @@ not set up.
 
 **Trusted Publishing.** The workflow holds no token. PyPI and TestPyPI trust
 this repository's `release.yml` through OpenID Connect, and each upload
-carries a PEP 740 attestation. Once, before the first release, the owner:
+carries a PEP 740 attestation. The owner registered the Trusted Publishers
+once, before 0.1.0a1, and they stay in place for every release:
 
-1. On <https://pypi.org/manage/account/publishing/>, adds a pending publisher:
-   project `dagents`, owner `pradyunuydarp`, repository `Dagents`, workflow
-   `release.yml`, environment `pypi`.
-2. Does the same on <https://test.pypi.org/manage/account/publishing/> with
-   environment `testpypi`.
-3. In the repository settings (Environments), creates the environments
-   `testpypi` and `pypi`. On each, sets the deployment branches and tags rule
-   to selected tags with the pattern `v*`. On `pypi`, adds a required
+1. On PyPI, a publisher for project `dagents`, owner `pradyunuydarp`,
+   repository `Dagents`, workflow `release.yml`, environment `pypi`. It was
+   added as a pending publisher on
+   <https://pypi.org/manage/account/publishing/>, because the project did not
+   exist yet. It now shows under the project's Publishing settings on PyPI,
+   where any change is made.
+2. The same on TestPyPI, with environment `testpypi`.
+
+The owner must also do steps 3 and 4. As of 0.1.0a1 they are not done: the
+PyPI upload of release run 39016551221 went ahead without a reviewer's
+approval, and the repository's only ruleset protects `main`. Until step 3 is
+done, a release run does not wait at **Publish to PyPI**.
+
+3. In the repository settings (Environments), on the environments
+   `testpypi` and `pypi` (the 0.1.0a1 run deployed to both), sets the
+   deployment branches and tags rule to selected tags with the pattern `v*`. On `pypi`, adds a required
    reviewer, so a person approves each upload. This step is required: see
    **Who can publish**. A reviewer on `testpypi` as well makes TestPyPI
    uploads wait for a person too.
