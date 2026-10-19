@@ -768,8 +768,11 @@ dagentsc federation round recover
 Reads what a GMA knows about one round it stored before a restart, and decides
 whether the round stays open or is closed. A closed round is run again under a
 new round id. The command reads no clock: the caller measures the age of the
-oldest stored update and passes it in. No service calls this command yet. The
-GMA keeps its rounds in memory in this version.
+oldest stored update and passes it in. `FederatedRoundController.recover`
+(`dagents/common/application/federation.py`) calls it once for each unfinished
+round, oldest first. The GMA does not call `recover` yet, and it keeps its
+rounds in memory unless the application that builds it passes its own round
+store.
 
 Every key is required:
 
@@ -925,8 +928,9 @@ same number written with a fraction, such as `1` and `1.0`, are equal, and so
 are `-0.0` and `0.0`. The same decision is allowed on a `rejected` version
 too, so a retry after a rejection is not refused as `not_candidate`. Without
 `storedDecision`, the new decision's four keys are optional, but they must come
-together, and they do not change the answer. The GMA's model registry does not send
-`storedDecision` yet.
+together, and they do not change the answer. The GMA's round-flow release
+evaluation sends `storedDecision`, with the new decision's four keys, whenever
+the version already holds a decision.
 
 **Errors.** Exit `2` when `version` or `event` is missing or `version` is
 empty, for an unknown event kind, status, action or metrics source, for a

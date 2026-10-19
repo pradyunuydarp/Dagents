@@ -98,7 +98,7 @@ from dagents.gma.domain.models import (
     TelemetryEnvelope,
     TelemetrySummary,
 )
-from dagents.gma.infrastructure.update_store import InMemoryUpdateStore
+from dagents.gma.infrastructure.update_store import UpdateStore
 
 router = APIRouter()
 
@@ -124,7 +124,7 @@ async def _models(request: Request) -> ModelRegistry:
     return request.app.state.gma.models
 
 
-async def _updates(request: Request) -> InMemoryUpdateStore:
+async def _updates(request: Request) -> UpdateStore:
     return request.app.state.gma.updates
 
 
@@ -157,7 +157,7 @@ ServiceDep = Annotated[AggregationService, Depends(_service)]
 GovernanceDep = Annotated[GovernanceService, Depends(_governance)]
 RoundsDep = Annotated[FederatedRoundController, Depends(_rounds)]
 ModelsDep = Annotated[ModelRegistry, Depends(_models)]
-UpdatesDep = Annotated[InMemoryUpdateStore, Depends(_updates)]
+UpdatesDep = Annotated[UpdateStore, Depends(_updates)]
 DirectoryDep = Annotated[SiteDirectory, Depends(_directory)]
 ReleasesDep = Annotated[ReleaseService, Depends(_releases)]
 AddressesDep = Annotated[SiteAddressBook, Depends(_addresses)]
@@ -213,7 +213,8 @@ class LifecycleRefusalDetail(AgentErrorDetail):
         default=None,
         description=(
             "The planner's refusal: `already_released`, `not_candidate`, `no_decision`, `gates_decided`, "
-            "`guard_denied`, `metrics_not_from_rounds` or `baseline_changed`. Absent for other conflicts."
+            "`guard_denied`, `metrics_not_from_rounds`, `baseline_changed` or `decision_differs`. Absent for other "
+            "conflicts."
         ),
     )
 
@@ -859,8 +860,10 @@ _SITE_ID = Path(description="The site's id. It must equal `site_id` in the body.
 def register_site(site_id: Annotated[str, _SITE_ID], registration: SiteRegistration, rounds: RoundsDep):
     """Enrol or update one site in the consortium.
 
-    The enrolment is stored in memory under `site_id`; sending the same id
-    again replaces it. Round planning reads every stored enrolment.
+    The enrolment is stored under `site_id`; sending the same id again
+    replaces it. The GMA keeps enrolments in memory, unless the application
+    that built it passed its own enrolment store. Round planning reads every
+    stored enrolment.
     """
     if registration.site_id != site_id:
         raise HTTPException(
@@ -1219,8 +1222,12 @@ _AGGREGATE_RESPONSES = {
     200: {"model": CandidateModel, "description": "The candidate model. It is stored on the round."},
     404: _UNKNOWN_ROUND,
     409: _coded(
-        "`aggregation_refused`: the planner does not permit aggregation, or (HTTP engine) a stored update is "
-        "missing or does not match its digest. `conflict`: the round was discarded."
+        "`aggregation_refused`: the planner does not permit aggregation. The round's updates are then kept until "
+        "the round is discarded or closed. With the HTTP engine, the code also means that a stored update is "
+        "missing or does not match its digest, or that the candidate an earlier attempt registered does not match "
+        "its digest. The engine then deletes the round's updates. `conflict`: the round was discarded, or (HTTP "
+        "engine) the candidate's name holds another model, as after a restart that freed a round id the model "
+        "store still uses. The engine then deletes the round's updates."
     ),
     503: _PLANNER_FAILED,
 }
@@ -1234,7 +1241,12 @@ def aggregate_round(round_id: Annotated[str, _ROUND_ID], rounds: RoundsDep):
     pass and a person approves it. With the HTTP engine, a training round's
     stored updates are combined by the model kind with the planner's weights,
     the candidate is registered as `<version_prefix>+<round_id>`, and the
-    round's updates are deleted.
+    round's updates are deleted once the round is stored as `aggregated`. If
+    an attempt fails after it registered the candidate, for example on a
+    store error, the updates are kept: a retry combines them again and gets
+    the same candidate. When the updates are gone after a restart, a retry
+    returns the registered candidate, but only if the GMA's round store keeps
+    round ids across restarts. The default store in memory does not.
     """
     try:
         return rounds.aggregate(round_id)
@@ -1280,9 +1292,13 @@ async def upload_update(
     upload against the round as the GMA stored it, and the model kind of the
     round's starting model checks the update's names and values and computes
     its digest, which the answer returns. The site compares it with its own.
-    No route reads an update back; aggregation reads the updates and then
-    deletes them. The work runs on the GMA's own upload threads, never on the
-    server's, so an upload does not wait for the dispatch that caused it.
+    No route reads an update back. Aggregation reads the updates. They are
+    deleted once the round is stored as aggregated, when the HTTP engine
+    refuses the aggregation (for example because an update is missing or
+    changed), or when the round is discarded or closed. A planner refusal of
+    the aggregation keeps them. The work runs on the GMA's own upload threads,
+    never on the server's, so an upload does not wait for the dispatch that
+    caused it.
     """
 
     def store() -> UpdateReceipt:
@@ -1337,7 +1353,7 @@ def discard_round(round_id: Annotated[str, _ROUND_ID], request: DiscardRequest, 
     A `dispatched` or `collecting` round becomes `closed` and takes no more
     results or updates. An aggregated round keeps its candidate. The first
     reason is kept in `abandoned_reason`. Call it at the end of every training
-    round, so no site's update stays in the GMA's memory.
+    round, so no site's update stays in the GMA's update store.
     """
     try:
         rounds.discard(round_id, request.reason)
@@ -1366,7 +1382,11 @@ _RELEASE_RESPONSES = {
     404: _UNKNOWN_ROUND,
     409: _coded(
         "`conflict`: `candidate_version` is not the round's candidate, the metrics round measured another "
-        "version, or the lifecycle rule refused the decision (`refusal: not_candidate`).",
+        "version, the round already holds a decision or is closed, or the lifecycle rule refused the decision. "
+        "`refusal: not_candidate`: the version is no longer a candidate. `refusal: decision_differs`: an earlier "
+        "request stored a decision for this round with the version but not on the round, and the decision "
+        "computed now differs from it, for example because another version was released since. The round stays "
+        "undecided.",
         LifecycleRefusalDetail,
     ),
     422: _coded_or_invalid_body(
@@ -1390,6 +1410,13 @@ def evaluate_release(round_id: Annotated[str, _ROUND_ID], payload: ReleaseEvalua
     model version. Without a `condition_id` (the bare flow), it evaluates the
     gates and metrics in the body, runs no Guard and changes no model version.
     Either way the decision is saved in the round, which becomes `closed`.
+
+    In the round flow the lifecycle rule also reads the decision the version
+    already holds. When an earlier request stored it for this round and then
+    failed to save it on the round, a retry that computes the same decision
+    changes nothing on the version and saves the decision on the round; a
+    retry that computes a different one answers 409 with
+    `refusal: decision_differs`.
     """
     try:
         return releases.evaluate(round_id, payload)

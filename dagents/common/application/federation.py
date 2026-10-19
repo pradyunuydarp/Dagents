@@ -19,7 +19,7 @@ How a round's stored status moves:
 | ``dispatched`` | :meth:`FederatedRoundController.dispatch_round`, before the engine offers the jobs | results, uploads to the update store |
 | ``collecting`` | the end of a dispatch that met quorum | results, uploads, aggregation, a release decision |
 | ``aggregated`` | :meth:`FederatedRoundController.aggregate` | a release decision |
-| ``closed`` | a dispatch without quorum, a release decision, or a discard | nothing more |
+| ``closed`` | a dispatch without quorum, a release decision, a discard, or recovery after a restart | nothing more |
 
 A round id can be used once, a round is aggregated once, and it takes one
 release decision. Results come through :meth:`FederatedRoundController.submit_result`
@@ -28,14 +28,20 @@ HTTP engine does, so a posted result cannot replace what a site returned.
 Every read-modify-write of a stored round goes through
 :meth:`RoundRepository.update`, so results posted at the same time do not
 overwrite each other.
+
+After a restart, :meth:`FederatedRoundController.recover` asks the planner
+about each round the restart left unfinished and closes the rounds that
+cannot finish.
 """
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+import logging
 import threading
 import time
 import uuid
-from typing import Callable, Protocol, TypeVar
+from typing import Callable, Literal, Protocol, TypeVar, runtime_checkable
 
 from pydantic import ValidationError
 
@@ -50,8 +56,11 @@ from dagents.common.domain.federation import (
     ReleaseDecision,
     ReleaseGate,
     RoundManifest,
+    RoundCloseReason,
+    RoundPhase,
     RoundPlan,
     RoundRecord,
+    RoundRecoveryVerdict,
     RoundSubmission,
     SiteRegistration,
     SiteResult,
@@ -62,7 +71,10 @@ from dagents.common.infrastructure.dagents_runner import (
     evaluate_aggregation_readiness,
     evaluate_release,
     round_digest,
+    round_recovery,
 )
+
+logger = logging.getLogger(__name__)
 
 _Parsed = TypeVar("_Parsed")
 
@@ -74,6 +86,14 @@ READINESS_FAILED_REASON = "the planner could not check the round's readiness aft
 
 #: Statuses in which a round takes no more results.
 _FINISHED = ("aggregated", "closed")
+
+#: Statuses of a round that a restart can leave unfinished. The planner's
+#: recovery rule (``dagentsc federation round recover``) may close a round in
+#: one of them, so :meth:`RoundRepository.unfinished` lists them.
+UNFINISHED_STATUSES = ("planned", "dispatched", "collecting")
+
+#: The status of an unfinished round.
+UnfinishedStatus = Literal["planned", "dispatched", "collecting"]
 
 
 def _planner_output(what: str, parse: Callable[[], _Parsed]) -> _Parsed:
@@ -87,6 +107,11 @@ def _planner_output(what: str, parse: Callable[[], _Parsed]) -> _Parsed:
         return parse()
     except (KeyError, TypeError, ValidationError) as error:
         raise PlannerUnavailableError(f"the planner's {what} answer has the wrong shape: {error}") from error
+
+
+def _recovery_verdict(payload: object) -> RoundRecoveryVerdict:
+    """Parse the planner's recovery answer, or raise :class:`PlannerUnavailableError`."""
+    return _planner_output("round recovery", lambda: RoundRecoveryVerdict.model_validate(payload))
 
 
 def _by_site(item: SiteResult | JobAcceptance) -> str:
@@ -142,7 +167,7 @@ class FederationEngine(Protocol):
     approved runtime, or the in-process simulator below. Nothing above this
     interface should know which.
 
-    Three members are optional. The controller uses them only when the engine
+    Five members are optional. The controller uses them only when the engine
     has them:
 
     - ``dispatch_calls(round_id) -> list[DispatchCall]``: the calls the engine
@@ -150,13 +175,24 @@ class FederationEngine(Protocol):
       round's ``dispatch`` field.
     - ``discard(round_id)``: delete what the engine still holds for the round,
       such as stored model updates. The controller calls it from
-      :meth:`FederatedRoundController.discard`, and when ``submit_round`` or
-      ``collect_results`` raises.
+      :meth:`FederatedRoundController.discard`, when ``submit_round`` or
+      ``collect_results`` raises, after ``aggregate`` once the round is
+      stored as aggregated, and from :meth:`FederatedRoundController.recover`.
+      An engine that refuses an aggregation deletes the round's updates
+      itself.
     - ``collects_results: bool``: true when the engine collects every result
       from the sites itself, as the GMA's HTTP engine does. The controller
       then refuses results posted through
       :meth:`FederatedRoundController.submit_result`, so a caller cannot
       replace a site's result, its metrics or its example count.
+    - ``candidate_registered(manifest) -> bool``: whether the candidate of a
+      training round is already in the model registry, as an aggregation that
+      stopped before the round was stored leaves it.
+      :meth:`FederatedRoundController.recover` tells the planner.
+    - ``pending_update_ages(now) -> Mapping[str, float]``: for each round
+      with stored updates, the age in seconds of its oldest update.
+      :meth:`FederatedRoundController.recover` tells the planner the age, and
+      deletes the updates of rounds that are no longer unfinished.
     """
 
     name: str
@@ -186,11 +222,21 @@ class SiteRegistry(Protocol):
         """List every known site enrolment."""
 
 
+@runtime_checkable
 class RoundRepository(Protocol):
     """Where round lineage is kept.
 
     ``create`` and ``update`` must be atomic: the controller relies on them to
     refuse a reused round id and to keep results that arrive at the same time.
+    ``unfinished`` and ``quarantine`` are what recovery after a restart reads
+    and writes.
+
+    One member is optional: ``survives_restart: bool``, true when the store
+    keeps its records after the process stops, so a round id stays used
+    across restarts. A store without it counts as false. The GMA's HTTP
+    engine returns a candidate an earlier attempt registered only when it is
+    true, because otherwise a round that ran before a restart with the same
+    id may have registered that version.
     """
 
     def save(self, record: RoundRecord) -> RoundRecord:
@@ -211,6 +257,82 @@ class RoundRepository(Protocol):
 
     def list(self, limit: int = 20) -> list[RoundRecord]:
         """List recent round records, newest first."""
+
+    def unfinished(self) -> list[UnfinishedRound]:
+        """Every round in a status of :data:`UNFINISHED_STATUSES`, oldest first.
+
+        A store that keeps records outside the process reads the status and
+        phase without reading the record, so a record it cannot read is
+        listed with ``readable`` false instead of stopping the list.
+        """
+
+    def quarantine(self, round_id: str, reason: str) -> bool:
+        """Close an unfinished round without reading its record.
+
+        The round becomes ``closed`` with ``reason`` as its
+        ``abandoned_reason`` (a reason it already had is kept), and its id
+        stays reserved, so :meth:`create` refuses it. Returns ``True`` when
+        the round was closed, and ``False`` when it was already
+        ``aggregated`` or ``closed``, which it leaves as it was. Raises
+        ``KeyError`` for an unknown round and ``ValueError`` for an empty
+        reason.
+        """
+
+
+@dataclass(frozen=True)
+class UnfinishedRound:
+    """A stored round that recovery after a restart may need to close.
+
+    - `round_id`: the round's id.
+    - `status`: ``planned``, ``dispatched`` or ``collecting``.
+    - `phase`: ``analytics``, ``evaluation`` or ``training``.
+    - `readable`: whether the store can read the round's record. The planner
+      closes a round whose record cannot be read.
+    """
+
+    round_id: str
+    status: UnfinishedStatus
+    phase: RoundPhase
+    readable: bool
+
+
+@dataclass(frozen=True)
+class RoundRecovery:
+    """What :meth:`FederatedRoundController.recover` did with one unfinished round.
+
+    - `round_id`, `status`, `phase`, `readable`: the round as
+      :meth:`RoundRepository.unfinished` listed it, before recovery.
+    - `verdict`: the planner's answer, ``keep`` or ``close``.
+    - `reason`: why the planner closed the round, or ``None`` for a kept one.
+    - `message`: the planner's sentence. A closed round keeps it as its
+      ``abandoned_reason``.
+    """
+
+    round_id: str
+    status: UnfinishedStatus
+    phase: RoundPhase
+    readable: bool
+    verdict: Literal["keep", "close"]
+    reason: RoundCloseReason | None
+    message: str
+
+
+@dataclass(frozen=True)
+class RecoveryReport:
+    """What one call of :meth:`FederatedRoundController.recover` did.
+
+    - `rounds`: one entry per unfinished round, oldest first.
+    - `deleted_updates`: the rounds, in id order, whose stored updates were
+      deleted because the round was no longer unfinished or not stored.
+    """
+
+    rounds: tuple[RoundRecovery, ...]
+    deleted_updates: tuple[str, ...]
+
+
+def _require_reason(reason: str, action: str) -> None:
+    if not isinstance(reason, str) or not reason.strip():
+        raise ValueError(f"a {action} needs a reason")
 
 
 class InMemorySiteRegistry:
@@ -240,6 +362,9 @@ class InMemoryRoundRepository:
     One lock covers every read and write. Agent handlers run in a thread
     pool, so two requests can change the same round at the same time.
     """
+
+    #: A restart empties the store, so a round id can be used again after it.
+    survives_restart = False
 
     def __init__(self) -> None:
         self._rounds: dict[str, RoundRecord] = {}
@@ -281,6 +406,35 @@ class InMemoryRoundRepository:
     def list(self, limit: int = 20) -> list[RoundRecord]:
         with self._lock:
             return [self._rounds[key] for key in self._order[:limit]]
+
+    def unfinished(self) -> list[UnfinishedRound]:
+        # ``_order`` is newest first. Records in memory are always readable.
+        with self._lock:
+            records = [self._rounds[round_id] for round_id in reversed(self._order)]
+        return [
+            UnfinishedRound(
+                round_id=record.manifest.round_id,
+                status=record.status,  # type: ignore[arg-type]
+                phase=record.manifest.phase,
+                readable=True,
+            )
+            for record in records
+            if record.status in UNFINISHED_STATUSES
+        ]
+
+    def quarantine(self, round_id: str, reason: str) -> bool:
+        _require_reason(reason, "quarantine")
+        with self._lock:
+            record = self._rounds.get(round_id)
+            if record is None:
+                raise _unknown_round(round_id)
+            if record.status not in UNFINISHED_STATUSES:
+                return False
+            update: dict[str, object] = {"status": "closed", "updated_at": int(time.time())}
+            if record.abandoned_reason is None:
+                update["abandoned_reason"] = reason
+            self._store(record.model_copy(update=update))
+            return True
 
 
 class InProcessFederationEngine:
@@ -406,8 +560,8 @@ class FederatedRoundController:
         rounds: RoundRepository | None = None,
     ) -> None:
         self._engine = engine
-        self._sites = sites or InMemorySiteRegistry()
-        self._rounds = rounds or InMemoryRoundRepository()
+        self._sites = sites if sites is not None else InMemorySiteRegistry()
+        self._rounds = rounds if rounds is not None else InMemoryRoundRepository()
 
     @property
     def engine_name(self) -> str:
@@ -627,8 +781,18 @@ class FederatedRoundController:
           without quorum is closed when it is dispatched). A second aggregate
           would replace the candidate a decision may rest on.
         - :class:`AggregationRefused` (a ``PermissionError``) when the planner
-          does not permit aggregation. The engine may raise it too, for
-          example when a stored update fails a check.
+          does not permit aggregation. The controller raises it before it
+          calls the engine, so what the engine holds is kept until the round
+          is discarded. The engine may raise it too, for example when a stored
+          update fails a check, and then deletes what it holds itself.
+
+        What the engine holds for the round, such as stored updates, is
+        deleted through the engine's ``discard`` after the round is stored as
+        ``aggregated``, or when that write finds the round finished
+        (:class:`RoundConflict`). Any other error from that write keeps it, so
+        a retry can aggregate again. The GMA's HTTP engine then combines the
+        kept updates again and gets the candidate it registered in the first
+        attempt back from the model registry.
         """
         record = self._require(round_id)
         _require_aggregatable(record)
@@ -647,8 +811,36 @@ class FederatedRoundController:
                 update={"status": "aggregated", "candidate": candidate, "updated_at": int(time.time())}
             )
 
-        self._rounds.update(round_id, aggregated)
+        try:
+            self._rounds.update(round_id, aggregated)
+        except RoundConflict:
+            # The round finished meanwhile, so nothing will use what the engine holds for it.
+            self._discard_after_aggregate(round_id)
+            raise
+        self._discard_after_aggregate(round_id)
         return candidate
+
+    def _discard_in_engine(self, round_id: str) -> None:
+        engine_discard = getattr(self._engine, "discard", None)
+        if callable(engine_discard):
+            engine_discard(round_id)
+
+    def _discard_after_aggregate(self, round_id: str) -> None:
+        """Delete what the engine holds for a round whose aggregated write has finished.
+
+        The write's outcome is stored, so an error here is logged instead of
+        raised. A later :meth:`discard` or :meth:`recover` deletes what is
+        left.
+        """
+        try:
+            self._discard_in_engine(round_id)
+        except Exception as error:  # noqa: BLE001 - the aggregate's outcome is already stored
+            logger.warning(
+                "the engine could not delete what it holds for round %s after its aggregation (%s); "
+                "a discard or a recovery deletes it",
+                round_id,
+                type(error).__name__,
+            )
 
     def discard(self, round_id: str, reason: str) -> RoundRecord:
         """Stop a round and delete what the engine still holds for it.
@@ -662,8 +854,7 @@ class FederatedRoundController:
         Raises ``KeyError`` for an unknown round and ``ValueError`` for an
         empty reason.
         """
-        if not isinstance(reason, str) or not reason.strip():
-            raise ValueError("a discard needs a reason")
+        _require_reason(reason, "discard")
 
         def change(record: RoundRecord) -> RoundRecord:
             update: dict[str, object] = {"updated_at": int(time.time())}
@@ -674,10 +865,102 @@ class FederatedRoundController:
             return record.model_copy(update=update)
 
         record = self._rounds.update(round_id, change)
-        engine_discard = getattr(self._engine, "discard", None)
-        if callable(engine_discard):
-            engine_discard(round_id)
+        self._discard_in_engine(round_id)
         return record
+
+    def recover(
+        self, *, updates_kept: bool, now: float, update_max_age_seconds: float | None = None
+    ) -> RecoveryReport:
+        """Close the rounds a restart left unfinished that cannot finish, as the planner decides.
+
+        Call it once when the process starts, before it takes round writes: a
+        dispatch still running in this process would be closed too.
+
+        1. For each round :meth:`RoundRepository.unfinished` lists, oldest
+           first, the planner's recovery rule (``dagentsc federation round
+           recover``) answers keep or close, in one call per round. It reads
+           the round's status, its phase, whether its record can be read,
+           ``updates_kept``, whether the engine has registered the round's
+           candidate, the age of the round's oldest stored update and
+           ``update_max_age_seconds``.
+        2. A readable round the planner closes goes through :meth:`discard`,
+           with the planner's sentence as its reason, which also deletes its
+           updates. A round whose record cannot be read is closed with
+           :meth:`RoundRepository.quarantine`, and the engine deletes its
+           updates.
+        3. The engine deletes the stored updates of every round that is no
+           longer unfinished or that the store does not hold, such as an
+           aggregated round whose updates a restart left behind.
+
+        Params:
+        - `updates_kept`: whether the engine's stored updates survive a
+          restart. A memory store does not keep them.
+        - `now`: the Unix time the updates' ages are measured from. The
+          caller reads the clock.
+        - `update_max_age_seconds`: the age limit for stored updates, or
+          ``None`` for no limit.
+
+        Returns what it did. Raises ``TypeError`` when ``updates_kept`` is not
+        a bool, and :class:`PlannerUnavailableError` when the planner cannot
+        be run or refuses an input; the rounds closed before the error stay
+        closed, and a later call goes on with the rest.
+        """
+        if not isinstance(updates_kept, bool):
+            raise TypeError("updates_kept must be True or False")
+        ages = self._pending_update_ages(now)
+        candidate_registered = getattr(self._engine, "candidate_registered", None)
+        outcomes: list[RoundRecovery] = []
+        for summary in self._rounds.unfinished():
+            registered = False
+            if summary.readable and callable(candidate_registered):
+                registered = bool(candidate_registered(self._require(summary.round_id).manifest))
+            verdict = _recovery_verdict(
+                round_recovery(
+                    status=summary.status,
+                    phase=summary.phase,
+                    readable=summary.readable,
+                    updates_kept=updates_kept,
+                    candidate_registered=registered,
+                    oldest_update_age_seconds=ages.get(summary.round_id),
+                    update_max_age_seconds=update_max_age_seconds,
+                )
+            )
+            if verdict.verdict == "close":
+                self._close_after_restart(summary, verdict.message)
+            outcomes.append(
+                RoundRecovery(
+                    round_id=summary.round_id,
+                    status=summary.status,
+                    phase=summary.phase,
+                    readable=summary.readable,
+                    verdict=verdict.verdict,
+                    reason=verdict.reason,
+                    message=verdict.message,
+                )
+            )
+        still_unfinished = {summary.round_id for summary in self._rounds.unfinished()}
+        leftovers = tuple(
+            round_id for round_id in self._pending_update_ages(now) if round_id not in still_unfinished
+        )
+        for round_id in leftovers:
+            self._discard_in_engine(round_id)
+        return RecoveryReport(rounds=tuple(outcomes), deleted_updates=leftovers)
+
+    def _pending_update_ages(self, now: float) -> dict[str, float]:
+        pending = getattr(self._engine, "pending_update_ages", None)
+        if not callable(pending):
+            return {}
+        return dict(pending(now))
+
+    def _close_after_restart(self, summary: UnfinishedRound, message: str) -> None:
+        """Close a round the planner's recovery rule closed, with its sentence as the reason."""
+        if summary.readable:
+            self.discard(summary.round_id, message)
+        else:
+            # Its record cannot be read, so it is closed from the store's columns.
+            self._rounds.quarantine(summary.round_id, message)
+            self._discard_in_engine(summary.round_id)
+        logger.warning("recovery closed round %s: %s", summary.round_id, message)
 
     def evaluate_release(
         self,
@@ -789,9 +1072,13 @@ __all__ = [
     "InMemorySiteRegistry",
     "InProcessFederationEngine",
     "READINESS_FAILED_REASON",
+    "RecoveryReport",
+    "RoundRecovery",
     "RoundRepository",
     "SiteRegistry",
     "SiteWorker",
+    "UNFINISHED_STATUSES",
+    "UnfinishedRound",
     "new_round_id",
     "weighted_metrics",
 ]

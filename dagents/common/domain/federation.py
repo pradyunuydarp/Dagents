@@ -832,8 +832,10 @@ MetricsSource = Literal["rounds", "request"]
 
 #: Why the model lifecycle rule refused an event. The planner's
 #: ``federation model lifecycle`` command returns one of these.
-#: ``decision_differs`` answers only an event that carries a stored decision,
-#: which the GMA does not send yet.
+#: ``decision_differs`` answers only an event that carries a stored decision:
+#: the GMA sends the version's stored decision with each release evaluation,
+#: and a repeated evaluation for the same round that decides differently is
+#: refused.
 LifecycleRefusal = Literal[
     "already_released",
     "not_candidate",
@@ -950,6 +952,20 @@ class ModelLifecycleDecision(DagentsModel):
     status_changes: list[ModelStatusChange] = Field(
         default_factory=list, description="The status changes to apply, sorted by version. Empty for a refused event."
     )
+
+
+#: Why the planner's recovery rule closes a round that a restart left
+#: unfinished. The planner's ``federation round recover`` command returns one
+#: of these.
+RoundCloseReason = Literal["unreadable_record", "dispatch_interrupted", "updates_not_kept", "updates_expired"]
+
+
+class RoundRecoveryVerdict(DagentsModel):
+    """The planner's answer about one round a restart left unfinished (`dagentsc federation round recover`)."""
+
+    verdict: Literal["keep", "close"] = Field(description="Whether the round stays as it is or is closed.")
+    reason: RoundCloseReason | None = Field(default=None, description="Why the round is closed. Null for a kept round.")
+    message: str = Field(description="The verdict in one sentence.")
 
 
 class ReleaseEvaluationRequest(DagentsModel):

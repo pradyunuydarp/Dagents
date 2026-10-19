@@ -11,6 +11,8 @@ from dagents.common.application.federation import (
     FederatedRoundController,
     FederationEngine,
     InProcessFederationEngine,
+    RoundRepository,
+    SiteRegistry,
 )
 from dagents.common.application.governance_service import GovernanceService
 from dagents.common.extensions import ExtensionRegistry
@@ -52,7 +54,12 @@ def build_governance_service(
     return GovernanceService(audit=audit, registry=registry, strict_classifications=strict_classifications)
 
 
-def build_round_controller(engine: FederationEngine | None = None) -> FederatedRoundController:
+def build_round_controller(
+    engine: FederationEngine | None = None,
+    *,
+    sites: SiteRegistry | None = None,
+    rounds: RoundRepository | None = None,
+) -> FederatedRoundController:
     """Build the federated round controller.
 
     The default engine is the in-process simulator, which runs every site in
@@ -61,5 +68,11 @@ def build_round_controller(engine: FederationEngine | None = None) -> FederatedR
     and an adapter for another runtime such as NVIDIA FLARE fits the same
     :class:`~dagents.common.application.federation.FederationEngine`
     interface; nothing above it changes.
+
+    Params:
+    - `sites`: where site enrolments are kept; a new in-memory registry when
+      ``None``.
+    - `rounds`: where round records are kept; a new in-memory repository when
+      ``None``.
     """
-    return FederatedRoundController(engine=engine or InProcessFederationEngine())
+    return FederatedRoundController(engine=engine or InProcessFederationEngine(), sites=sites, rounds=rounds)

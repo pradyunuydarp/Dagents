@@ -180,8 +180,9 @@ audit.
   round whose record cannot be read is closed (`unreadable_record`). A readable planned or
   dispatched round is closed (`dispatch_interrupted`), because a dispatch cannot resume. A
   collecting training round is closed when its updates were not kept (`updates_not_kept`) or are
-  older than the limit (`updates_expired`), unless its candidate is already registered. No
-  service calls it yet.
+  older than the limit (`updates_expired`), unless its candidate is already registered.
+  `FederatedRoundController.recover` in `dagents/common/application/federation.py` calls it
+  once per unfinished round. The GMA does not call `recover` yet.
 
 Two behaviours matter most. A secure aggregation threshold raises the minimum number of
 participants above the manifest's stated minimum, because the threshold is what stops the
