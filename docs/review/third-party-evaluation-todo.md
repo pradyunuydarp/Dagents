@@ -362,6 +362,26 @@ no planner version or binary hash among the fields of the audit record.
 **Done when.** Each failure case produces a denial and an audit record in a
 test, and an audit record names the planner that decided.
 
+**Status.** Done. `dagents_runner.py` runs `dagentsc` with a timeout
+(`DAGENTSC_TIMEOUT_SECONDS`, default 10 seconds) and caps on its input and
+output (`DAGENTSC_MAX_INPUT_BYTES` and `DAGENTSC_MAX_OUTPUT_BYTES`, 16 MiB
+each). The defaults are far above the slowest (50 ms) and largest (11 KB in,
+15 KB out) of about 8,100 planner calls measured across the repository's
+suites, demos and examples. The runner kills a planner that runs or prints past
+a limit, with every process it started, and an LMA or GMA refuses to start
+with a limit that is zero, negative or not a number.
+`dagents/tests/test_planner_failures.py` shows a denial and an audit record
+for each case in the list, and for a pinned hash that differs. An unknown
+strategy now denies the whole request; before, the Guard withheld that field
+and applied the rest of the plan. A plan the Guard fails to apply to the
+records is a denial too; before, `enforce` raised and wrote no record. Every audit record names its planner:
+`planner_version` is the `dagents` version, because the binary prints none,
+and `planner_sha256` is the binary's SHA-256. `DAGENTSC_SHA256` pins the hash.
+The LMA and GMA compare it when they are built and log a warning on a
+mismatch, and the runner compares it before each call and starts no other
+binary. Audit chains stored before this change still verify, in memory and in
+Postgres; the tests check a chain written by the code at `905ed28`.
+
 ## D. Evidence that the framework works
 
 ### D1. Publish a comparison with existing tools (P0, S)

@@ -793,6 +793,78 @@ class PostgresAuditSinkTests(DatabaseTestCase):
         self.assertFalse(sink.verify_chain())
         self.assertFalse(self.sink(self.db.alpha, anchor=True).verify_chain())
 
+    # --- A chain stored before audit records named their planner ---------------------
+
+    def store_old_chain(self) -> list[dict]:
+        """Store the records of the fixture chain as the sink at commit 905ed28 stored them."""
+        from psycopg.types.json import Jsonb
+
+        from dagents.tests.test_audit_sinks import old_chain_records
+
+        records = old_chain_records()
+        for stored in records:
+            self.run_as_alpha(
+                "INSERT INTO {audit} (audit_id, recorded_at, boundary, decision, permitted, record, "
+                "previous_digest, digest) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+                (
+                    stored["audit_id"], stored["recorded_at"], stored["boundary"], stored["decision"],
+                    stored["permitted"], Jsonb(stored), stored["previous_digest"], stored["digest"],
+                ),
+            )
+        return records
+
+    def test_a_chain_stored_before_planner_identity_verifies(self) -> None:
+        old = self.store_old_chain()
+        sink = self.sink(self.db.alpha)
+        self.assertTrue(sink.verify_chain())
+        self.assertEqual(3, sink.rows_read)
+        self.assertTrue(sink.verify_chain(full=True))
+        listed = sink.list_recent(3)
+        self.assertEqual([stored["audit_id"] for stored in reversed(old)], [record.audit_id for record in listed])
+        self.assertTrue(all(record.planner_version is None and record.planner_sha256 is None for record in listed))
+
+    def test_new_records_after_an_old_chain_verify_from_the_old_anchor_and_in_full(self) -> None:
+        from dagents.tests.test_audit_sinks import new_record
+
+        old = self.store_old_chain()
+        # The anchor a check by the old code stored after the last old record.
+        self.run_as_alpha(
+            "INSERT INTO {anchor} (id, seq, digest, record_count) VALUES (true, 3, %s, 3)", (old[-1]["digest"],)
+        )
+        sink = self.sink(self.db.alpha, anchor=True)
+        self.assertTrue(sink.verify_chain())
+        self.assertEqual(1, sink.rows_read, "the check started at the old anchor and hashed it again")
+
+        first_new = sink.append(new_record("after-1"))
+        second_new = sink.append(new_record("after-2"))
+        self.assertEqual(old[-1]["digest"], first_new.previous_digest)
+        self.assertTrue(sink.verify_chain())
+        self.assertEqual(3, sink.rows_read, "the anchor and the two new records")
+        self.assertEqual((5, second_new.digest, 5), self.stored_anchor())
+
+        restarted = self.sink(self.db.alpha, anchor=True)
+        self.assertTrue(restarted.verify_chain())
+        self.assertEqual(1, restarted.rows_read)
+        self.assertTrue(restarted.verify_chain(full=True))
+        self.assertEqual(5, restarted.rows_read)
+        self.assertTrue(self.sink(self.db.alpha).verify_chain(), "a sink without an anchor hashes every record")
+
+        stored = self.run_as_alpha("SELECT record->>'planner_sha256' FROM {audit} ORDER BY seq")
+        self.assertEqual(
+            [None, None, None, first_new.planner_sha256, second_new.planner_sha256], [row[0] for row in stored]
+        )
+
+    def test_an_edit_to_an_old_record_is_still_caught_after_new_records(self) -> None:
+        from dagents.tests.test_audit_sinks import new_record
+
+        self.store_old_chain()
+        sink = self.sink(self.db.alpha)
+        sink.append(new_record("after-1"))
+        self.assertTrue(sink.verify_chain(full=True))
+        self.run_as_alpha("UPDATE {audit} SET record = jsonb_set(record, '{{planner_version}}', '\"0.1.0a1\"') "
+                          "WHERE seq = 2")
+        self.assertFalse(sink.verify_chain(full=True), "adding a planner to an old record breaks the chain")
+
     def test_another_role_cannot_read_the_stored_anchor(self) -> None:
         sink = self.sink(self.db.alpha, anchor=True)
         sink.append(audit_record("r1"))

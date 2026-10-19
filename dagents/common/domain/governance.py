@@ -284,10 +284,18 @@ class GuardDecision(DagentsModel):
     request_id: str = Field(description="Copied from the request.")
     boundary: GuardBoundary = Field(description="Copied from the request.")
     permitted: bool = Field(
-        description="Whether the request may go ahead. False for a `deny` plan, and when the planner cannot be reached."
+        description=(
+            "Whether the request may go ahead. False for a `deny` plan, when the planner cannot be run or its "
+            "answer cannot be read, when its plan names a strategy the Guard cannot apply, and when applying the "
+            "plan to the records fails."
+        )
     )
     plan: RestrictionPlan = Field(
-        description="The plan the Guard applied. When the planner cannot be reached, a deny plan the Guard builds itself."
+        description=(
+            "The plan the Guard applied. When the planner cannot be run, its answer cannot be read, its plan "
+            "names a strategy the Guard cannot apply, or applying the plan to the records fails, a deny plan the "
+            "Guard builds itself."
+        )
     )
     payload: list[dict[str, Any]] = Field(
         default_factory=list,
@@ -327,6 +335,12 @@ class AuditRecord(DagentsModel):
     several contributions, they record the largest norm before and the largest
     norm after. ``contribution_strategies`` lists the strategies applied, with
     their parameters. All three stay empty for a decision that bounded nothing.
+
+    ``planner_version`` and ``planner_sha256`` name the planner that decided,
+    or that the Guard tried to run when the decision is a denial because the
+    planner failed. Records written before these fields existed have neither,
+    and the digest leaves out each one that is null, so those records still
+    hash to the digests they were stored with.
     """
 
     audit_id: str = Field(description="A random id for the record: a UUID4 in hex, without hyphens.")
@@ -355,14 +369,34 @@ class AuditRecord(DagentsModel):
     contribution_strategies: list[str] = Field(
         default_factory=list, description="The bounding strategies applied, with their parameters, such as `clip_contribution:1`."
     )
+    planner_version: str | None = Field(
+        default=None,
+        description=(
+            "The version of the `dagents` package whose runner started the planner for this decision. The planner "
+            "a platform wheel bundles, and the one an image or a checkout builds, come from the same source as the "
+            "package. A planner that `DAGENTSC_BIN` names can come from elsewhere; `planner_sha256` names it "
+            "exactly. Empty in records written before audit records named their planner, and when the Guard's "
+            "planner is not `dagentsc`."
+        ),
+    )
+    planner_sha256: str | None = Field(
+        default=None,
+        description=(
+            "The SHA-256, in hex, of the planner binary the runner started, or tried to start, for this decision. "
+            "It names the binary exactly; each GitHub Release lists its planners' hashes in `SHA256SUMS`. Empty "
+            "when there was no binary to read, in records written before audit records named their planner, and "
+            "when the Guard's planner is not `dagentsc`."
+        ),
+    )
     previous_digest: str = Field(
         default="", description="The `digest` of the record before this one. Empty for the first record."
     )
     digest: str = Field(
         default="",
         description=(
-            "SHA-256, in hex, of every other field of this record as JSON with sorted keys. Editing or removing "
-            "a record breaks the chain from that record on."
+            "SHA-256, in hex, of every other field of this record as JSON with sorted keys, leaving out "
+            "`planner_version` and `planner_sha256` when they are null. Editing or removing a record breaks the "
+            "chain from that record on."
         ),
     )
 

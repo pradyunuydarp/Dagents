@@ -25,7 +25,10 @@ The governance and federation code is shared, in `dagents/common/`:
 both agents, `FederatedRoundController` behind the GMA's round endpoints, and
 `LocalFederatedWorker` behind the LMA's job endpoints. Each asks the planner,
 `dagentsc`, for every decision ([dagentsc](dagentsc.md)), and the Guard denies a
-request when the planner cannot be reached.
+request when the planner cannot be run, runs past its limits, answers with
+something that is not a plan, or sends a plan with a strategy the Guard cannot
+apply. Each audit record names the planner that decided. The planner settings
+(`DAGENTSC_*`) are listed under each agent's settings below.
 
 Each agent serves short paths (`/health`, `/models/run`) and versioned paths
 (`/api/v1/health`, `/api/v1/model-jobs`). Most versioned paths run the same
@@ -115,7 +118,7 @@ connection string.
 | `conflict` | 409 | A round id used twice, a late result, a second offer, update or approval, a model that does not match its digest, a classification that differs from the registered one. A refusal by the planner's model lifecycle rule adds `refusal` |
 | `aggregation_refused` | 409 | The planner does not permit aggregation, or a stored update is missing or changed |
 | `invalid_request` | 422 | A release evaluation the GMA cannot run as asked, or a model version whose name or parameters are not valid |
-| `planner_unavailable` | 503 | `dagentsc` could not be run, or its answer could not be read |
+| `planner_unavailable` | 503 | `dagentsc` could not be run, ran past `DAGENTSC_TIMEOUT_SECONDS`, printed more than `DAGENTSC_MAX_OUTPUT_BYTES`, or its answer could not be read; or the input was over `DAGENTSC_MAX_INPUT_BYTES`, or the binary's SHA-256 is not the one `DAGENTSC_SHA256` requires, so it was not started |
 | `store_unavailable`, `store_not_set_up` | 503 | The agent's database could not be reached, or is not set up for the agent's role |
 | `agent_unavailable` | 503 | The other agent did not answer, or no address is configured for it |
 | `bad_gateway` (LMA), `agent_error` (GMA) | 502 | The other agent answered with an error |
@@ -171,6 +174,8 @@ The settings that start an LMA for a site:
 | `LMA_SITE_TOKEN`, `LMA_COORDINATOR_TOKEN`, `LMA_REQUIRE_TOKENS` | The tokens this LMA accepts ([Tokens](#tokens-errors-and-calls-between-agents)) |
 | `LMA_SOURCE_MAX_STALENESS_MS` | How long the LMA uses the records it read before it asks the source for its version again. Default 30000. |
 | `LMA_STATEMENT_TIMEOUT_MS` | The statement timeout of each database operation. Default 15000. |
+| `DAGENTSC_BIN`, `DAGENTSC_SHA256` | The planner to start, and the SHA-256 its file must have. With another hash the runner starts no planner, so the Guard denies every request and the LMA logs a warning when it is built. |
+| `DAGENTSC_TIMEOUT_SECONDS`, `DAGENTSC_MAX_INPUT_BYTES`, `DAGENTSC_MAX_OUTPUT_BYTES` | The limits of one planner call. Defaults 10 seconds, 16777216 bytes and 16777216 bytes. A call past a limit is a planner failure. The LMA refuses to start when a limit is zero, negative or not a number, or `DAGENTSC_SHA256` is not 64 hexadecimal digits. |
 
 An application that runs LMAs in its own process passes the same settings to
 `create_app(settings, LmaDeps(...))`, together with objects it owns: its own
@@ -813,7 +818,7 @@ sequenceDiagram
     alt the planner answers
         Planner-->>Guard: restriction plan
         Guard->>Guard: apply each strategy, drop fields not requested
-    else the planner cannot be run
+    else the planner fails, or its plan cannot be applied
         Guard->>Guard: build a deny plan
     end
     Guard->>Audit: append(record), chained to the previous record's digest
@@ -920,9 +925,18 @@ The LMA serves `before_read`, `before_train` and `before_send` this way.
 
 A denial is a normal answer: status `200` with `permitted: false`, an empty
 `payload` and every requested field in `withheld_fields`. Check `permitted`,
-not the status. When the planner cannot be run, the Guard fails closed: it
-denies the request with the message "The planner could not be reached, so the
-Guard denied the request.", records the denial, and still answers `200`.
+not the status. When the planner cannot be run, runs past its limits or
+answers with something that is not a plan, the Guard fails closed: it denies
+the request with the message "The planner could not be reached, so the Guard
+denied the request.", records the denial, and still answers `200`. When the
+plan names a strategy the Guard cannot apply (a name it does not know, a
+missing or extra parameter, or a `generalize` level above 308), it denies the
+request the same way with the message "The planner's plan names a strategy the
+Guard cannot apply, so the Guard denied the request." When applying the plan to
+the records fails, for example on an integer too large for a float, the message
+is "The Guard could not apply the planner's plan to these records, so the Guard
+denied the request." Each record names the planner the Guard ran, or tried to
+run.
 
 **Errors.** `409` (`conflict`) when the LMA serves a site and the request's
 classification is not the registered one. `422` when a field fails validation,
@@ -942,10 +956,13 @@ GET /api/v1/governance/audit
 Returns the newest audit records, newest first, and whether the digest chain
 verifies. The Guard writes one record per enforcement, permitted or not: the
 enforce endpoint, the [probe](#lma-post-api-v1-governance-restrictions-probe)
-and the Guard of each federated job. Planning writes none. Each record's `digest` is a SHA-256 hash of its other
-fields, including `previous_digest`, the digest of the record before it.
-Editing or removing a record changes the hashes from that record on, and
-`chain_intact` becomes false. The chain is not signed. In memory, it shows
+and the Guard of each federated job. Planning writes none. Each record names
+the planner that decided, in `planner_version` and `planner_sha256`. Each
+record's `digest` is a SHA-256 hash of its other fields, including
+`previous_digest`, the digest of the record before it. The hash leaves out
+`planner_version` and `planner_sha256` when they are `null`, so records written
+before these fields existed still verify. Editing or removing a record changes
+the hashes from that record on, and `chain_intact` becomes false. The chain is not signed. In memory, it shows
 changes inside one running process only. With `LMA_AUDIT_TABLE` it is kept in
 Postgres, written as the site's role.
 
@@ -1501,6 +1518,8 @@ process-wide extension registry, everything in memory and source reads on.
 | `GMA_MODEL_TABLE` | none | `schema.table` for the model registry. In memory without it. |
 | `GMA_AUDIT_TABLE`, `GMA_AUDIT_ANCHOR_TABLE` | none | `schema.table` for the release Guard's audit chain and its anchor. In memory without them. |
 | `GMA_ALLOW_SOURCE_READS` | `1` | `0` makes the source, dataset profile and model job routes answer `403`, for a coordinator that must never read records |
+| `DAGENTSC_BIN`, `DAGENTSC_SHA256` | none | The planner to start, and the SHA-256 its file must have. With another hash the runner starts no planner: rounds stop, the release Guard denies every request, and the GMA logs a warning when it is built. |
+| `DAGENTSC_TIMEOUT_SECONDS`, `DAGENTSC_MAX_INPUT_BYTES`, `DAGENTSC_MAX_OUTPUT_BYTES` | `10`, `16777216`, `16777216` | The limits of one planner call. A call past a limit is a planner failure. The GMA refuses to start when a limit is zero, negative or not a number, or `DAGENTSC_SHA256` is not 64 hexadecimal digits. |
 
 An application that runs the GMA in its own process passes the same settings
 to `create_app(settings, GmaDeps(...))`, together with objects it owns: its
@@ -2328,9 +2347,11 @@ only, and `correlation_id` ties the audit record to the round.
 
 A denial is a normal answer: status `200` with `permitted: false` and every
 requested field in `withheld_fields`, as the example with an unapproved purpose
-shows. Check `permitted`, not the status. When the planner cannot be run, the
-Guard fails closed: it denies the request, records the denial and still answers
-`200`.
+shows. Check `permitted`, not the status. When the planner cannot be run, runs
+past its limits, answers with something that is not a plan, or sends a plan
+with a strategy the Guard cannot apply, or when applying the plan to the
+records fails, the Guard fails closed: it denies the request, records the
+denial and still answers `200`.
 
 **Errors.** `409` (`conflict`) when the GMA runs strict and the request's
 classification is not the registered one. `422` when a field fails validation,
@@ -2351,7 +2372,9 @@ chain verifies. The Guard writes one record per enforcement, permitted or not,
 and one for the release Guard of each release evaluation in the round flow.
 Planning writes none. `limit` defaults to 50 and has no lower bound: `0`
 returns every record, and a negative number leaves out that many of the oldest.
-The chain is in memory, or in Postgres with `GMA_AUDIT_TABLE`, and not signed.
+Each record names the planner that decided, and the digest covers it as on the
+[LMA's audit log](#lma-get-api-v1-governance-audit). The chain is in memory, or
+in Postgres with `GMA_AUDIT_TABLE`, and not signed.
 
 **Errors.** `422` when `limit` is not an integer.
 
@@ -3555,6 +3578,10 @@ One entry in the Guard's audit log, written for every enforcement, permitted or
 denied. The example is the record of the clipped model update: it shows the
 norm before (1.56) and after (1.0) clipping. Records are listed by
 [read the audit log](#lma-get-api-v1-governance-audit).
+
+`planner_version` and `planner_sha256` name the planner. The example holds the
+hash of the planner it was captured with; yours differs for every build of the
+planner, so the example check does not compare these two fields.
 
 ### The GuardEnforcementRequest object
 

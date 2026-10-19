@@ -32,7 +32,8 @@ from dagents.common.domain.governance import (
 #: - ``below_minimum_cohort``: the planner denies it because too few records
 #:   are labelled.
 #: - ``denied``: the planner denies it for another reason.
-#: - ``withheld``: the planner could not be asked, so the rate is withheld.
+#: - ``withheld``: the planner could not be asked, or its plan names a strategy
+#:   the Guard cannot apply, so the rate is withheld.
 LabelRateStatus = Literal["released", "no_labels", "below_minimum_cohort", "denied", "withheld"]
 
 
@@ -100,7 +101,7 @@ class SiteSummary(DagentsModel):
     label_rate_status: LabelRateStatus = Field(
         description=(
             "`released`, `no_labels`, `below_minimum_cohort`, `denied`, or `withheld` when the planner could "
-            "not be asked."
+            "not be asked or its plan names a strategy the Guard cannot apply."
         )
     )
     minimum_cohort: int = Field(ge=0, description="The classification's minimum cohort. At least 0.")

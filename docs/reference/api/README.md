@@ -192,8 +192,10 @@ Declare the requests in `examples/<service>.requests.json`:
   the replay compares the template. The page says where the value came from.
 - `status` is the status you expect. The capture fails if the answer differs.
 - `volatile` lists JSON pointers whose values change on every call, such as an
-  id made from the clock. `*` matches any list item or key. The replay check
-  ignores them.
+  id made from the clock, or from one machine to another, such as an audit
+  record's `planner_sha256`, the hash of the planner binary. `*` matches any
+  list item or key. The replay check ignores them, so it passes in CI with
+  another build of the planner.
 - Long answers are trimmed: by default a list keeps 5 items and a string 1,200
   characters. The stored response lists each cut, and the page says so.
 - `env` sets environment variables before the app is imported, for example to

@@ -15,6 +15,8 @@ import os
 import sys
 from collections.abc import Sequence
 
+from dagents.common.infrastructure.dagents_runner import check_planner_settings
+
 
 def serve(
     *,
@@ -58,6 +60,11 @@ def serve(
         help="uvicorn log level (default: info)",
     )
     args = parser.parse_args(argv)
+    try:
+        check_planner_settings()
+    except ValueError as error:
+        # The app would refuse to build with this value; say why before uvicorn starts.
+        raise SystemExit(str(error)) from None
     try:
         import uvicorn
     except ImportError:

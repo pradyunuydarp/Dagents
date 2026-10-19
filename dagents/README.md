@@ -3,7 +3,8 @@
 This directory contains the reusable ML orchestration agents for Dagents. It is
 the Python package `dagents`: `pyproject.toml` at the repository root builds it,
 and a wheel holds this folder without `tests/`. `python -m dagents` prints the
-installed version and which planner the runner would start.
+installed version, which planner the runner would start, the planner file's
+SHA-256 and the limits of each planner call.
 
 ## Install and start the agents
 
@@ -12,7 +13,7 @@ it found a planner, and start an agent:
 
 ```bash
 pip install "dagents[lma,gma]"
-python -m dagents   # the version and the planner; exits with status 1 without one
+python -m dagents   # the version, the planner and its hash; exits with status 1 without one
 dagents-lma         # an LMA on 127.0.0.1:8010
 dagents-gma         # a GMA on 127.0.0.1:8020
 ```

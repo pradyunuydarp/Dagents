@@ -1,11 +1,13 @@
 """A digest-chained audit log stored in a PostgreSQL table.
 
 ``PostgresAuditSink`` implements the framework's ``AuditSink`` protocol. It
-keeps the same chain as ``InMemoryAuditLog``: each record's digest covers every
-field and the previous record's digest, so editing or removing a stored record
+keeps the same chain as ``InMemoryAuditLog``: each record's digest covers its
+fields and the previous record's digest, so editing or removing a stored record
 breaks every digest after it. Both sinks compute the digest with
 :func:`dagents.common.application.ethical_guard.audit_digest`, so a chain one
-writes verifies with the other.
+writes verifies with the other. That function leaves out the planner fields
+when they are null, so records stored before those fields existed still
+verify.
 
 Every operation runs as one role, through
 :func:`dagents.common.infrastructure.postgres_roles.acting_as`, on a connection
