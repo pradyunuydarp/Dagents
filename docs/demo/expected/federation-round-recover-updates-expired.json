@@ -1,0 +1,5 @@
+{
+  "verdict": "close",
+  "reason": "updates_expired",
+  "message": "The round's oldest stored update is 90061 seconds old, more than the limit of 86400 seconds, so it is closed; run it again under a new round id."
+}

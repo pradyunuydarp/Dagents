@@ -1,0 +1,6 @@
+{
+  "allowed": false,
+  "refusal": "decision_differs",
+  "reason": "returns-logreg+returns-train-2 already has a release decision for round returns-train-2, and this one differs in action, baseline_version and gate_results",
+  "statusChanges": []
+}

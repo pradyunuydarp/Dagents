@@ -1,0 +1,9 @@
+{
+  "status": "collecting",
+  "phase": "training",
+  "readable": true,
+  "updatesKept": true,
+  "candidateRegistered": false,
+  "oldestUpdateAgeSeconds": 3600,
+  "updateMaxAgeSeconds": 86400
+}

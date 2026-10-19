@@ -138,6 +138,16 @@ val evaluate_release :
     - [ReleaseEvaluated]: the version stays a candidate when the gates decided
       release and the release Guard permitted it, and becomes rejected
       otherwise ([NotCandidate] when it is not a candidate).
+    - [ReleaseEvaluatedWithStoredDecision]: the same event with the decision
+      the version already holds. This check runs before the status is looked
+      at. When the stored decision is for the same round and all six fields
+      are equal, the event is allowed and changes nothing, whatever the
+      status, so a retried evaluation succeeds. When it is for the same round
+      and any field differs, the event is refused ([DecisionDiffers], naming
+      the fields in field order). Gate results are compared item by item, in
+      order, and their numbers with no tolerance ([Float.equal], so -0.0
+      equals 0.0). A stored decision for another round leaves the event to
+      the [ReleaseEvaluated] rule, with the same answer.
     - [ApprovalRequested]: the version becomes released and the released
       version becomes superseded. The checks run in this order, and the first
       that fails is the refusal: [NoDecision], [GatesDecided], [GuardDenied],
@@ -163,3 +173,44 @@ val evaluate_release :
       assert (outcome.verdict = LifecycleRefused NoDecision)
     ]} *)
 val decide_model_lifecycle : lifecycle_request -> lifecycle_outcome
+
+(** Decide whether a round stored before a restart is kept or closed.
+
+    The rows are matched in this order, and the first that applies answers:
+
+    + [RoundAggregated] or [RoundClosed]: keep, whatever else is given.
+    + [RoundPlanned], [RoundDispatched] or [RoundCollecting] whose record
+      cannot be read: close, [UnreadableRecord].
+    + [RoundPlanned] or [RoundDispatched]: close, [DispatchInterrupted],
+      because a dispatch cannot resume after a restart.
+    + [RoundCollecting] in the analytics or evaluation phase: keep, because
+      the record holds the results.
+    + [RoundCollecting] training round whose candidate is registered: keep,
+      because a retried aggregate returns that candidate.
+    + [RoundCollecting] training round whose updates were not kept: close,
+      [UpdatesNotKept].
+    + [RoundCollecting] training round whose oldest stored update is older
+      than the age limit, when both are given: close, [UpdatesExpired]. An
+      update exactly at the limit is not older.
+    + Otherwise: keep.
+
+    The clock stays with the caller: ages are inputs. The message is one
+    sentence. Nothing here raises.
+
+    Example test case:
+    {[
+      let answer =
+        decide_round_recovery
+          {
+            recovery_status = RoundDispatched;
+            recovery_phase = TrainingRound;
+            record_readable = true;
+            updates_kept = true;
+            candidate_registered = false;
+            oldest_update_age_seconds = None;
+            update_max_age_seconds = Some 86400.0;
+          }
+      in
+      assert (answer.recovery_verdict = CloseRound DispatchInterrupted)
+    ]} *)
+val decide_round_recovery : round_recovery_request -> round_recovery

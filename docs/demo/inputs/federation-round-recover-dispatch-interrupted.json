@@ -1,0 +1,9 @@
+{
+  "status": "dispatched",
+  "phase": "training",
+  "readable": true,
+  "updatesKept": true,
+  "candidateRegistered": false,
+  "oldestUpdateAgeSeconds": 42.5,
+  "updateMaxAgeSeconds": 86400
+}

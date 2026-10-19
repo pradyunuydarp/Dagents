@@ -49,6 +49,7 @@ let usage () =
   prerr_endline "  dagentsc governance assess [--input <file|->]";
   prerr_endline "  dagentsc federation round plan [--input <file|->]";
   prerr_endline "  dagentsc federation round digest [--input <file|->]";
+  prerr_endline "  dagentsc federation round recover [--input <file|->]";
   prerr_endline "  dagentsc federation aggregate readiness [--input <file|->]";
   prerr_endline "  dagentsc federation release evaluate [--input <file|->]";
   prerr_endline "  dagentsc federation model lifecycle [--input <file|->]";
@@ -388,6 +389,19 @@ let federation_round action args =
            ])
   | _ -> usage ()
 
+(** Handle [dagentsc federation round recover].
+
+    Reads what recovery knows about one round stored before a restart:
+    [{"status", "phase", "readable", "updatesKept", "candidateRegistered",
+    "oldestUpdateAgeSeconds", "updateMaxAgeSeconds"}]. Prints whether to keep
+    or close the round, the reason for a close and a sentence. A close is a
+    normal result, so it exits 0. Input with a missing key, an unknown status
+    or phase, a value of the wrong type, an age that is negative or not finite,
+    or a limit that is not a finite number above 0 is refused. *)
+let federation_round_recover args =
+  let request = Json_codec.round_recovery_request_of_yojson (read_json_input args) in
+  output_json (Json_codec.yojson_of_round_recovery (Dagents_federation_compiler.decide_round_recovery request))
+
 (** Handle [dagentsc federation aggregate readiness].
 
     [selectedSites] is optional: without it the selection is not checked, so
@@ -451,7 +465,10 @@ let federation_release action args =
 
     Reads [{"version": ..., "event": {"kind": ...}}] and prints whether the
     event is allowed, the refusal and its reason, and the status changes a
-    model registry applies. A refusal is a normal result, so it exits 0. *)
+    model registry applies. A refusal is a normal result, so it exits 0. A
+    [release_evaluated] event may carry [storedDecision], the decision the
+    version already holds; then the same decision for the same round changes
+    nothing, and a different one is refused as [decision_differs]. *)
 let federation_model action args =
   match action with
   | "lifecycle" ->
@@ -475,6 +492,7 @@ let () =
   | "dataset" :: "quality" :: action :: rest -> dataset_quality action rest
   | "dataset" :: "transform" :: action :: rest -> dataset_transform action rest
   | "governance" :: action :: rest -> governance action rest
+  | "federation" :: "round" :: "recover" :: rest -> federation_round_recover rest
   | "federation" :: "round" :: action :: rest -> federation_round action rest
   | "federation" :: "aggregate" :: action :: rest -> federation_aggregate action rest
   | "federation" :: "release" :: action :: rest -> federation_release action rest

@@ -1362,6 +1362,695 @@ let test_model_lifecycle_codec () =
     && List.assoc "refusal" refused = `String "no_decision"
     && List.assoc "statusChanges" refused = `List [])
 
+(** Replace one key of a JSON object's fields, or add it. *)
+let with_field name value fields = (name, value) :: List.remove_assoc name fields
+
+(** Remove one key from a JSON object's fields. *)
+let without_field name fields = List.remove_assoc name fields
+
+(** The gate results a release decision stores: one passed gate and one
+    failed improvement gate. *)
+let stored_gates =
+  [
+    {
+      result_gate_id = "accuracy_floor";
+      outcome = GatePassed;
+      observed = Some 0.84;
+      threshold = Some 0.8;
+      gate_detail = "accuracy=0.84 required >= 0.8";
+    };
+    {
+      result_gate_id = "improves_on_current";
+      outcome = GateFailed;
+      observed = Some 0.84;
+      threshold = Some 0.86;
+      gate_detail = "accuracy=0.84 required >= baseline 0.85 + margin 0.01";
+    };
+  ]
+
+(** The decision the gates and the Guard made for a candidate in round-5. *)
+let round_5_decision =
+  {
+    decided_round_id = "round-5";
+    decided_action = RejectCandidate;
+    decided_guard_permitted = true;
+    decided_baseline_version = Some "rule-v1";
+    decided_metrics_source = MetricsFromRounds;
+    decided_gate_results = stored_gates;
+  }
+
+(** A [release_evaluated] event on logreg+round-5 that carries the decision
+    the version already holds. *)
+let evaluated_again ?(status = ModelRejected) ?(stored = round_5_decision) decision =
+  lifecycle "logreg+round-5"
+    (ReleaseEvaluatedWithStoredDecision { status; new_decision = decision; stored_decision = stored })
+
+(** Verifies the stored-decision rule on [release_evaluated]: the same decision
+    for the same round changes nothing whatever the status, and a stored
+    decision for another round leaves today's rules unchanged. *)
+let test_release_evaluated_with_a_stored_decision () =
+  let same = "logreg+round-5 already has the same release decision for round round-5, so nothing changes" in
+  List.iter
+    (fun status ->
+      let name = "same decision on a " ^ string_of_model_status status ^ " version" in
+      let outcome = evaluated_again ~status round_5_decision in
+      assert_true (name ^ ": no status changes") (changes_of name outcome = []);
+      assert_true (name ^ ": reason was \"" ^ outcome.lifecycle_reason ^ "\"") (outcome.lifecycle_reason = same))
+    [ ModelCandidate; ModelReleased; ModelRejected; ModelSuperseded ];
+  (* Without the stored decision, a retry on the rejected version is refused
+     for ever: the stuck case this rule removes. *)
+  assert_true "today's rule refuses a retry on a rejected version"
+    (refusal_of "retry without the stored decision"
+       (lifecycle "logreg+round-5"
+          (ReleaseEvaluated { status = ModelRejected; action = RejectCandidate; guard_permitted = true }))
+    = "not_candidate");
+  (* The rule runs before the status match: today's rule would reject this
+     candidate. *)
+  assert_true "today's rule would reject the candidate"
+    (changes_of "candidate without the stored decision"
+       (lifecycle "logreg+round-5"
+          (ReleaseEvaluated { status = ModelCandidate; action = RejectCandidate; guard_permitted = true }))
+    = [ change ~from:ModelCandidate "logreg+round-5" ModelRejected ]);
+  let released =
+    { round_5_decision with decided_action = ReleaseCandidate; decided_gate_results = [ List.hd stored_gates ] }
+  in
+  assert_true "a repeated release decision keeps the candidate as it is"
+    (changes_of "repeated release" (evaluated_again ~status:ModelCandidate ~stored:released released) = []);
+  assert_true "a decision with no baseline, no metrics source and no gates can repeat"
+    (let bare =
+       {
+         round_5_decision with
+         decided_baseline_version = None;
+         decided_metrics_source = MetricsSourceUnrecorded;
+         decided_gate_results = [];
+       }
+     in
+     changes_of "bare decision" (evaluated_again ~stored:bare bare) = []);
+  (* Numbers are compared with no tolerance, as numbers: -0.0 equals 0.0. *)
+  let zero value = [ { (List.hd stored_gates) with observed = Some value; threshold = Some value } ] in
+  assert_true "-0.0 and 0.0 are the same number"
+    (changes_of "signed zero"
+       (evaluated_again
+          ~stored:{ round_5_decision with decided_gate_results = zero (-0.0) }
+          { round_5_decision with decided_gate_results = zero 0.0 })
+    = []);
+  (* A stored decision for another round: today's rules, unchanged, even when
+     every other field differs too. *)
+  let other_round = { round_5_decision with decided_round_id = "round-4" } in
+  let other_everything =
+    {
+      decided_round_id = "round-4";
+      decided_action = ReleaseCandidate;
+      decided_guard_permitted = false;
+      decided_baseline_version = None;
+      decided_metrics_source = MetricsFromRequest;
+      decided_gate_results = [];
+    }
+  in
+  List.iter
+    (fun status ->
+      List.iter
+        (fun (action, guard_permitted) ->
+          let decision = { round_5_decision with decided_action = action; decided_guard_permitted = guard_permitted } in
+          let today = lifecycle "logreg+round-5" (ReleaseEvaluated { status; action; guard_permitted }) in
+          assert_true "a decision stored for another round leaves today's answer"
+            (evaluated_again ~status ~stored:other_round decision = today);
+          assert_true "a different decision stored for another round leaves today's answer"
+            (evaluated_again ~status ~stored:other_everything decision = today))
+        [ (ReleaseCandidate, true); (ReleaseCandidate, false); (RejectCandidate, true); (RequireAnotherRound, false) ])
+    [ ModelCandidate; ModelReleased; ModelRejected; ModelSuperseded ]
+
+(** Verifies that a different decision for the same round is refused with
+    [decision_differs], one case per field, and that the reason names the
+    fields that differ, in field order. *)
+let test_release_evaluated_names_each_differing_field () =
+  let check ?(status = ModelRejected) ?(stored = round_5_decision) name changed fields expected_words =
+    let outcome = evaluated_again ~status ~stored changed in
+    assert_true (name ^ ": refusal kind") (refusal_of name outcome = "decision_differs");
+    let expected_reason =
+      "logreg+round-5 already has a release decision for round round-5, and this one differs in " ^ expected_words
+    in
+    assert_true
+      (name ^ ": reason was \"" ^ outcome.lifecycle_reason ^ "\"")
+      (outcome.lifecycle_reason = expected_reason);
+    assert_true (name ^ ": the refusal carries the round and the fields")
+      (outcome.verdict = LifecycleRefused (DecisionDiffers { differing_round_id = "round-5"; differing_fields = fields }))
+  in
+  let gate index change =
+    List.mapi (fun position result -> if position = index then change result else result) stored_gates
+  in
+  let gates results = { round_5_decision with decided_gate_results = results } in
+  check "action" { round_5_decision with decided_action = RequireAnotherRound } [ DecisionAction ] "action";
+  check "Guard verdict" { round_5_decision with decided_guard_permitted = false } [ DecisionGuardPermitted ]
+    "guard_permitted";
+  check "another baseline" { round_5_decision with decided_baseline_version = Some "rule-v2" } [ DecisionBaselineVersion ]
+    "baseline_version";
+  check "no baseline where one was stored" { round_5_decision with decided_baseline_version = None }
+    [ DecisionBaselineVersion ] "baseline_version";
+  check "a baseline where none was stored"
+    ~stored:{ round_5_decision with decided_baseline_version = None }
+    round_5_decision [ DecisionBaselineVersion ] "baseline_version";
+  check "metrics from the request" { round_5_decision with decided_metrics_source = MetricsFromRequest }
+    [ DecisionMetricsSource ] "metrics_source";
+  check "metrics source unrecorded" { round_5_decision with decided_metrics_source = MetricsSourceUnrecorded }
+    [ DecisionMetricsSource ] "metrics_source";
+  check "a source where none was stored"
+    ~stored:{ round_5_decision with decided_metrics_source = MetricsSourceUnrecorded }
+    round_5_decision [ DecisionMetricsSource ] "metrics_source";
+  check "an observed value one step away"
+    (gates (gate 0 (fun result -> { result with observed = Some (Float.succ 0.84) })))
+    [ DecisionGateResults ] "gate_results";
+  check "another threshold" (gates (gate 1 (fun result -> { result with threshold = Some 0.87 }))) [ DecisionGateResults ]
+    "gate_results";
+  check "no observed value where one was stored" (gates (gate 0 (fun result -> { result with observed = None })))
+    [ DecisionGateResults ] "gate_results";
+  check "no threshold where one was stored" (gates (gate 1 (fun result -> { result with threshold = None })))
+    [ DecisionGateResults ] "gate_results";
+  check "another outcome" (gates (gate 1 (fun result -> { result with outcome = GateNotEvaluated }))) [ DecisionGateResults ]
+    "gate_results";
+  check "another detail" (gates (gate 0 (fun result -> { result with gate_detail = "accuracy=0.84 required >= 0.79" })))
+    [ DecisionGateResults ] "gate_results";
+  check "another gate id" (gates (gate 0 (fun result -> { result with result_gate_id = "recall_floor" })))
+    [ DecisionGateResults ] "gate_results";
+  check "the same gates in another order" (gates (List.rev stored_gates)) [ DecisionGateResults ] "gate_results";
+  check "a gate fewer" (gates [ List.hd stored_gates ]) [ DecisionGateResults ] "gate_results";
+  check "a gate more" (gates (stored_gates @ [ List.hd stored_gates ])) [ DecisionGateResults ] "gate_results";
+  check "no gates" (gates []) [ DecisionGateResults ] "gate_results";
+  check "two fields"
+    { round_5_decision with decided_action = ReleaseCandidate; decided_baseline_version = Some "rule-v2" }
+    [ DecisionAction; DecisionBaselineVersion ] "action and baseline_version";
+  check "three fields, named in field order"
+    {
+      round_5_decision with
+      decided_gate_results = List.rev stored_gates;
+      decided_guard_permitted = false;
+      decided_action = ReleaseCandidate;
+    }
+    [ DecisionAction; DecisionGuardPermitted; DecisionGateResults ] "action, guard_permitted and gate_results";
+  check "every field"
+    {
+      decided_round_id = "round-5";
+      decided_action = ReleaseCandidate;
+      decided_guard_permitted = false;
+      decided_baseline_version = None;
+      decided_metrics_source = MetricsFromRequest;
+      decided_gate_results = [];
+    }
+    [ DecisionAction; DecisionGuardPermitted; DecisionBaselineVersion; DecisionMetricsSource; DecisionGateResults ]
+    "action, guard_permitted, baseline_version, metrics_source and gate_results";
+  (* The rule runs before the status match, so every status gets the same
+     refusal. *)
+  List.iter
+    (fun status ->
+      check ~status ("a different decision on a " ^ string_of_model_status status ^ " version")
+        { round_5_decision with decided_action = ReleaseCandidate } [ DecisionAction ] "action")
+    [ ModelCandidate; ModelReleased; ModelRejected; ModelSuperseded ];
+  assert_true "the refusal kind is decision_differs"
+    (string_of_lifecycle_refusal (DecisionDiffers { differing_round_id = "round-5"; differing_fields = [ DecisionAction ] })
+    = "decision_differs");
+  assert_true "each field has its snake_case name"
+    (List.map string_of_decision_field
+       [ DecisionAction; DecisionGuardPermitted; DecisionBaselineVersion; DecisionMetricsSource; DecisionGateResults ]
+    = [ "action"; "guard_permitted"; "baseline_version"; "metrics_source"; "gate_results" ])
+
+(** The gate results of [stored_gates] as JSON. *)
+let stored_gates_json =
+  [
+    `Assoc
+      [
+        ("gateId", `String "accuracy_floor");
+        ("outcome", `String "passed");
+        ("observed", `Float 0.84);
+        ("threshold", `Float 0.8);
+        ("detail", `String "accuracy=0.84 required >= 0.8");
+      ];
+    `Assoc
+      [
+        ("gateId", `String "improves_on_current");
+        ("outcome", `String "failed");
+        ("observed", `Float 0.84);
+        ("threshold", `Float 0.86);
+        ("detail", `String "accuracy=0.84 required >= baseline 0.85 + margin 0.01");
+      ];
+  ]
+
+(** [round_5_decision] as a stored decision's JSON. *)
+let stored_decision_json =
+  [
+    ("roundId", `String "round-5");
+    ("action", `String "reject");
+    ("guardPermitted", `Bool true);
+    ("baselineVersion", `String "rule-v1");
+    ("metricsSource", `String "rounds");
+    ("gateResults", `List stored_gates_json);
+  ]
+
+(** A [release_evaluated] event on a rejected version that repeats
+    [round_5_decision] and carries it as the stored decision. *)
+let evaluated_again_json =
+  [
+    ("kind", `String "release_evaluated");
+    ("status", `String "rejected");
+    ("action", `String "reject");
+    ("guardPermitted", `Bool true);
+    ("roundId", `String "round-5");
+    ("baselineVersion", `String "rule-v1");
+    ("metricsSource", `String "rounds");
+    ("gateResults", `List stored_gates_json);
+    ("storedDecision", `Assoc stored_decision_json);
+  ]
+
+(** Verifies the stored decision at the JSON boundary dagentsc uses: the event
+    keys, what is required, invalid input and the output. *)
+let test_release_evaluated_stored_decision_codec () =
+  let parse event =
+    (Json_codec.lifecycle_request_of_yojson (`Assoc [ ("version", `String "logreg+round-5"); ("event", `Assoc event) ]))
+      .lifecycle_event
+  in
+  let today = ReleaseEvaluated { status = ModelRejected; action = RejectCandidate; guard_permitted = true } in
+  assert_true "an event with a stored decision reads the new decision and the stored one"
+    (parse evaluated_again_json
+    = ReleaseEvaluatedWithStoredDecision
+        { status = ModelRejected; new_decision = round_5_decision; stored_decision = round_5_decision });
+  assert_true "a null stored decision is no stored decision"
+    (parse (with_field "storedDecision" `Null evaluated_again_json) = today);
+  assert_true "without a stored decision the new fields are checked and not needed"
+    (parse (without_field "storedDecision" evaluated_again_json) = today);
+  assert_true "without any new field the event reads as before"
+    (parse
+       (List.filter
+          (fun (key, _) -> List.mem key [ "kind"; "status"; "action"; "guardPermitted" ])
+          evaluated_again_json)
+    = today);
+  let nulls fields = with_field "baselineVersion" `Null (with_field "metricsSource" `Null fields) in
+  let bare = { round_5_decision with decided_baseline_version = None; decided_metrics_source = MetricsSourceUnrecorded } in
+  assert_true "a null baseline is none and a null metrics source is unrecorded"
+    (parse (with_field "storedDecision" (`Assoc (nulls stored_decision_json)) (nulls evaluated_again_json))
+    = ReleaseEvaluatedWithStoredDecision { status = ModelRejected; new_decision = bare; stored_decision = bare });
+  assert_true "the metrics source unrecorded can be written out"
+    (match parse (with_field "metricsSource" (`String "unrecorded") evaluated_again_json) with
+    | ReleaseEvaluatedWithStoredDecision { new_decision; _ } -> new_decision.decided_metrics_source = MetricsSourceUnrecorded
+    | _ -> false);
+  let integer_gate =
+    `Assoc
+      [
+        ("gateId", `String "count_floor");
+        ("outcome", `String "not_evaluated");
+        ("observed", `Null);
+        ("threshold", `Int 3);
+        ("detail", `String "candidate reported no metric named count");
+      ]
+  in
+  assert_true "a gate result reads integers as floats and null as none"
+    (match parse (with_field "gateResults" (`List [ integer_gate ]) evaluated_again_json) with
+    | ReleaseEvaluatedWithStoredDecision { new_decision; _ } ->
+        new_decision.decided_gate_results
+        = [
+            {
+              result_gate_id = "count_floor";
+              outcome = GateNotEvaluated;
+              observed = None;
+              threshold = Some 3.0;
+              gate_detail = "candidate reported no metric named count";
+            };
+          ]
+    | _ -> false);
+  (* With a stored decision, every field of the new decision is required. *)
+  List.iter
+    (fun name ->
+      expect_invalid_argument ("a stored decision without the event's " ^ name ^ " is refused") (fun () ->
+          parse (without_field name evaluated_again_json)))
+    [ "roundId"; "baselineVersion"; "metricsSource"; "gateResults"; "guardPermitted" ];
+  (* Without one, the new fields come all together or not at all. *)
+  List.iter
+    (fun name ->
+      expect_invalid_argument ("the new fields without " ^ name ^ " are refused") (fun () ->
+          parse (without_field "storedDecision" (without_field name evaluated_again_json))))
+    [ "roundId"; "baselineVersion"; "metricsSource"; "gateResults" ];
+  expect_invalid_argument "a round id alone is refused" (fun () ->
+      parse
+        [
+          ("kind", `String "release_evaluated");
+          ("status", `String "candidate");
+          ("action", `String "release");
+          ("roundId", `String "round-5");
+        ]);
+  (* Every field of the stored decision is required. *)
+  List.iter
+    (fun name ->
+      expect_invalid_argument ("a stored decision without " ^ name ^ " is refused") (fun () ->
+          parse (with_field "storedDecision" (`Assoc (without_field name stored_decision_json)) evaluated_again_json)))
+    (List.map fst stored_decision_json);
+  let with_stored value = with_field "storedDecision" value evaluated_again_json in
+  let stored_with name value = with_stored (`Assoc (with_field name value stored_decision_json)) in
+  let refused name event = expect_invalid_argument name (fun () -> parse event) in
+  refused "a stored decision that is not an object" (with_stored (`String "reject"));
+  refused "a stored decision that is a list" (with_stored (`List []));
+  refused "an empty stored round id" (stored_with "roundId" (`String ""));
+  refused "an empty new round id" (with_field "roundId" (`String "") evaluated_again_json);
+  refused "an unknown stored action" (stored_with "action" (`String "ship"));
+  refused "a stored Guard verdict as text" (stored_with "guardPermitted" (`String "true"));
+  refused "a new Guard verdict as text" (with_field "guardPermitted" (`String "true") evaluated_again_json);
+  refused "an unknown stored metrics source" (stored_with "metricsSource" (`String "memory"));
+  refused "an unknown new metrics source" (with_field "metricsSource" (`String "memory") evaluated_again_json);
+  refused "a stored baseline that is a number" (stored_with "baselineVersion" (`Int 1));
+  refused "gate results that are not a list" (stored_with "gateResults" (`Assoc []));
+  let with_gates gates = with_field "gateResults" (`List gates) evaluated_again_json in
+  refused "a gate result that is not an object" (with_gates [ `String "accuracy_floor" ]);
+  let gate_fields = match List.hd stored_gates_json with `Assoc fields -> fields | _ -> [] in
+  List.iter
+    (fun name -> refused ("a gate result without " ^ name) (with_gates [ `Assoc (without_field name gate_fields) ]))
+    (List.map fst gate_fields);
+  refused "an unknown gate outcome" (with_gates [ `Assoc (with_field "outcome" (`String "skipped") gate_fields) ]);
+  refused "an observed value as text" (with_gates [ `Assoc (with_field "observed" (`String "0.84") gate_fields) ]);
+  refused "a gate detail that is null" (with_gates [ `Assoc (with_field "detail" `Null gate_fields) ]);
+  (* The output keeps its four keys. *)
+  let encoded outcome = match Json_codec.yojson_of_lifecycle_outcome outcome with `Assoc fields -> fields | _ -> [] in
+  let differs = encoded (evaluated_again { round_5_decision with decided_action = ReleaseCandidate }) in
+  assert_true "a different decision gives the four keys"
+    (List.map fst differs = [ "allowed"; "refusal"; "reason"; "statusChanges" ]);
+  assert_true "a different decision is refused as decision_differs and changes nothing"
+    (List.assoc "allowed" differs = `Bool false
+    && List.assoc "refusal" differs = `String "decision_differs"
+    && List.assoc "statusChanges" differs = `List []);
+  let same = encoded (evaluated_again round_5_decision) in
+  assert_true "the same decision is allowed and changes nothing"
+    (List.assoc "allowed" same = `Bool true && List.assoc "refusal" same = `Null && List.assoc "statusChanges" same = `List [])
+
+(** A recovery question. The defaults describe a readable collecting training
+    round whose updates are kept and young, which recovery keeps. *)
+let recovery ?(status = RoundCollecting) ?(phase = TrainingRound) ?(readable = true) ?(kept = true) ?(candidate = false)
+    ?(oldest = Some 10.0) ?(limit = Some 86400.0) () =
+  Dagents_federation_compiler.decide_round_recovery
+    {
+      recovery_status = status;
+      recovery_phase = phase;
+      record_readable = readable;
+      updates_kept = kept;
+      candidate_registered = candidate;
+      oldest_update_age_seconds = oldest;
+      update_max_age_seconds = limit;
+    }
+
+(** A recovery verdict as text: ["keep"] or ["close:<reason>"]. *)
+let verdict_text (answer : round_recovery) =
+  match answer.recovery_verdict with
+  | KeepRound -> "keep"
+  | CloseRound reason -> "close:" ^ string_of_recovery_close_reason reason
+
+(** Assert a recovery verdict and its exact message. *)
+let check_recovery name answer expected_verdict expected_message =
+  assert_true (name ^ ": verdict was " ^ verdict_text answer) (verdict_text answer = expected_verdict);
+  assert_true (name ^ ": message was \"" ^ answer.recovery_message ^ "\"") (answer.recovery_message = expected_message)
+
+let every_phase = [ AnalyticsRound; EvaluationRound; TrainingRound ]
+
+(** Verifies each row of the recovery table with the inputs that would make
+    the next rows answer differently, so each row is shown to win. *)
+let test_round_recovery_rows () =
+  let old_update = Some 90000.0 and day = Some 86400.0 in
+  (* Row 1: a finished round is kept, even when everything else would close it. *)
+  List.iter
+    (fun status ->
+      let word = string_of_round_status status in
+      List.iter
+        (fun phase ->
+          List.iter
+            (fun readable ->
+              check_recovery ("finished " ^ word)
+                (recovery ~status ~phase ~readable ~kept:false ~oldest:old_update ~limit:day ())
+                "keep"
+                (Printf.sprintf "The round is already %s, so it stays as it is." word))
+            [ true; false ])
+        every_phase)
+    [ RoundAggregated; RoundClosed ];
+  (* Row 2: a planned, dispatched or collecting round whose record cannot be
+     read is closed, even with a registered candidate and kept updates. *)
+  List.iter
+    (fun status ->
+      let word = string_of_round_status status in
+      List.iter
+        (fun phase ->
+          check_recovery ("unreadable " ^ word)
+            (recovery ~status ~phase ~readable:false ~candidate:true ())
+            "close:unreadable_record"
+            (Printf.sprintf "The round is %s, but its stored record cannot be read, so it is closed." word))
+        every_phase)
+    [ RoundPlanned; RoundDispatched; RoundCollecting ];
+  (* Row 3: a dispatch cannot resume, even for an analytics round with a
+     registered candidate. *)
+  List.iter
+    (fun status ->
+      let word = string_of_round_status status in
+      List.iter
+        (fun phase ->
+          check_recovery ("interrupted " ^ word)
+            (recovery ~status ~phase ~candidate:true ())
+            "close:dispatch_interrupted"
+            (Printf.sprintf
+               "The round is %s, and a dispatch cannot resume after a restart, so it is closed; run it again under a new round id."
+               word))
+        every_phase)
+    [ RoundPlanned; RoundDispatched ];
+  (* Row 4: a collecting round of another phase holds its results in its
+     record, so lost or old updates do not matter. *)
+  List.iter
+    (fun phase ->
+      check_recovery
+        ("collecting " ^ string_of_round_phase phase)
+        (recovery ~phase ~kept:false ~oldest:old_update ~limit:day ())
+        "keep"
+        (Printf.sprintf "The %s round already holds its results, so it stays open and can be aggregated."
+           (string_of_round_phase phase)))
+    [ AnalyticsRound; EvaluationRound ];
+  (* Row 5: a registered candidate keeps a training round, even with lost and
+     old updates. *)
+  check_recovery "candidate registered"
+    (recovery ~candidate:true ~kept:false ~oldest:old_update ~limit:day ())
+    "keep" "The round's candidate is already registered, so it stays open and a retried aggregate returns that candidate.";
+  (* Row 6: lost updates close the round before their age is looked at. *)
+  check_recovery "updates not kept"
+    (recovery ~kept:false ~oldest:old_update ~limit:day ())
+    "close:updates_not_kept"
+    "The round's training updates were not kept across the restart, so it is closed; run it again under a new round id.";
+  (* Row 7: an update older than the limit. *)
+  check_recovery "updates expired"
+    (recovery ~oldest:old_update ~limit:day ())
+    "close:updates_expired"
+    "The round's oldest stored update is 90000 seconds old, more than the limit of 86400 seconds, so it is closed; run it again under a new round id.";
+  check_recovery "updates expired by a fraction of a second"
+    (recovery ~oldest:(Some 86400.04) ~limit:day ())
+    "close:updates_expired"
+    "The round's oldest stored update is 86400.04 seconds old, more than the limit of 86400 seconds, so it is closed; run it again under a new round id.";
+  (* Row 8: otherwise the round is kept. *)
+  let kept = "The round's training updates are kept, so it stays open." in
+  check_recovery "an update exactly at the limit" (recovery ~oldest:day ~limit:day ()) "keep" kept;
+  check_recovery "a young update" (recovery ~oldest:(Some 0.0) ()) "keep" kept;
+  check_recovery "no update stored" (recovery ~oldest:None ()) "keep" kept;
+  check_recovery "no age limit" (recovery ~oldest:(Some 1e9) ~limit:None ()) "keep" kept;
+  check_recovery "no update and no limit" (recovery ~oldest:None ~limit:None ()) "keep" kept
+
+(** The recovery table, written row by row from the plan. The planner is
+    checked against it over every combination of inputs. *)
+let expected_recovery status phase readable kept candidate oldest limit =
+  let finished = status = RoundAggregated || status = RoundClosed in
+  let dispatching = status = RoundPlanned || status = RoundDispatched in
+  if finished then "keep"
+  else if not readable then "close:unreadable_record"
+  else if dispatching then "close:dispatch_interrupted"
+  else if phase <> TrainingRound then "keep"
+  else if candidate then "keep"
+  else if not kept then "close:updates_not_kept"
+  else
+    match (oldest, limit) with
+    | Some age, Some limit when age > limit -> "close:updates_expired"
+    | _ -> "keep"
+
+(** Verifies the planner against the table for every status, phase, flag and
+    age case: 5 x 3 x 2 x 2 x 2 x 6 x 3 = 2160 questions. *)
+let test_round_recovery_table () =
+  let statuses = [ RoundPlanned; RoundDispatched; RoundCollecting; RoundAggregated; RoundClosed ] in
+  let flags = [ true; false ] in
+  let ages = [ None; Some 0.0; Some 86399.5; Some 86400.0; Some 86400.5; Some 1e9 ] in
+  let limits = [ None; Some 0.5; Some 86400.0 ] in
+  let checked = ref 0 in
+  List.iter
+    (fun status ->
+      List.iter
+        (fun phase ->
+          List.iter
+            (fun readable ->
+              List.iter
+                (fun kept ->
+                  List.iter
+                    (fun candidate ->
+                      List.iter
+                        (fun oldest ->
+                          List.iter
+                            (fun limit ->
+                              incr checked;
+                              let answer = recovery ~status ~phase ~readable ~kept ~candidate ~oldest ~limit () in
+                              let expected = expected_recovery status phase readable kept candidate oldest limit in
+                              let show = function None -> "none" | Some value -> Printf.sprintf "%g" value in
+                              assert_true
+                                (Printf.sprintf "%s %s readable=%b kept=%b candidate=%b age=%s limit=%s: expected %s, got %s"
+                                   (string_of_round_status status) (string_of_round_phase phase) readable kept candidate
+                                   (show oldest) (show limit) expected (verdict_text answer))
+                                (verdict_text answer = expected);
+                              let message = answer.recovery_message in
+                              assert_true "the message is one sentence"
+                                (message <> ""
+                                && message.[String.length message - 1] = '.'
+                                && not (contains (String.sub message 0 (String.length message - 1)) ". ")))
+                            limits)
+                        ages)
+                    flags)
+                flags)
+            flags)
+        every_phase)
+    statuses;
+  assert_true "every combination was checked" (!checked = 2160)
+
+(** A recovery input as JSON, with every key. *)
+let recovery_json =
+  [
+    ("status", `String "collecting");
+    ("phase", `String "training");
+    ("readable", `Bool true);
+    ("updatesKept", `Bool true);
+    ("candidateRegistered", `Bool false);
+    ("oldestUpdateAgeSeconds", `Int 90000);
+    ("updateMaxAgeSeconds", `Float 86400.0);
+  ]
+
+(** Verifies the recovery input and output at the JSON boundary dagentsc uses:
+    every status and phase, null ages, invalid input and the output keys. *)
+let test_round_recovery_codec () =
+  let parse fields = Json_codec.round_recovery_request_of_yojson (`Assoc fields) in
+  assert_true "the input is read key by key"
+    (parse recovery_json
+    = {
+        recovery_status = RoundCollecting;
+        recovery_phase = TrainingRound;
+        record_readable = true;
+        updates_kept = true;
+        candidate_registered = false;
+        oldest_update_age_seconds = Some 90000.0;
+        update_max_age_seconds = Some 86400.0;
+      });
+  List.iter
+    (fun (word, status) ->
+      assert_true ("status " ^ word) ((parse (with_field "status" (`String word) recovery_json)).recovery_status = status);
+      assert_true ("status " ^ word ^ " is written back") (string_of_round_status status = word))
+    [
+      ("planned", RoundPlanned);
+      ("dispatched", RoundDispatched);
+      ("collecting", RoundCollecting);
+      ("aggregated", RoundAggregated);
+      ("closed", RoundClosed);
+    ];
+  List.iter
+    (fun (word, phase) ->
+      assert_true ("phase " ^ word) ((parse (with_field "phase" (`String word) recovery_json)).recovery_phase = phase))
+    [ ("analytics", AnalyticsRound); ("evaluation", EvaluationRound); ("training", TrainingRound) ];
+  let nulls = parse (with_field "oldestUpdateAgeSeconds" `Null (with_field "updateMaxAgeSeconds" `Null recovery_json)) in
+  assert_true "null ages are none"
+    (nulls.oldest_update_age_seconds = None && nulls.update_max_age_seconds = None);
+  assert_true "an age of zero is an age"
+    ((parse (with_field "oldestUpdateAgeSeconds" (`Int 0) recovery_json)).oldest_update_age_seconds = Some 0.0);
+  assert_true "a fractional limit is a limit"
+    ((parse (with_field "updateMaxAgeSeconds" (`Float 0.25) recovery_json)).update_max_age_seconds = Some 0.25);
+  (* Malformed input: no answer can be made, so the codec raises. *)
+  List.iter
+    (fun name ->
+      expect_invalid_argument ("a missing " ^ name ^ " is refused") (fun () -> parse (without_field name recovery_json)))
+    (List.map fst recovery_json);
+  let refused name key value =
+    expect_invalid_argument name (fun () -> parse (with_field key value recovery_json))
+  in
+  refused "an unknown status" "status" (`String "running");
+  refused "a null status" "status" `Null;
+  refused "an unknown phase" "phase" (`String "inference");
+  refused "a phase that is a number" "phase" (`Int 1);
+  refused "readable as text" "readable" (`String "true");
+  refused "a null updatesKept" "updatesKept" `Null;
+  refused "candidateRegistered as a number" "candidateRegistered" (`Int 1);
+  refused "a negative age" "oldestUpdateAgeSeconds" (`Int (-1));
+  refused "a negative fractional age" "oldestUpdateAgeSeconds" (`Float (-0.5));
+  refused "an infinite age" "oldestUpdateAgeSeconds" (`Float infinity);
+  refused "an age that is not a number" "oldestUpdateAgeSeconds" (`Float nan);
+  refused "an age as text" "oldestUpdateAgeSeconds" (`String "10");
+  refused "a zero limit" "updateMaxAgeSeconds" (`Int 0);
+  refused "a zero fractional limit" "updateMaxAgeSeconds" (`Float 0.0);
+  refused "a negative limit" "updateMaxAgeSeconds" (`Float (-86400.0));
+  refused "an infinite limit" "updateMaxAgeSeconds" (`Float infinity);
+  refused "a limit as text" "updateMaxAgeSeconds" (`String "86400");
+  expect_invalid_argument "an input that is not an object is refused" (fun () ->
+      Json_codec.round_recovery_request_of_yojson (`List []));
+  (* The output has exactly three keys, in this order. *)
+  let encoded answer = match Json_codec.yojson_of_round_recovery answer with `Assoc fields -> fields | _ -> [] in
+  let closed = encoded (recovery ~oldest:(Some 90000.0) ()) in
+  assert_true "the output has three keys" (List.map fst closed = [ "verdict"; "reason"; "message" ]);
+  assert_true "a close names its reason"
+    (List.assoc "verdict" closed = `String "close" && List.assoc "reason" closed = `String "updates_expired");
+  let kept = encoded (recovery ()) in
+  assert_true "a keep has a null reason"
+    (List.assoc "verdict" kept = `String "keep"
+    && List.assoc "reason" kept = `Null
+    && List.assoc "message" kept = `String "The round's training updates are kept, so it stays open.");
+  assert_true "each close reason has its snake_case name"
+    (List.map string_of_recovery_close_reason [ UnreadableRecord; DispatchInterrupted; UpdatesNotKept; UpdatesExpired ]
+    = [ "unreadable_record"; "dispatch_interrupted"; "updates_not_kept"; "updates_expired" ]);
+  assert_true "each verdict has its name"
+    (List.map string_of_recovery_verdict [ KeepRound; CloseRound UpdatesExpired ] = [ "keep"; "close" ])
+
+(** Verifies that both new rules give the same output for the same input, and
+    that the order of the input's keys does not change it. *)
+let test_recovery_and_stored_decision_are_deterministic () =
+  let recover fields =
+    Yojson.Safe.to_string
+      (Json_codec.yojson_of_round_recovery
+         (Dagents_federation_compiler.decide_round_recovery (Json_codec.round_recovery_request_of_yojson (`Assoc fields))))
+  in
+  let lifecycle_text event =
+    Yojson.Safe.to_string
+      (Json_codec.yojson_of_lifecycle_outcome
+         (Dagents_federation_compiler.decide_model_lifecycle
+            (Json_codec.lifecycle_request_of_yojson
+               (`Assoc [ ("version", `String "logreg+round-5"); ("event", `Assoc event) ]))))
+  in
+  (* Reverse the keys of every object at every depth; list items keep their
+     order, because the order of gate results is part of a decision. *)
+  let rec reverse_keys (json : Yojson.Safe.t) : Yojson.Safe.t =
+    match json with
+    | `Assoc fields -> `Assoc (List.rev_map (fun (key, value) -> (key, reverse_keys value)) fields)
+    | `List items -> `List (List.map reverse_keys items)
+    | other -> other
+  in
+  let reversed fields = match reverse_keys (`Assoc fields) with `Assoc fields -> fields | _ -> fields in
+  let differing = with_field "action" (`String "release") evaluated_again_json in
+  List.iter
+    (fun fields ->
+      let first = recover fields in
+      for _ = 1 to 3 do
+        assert_equal_text "the same recovery input gives the same output" first (recover fields)
+      done;
+      assert_equal_text "the order of the recovery keys does not matter" first (recover (reversed fields)))
+    [
+      recovery_json;
+      with_field "status" (`String "dispatched") recovery_json;
+      with_field "updatesKept" (`Bool false) recovery_json;
+      with_field "oldestUpdateAgeSeconds" `Null recovery_json;
+    ];
+  List.iter
+    (fun event ->
+      let first = lifecycle_text event in
+      for _ = 1 to 3 do
+        assert_equal_text "the same lifecycle input gives the same output" first (lifecycle_text event)
+      done;
+      assert_equal_text "the order of the lifecycle keys does not matter" first (lifecycle_text (reversed event)))
+    [ evaluated_again_json; differing; with_field "storedDecision" `Null differing ]
+
 (** Verifies that governance payloads survive the JSON boundary services use,
     since the planners are reached over a subprocess rather than in-process. *)
 let test_governance_and_federation_codec_roundtrip () =
@@ -2773,6 +3462,13 @@ let () =
       ("model lifecycle events", test_model_lifecycle_events);
       ("model lifecycle refusals and their order", test_model_lifecycle_refusals_and_order);
       ("model lifecycle JSON codec", test_model_lifecycle_codec);
+      ("release evaluated with a stored decision", test_release_evaluated_with_a_stored_decision);
+      ("release evaluated names each differing field", test_release_evaluated_names_each_differing_field);
+      ("release evaluated stored decision JSON codec", test_release_evaluated_stored_decision_codec);
+      ("round recovery rows", test_round_recovery_rows);
+      ("round recovery table", test_round_recovery_table);
+      ("round recovery JSON codec", test_round_recovery_codec);
+      ("round recovery and stored decision are deterministic", test_recovery_and_stored_decision_are_deterministic);
       ("governance and federation codec round trip", test_governance_and_federation_codec_roundtrip);
     ]
   in

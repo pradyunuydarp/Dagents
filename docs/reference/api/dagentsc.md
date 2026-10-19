@@ -13,7 +13,7 @@ the service, and lets either side be upgraded alone.
 | Binary | `bindings/ocaml/_build/default/bin/dagentsc.exe` locally, `dagentsc` on `PATH` in the containers |
 | How services find it | `DAGENTSC_BIN`, then the planner bundled in a platform wheel of the `dagents` package (`dagents/_bin/dagentsc`), then `dagentsc` on `PATH`. `python -m dagents` prints which one it found, and an LMA or GMA that cannot start one logs a warning |
 | Python wrapper | `dagents/common/infrastructure/dagents_runner.py` |
-| Commands | 18, in six groups |
+| Commands | 19, in six groups |
 
 Every command is pure: it reads its input, decides, and prints the result. It
 opens no database, no network connection and no file other than the ones its
@@ -87,9 +87,12 @@ Which services run which commands:
 | `federation model lifecycle` | the GMA's model registry, for every change of a model version's status |
 
 The remaining commands (`dataset profile`, `source metadata`, `transform
-compile`, `transform apply`, `governance assess`) are not called by any
-service in this version. The demo scripts in `docs/demo/` call them. Each
-endpoint card on the other pages lists the commands its example ran.
+compile`, `transform apply`, `governance assess`, `federation round recover`)
+are not called by any service in this version. The demo scripts in
+`docs/demo/` call `transform compile` and `transform apply`. `federation round
+recover` is for a GMA that keeps its rounds across a restart, which is not
+built yet. Each endpoint card on the other pages lists the commands its example
+ran.
 
 The planners' design is in `bindings/ocaml/README.md`.
 
@@ -670,17 +673,21 @@ classes:
 endpoints:
 - dagentsc federation round plan
 - dagentsc federation round digest
+- dagentsc federation round recover
 - dagentsc federation aggregate readiness
 - dagentsc federation release evaluate
 - dagentsc federation model lifecycle
 ```
 
-Govern a federated study without running one. The first four commands make
-every deterministic decision of a round; the round controller
+Govern a federated study without running one. Four commands (`round plan`,
+`round digest`, `aggregate readiness` and `release evaluate`) make every
+deterministic decision of a round; the round controller
 (`dagents/common/application/federation.py`) holds the state and calls them.
-The fifth decides how each event changes a model version's status, so a model
-registry applies its answer and keeps no status rule of its own. The federated
-protocol itself belongs to a runtime behind `FederationEngine`.
+`round recover` decides whether a round stored before a restart is kept or
+closed. `model lifecycle` decides how each event changes a model version's
+status, so a model registry applies its answer and keeps no status rule of its
+own. The federated protocol itself belongs to a runtime behind
+`FederationEngine`.
 
 The examples follow one evaluation round of a retail study across five invited
 stores, with the same manifest as [the GMA's examples](agents.md#federated-rounds).
@@ -751,6 +758,53 @@ offered with the digest it computes, and every result must carry it as its
 **Errors.** As for planning a round.
 
 **Related.** [Decide aggregation readiness](#dagentsc-federation-aggregate-readiness).
+
+### Keep or close a round after a restart
+
+```api-endpoint
+dagentsc federation round recover
+```
+
+Reads what a GMA knows about one round it stored before a restart, and decides
+whether the round stays open or is closed. A closed round is run again under a
+new round id. The command reads no clock: the caller measures the age of the
+oldest stored update and passes it in. No service calls this command yet. The
+GMA keeps its rounds in memory in this version.
+
+Every key is required:
+
+| Key | Value |
+|---|---|
+| `status` | The stored round's status: `planned`, `dispatched`, `collecting`, `aggregated` or `closed`, the five statuses of a round record |
+| `phase` | `analytics`, `evaluation` or `training` |
+| `readable` | Whether the stored record could be read |
+| `updatesKept` | Whether the round's training updates survive a restart |
+| `candidateRegistered` | Whether the round's candidate is already in the model registry |
+| `oldestUpdateAgeSeconds` | The age of the oldest stored update in seconds, 0 or more, or `null` when no update is stored |
+| `updateMaxAgeSeconds` | The age limit for stored updates in seconds, more than 0, or `null` for no limit |
+
+The output has `verdict` (`keep` or `close`), `reason` (`null` for a kept
+round) and `message`, one sentence. A close is a normal result, so the exit
+code is 0. The rows are checked in order, and the first that matches decides:
+
+| Status | Condition | Verdict | `reason` |
+|---|---|---|---|
+| `aggregated`, `closed` | any | `keep` | `null` |
+| `planned`, `dispatched`, `collecting` | `readable` is false | `close` | `unreadable_record` |
+| `planned`, `dispatched` | readable | `close` | `dispatch_interrupted`: a dispatch cannot resume after a restart |
+| `collecting`, phase `analytics` or `evaluation` | readable | `keep` | `null`: the record holds the results |
+| `collecting`, phase `training` | `candidateRegistered` is true | `keep` | `null`: a retried aggregate returns that candidate |
+| `collecting`, phase `training` | `updatesKept` is false | `close` | `updates_not_kept` |
+| `collecting`, phase `training` | both ages are numbers and the age is above the limit | `close` | `updates_expired` |
+| `collecting`, phase `training` | any other | `keep` | `null` |
+
+An age equal to the limit keeps the round.
+
+**Errors.** Exit `2` for a missing key, an unknown status or phase, a value of
+the wrong type, an age below 0, a limit of 0 or less, or an age or limit that
+is not a finite number.
+
+**Related.** [Decide a model version's status](#dagentsc-federation-model-lifecycle).
 
 ### Decide which results may be aggregated
 
@@ -825,7 +879,7 @@ is a normal result, so the exit code is 0.
 |---|---|---|---|
 | `registered` | `requestedStatus` (`candidate`, the default, or `released`), `releasedVersion` | The version is added as a candidate, or as the release when it asks to be one and nothing is released | `already_released` |
 | `aggregated` | `parentVersion`, `parentStatus` | The version a training round produced is added as a candidate. Its parent becomes `superseded` when the parent is a candidate, and keeps its status otherwise | none |
-| `release_evaluated` | `status`, `action` (the gates' `release`, `another_round` or `reject`), `guardPermitted` (default false) | The version stays a candidate when the gates decided `release` and the release Guard permitted it, and becomes `rejected` otherwise | `not_candidate` |
+| `release_evaluated` | `status`, `action` (the gates' `release`, `another_round` or `reject`), `guardPermitted` (default false). To check a repeated decision, also `storedDecision`, `roundId`, `baselineVersion`, `metricsSource` and `gateResults` | The version stays a candidate when the gates decided `release` and the release Guard permitted it, and becomes `rejected` otherwise. A repeated decision for the same round changes nothing (see below) | `not_candidate`, `decision_differs` |
 | `approval_requested` | `status`, `decision`, `releasedVersion` | The version becomes `released`, and `releasedVersion` becomes `superseded` | `no_decision`, `gates_decided`, `guard_denied`, `metrics_not_from_rounds`, `not_candidate`, `baseline_changed` |
 
 `decision` is the release decision stored with the candidate: `action`,
@@ -846,11 +900,44 @@ that fails:
 The reasons use the wording of the healthcare demo's approval, for example
 "the release gates decided reject for VERSION".
 
+**A repeated release evaluation.** A `release_evaluated` event may carry
+`storedDecision`, the release decision the version already holds, so a retried
+evaluation of the same round does not change the version again. It has six
+keys, all required: `roundId`, `action`, `guardPermitted`, `baselineVersion`,
+`metricsSource` and `gateResults`. Each gate result has `gateId`, `outcome`
+(`passed`, `failed` or `not_evaluated`), `observed`, `threshold` and `detail`,
+as in [the ReleaseDecision object](agents.md#the-releasedecision-object).
+`baselineVersion`, `metricsSource`, `observed` and `threshold` may be `null`.
+With `storedDecision`, the event must give the new decision's `roundId`,
+`baselineVersion`, `metricsSource` and `gateResults`, and `guardPermitted` is
+required. The planner compares the two decisions before it looks at the
+version's status:
+
+| Stored decision | Answer |
+|---|---|
+| Same `roundId`, and the other five fields equal | Allowed, with no status changes, on any status. The reason says the version already has the same decision for the round |
+| Same `roundId`, and any field different | Refused as `decision_differs`. The reason names the fields that differ in snake_case, in the order above, for example "differs in action, baseline_version and gate_results" |
+| Another `roundId`, or none | The rule in the table above |
+
+Gate results are compared in order, field by field, and numbers exactly, so
+`0.84` and the next larger floating-point number differ. An integer and the
+same number written with a fraction, such as `1` and `1.0`, are equal, and so
+are `-0.0` and `0.0`. The same decision is allowed on a `rejected` version
+too, so a retry after a rejection is not refused as `not_candidate`. Without
+`storedDecision`, the new decision's four keys are optional, but they must come
+together, and they do not change the answer. The GMA's model registry does not send
+`storedDecision` yet.
+
 **Errors.** Exit `2` when `version` or `event` is missing or `version` is
 empty, for an unknown event kind, status, action or metrics source, for a
 registration that asks for `rejected` or `superseded`, for an aggregation
 without `parentVersion`, and for an event that names one version twice: an
 aggregation whose parent is the version itself, or an approval of a candidate
-that is also given as `releasedVersion`.
+that is also given as `releasedVersion`. With `storedDecision`, also for a
+missing key in either decision or in a gate result, an empty `roundId`, a
+value of the wrong type and an unknown gate outcome. Without it, the new
+decision's keys are checked the same way when they are given, and an event
+that gives some of `roundId`, `baselineVersion`, `metricsSource` and
+`gateResults` but not all four is refused.
 
 **Related.** [Evaluate release gates](#dagentsc-federation-release-evaluate).

@@ -1,0 +1,5 @@
+{
+  "verdict": "keep",
+  "reason": null,
+  "message": "The round's training updates are kept, so it stays open."
+}

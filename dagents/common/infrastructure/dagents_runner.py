@@ -370,17 +370,79 @@ def model_lifecycle(version: str, event: dict[str, Any]) -> dict[str, Any]:
       ``released``) and ``released_version``.
     - ``aggregated``: ``parent_version`` and ``parent_status``.
     - ``release_evaluated``: ``status``, ``action`` and ``guard_permitted``.
+      It may also carry ``stored_decision``, the release decision the version
+      already holds: ``round_id``, ``action``, ``guard_permitted``,
+      ``baseline_version``, ``metrics_source`` and ``gate_results`` (each
+      result with ``gate_id``, ``outcome``, ``observed``, ``threshold`` and
+      ``detail``). ``baseline_version`` and ``metrics_source`` may be
+      ``None``. With it, the event must also give the new decision's
+      ``round_id``, ``baseline_version``, ``metrics_source`` and
+      ``gate_results``, and ``guard_permitted`` becomes required. For the same
+      round, the same six fields change nothing on any status, and any
+      difference is refused as ``decision_differs``, with the differing fields
+      named in the reason. A stored decision for another round, or none,
+      gives the answer the event gets without one.
     - ``approval_requested``: ``status``, ``decision`` (the stored release
       decision, with ``action``, ``guard_permitted``, ``metrics_source`` and
       ``baseline_version``, or ``None``) and ``released_version``.
 
     Returns ``allowed``, ``refusal`` (``None`` or a kind such as
-    ``not_candidate``), ``reason`` and ``status_changes`` (``version``,
-    ``from_status``, ``to_status``), sorted by version. A refusal is a normal
-    answer. Raises :class:`PlannerUnavailableError` when the planner cannot be
-    run or cannot read the event.
+    ``not_candidate`` or ``decision_differs``), ``reason`` and
+    ``status_changes`` (``version``, ``from_status``, ``to_status``), sorted
+    by version. A refusal is a normal answer. Raises
+    :class:`PlannerUnavailableError` when the planner cannot be run or cannot
+    read the event.
     """
     return run_dagentsc(
         ["federation", "model", "lifecycle", "--input", "-"],
         {"version": version, "event": event},
+    )
+
+
+def round_recovery(
+    *,
+    status: str,
+    phase: str,
+    readable: bool,
+    updates_kept: bool,
+    candidate_registered: bool,
+    oldest_update_age_seconds: float | None,
+    update_max_age_seconds: float | None,
+) -> dict[str, Any]:
+    """Decide whether a round stored before a restart is kept or closed.
+
+    Params:
+    - `status`: the stored round's status: ``planned``, ``dispatched``,
+      ``collecting``, ``aggregated`` or ``closed``.
+    - `phase`: ``analytics``, ``evaluation`` or ``training``.
+    - `readable`: whether the stored record could be read.
+    - `updates_kept`: whether the round's training updates survive a restart.
+    - `candidate_registered`: whether the round's candidate is already in the
+      model registry.
+    - `oldest_update_age_seconds`: the age of the oldest stored update, or
+      ``None`` when no update is stored. The caller reads the clock.
+    - `update_max_age_seconds`: the age limit for stored updates, or ``None``
+      for no limit.
+
+    Every input is required, and ``None`` is sent as null. Returns
+    ``verdict`` (``keep`` or ``close``), ``reason`` (``None`` for a kept
+    round, else ``unreadable_record``, ``dispatch_interrupted``,
+    ``updates_not_kept`` or ``updates_expired``) and ``message``, one
+    sentence. A close is a normal answer. Raises
+    :class:`PlannerUnavailableError` when the planner cannot be run or refuses
+    the input: an unknown status or phase, a value of the wrong type, a
+    negative or non-finite age, or a limit that is not a finite number above
+    0. Use ``None``, not ``math.inf``, for no limit.
+    """
+    return run_dagentsc(
+        ["federation", "round", "recover", "--input", "-"],
+        {
+            "status": status,
+            "phase": phase,
+            "readable": readable,
+            "updates_kept": updates_kept,
+            "candidate_registered": candidate_registered,
+            "oldest_update_age_seconds": oldest_update_age_seconds,
+            "update_max_age_seconds": update_max_age_seconds,
+        },
     )
