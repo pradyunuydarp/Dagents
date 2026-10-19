@@ -118,7 +118,7 @@ connection string.
 | `conflict` | 409 | A round id used twice, a late result, a second offer, update or approval, a model that does not match its digest, a classification that differs from the registered one. A refusal by the planner's model lifecycle rule adds `refusal` |
 | `aggregation_refused` | 409 | The planner does not permit aggregation, or a stored update is missing or changed |
 | `invalid_request` | 422 | A release evaluation the GMA cannot run as asked, or a model version whose name or parameters are not valid |
-| `planner_unavailable` | 503 | `dagentsc` could not be run, ran past `DAGENTSC_TIMEOUT_SECONDS`, printed more than `DAGENTSC_MAX_OUTPUT_BYTES`, or its answer could not be read; or the input was over `DAGENTSC_MAX_INPUT_BYTES`, or the binary's SHA-256 is not the one `DAGENTSC_SHA256` requires, so it was not started |
+| `planner_unavailable` | 503 | `dagentsc` could not be run, ran past `DAGENTSC_TIMEOUT_SECONDS`, printed more than `DAGENTSC_MAX_OUTPUT_BYTES`, or its answer could not be used (not JSON, nested more than 200 levels deep, or not the plan the route asked for); or the input was over `DAGENTSC_MAX_INPUT_BYTES`, or the binary's SHA-256 is not the one `DAGENTSC_SHA256` requires, so it was not started |
 | `store_unavailable`, `store_not_set_up` | 503 | The agent's database could not be reached, or is not set up for the agent's role |
 | `agent_unavailable` | 503 | The other agent did not answer, or no address is configured for it |
 | `bad_gateway` (LMA), `agent_error` (GMA) | 502 | The other agent answered with an error |

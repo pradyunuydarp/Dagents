@@ -81,8 +81,9 @@ Also test, for your application:
 
 Every planner failure is a denial with an audit record: a missing binary, a
 non-zero exit, a call past `DAGENTSC_TIMEOUT_SECONDS`, output over
-`DAGENTSC_MAX_OUTPUT_BYTES`, cut-off output, output that is not JSON or is
-nested too deeply to read, an input over `DAGENTSC_MAX_INPUT_BYTES`, a
+`DAGENTSC_MAX_OUTPUT_BYTES`, cut-off output, output that is not JSON, is
+nested more than 200 levels deep or is not a plan, an input over
+`DAGENTSC_MAX_INPUT_BYTES`, a
 `DAGENTSC_BIN` that names a device or a FIFO, a plan that names a strategy the
 Guard cannot apply, and a plan the Guard fails to apply to the records
 ([Step 8](08-deploy.md#planner-settings) lists the settings).

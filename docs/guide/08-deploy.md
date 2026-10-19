@@ -118,7 +118,9 @@ timeout, so the caller gets the Guard's denial instead of a timeout.
 
 When a call runs past the timeout or prints more than the output limit, the
 runner stops the planner and every process it started. It refuses an input
-over the input limit before the planner starts. Each of these is a planner
+over the input limit before the planner starts. It also refuses an answer that
+nests objects and lists more than 200 levels deep. The deepest real answer has
+six levels, and this limit is not a setting. Each of these is a planner
 failure: the Guard denies the request and records the denial, and a route that
 only asks the planner answers `503` with the code `planner_unavailable`.
 

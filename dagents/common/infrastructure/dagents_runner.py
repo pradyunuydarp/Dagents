@@ -754,14 +754,46 @@ def _exit_failure(returncode: int, stderr: bytes | str) -> PlannerUnavailableErr
     return PlannerUnavailableError(f"{cause}: {detail}" if detail else cause)
 
 
-#: The message for an answer nested deeper than Python's JSON decoder, or the
-#: key conversion after it, can go (about 1,000 levels for the decoder, and
-#: about 500 nested lists for the conversion).
-_NESTED_TOO_DEEPLY = "dagentsc returned JSON nested too deeply"
+#: The deepest a planner answer may nest, counting each object and each list as
+#: one level: ``{"a": [1]}`` is two levels deep. The deepest real answer in the
+#: repository is six levels (``pipeline compile``, in the captured API
+#: examples); the agent suite, the healthcare suite, core-service's suite and
+#: the getting-started example see no answer deeper than three. The limit is
+#: fixed rather than left to Python: the key conversion is recursive, and how
+#: deep it can go depends on the Python version (about 500 nested lists on
+#: 3.11, about 1,000 on 3.12 and later). 200 levels stay far inside both.
+MAX_ANSWER_DEPTH = 200
+
+#: The message for an answer deeper than :data:`MAX_ANSWER_DEPTH`, or deeper
+#: than Python's JSON decoder goes (about 1,000 levels on 3.11).
+_NESTED_TOO_DEEPLY = f"dagentsc returned JSON nested too deeply (more than {MAX_ANSWER_DEPTH} levels)"
+
+
+def _check_depth(answer: Any) -> None:
+    """Raise :class:`PlannerUnavailableError` when the answer nests deeper than :data:`MAX_ANSWER_DEPTH`.
+
+    It walks the answer with a list of pending values instead of recursion,
+    so the check itself cannot run out of stack.
+    """
+    pending: list[tuple[Any, int]] = [(answer, 1)]
+    while pending:
+        value, depth = pending.pop()
+        if isinstance(value, dict):
+            children = value.values()
+        elif isinstance(value, list):
+            children = value
+        else:
+            continue
+        if depth > MAX_ANSWER_DEPTH:
+            raise PlannerUnavailableError(_NESTED_TOO_DEEPLY)
+        pending.extend((child, depth + 1) for child in children if isinstance(child, (dict, list)))
 
 
 def _parse_output(stdout: bytes | str) -> Any:
-    """Read the planner's answer as JSON, or say why it cannot be read."""
+    """Read the planner's answer as JSON, or say why it cannot be read.
+
+    An answer deeper than :data:`MAX_ANSWER_DEPTH` cannot be read either.
+    """
     text = stdout if isinstance(stdout, str) else None
     if text is None:
         try:
@@ -772,7 +804,7 @@ def _parse_output(stdout: bytes | str) -> Any:
     if not stripped:
         raise PlannerUnavailableError("dagentsc printed no answer")
     try:
-        return json.loads(stripped)
+        answer = json.loads(stripped)
     except RecursionError:
         raise PlannerUnavailableError(_NESTED_TOO_DEEPLY) from None
     except json.JSONDecodeError as error:
@@ -782,6 +814,8 @@ def _parse_output(stdout: bytes | str) -> Any:
             ) from None
         # The decoder's message names a position, never the text itself.
         raise PlannerUnavailableError(f"dagentsc returned invalid json: {error.msg} at character {error.pos}") from None
+    _check_depth(answer)
+    return answer
 
 
 def _execute(full_cmd: list[str], input_str: str | None = None) -> Any:
@@ -791,8 +825,8 @@ def _execute(full_cmd: list[str], input_str: str | None = None) -> Any:
     sense, when the input is over ``DAGENTSC_MAX_INPUT_BYTES``, when the
     binary's SHA-256 is not the one ``DAGENTSC_SHA256`` requires, when the
     binary cannot be started, exits with an error, runs past its timeout or
-    prints too much, and when its output is not JSON or is nested too deeply
-    to read.
+    prints too much, and when its output is not JSON or nests deeper than
+    :data:`MAX_ANSWER_DEPTH`.
     """
     limits = _limits_for_call()
     input_bytes = None if input_str is None else input_str.encode("utf-8")
@@ -815,7 +849,8 @@ def _execute(full_cmd: list[str], input_str: str | None = None) -> Any:
     try:
         return convert_keys(parsed, to_snake_case)
     except RecursionError:
-        # The decoder reads nested lists the recursive key conversion cannot.
+        # The depth check keeps a planner's answer far inside the recursion
+        # limit; this catch is for a caller that runs close to the limit.
         raise PlannerUnavailableError(_NESTED_TOO_DEEPLY) from None
 
 

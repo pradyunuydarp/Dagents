@@ -374,7 +374,10 @@ with a limit that is zero, negative or not a number.
 for each case in the list, and for a pinned hash that differs. An unknown
 strategy now denies the whole request; before, the Guard withheld that field
 and applied the rest of the plan. A plan the Guard fails to apply to the
-records is a denial too; before, `enforce` raised and wrote no record. Every audit record names its planner:
+records is a denial too; before, `enforce` raised and wrote no record. A
+planner answer that nests more than 200 levels deep, or a restriction plan
+that fails validation, is a planner failure too, on every Python version the
+package supports. Every audit record names its planner:
 `planner_version` is the `dagents` version, because the binary prints none,
 and `planner_sha256` is the binary's SHA-256. `DAGENTSC_SHA256` pins the hash.
 The LMA and GMA compare it when they are built and log a warning on a

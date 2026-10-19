@@ -28,13 +28,20 @@ from collections.abc import Mapping
 from types import MappingProxyType
 from typing import Any, NamedTuple, Protocol
 
+from pydantic import ValidationError
+
 from dagents.common.domain.governance import (
     AuditRecord,
     GuardDecision,
     RestrictionPlan,
     RestrictionRequest,
 )
-from dagents.common.infrastructure.dagents_runner import PlannerIdentity, plan_restrictions, planner_identity
+from dagents.common.infrastructure.dagents_runner import (
+    PlannerIdentity,
+    PlannerUnavailableError,
+    plan_restrictions,
+    planner_identity,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -89,12 +96,38 @@ class DagentscRestrictionPlanner:
     """
 
     def plan(self, request: RestrictionRequest) -> RestrictionPlan:
+        """Ask the planner for the plan.
+
+        Raises :class:`PlannerUnavailableError` when the planner cannot be run
+        or its answer is not a restriction plan. The message names the fields
+        that are wrong, never a value from the answer, which can repeat the
+        request.
+        """
         payload = plan_restrictions(request.model_dump(mode="json"))
-        return RestrictionPlan.model_validate(payload)
+        try:
+            return RestrictionPlan.model_validate(payload)
+        except ValidationError as error:
+            raise PlannerUnavailableError(_not_a_plan(error)) from None
 
     def identity(self) -> PlannerIdentity:
         """The planner the next call starts: this package's version and the binary's SHA-256."""
         return planner_identity()
+
+
+#: How many wrong fields a "not a plan" message names.
+_FIELDS_NAMED = 10
+
+
+def _not_a_plan(error: ValidationError) -> str:
+    """Why the planner's answer is not a plan: the number of errors and the fields they are at.
+
+    The locations are the plan's own field names and list positions;
+    ``RestrictionPlan`` has no map, so none of them comes from the answer.
+    """
+    places = sorted({".".join(str(part) for part in item["loc"]) or "the answer" for item in error.errors()})
+    named = ", ".join(places[:_FIELDS_NAMED]) + (", ..." if len(places) > _FIELDS_NAMED else "")
+    count = error.error_count()
+    return f"dagentsc's answer is not a restriction plan: {count} validation error{'' if count == 1 else 's'} at {named}"
 
 
 #: Audit record fields added after audit chains were first stored. The digest

@@ -26,8 +26,10 @@
 - The Guard denies a request, and records the denial, when applying the plan to
   the records fails, for example on an integer too large for a float. Before,
   `enforce` raised and wrote no audit record.
-- A planner answer nested too deeply to read is a planner failure: a planner
-  route answers `503` `planner_unavailable`. Before, it answered `500`.
+- A planner answer that nests more than 200 levels deep is a planner failure,
+  on every supported Python version: a planner route answers `503`
+  `planner_unavailable`. So does `restrictions:plan` when the planner's answer
+  is not a restriction plan. Before, both answered `500`.
 - The runner hashes only a regular file. A `DAGENTSC_BIN` that names a device
   or a FIFO has no hash, and the Guard denies at once. The hash is kept per
   path, size, modification time and change time, so a binary rewritten in place

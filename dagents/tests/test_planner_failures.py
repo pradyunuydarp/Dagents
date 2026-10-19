@@ -54,12 +54,31 @@ NOT_APPLIED = "The Guard could not apply the planner's plan to these records, so
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 
-#: An answer nested deeper than Python's JSON decoder goes (about 1,000 levels).
+#: An answer 1,200 levels deep. Python 3.11's JSON decoder stops near 1,000
+#: levels; 3.12 and later decode it, and the runner's depth check refuses it.
 NESTED_OBJECTS = b'{"a":' * 1200 + b"1" + b"}" * 1200
 
-#: An answer the decoder reads, nested deeper than converting its keys can go.
-#: Each list level costs the key conversion two Python frames.
-NESTED_LISTS = b'{"a":' + b"[" * 700 + b"1" + b"]" * 700 + b"}"
+
+def nested_answer(depth: int) -> bytes:
+    """An answer ``depth`` levels deep: an object that holds ``depth - 1`` nested lists around a 1."""
+    return b'{"a":' + b"[" * (depth - 1) + b"1" + b"]" * (depth - 1) + b"}"
+
+
+def nested_value(depth: int) -> dict[str, Any]:
+    """What :func:`nested_answer` reads as."""
+    value: Any = 1
+    for _ in range(depth - 1):
+        value = [value]
+    return {"a": value}
+
+
+#: An answer 301 levels deep, past the runner's limit of 200. Python's JSON
+#: decoder reads it, and converting its keys works on every Python version the
+#: package supports: the conversion takes two frames for each list level on
+#: Python 3.11 and one on 3.12 and later (PEP 709), so it reaches the default
+#: limit of 1,000 frames only near 500 levels on 3.11. Only the runner's own
+#: depth check refuses this answer, on every version.
+NESTED_LISTS = nested_answer(301)
 
 
 def call_within(test: unittest.TestCase, seconds: float, call: Callable[[], Any]) -> Any:
@@ -298,11 +317,45 @@ class RunnerFailureTests(FakePlannerCase):
                 call()
             self.assert_clean_message(raised.exception, "nested too deeply")
 
-    def test_output_nested_too_deeply_to_convert(self) -> None:
-        """The decoder reads these lists; converting their keys is what goes too deep."""
+    def test_output_deeper_than_the_limit(self) -> None:
+        """The decoder reads these lists, and so would the key conversion. The runner's limit refuses them."""
         self.planner_printing(NESTED_LISTS)
         with self.assertRaises(PlannerUnavailableError) as raised:
             dagents_runner.compile_round_plan({"round_id": SECRET}, [])
+        self.assert_clean_message(
+            raised.exception, "nested too deeply", f"more than {dagents_runner.MAX_ANSWER_DEPTH} levels"
+        )
+
+    def test_output_at_the_depth_limit_is_read_in_full(self) -> None:
+        limit = dagents_runner.MAX_ANSWER_DEPTH
+        self.assertEqual(200, limit)
+        self.planner_printing(nested_answer(limit))
+        self.assertEqual(nested_value(limit), dagents_runner.run_dagentsc(["governance", "restrict", "--input", "-"], {}))
+        self.planner_printing(nested_answer(limit + 1))
+        with self.assertRaises(PlannerUnavailableError) as raised:
+            dagents_runner.run_dagentsc(["governance", "restrict", "--input", "-"], {})
+        self.assert_clean_message(raised.exception, "nested too deeply")
+
+    def test_the_depth_limit_counts_objects_and_lists_alike(self) -> None:
+        objects = b'{"a":' * 201 + b"1" + b"}" * 201
+        self.planner_printing(objects)
+        with self.assertRaises(PlannerUnavailableError) as raised:
+            dagents_runner.run_dagentsc(["governance", "restrict", "--input", "-"], {})
+        self.assert_clean_message(raised.exception, "nested too deeply")
+        # A wide answer is not a deep one.
+        wide = json.dumps({"rows": [[{"value": index}] for index in range(5_000)]}).encode()
+        self.planner_printing(wide)
+        self.assertEqual(5_000, len(dagents_runner.run_dagentsc(["governance", "restrict", "--input", "-"], {})["rows"]))
+
+    def test_a_recursion_error_while_converting_keys_is_a_planner_failure(self) -> None:
+        """The key conversion keeps its own guard, for an answer that reaches it deeper than the limit."""
+        deep: Any = 1
+        for _ in range(sys.getrecursionlimit() + 100):
+            deep = [deep]
+        self.planner_printing(b"{}")
+        with patch.object(dagents_runner, "_parse_output", return_value={"a": deep}):
+            with self.assertRaises(PlannerUnavailableError) as raised:
+                dagents_runner.compile_round_plan({"round_id": SECRET}, [])
         self.assert_clean_message(raised.exception, "nested too deeply")
 
     def test_a_special_file_is_not_read_to_check_a_pinned_hash(self) -> None:
@@ -412,9 +465,8 @@ ROUND_MANIFEST = {
 class AgentAnswerTests(FakePlannerCase):
     """An LMA or GMA answers 503 planner_unavailable for an answer it cannot read, never a 500."""
 
-    def test_an_answer_nested_too_deeply_is_a_503(self) -> None:
-        from fastapi.testclient import TestClient
-
+    def agent_calls(self) -> tuple[tuple[str, Any, str, dict[str, Any]], ...]:
+        """The planner routes of a GMA and an LMA: (name, app, path, body)."""
         from dagents.gma.app_factory import create_app as create_gma
         from dagents.gma.config import Settings as GmaSettings
         from dagents.lma.app_factory import create_app as create_lma
@@ -424,18 +476,35 @@ class AgentAnswerTests(FakePlannerCase):
         self.addCleanup(gma_app.state.gma.close)
         lma_app = create_lma(LmaSettings.from_env({}))
         self.addCleanup(lma_app.state.lma.close)
-        calls = (
+        return (
             ("GMA rounds:plan", gma_app, "/api/v1/federation/rounds:plan", ROUND_MANIFEST),
             ("GMA restrictions:plan", gma_app, "/api/v1/governance/restrictions:plan", plan_request()),
             ("LMA restrictions:plan", lma_app, "/api/v1/governance/restrictions:plan", plan_request()),
         )
+
+    def assert_planner_unavailable(self, app: Any, path: str, body: dict[str, Any]) -> None:
+        from fastapi.testclient import TestClient
+
+        response = TestClient(app, raise_server_exceptions=False).post(path, json=body)
+        self.assertEqual(503, response.status_code, response.text[:200])
+        self.assertEqual("planner_unavailable", response.json()["code"])
+        self.assertNotIn(SECRET, response.text)
+
+    def test_an_answer_nested_too_deeply_is_a_503(self) -> None:
+        calls = self.agent_calls()
         for answer in (NESTED_OBJECTS, NESTED_LISTS):
             self.planner_printing(answer)
             for name, app, path, body in calls:
                 with self.subTest(call=name, answer=answer[:12]):
-                    response = TestClient(app, raise_server_exceptions=False).post(path, json=body)
-                    self.assertEqual(503, response.status_code, response.text[:200])
-                    self.assertEqual("planner_unavailable", response.json()["code"])
+                    self.assert_planner_unavailable(app, path, body)
+
+    def test_an_answer_that_is_not_the_expected_shape_is_a_503(self) -> None:
+        calls = self.agent_calls()
+        for answer in (b'{"decision": "permit"}', b"[]", b"1"):
+            self.planner_printing(answer)
+            for name, app, path, body in calls:
+                with self.subTest(call=name, answer=answer):
+                    self.assert_planner_unavailable(app, path, body)
 
 
 class PlannerLimitSettingTests(unittest.TestCase):
@@ -613,6 +682,29 @@ class GuardDenialTests(FakePlannerCase):
     def test_json_that_is_not_a_plan(self) -> None:
         self.planner_printing(b'{"decision": "permit"}')
         self.enforce_and_expect_denial(cause="validation error")
+
+    def test_the_planner_names_what_is_wrong_with_a_plan_but_no_value_in_it(self) -> None:
+        answer = {"requestId": SECRET, "boundary": "nowhere", "granularity": SECRET, "decision": "permit"}
+        self.planner_printing(json.dumps(answer).encode())
+        with self.assertRaises(PlannerUnavailableError) as raised:
+            DagentscRestrictionPlanner().plan(request_for(request_id="req-1"))
+        self.assert_clean_message(
+            raised.exception, "is not a restriction plan", "validation errors", "boundary", "granularity", "assessment"
+        )
+
+    def test_a_plan_has_no_map_so_an_error_location_names_only_its_own_fields(self) -> None:
+        """A map's keys would come from the answer, and an error location would then repeat them."""
+        maps = []
+        pending: list[Any] = [RestrictionPlan.model_json_schema()]
+        while pending:
+            node = pending.pop()
+            if isinstance(node, dict):
+                if node.get("additionalProperties", False) is not False:
+                    maps.append(node)
+                pending.extend(node.values())
+            elif isinstance(node, list):
+                pending.extend(node)
+        self.assertEqual([], maps)
 
     def test_output_nested_too_deeply(self) -> None:
         for answer in (NESTED_OBJECTS, NESTED_LISTS):
