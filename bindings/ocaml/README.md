@@ -168,7 +168,20 @@ audit.
 - `decide_model_lifecycle`: the status changes that follow one event on a model version
   (`registered`, `aggregated`, `release_evaluated`, `approval_requested`), or the refusal and its
   reason. A version is a candidate, released, rejected or superseded. A model registry applies
-  the answer and keeps no status rule of its own.
+  the answer and keeps no status rule of its own. A `release_evaluated` event may carry the
+  decision the version already holds (`storedDecision`). For the same round, the same decision
+  changes nothing on any status, and a different one is refused as `decision_differs`, with the
+  differing fields named. A stored decision for another round gives the answer the event gets
+  without one.
+- `decide_round_recovery`: whether a round stored before a restart is kept or closed. It reads
+  the round's status and phase, whether its record could be read, whether its training updates
+  were kept, whether its candidate is registered, and the age of its oldest update against a
+  limit. The caller reads the clock and passes the age in. A planned, dispatched or collecting
+  round whose record cannot be read is closed (`unreadable_record`). A readable planned or
+  dispatched round is closed (`dispatch_interrupted`), because a dispatch cannot resume. A
+  collecting training round is closed when its updates were not kept (`updates_not_kept`) or are
+  older than the limit (`updates_expired`), unless its candidate is already registered. No
+  service calls it yet.
 
 Two behaviours matter most. A secure aggregation threshold raises the minimum number of
 participants above the manifest's stated minimum, because the threshold is what stops the
@@ -204,6 +217,7 @@ dagentsc governance restrict --input request.json
 dagentsc governance assess --input requester.json
 dagentsc federation round plan --input '{"manifest": {...}, "registrations": [...]}'
 dagentsc federation round digest --input '{"manifest": {...}}'
+dagentsc federation round recover --input '{"status": "collecting", "phase": "training", ...}'
 dagentsc federation aggregate readiness --input '{"manifest": {...}, "results": [...], "selectedSites": [...]}'
 dagentsc federation release evaluate --input '{"gates": [...], "candidateMetrics": {...}}'
 dagentsc federation model lifecycle --input '{"version": "...", "event": {"kind": "approval_requested", ...}}'
@@ -298,6 +312,76 @@ and its answer:
     { "version": "returns-logreg+returns-train-2", "fromStatus": "candidate", "toStatus": "released" },
     { "version": "returns-rule-1.0", "fromStatus": "released", "toStatus": "superseded" }
   ]
+}
+```
+
+Model lifecycle, a retried release evaluation whose decision differs from the one stored for the
+same round (`docs/demo/inputs/model-lifecycle-decision-differs.json`). Every key of both decisions
+and of each gate result is required:
+
+```json
+{
+  "version": "returns-logreg+returns-train-2",
+  "event": {
+    "kind": "release_evaluated",
+    "status": "rejected",
+    "action": "release",
+    "guardPermitted": true,
+    "roundId": "returns-train-2",
+    "baselineVersion": "returns-rule-1.1",
+    "metricsSource": "rounds",
+    "gateResults": [
+      { "gateId": "accuracy_floor", "outcome": "passed", "observed": 0.84, "threshold": 0.8, "detail": "accuracy=0.84 required >= 0.8" },
+      { "gateId": "accuracy_improves", "outcome": "passed", "observed": 0.84, "threshold": 0.84, "detail": "accuracy=0.84 required >= baseline 0.83 + margin 0.01" }
+    ],
+    "storedDecision": {
+      "roundId": "returns-train-2",
+      "action": "reject",
+      "guardPermitted": true,
+      "baselineVersion": "returns-rule-1.0",
+      "metricsSource": "rounds",
+      "gateResults": [
+        { "gateId": "accuracy_floor", "outcome": "passed", "observed": 0.84, "threshold": 0.8, "detail": "accuracy=0.84 required >= 0.8" },
+        { "gateId": "accuracy_improves", "outcome": "failed", "observed": 0.84, "threshold": 0.86, "detail": "accuracy=0.84 required >= baseline 0.85 + margin 0.01" }
+      ]
+    }
+  }
+}
+```
+
+and its answer:
+
+```json
+{
+  "allowed": false,
+  "refusal": "decision_differs",
+  "reason": "returns-logreg+returns-train-2 already has a release decision for round returns-train-2, and this one differs in action, baseline_version and gate_results",
+  "statusChanges": []
+}
+```
+
+Round recovery (`docs/demo/inputs/federation-round-recover-updates-expired.json`). Every key is
+required; an age is `null` when no update is stored, and the limit is `null` when there is none:
+
+```json
+{
+  "status": "collecting",
+  "phase": "training",
+  "readable": true,
+  "updatesKept": true,
+  "candidateRegistered": false,
+  "oldestUpdateAgeSeconds": 90061,
+  "updateMaxAgeSeconds": 86400
+}
+```
+
+and its answer:
+
+```json
+{
+  "verdict": "close",
+  "reason": "updates_expired",
+  "message": "The round's oldest stored update is 90061 seconds old, more than the limit of 86400 seconds, so it is closed; run it again under a new round id."
 }
 ```
 
@@ -442,12 +526,15 @@ not permission:
 | gate `blocking` | `true` | a gate whose severity nobody stated is not advisory |
 | round `phase` | `analytics` | the phase that moves the least |
 | lifecycle `requestedStatus` | `candidate` | a registration that does not ask for a release does not get one |
-| lifecycle `guardPermitted` | `false` | a release Guard verdict nobody recorded is not a permit |
+| lifecycle `guardPermitted` | `false`, and required with a `storedDecision` | a release Guard verdict nobody recorded is not a permit |
 | decision `metricsSource` | `unrecorded` | only metrics from the rounds can lead to an approval |
 
 One optional key is not a cautious default: readiness without `selectedSites` does not check the
 selection, so inputs written before the key existed give the same answer. A caller that has the
-round plan should send its `selectedSites`.
+round plan should send its `selectedSites`. The same holds for `storedDecision` on a
+`release_evaluated` event: without it, the event gets the answer it got before the key existed.
+
+`federation round recover` has no defaults: every key is required.
 
 ## Extension Guidelines
 

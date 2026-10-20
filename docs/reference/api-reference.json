@@ -47846,7 +47846,7 @@
      "function": "federation_model",
      "file": "bindings/ocaml/bin/dagentsc.ml"
     },
-    "doc": "Handle `dagentsc federation model lifecycle`.\n\nReads `{\"version\": ..., \"event\": {\"kind\": ...}}` and prints whether the event is allowed, the refusal and its reason, and the status changes a model registry applies. A refusal is a normal result, so it exits 0.",
+    "doc": "Handle `dagentsc federation model lifecycle`.\n\nReads `{\"version\": ..., \"event\": {\"kind\": ...}}` and prints whether the event is allowed, the refusal and its reason, and the status changes a model registry applies. A refusal is a normal result, so it exits 0. A `release_evaluated` event may carry `storedDecision`, the decision the version already holds; then the same decision for the same round changes nothing, and a different one is refused as `decision_differs`.",
     "calls": [
      {
       "module": "Dagents_federation_compiler",
@@ -47960,6 +47960,40 @@
     ],
     "writes": [
      "round_plan"
+    ]
+   },
+   {
+    "id": "dagentsc-federation-round-recover",
+    "words": [
+     "federation",
+     "round",
+     "recover"
+    ],
+    "usage": "dagentsc federation round recover [--input <file|->]",
+    "flags": [
+     {
+      "name": "--input",
+      "default": "-",
+      "repeated": false
+     }
+    ],
+    "handler": {
+     "function": "federation_round_recover",
+     "file": "bindings/ocaml/bin/dagentsc.ml"
+    },
+    "doc": "Handle `dagentsc federation round recover`.\n\nReads what recovery knows about one round stored before a restart: `{\"status\", \"phase\", \"readable\", \"updatesKept\", \"candidateRegistered\", \"oldestUpdateAgeSeconds\", \"updateMaxAgeSeconds\"}`. Prints whether to keep or close the round, the reason for a close and a sentence. A close is a normal result, so it exits 0. Input with a missing key, an unknown status or phase, a value of the wrong type, an age that is negative or not finite, or a limit that is not a finite number above 0 is refused.",
+    "calls": [
+     {
+      "module": "Dagents_federation_compiler",
+      "function": "decide_round_recovery",
+      "folder": "bindings/ocaml/lib/federation_compiler"
+     }
+    ],
+    "reads": [
+     "round_recovery_request"
+    ],
+    "writes": [
+     "round_recovery"
     ]
    },
    {

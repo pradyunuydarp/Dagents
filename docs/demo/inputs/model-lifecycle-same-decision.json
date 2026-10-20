@@ -1,0 +1,51 @@
+{
+  "version": "returns-logreg+returns-train-2",
+  "event": {
+    "kind": "release_evaluated",
+    "status": "rejected",
+    "action": "reject",
+    "guardPermitted": true,
+    "roundId": "returns-train-2",
+    "baselineVersion": "returns-rule-1.0",
+    "metricsSource": "rounds",
+    "gateResults": [
+      {
+        "gateId": "accuracy_floor",
+        "outcome": "passed",
+        "observed": 0.84,
+        "threshold": 0.8,
+        "detail": "accuracy=0.84 required >= 0.8"
+      },
+      {
+        "gateId": "accuracy_improves",
+        "outcome": "failed",
+        "observed": 0.84,
+        "threshold": 0.86,
+        "detail": "accuracy=0.84 required >= baseline 0.85 + margin 0.01"
+      }
+    ],
+    "storedDecision": {
+      "roundId": "returns-train-2",
+      "action": "reject",
+      "guardPermitted": true,
+      "baselineVersion": "returns-rule-1.0",
+      "metricsSource": "rounds",
+      "gateResults": [
+        {
+          "gateId": "accuracy_floor",
+          "outcome": "passed",
+          "observed": 0.84,
+          "threshold": 0.8,
+          "detail": "accuracy=0.84 required >= 0.8"
+        },
+        {
+          "gateId": "accuracy_improves",
+          "outcome": "failed",
+          "observed": 0.84,
+          "threshold": 0.86,
+          "detail": "accuracy=0.84 required >= baseline 0.85 + margin 0.01"
+        }
+      ]
+    }
+  }
+}

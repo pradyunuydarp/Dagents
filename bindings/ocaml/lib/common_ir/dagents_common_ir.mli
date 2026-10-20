@@ -991,6 +991,23 @@ module Federation_types : sig
   (** The status a caller may ask for when it registers a version. *)
   type requested_status = RequestCandidate | RequestReleased
 
+  (** One round's release decision on a version: the six fields a repeated
+      [release_evaluated] event is compared on.
+
+      [decided_gate_results] keeps the order of the gates, and its numbers are
+      compared with no tolerance. [decided_metrics_source] is
+      [MetricsSourceUnrecorded] for a decision stored before the source was
+      recorded. *)
+  type round_decision = {
+    decided_round_id : string;
+    decided_action : release_action;
+    decided_guard_permitted : bool;
+    decided_baseline_version : string option;
+        (** The released version the gates compared the candidate with. *)
+    decided_metrics_source : metrics_source;
+    decided_gate_results : gate_result list;
+  }
+
   (** Something that happened to one model version, with what the rule needs
       to decide the status changes that follow. *)
   type lifecycle_event =
@@ -1001,6 +1018,14 @@ module Federation_types : sig
         (** A training round produced the version from [parent_version]. *)
     | ReleaseEvaluated of { status : model_status; action : release_action; guard_permitted : bool }
         (** The release gates and the release Guard decided on the version. *)
+    | ReleaseEvaluatedWithStoredDecision of {
+        status : model_status;
+        new_decision : round_decision;
+        stored_decision : round_decision;
+      }
+        (** The same event, with the decision the version already holds, so a
+            retried evaluation of the same round changes nothing.
+            [new_decision] carries the event's action and Guard verdict. *)
     | ApprovalRequested of {
         status : model_status;
         decision : recorded_release_decision option;
@@ -1010,6 +1035,14 @@ module Federation_types : sig
 
   (** One question for the model lifecycle rule: an event on one version. *)
   type lifecycle_request = { lifecycle_version : string; lifecycle_event : lifecycle_event }
+
+  (** A field of a {!round_decision} other than its round id. *)
+  type decision_field =
+    | DecisionAction
+    | DecisionGuardPermitted
+    | DecisionBaselineVersion
+    | DecisionMetricsSource
+    | DecisionGateResults
 
   (** Why the lifecycle rule refused an event. Each carries what its reason
       names. *)
@@ -1021,6 +1054,9 @@ module Federation_types : sig
     | GuardDenied
     | MetricsNotFromRounds  (** The decision's metrics did not come from the rounds. *)
     | BaselineChanged of { checked_against : string option; in_use : string option }
+    | DecisionDiffers of { differing_round_id : string; differing_fields : decision_field list }
+        (** The version holds another decision for the same round. The fields
+            that differ are in field order. *)
 
   (** One version moving from one status to another. [from_status] is [None]
       for a version the event adds to the registry. *)
@@ -1031,6 +1067,37 @@ module Federation_types : sig
 
   (** The verdict with a sentence that explains it. *)
   type lifecycle_outcome = { verdict : lifecycle_verdict; lifecycle_reason : string }
+
+  (** Where a stored round stands. The five values are the statuses a round
+      record can have in the GMA's store: [RoundPlanned] before its dispatch,
+      [RoundDispatched] while the jobs run, [RoundCollecting] once it holds
+      results, [RoundAggregated] once it made a candidate and [RoundClosed]
+      when it is finished. *)
+  type round_status = RoundPlanned | RoundDispatched | RoundCollecting | RoundAggregated | RoundClosed
+
+  (** What recovery knows about one stored round after a restart.
+
+      The clock stays with the caller, so ages are inputs, in seconds.
+      [oldest_update_age_seconds] is [None] when no update is stored, and
+      [update_max_age_seconds] is [None] when updates have no age limit. *)
+  type round_recovery_request = {
+    recovery_status : round_status;
+    recovery_phase : round_phase;
+    record_readable : bool;  (** Whether the stored record can be read. *)
+    updates_kept : bool;  (** Whether the round's training updates survive a restart. *)
+    candidate_registered : bool;  (** Whether this round's candidate is in the model registry. *)
+    oldest_update_age_seconds : float option;
+    update_max_age_seconds : float option;
+  }
+
+  (** Why recovery closes a round. *)
+  type recovery_close_reason = UnreadableRecord | DispatchInterrupted | UpdatesNotKept | UpdatesExpired
+
+  (** What recovery does with one round. *)
+  type recovery_verdict = KeepRound | CloseRound of recovery_close_reason
+
+  (** The verdict with a sentence that explains it. *)
+  type round_recovery = { recovery_verdict : recovery_verdict; recovery_message : string }
 end
 
 include module type of Federation_types
@@ -1118,6 +1185,18 @@ val string_of_model_status : model_status -> string
 val string_of_metrics_source : metrics_source -> string
 (** Convert a lifecycle refusal to its stable JSON/API kind, such as ["not_candidate"]. *)
 val string_of_lifecycle_refusal : lifecycle_refusal -> string
+(** Convert a decision field to its snake_case name, such as ["guard_permitted"]. *)
+val string_of_decision_field : decision_field -> string
+(** Parse a gate-outcome string; raises [Invalid_argument] on unknown input. *)
+val gate_outcome_of_string : string -> gate_outcome
+(** Convert a round status to its stable JSON/API string, such as ["collecting"]. *)
+val string_of_round_status : round_status -> string
+(** Parse a round-status string; raises [Invalid_argument] on unknown input. *)
+val round_status_of_string : string -> round_status
+(** Convert a recovery close reason to its stable JSON/API string, such as ["updates_expired"]. *)
+val string_of_recovery_close_reason : recovery_close_reason -> string
+(** Convert a recovery verdict to ["keep"] or ["close"]. *)
+val string_of_recovery_verdict : recovery_verdict -> string
 (** Parse a release-action string; raises [Invalid_argument] on unknown input. *)
 val release_action_of_string : string -> release_action
 (** Parse a model-status string; raises [Invalid_argument] on unknown input. *)

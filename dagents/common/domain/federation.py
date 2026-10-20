@@ -832,6 +832,8 @@ MetricsSource = Literal["rounds", "request"]
 
 #: Why the model lifecycle rule refused an event. The planner's
 #: ``federation model lifecycle`` command returns one of these.
+#: ``decision_differs`` answers only an event that carries a stored decision,
+#: which the GMA does not send yet.
 LifecycleRefusal = Literal[
     "already_released",
     "not_candidate",
@@ -840,6 +842,7 @@ LifecycleRefusal = Literal[
     "guard_denied",
     "metrics_not_from_rounds",
     "baseline_changed",
+    "decision_differs",
 ]
 
 

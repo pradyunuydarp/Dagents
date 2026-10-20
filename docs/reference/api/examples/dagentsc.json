@@ -1852,6 +1852,157 @@
    ]
   },
   {
+   "id": "round-recover-keep",
+   "endpoint": "dagentsc federation round recover",
+   "title": "Keep a training round whose updates were kept",
+   "description": "The input is docs/demo/inputs/federation-round-recover-keep.json. The round was collecting results when the GMA restarted, its updates survived, and the oldest is an hour old, under the limit of 24 hours.",
+   "request": {
+    "args": [
+     "federation",
+     "round",
+     "recover",
+     "--input",
+     "-"
+    ],
+    "stdin": {
+     "status": "collecting",
+     "phase": "training",
+     "readable": true,
+     "updatesKept": true,
+     "candidateRegistered": false,
+     "oldestUpdateAgeSeconds": 3600,
+     "updateMaxAgeSeconds": 86400
+    }
+   },
+   "response": {
+    "exit_code": 0,
+    "status": 0,
+    "headers": {},
+    "body": {
+     "verdict": "keep",
+     "reason": null,
+     "message": "The round's training updates are kept, so it stays open."
+    },
+    "stderr": "",
+    "trimmed": []
+   },
+   "planner_calls": [
+    "federation round recover"
+   ]
+  },
+  {
+   "id": "round-recover-expired",
+   "endpoint": "dagentsc federation round recover",
+   "title": "Close a training round whose oldest update is too old",
+   "description": "The input is docs/demo/inputs/federation-round-recover-updates-expired.json. The oldest update is 90061 seconds old and the limit is 86400. A close is a normal answer, so the exit code is 0.",
+   "request": {
+    "args": [
+     "federation",
+     "round",
+     "recover",
+     "--input",
+     "-"
+    ],
+    "stdin": {
+     "status": "collecting",
+     "phase": "training",
+     "readable": true,
+     "updatesKept": true,
+     "candidateRegistered": false,
+     "oldestUpdateAgeSeconds": 90061,
+     "updateMaxAgeSeconds": 86400
+    }
+   },
+   "response": {
+    "exit_code": 0,
+    "status": 0,
+    "headers": {},
+    "body": {
+     "verdict": "close",
+     "reason": "updates_expired",
+     "message": "The round's oldest stored update is 90061 seconds old, more than the limit of 86400 seconds, so it is closed; run it again under a new round id."
+    },
+    "stderr": "",
+    "trimmed": []
+   },
+   "planner_calls": [
+    "federation round recover"
+   ]
+  },
+  {
+   "id": "round-recover-dispatch-interrupted",
+   "endpoint": "dagentsc federation round recover",
+   "title": "Close a round that was still being dispatched",
+   "description": "The input is docs/demo/inputs/federation-round-recover-dispatch-interrupted.json. A dispatch cannot resume after a restart, whatever the round's updates are.",
+   "request": {
+    "args": [
+     "federation",
+     "round",
+     "recover",
+     "--input",
+     "-"
+    ],
+    "stdin": {
+     "status": "dispatched",
+     "phase": "training",
+     "readable": true,
+     "updatesKept": true,
+     "candidateRegistered": false,
+     "oldestUpdateAgeSeconds": 42.5,
+     "updateMaxAgeSeconds": 86400
+    }
+   },
+   "response": {
+    "exit_code": 0,
+    "status": 0,
+    "headers": {},
+    "body": {
+     "verdict": "close",
+     "reason": "dispatch_interrupted",
+     "message": "The round is dispatched, and a dispatch cannot resume after a restart, so it is closed; run it again under a new round id."
+    },
+    "stderr": "",
+    "trimmed": []
+   },
+   "planner_calls": [
+    "federation round recover"
+   ]
+  },
+  {
+   "id": "round-recover-negative-age",
+   "endpoint": "dagentsc federation round recover",
+   "title": "An update age below 0",
+   "request": {
+    "args": [
+     "federation",
+     "round",
+     "recover",
+     "--input",
+     "-"
+    ],
+    "stdin": {
+     "status": "collecting",
+     "phase": "training",
+     "readable": true,
+     "updatesKept": true,
+     "candidateRegistered": false,
+     "oldestUpdateAgeSeconds": -5,
+     "updateMaxAgeSeconds": 86400
+    }
+   },
+   "response": {
+    "exit_code": 2,
+    "status": 2,
+    "headers": {},
+    "body": "",
+    "stderr": "Fatal error: exception Invalid_argument(\"Expected oldestUpdateAgeSeconds to be null or a finite number of seconds, 0 or more\")",
+    "trimmed": []
+   },
+   "planner_calls": [
+    "federation round recover"
+   ]
+  },
+  {
    "id": "aggregate-readiness",
    "endpoint": "dagentsc federation aggregate readiness",
    "title": "Decide which results may be aggregated",
@@ -2428,6 +2579,170 @@
      "allowed": false,
      "refusal": "baseline_changed",
      "reason": "returns-logreg+returns-train-2 was checked against returns-rule-1.0, but returns-rule-1.1 is now in use. Run the pilot again.",
+     "statusChanges": []
+    },
+    "stderr": "",
+    "trimmed": []
+   },
+   "planner_calls": [
+    "federation model lifecycle"
+   ]
+  },
+  {
+   "id": "lifecycle-release-evaluated-same-decision",
+   "endpoint": "dagentsc federation model lifecycle",
+   "title": "Accept a retried evaluation that repeats the stored decision",
+   "description": "The input is docs/demo/inputs/model-lifecycle-same-decision.json. The version was rejected by this round's decision, and the retry gives the same six fields, so nothing changes. Without storedDecision the event would be refused as not_candidate.",
+   "request": {
+    "args": [
+     "federation",
+     "model",
+     "lifecycle",
+     "--input",
+     "-"
+    ],
+    "stdin": {
+     "version": "returns-logreg+returns-train-2",
+     "event": {
+      "kind": "release_evaluated",
+      "status": "rejected",
+      "action": "reject",
+      "guardPermitted": true,
+      "roundId": "returns-train-2",
+      "baselineVersion": "returns-rule-1.0",
+      "metricsSource": "rounds",
+      "gateResults": [
+       {
+        "gateId": "accuracy_floor",
+        "outcome": "passed",
+        "observed": 0.84,
+        "threshold": 0.8,
+        "detail": "accuracy=0.84 required >= 0.8"
+       },
+       {
+        "gateId": "accuracy_improves",
+        "outcome": "failed",
+        "observed": 0.84,
+        "threshold": 0.86,
+        "detail": "accuracy=0.84 required >= baseline 0.85 + margin 0.01"
+       }
+      ],
+      "storedDecision": {
+       "roundId": "returns-train-2",
+       "action": "reject",
+       "guardPermitted": true,
+       "baselineVersion": "returns-rule-1.0",
+       "metricsSource": "rounds",
+       "gateResults": [
+        {
+         "gateId": "accuracy_floor",
+         "outcome": "passed",
+         "observed": 0.84,
+         "threshold": 0.8,
+         "detail": "accuracy=0.84 required >= 0.8"
+        },
+        {
+         "gateId": "accuracy_improves",
+         "outcome": "failed",
+         "observed": 0.84,
+         "threshold": 0.86,
+         "detail": "accuracy=0.84 required >= baseline 0.85 + margin 0.01"
+        }
+       ]
+      }
+     }
+    }
+   },
+   "response": {
+    "exit_code": 0,
+    "status": 0,
+    "headers": {},
+    "body": {
+     "allowed": true,
+     "refusal": null,
+     "reason": "returns-logreg+returns-train-2 already has the same release decision for round returns-train-2, so nothing changes",
+     "statusChanges": []
+    },
+    "stderr": "",
+    "trimmed": []
+   },
+   "planner_calls": [
+    "federation model lifecycle"
+   ]
+  },
+  {
+   "id": "lifecycle-release-evaluated-decision-differs",
+   "endpoint": "dagentsc federation model lifecycle",
+   "title": "Refuse a retried evaluation that gives another decision",
+   "description": "The input is docs/demo/inputs/model-lifecycle-decision-differs.json. The stored decision for this round was reject against returns-rule-1.0; the new one is release against returns-rule-1.1, with other gate results. A refusal is a normal answer, so the exit code is 0.",
+   "request": {
+    "args": [
+     "federation",
+     "model",
+     "lifecycle",
+     "--input",
+     "-"
+    ],
+    "stdin": {
+     "version": "returns-logreg+returns-train-2",
+     "event": {
+      "kind": "release_evaluated",
+      "status": "rejected",
+      "action": "release",
+      "guardPermitted": true,
+      "roundId": "returns-train-2",
+      "baselineVersion": "returns-rule-1.1",
+      "metricsSource": "rounds",
+      "gateResults": [
+       {
+        "gateId": "accuracy_floor",
+        "outcome": "passed",
+        "observed": 0.84,
+        "threshold": 0.8,
+        "detail": "accuracy=0.84 required >= 0.8"
+       },
+       {
+        "gateId": "accuracy_improves",
+        "outcome": "passed",
+        "observed": 0.84,
+        "threshold": 0.84,
+        "detail": "accuracy=0.84 required >= baseline 0.83 + margin 0.01"
+       }
+      ],
+      "storedDecision": {
+       "roundId": "returns-train-2",
+       "action": "reject",
+       "guardPermitted": true,
+       "baselineVersion": "returns-rule-1.0",
+       "metricsSource": "rounds",
+       "gateResults": [
+        {
+         "gateId": "accuracy_floor",
+         "outcome": "passed",
+         "observed": 0.84,
+         "threshold": 0.8,
+         "detail": "accuracy=0.84 required >= 0.8"
+        },
+        {
+         "gateId": "accuracy_improves",
+         "outcome": "failed",
+         "observed": 0.84,
+         "threshold": 0.86,
+         "detail": "accuracy=0.84 required >= baseline 0.85 + margin 0.01"
+        }
+       ]
+      }
+     }
+    }
+   },
+   "response": {
+    "exit_code": 0,
+    "status": 0,
+    "headers": {},
+    "body": {
+     "allowed": false,
+     "refusal": "decision_differs",
+     "reason": "returns-logreg+returns-train-2 already has a release decision for round returns-train-2, and this one differs in action, baseline_version and gate_results",
      "statusChanges": []
     },
     "stderr": "",
