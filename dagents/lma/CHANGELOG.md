@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- `SiteResult.metrics` and `SiteResult.update_norm` refuse NaN and infinity,
+  because the GMA stores rounds as JSON. A local run whose model kind reports
+  such a number now ends as a `failed` result whose reason names the
+  `ValidationError`, and `jobs:execute` and `jobs:run` answer 200. Before, the
+  job log refused the result and the call answered 500.
 - The Postgres job log and audit sink check their table names with one shared
   helper, `table_identifier` in `dagents/common/infrastructure/postgres_roles.py`.
   They accept and refuse the same names as before. The audit sink's error now

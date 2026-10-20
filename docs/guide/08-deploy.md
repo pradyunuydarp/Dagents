@@ -322,9 +322,19 @@ as in paths B and C, give them persistent stores:
 | Part | In memory | Persistent option |
 |---|---|---|
 | Audit log | `InMemoryAuditLog` | `PostgresAuditSink`, or your own `AuditSink` |
-| Site enrolments | `InMemorySiteRegistry` | Your own class with `save`, `get` and `list` (`SiteRegistry` protocol) |
-| Round records | `InMemoryRoundRepository` | Your own class with `save`, `create`, `update`, `get`, `list`, `unfinished` and `quarantine` (`RoundRepository` protocol). `create` and `update` must be atomic: the controller relies on them to refuse a reused round id and to keep results that arrive at the same time. `unfinished` lists the rounds in `planned`, `dispatched` or `collecting`, oldest first, as `UnfinishedRound` summaries; it reads the status and phase without the record, so a record it cannot read is listed with `readable` false. `quarantine(round_id, reason)` closes such a round without reading its record and keeps its id reserved. Set the class attribute `survives_restart = True` when the store keeps its records after the process stops. Only then does the GMA's HTTP engine return a candidate that an earlier attempt registered when no update is stored, and only then does recovery count that candidate as registered. A store without the attribute counts as `False` |
-| Clipped updates of running training rounds (GMA only) | `InMemoryUpdateStore` | Your own class with `kind`, `put`, `get`, `updates`, `discard`, `pending_rounds` and `pending_ages` (`UpdateStore` protocol, `dagents/gma/infrastructure/update_store.py`). It must refuse a `put` for a round after a `discard` of that round |
+| Site enrolments | `InMemorySiteRegistry` | `PostgresEnrolmentStore`, or your own class with `save`, `get` and `list` (`SiteRegistry` protocol) |
+| Round records | `InMemoryRoundRepository` | `PostgresRoundRepository`, or your own class with `save`, `create`, `update`, `get`, `list`, `unfinished` and `quarantine` (`RoundRepository` protocol). `create` and `update` must be atomic: the controller relies on them to refuse a reused round id and to keep results that arrive at the same time. `unfinished` lists the rounds in `planned`, `dispatched` or `collecting`, oldest first, as `UnfinishedRound` summaries; it reads the status and phase without the record, so a record it cannot read is listed with `readable` false. `quarantine(round_id, reason)` closes such a round without reading its record and keeps its id reserved. Call `round_record_json(record)` from `dagents.common.application.federation` before each write, so the store refuses what the framework's stores refuse: a record that holds NaN or an infinite number (`InvalidRoundRecord`). Set the class attribute `survives_restart = True` when the store keeps its records after the process stops. Only then does the GMA's HTTP engine return a candidate that an earlier attempt registered when no update is stored, and only then does recovery count that candidate as registered. A store without the attribute counts as `False` |
+| Clipped updates of running training rounds (GMA only) | `InMemoryUpdateStore` | `PostgresUpdateStore`, or your own class with `kind`, `put`, `get`, `updates`, `discard`, `pending_rounds` and `pending_ages` (`UpdateStore` protocol, `dagents/gma/infrastructure/update_store.py`). It must refuse a `put` for a round after a `discard` of that round |
+
+The three Postgres stores are in `dagents/gma/infrastructure/postgres_rounds.py`.
+Each takes a kept connection, a role and a table, and passes the same tests as
+its memory twin. `PostgresRoundRepository` has `survives_restart = True`.
+`PostgresUpdateStore` acts as an update role of its own, which must differ
+from the coordinator role, so nothing that acts as the coordinator role can
+read an update vector. Create their tables first, as the
+[GMA README](../../dagents/gma/README.md#round-state-tables) shows. The GMA
+reads no setting for these three stores yet: your application builds them
+and passes them in `GmaDeps`.
 
 Pass them to `GovernanceService(audit=...)` and
 `FederatedRoundController(engine, sites=..., rounds=...)`, or to
@@ -361,8 +371,9 @@ its reason. Then `recover` deletes the stored updates of every round that is
 no longer unfinished or that the round store does not hold. It returns a
 `RecoveryReport` with one entry per unfinished round and the rounds whose
 leftover updates it deleted. Pass `updates_kept=True` only when your update
-store keeps updates across a restart. The GMA does not call `recover` yet, and
-its routes do not wait for it.
+store keeps updates across a restart, as `PostgresUpdateStore` does. The GMA
+does not call `recover` when it starts, and its routes do not wait for it. In
+a GMA built with `create_app`, the controller is `app.state.gma.rounds`.
 
 ## What can go wrong
 
@@ -371,7 +382,7 @@ its routes do not wait for it.
 | Every Guard request in a container is denied | `dagentsc` is not on the container's `PATH` | Add the build stage and the copy line from section 1 |
 | A service calls `http://127.0.0.1:8020` inside Compose and gets no answer | It used the public address inside the network | Use the `*_INTERNAL_URL` value |
 | The browser console shows a CORS error | The page calls an agent or service directly | Call your own backend, or allow the page's origin there |
-| Rounds and audit records are gone after a deploy | The agent keeps them in memory | Set the Postgres settings in section 9. Rounds stay in memory unless your application passes its own round store |
+| Rounds and audit records are gone after a deploy | The agent keeps them in memory | Set the Postgres settings in section 9. Rounds stay in memory unless your application passes a round store, such as `PostgresRoundRepository` |
 | `401` with the code `unauthorized` | The agent has tokens, and the call has no `Authorization: Bearer` header or a token the agent does not accept | Send the token for the route's scope (section 6) |
 | `403` with the code `forbidden` | The token's scope may not call the route, or a site's token was used for another site | Use the token of the right scope |
 | An agent logs "runs without tokens: every caller may call every route" | No token is configured | Set the tokens, and `LMA_REQUIRE_TOKENS=1` or `GMA_REQUIRE_TOKENS=1` |

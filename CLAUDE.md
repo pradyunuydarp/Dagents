@@ -177,14 +177,15 @@ admin login:
 
 ```bash
 export HEALTHCARE_DEMO_TEST_DATABASE_URL=postgresql://admin:pw@127.0.0.1:5432/postgres  # healthcare suite
-export DAGENTS_TEST_DATABASE_URL=postgresql://admin:pw@127.0.0.1:5432/postgres          # dagents/tests: role scoping, the lease, the model store, the job log, the GMA's Postgres wiring
+export DAGENTS_TEST_DATABASE_URL=postgresql://admin:pw@127.0.0.1:5432/postgres          # dagents/tests: role scoping, the lease, the model store, the round stores, the job log, the GMA's Postgres wiring
 ```
 
 Without them these tests skip with a message that starts `database test
 skipped`. The in-memory store runs the same assertions without a database, so
 both store implementations are tested. The same holds for the agents' twins:
 `InMemoryModelStore` and `PostgresModelStore`, `InMemoryJobLog` and
-`PostgresJobLog` each run one shared suite.
+`PostgresJobLog`, and the GMA's round, enrolment and update stores
+(`dagents/tests/test_round_store.py`) each run one shared suite.
 
 ### CI
 
@@ -1064,10 +1065,12 @@ versions and handle approvals. They call each other through
 Postgres and the GMA keeps its model registry and audit chain there. The GMA's
 enrolments, rounds and pending updates stay in memory, unless the application
 that builds it passes its own stores in `GmaDeps` (`rounds`, `enrolments`,
-`updates`). The framework has no Postgres store for them yet, and the GMA does
-not call `FederatedRoundController.recover` when it starts. The getting-started
-example's `step5_agents_over_http.py` runs a round through `agent_client`, and
-so does the healthcare demo: it calls one LMA per hospital and a GMA only
+`updates`), such as the Postgres stores in
+`dagents/gma/infrastructure/postgres_rounds.py`. No setting builds those
+stores yet, and the GMA does not call `FederatedRoundController.recover` when
+it starts. The getting-started example's `step5_agents_over_http.py` runs a
+round through `agent_client`, and so does the healthcare demo: it calls one
+LMA per hospital and a GMA only
 through their APIs, in its own process on the published demo and as separate
 processes in network mode. Every successful answer of the demo whose body is
 a JSON object lists the agent calls behind it (`framework_calls`); errors, the

@@ -19,15 +19,19 @@ The registry tests use the real planner and skip without it.
 from __future__ import annotations
 
 import copy
+import hashlib
+import json
+import math
 import os
 import threading
-from typing import Any
+from typing import Any, Mapping
 import unittest
 from unittest.mock import patch
 
 try:
     import psycopg
     from psycopg import sql
+    from psycopg.types.json import Json
 except ModuleNotFoundError:  # pragma: no cover - the agents' requirements install it
     psycopg = None
 
@@ -52,7 +56,7 @@ from dagents.gma.application.model_registry import (
     UnknownModelKind,
     UnknownModelVersion,
 )
-from dagents.gma.infrastructure.postgres_models import InMemoryModelStore, PostgresModelStore
+from dagents.gma.infrastructure.postgres_models import PARAMS_TO_JSON_SQL, InMemoryModelStore, PostgresModelStore
 from dagents.tests.fixtures.toy_extension import ToyExtension, ToyLinearKind, ToyThresholdKind
 from dagents.tests.test_governance import dagentsc_available
 from dagents.tests.test_postgres_roles import ScratchDatabase, admin_dsn_or_skip
@@ -76,6 +80,11 @@ def model(
         parent_version=parent,
         params=params,
     )
+
+
+def raw_version(version: str, params: dict[str, Any]) -> ModelVersion:
+    """A candidate of a kind no store checks, holding exactly ``params``."""
+    return ModelVersion(version=version, kind="raw_json", digest="sha256:test", status="candidate", params=params)
 
 
 def added(version: str, status: str) -> ModelStatusChange:
@@ -225,6 +234,41 @@ class ModelStoreContract:
                 with self.assertRaises(ValueError):
                     self.store.list(limit=limit)
 
+    # Parameters come back exactly as sent, so a digest computed again matches.
+
+    def stored_params(self, params: dict[str, Any]) -> list[dict[str, Any]]:
+        """Store ``params`` under a kind no test registers, and read them back through ``get`` and ``list``."""
+        self.store.apply([added("raw-v1", "candidate")], new=raw_version("raw-v1", params))
+        return [self.store.get("raw-v1").params, self.store.list(limit=1)[0].params]
+
+    def assert_same_json(self, sent: dict[str, Any], stored: dict[str, Any]) -> None:
+        self.assertEqual(sent, stored)
+        self.assertEqual(json.dumps(sent, sort_keys=True), json.dumps(stored, sort_keys=True))
+
+    def test_negative_zero_keeps_its_sign(self) -> None:
+        params = {"bias": -0.0, "nested": {"weights": [-0.0, 0.0]}}
+        for stored in self.stored_params(params):
+            self.assert_same_json(params, stored)
+            self.assertEqual(-1.0, math.copysign(1.0, stored["bias"]))
+            self.assertEqual([-1.0, 1.0], [math.copysign(1.0, value) for value in stored["nested"]["weights"]])
+
+    def test_large_and_small_floats_stay_floats(self) -> None:
+        params = {"big": 1e16, "huge": 1e300, "tiny": 5e-324, "negative": -1e16}
+        for stored in self.stored_params(params):
+            self.assert_same_json(params, stored)
+            self.assertEqual({float}, {type(value) for value in stored.values()})
+
+    def test_whole_numbers_stay_whole_and_floats_stay_floats(self) -> None:
+        params = {"whole": 3, "one": 1.0, "exact": 2**53 + 1, "zero": 0, "zero_float": 0.0, "list": [1, 1.0]}
+        for stored in self.stored_params(params):
+            self.assert_same_json(params, stored)
+            self.assertEqual(
+                (int, float, int, int, float, [int, float]),
+                (type(stored["whole"]), type(stored["one"]), type(stored["exact"]), type(stored["zero"]),
+                 type(stored["zero_float"]), [type(value) for value in stored["list"]]),
+            )
+            self.assertEqual(2**53 + 1, stored["exact"])
+
 
 class InMemoryModelStoreTests(ModelStoreContract, unittest.TestCase):
     def setUp(self) -> None:
@@ -243,7 +287,7 @@ MODELS_TABLE = """
 CREATE TABLE {table} (
     version        text PRIMARY KEY CHECK (length(version) BETWEEN 1 AND 200),
     kind           text NOT NULL CHECK (length(kind) BETWEEN 1 AND 64),
-    params         jsonb NOT NULL,
+    params         json NOT NULL,
     digest         text NOT NULL CHECK (length(digest) BETWEEN 1 AND 200),
     parent_version text REFERENCES {table} (version),
     created_at     timestamptz NOT NULL DEFAULT now(),
@@ -264,7 +308,10 @@ class PostgresModelsTestCase(unittest.TestCase):
     """A models table in the scratch database, owned by tenant alpha, emptied before each test.
 
     The table has the columns, checks and one-release index of the healthcare
-    demo's ``coordinator.models`` (migration ``0002``).
+    demo's ``coordinator.models`` (migration ``0002``), with ``params`` as
+    ``json``, as the GMA README creates it. The demo's column is still
+    ``jsonb``; ``PostgresModelStoreTests`` checks that such a table works as
+    before.
     """
 
     db: ScratchDatabase
@@ -300,12 +347,10 @@ class PostgresModelsTestCase(unittest.TestCase):
         self.store = PostgresModelStore(self.lease, self.db.alpha, self.table)
 
     def tamper(self, version: str, params: dict) -> None:
-        from psycopg.types.json import Jsonb
-
         with self.lease.acting_as(self.db.alpha) as conn:
             conn.execute(
                 sql.SQL("UPDATE {} SET params = %s WHERE version = %s").format(sql.Identifier(self.db.alpha, "models")),
-                (Jsonb(params), version),
+                (Json(params), version),
             )
 
 
@@ -347,6 +392,83 @@ class PostgresModelStoreTests(ModelStoreContract, PostgresModelsTestCase):
         self.assertEqual("rule-v1", stored.baseline_version)
         self.assertIsNone(stored.metrics_source)
 
+    def test_parameters_are_bound_as_json_text(self) -> None:
+        """A ``Jsonb`` parameter changes -0.0 and 1e16 even in a ``json`` column; the stored text is what was sent."""
+        self.store.apply([added("raw-v1", "candidate")], new=raw_version("raw-v1", {"bias": -0.0, "big": 1e16}))
+        with self.lease.acting_as(self.db.alpha) as conn:
+            row = conn.execute(
+                sql.SQL(
+                    "SELECT params::text AS params, pg_typeof(params)::text AS type FROM {} WHERE version = %s"
+                ).format(sql.Identifier(self.db.alpha, "models")),
+                ("raw-v1",),
+            ).fetchone()
+        self.assertEqual(("json", '{"bias": -0.0, "big": 1e+16}'), (row["type"], row["params"]))
+
+    def test_a_jsonb_parameters_column_works_as_before_until_the_alter_changes_it(self) -> None:
+        """A table made from an older README keeps working; the ALTER the README gives makes it keep -0.0 and 1e16."""
+        table = f"{self.db.alpha}.models_jsonb"
+        identifier = sql.Identifier(self.db.alpha, "models_jsonb")
+        with self.lease.acting_as(self.db.alpha) as conn:
+            conn.execute(sql.SQL(MODELS_TABLE.replace("params         json NOT NULL", "params jsonb NOT NULL"))
+                         .format(table=identifier))
+        self.addCleanup(self.drop, identifier)
+        older = PostgresModelStore(self.lease, self.db.alpha, table)
+
+        older.apply([added("toy-linear-init", "candidate")], new=model("toy-linear-init", params=TRAINED))
+        self.assertEqual(TRAINED, older.get("toy-linear-init").params)
+        changed = {"bias": -0.0, "big": 1e16}
+        older.apply([added("raw-v1", "candidate")], new=raw_version("raw-v1", changed))
+        # What the jsonb column returns, as before this change: 0.0 and a whole number.
+        before = older.get("raw-v1").params
+        self.assertEqual((1.0, int), (math.copysign(1.0, before["bias"]), type(before["big"])))
+
+        with self.lease.acting_as(self.db.alpha) as conn:
+            conn.execute(sql.SQL(PARAMS_TO_JSON_SQL.replace("{table}", "{}")).format(identifier))
+        self.assertEqual(TRAINED, older.get("toy-linear-init").params)
+        older.apply([added("raw-v2", "candidate")], new=raw_version("raw-v2", changed))
+        after = older.get("raw-v2").params
+        self.assertEqual(json.dumps(changed), json.dumps(after))
+        self.assertEqual((-1.0, float), (math.copysign(1.0, after["bias"]), type(after["big"])))
+
+    def drop(self, identifier: Any) -> None:
+        with self.lease.acting_as(self.db.alpha) as conn:
+            conn.execute(sql.SQL("DROP TABLE {}").format(identifier))
+
+
+class RawJsonKind:
+    """A model kind whose digest hashes the parameters' JSON text, as ``examples/getting-started/shop/rule.py`` does.
+
+    Such a kind tells ``1e16`` (``1e+16``) from ``10000000000000000`` and
+    ``-0.0`` from ``0.0``, so its versions load only from a store that returns
+    the numbers it was sent.
+    """
+
+    kind = "raw_json"
+    trainable = False
+    version_prefix = "raw-json"
+
+    def parameter_digest(self, params: Mapping[str, Any]) -> str:
+        material = json.dumps(dict(params), sort_keys=True, separators=(",", ":"))
+        return "sha256:" + hashlib.sha256(material.encode("utf-8")).hexdigest()
+
+    def code_digest(self) -> str:
+        return "sha256:" + hashlib.sha256(b"raw_json").hexdigest()
+
+    def evaluate(
+        self, params: Mapping[str, Any], records: list[Mapping[str, Any]], label_field: str
+    ) -> dict[str, float]:
+        return {}
+
+
+class RawJsonExtension:
+    """Contributes :class:`RawJsonKind`."""
+
+    extension_id = "dagents-raw-json-test-extension"
+    version = "1.0.0"
+
+    def model_kinds(self) -> list[Any]:
+        return [RawJsonKind()]
+
 
 @unittest.skipUnless(dagentsc_available(), "dagentsc binary is not available")
 class ModelRegistryContract:
@@ -357,9 +479,11 @@ class ModelRegistryContract:
 
     store: Any
 
-    def new_registry(self) -> ModelRegistry:
+    def new_registry(self, *extensions: Any) -> ModelRegistry:
         kinds = ExtensionRegistry()
         kinds.register(ToyExtension())
+        for extension in extensions:
+            kinds.register(extension)
         return ModelRegistry(self.store, kinds)
 
     def seeded(self) -> ModelRegistry:
@@ -769,6 +893,29 @@ class ModelRegistryContract:
         registry._params["toy-linear-init"][1]["bias"] = 3.0  # noqa: SLF001 - simulates a changed cache entry
         with self.assertRaises(ModelVerificationError):
             registry.load("toy-linear-init")
+
+    # After a restart: a fresh registry reads every version from the store ----------
+
+    def test_a_toy_linear_version_with_a_negative_zero_bias_loads_after_a_fresh_registry(self) -> None:
+        """The toy kind hashes ``float(value)``, which keeps the sign of -0.0, so 0.0 would not match."""
+        params = {"bias": -0.0, "w.x1": 0.25, "w.x2": -0.5}
+        registered = self.new_registry().register(
+            "toy-linear-neg-zero", ModelVersionRegistration(kind="toy_linear", params=params)
+        )
+        self.assertNotEqual(LINEAR.parameter_digest({**params, "bias": 0.0}), registered.model.digest)
+        loaded = self.new_registry().load("toy-linear-neg-zero", expected_digest=registered.model.digest)
+        self.assertEqual(-1.0, math.copysign(1.0, loaded.params["bias"]))
+        self.assertEqual(registered.model.digest, loaded.digest)
+
+    def test_a_kind_that_hashes_the_json_text_loads_1e16_after_a_fresh_registry(self) -> None:
+        params = {"scale": 1e16, "count": 3, "ratio": 1.0, "offset": -0.0}
+        registered = self.new_registry(RawJsonExtension()).register(
+            "raw-json-v1", ModelVersionRegistration(kind="raw_json", params=params)
+        )
+        self.assertNotEqual(RawJsonKind().parameter_digest({**params, "scale": 10**16}), registered.model.digest)
+        loaded = self.new_registry(RawJsonExtension()).load("raw-json-v1", expected_digest=registered.model.digest)
+        self.assertEqual(json.dumps(params, sort_keys=True), json.dumps(loaded.params, sort_keys=True))
+        self.assertEqual(registered.model.digest, loaded.digest)
 
 
 class InMemoryModelRegistryTests(ModelRegistryContract, unittest.TestCase):

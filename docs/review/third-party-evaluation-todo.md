@@ -266,10 +266,20 @@ and `RoundRepository` protocols existed before. A retried aggregate now gives
 the candidate the first attempt registered, and a retried release evaluation
 saves the decision the version holds. `FederatedRoundController.recover` asks the
 planner about each unfinished round and closes the ones it cannot finish.
-Still to come: Postgres stores for rounds, enrolments and updates, and a GMA
-that calls `recover` when it starts. Until then the GMA keeps those three in
-memory unless the application passes its own stores, and the "done when" test
-does not exist yet.
+The framework now has Postgres stores for rounds, enrolments and updates
+(`dagents/gma/infrastructure/postgres_rounds.py`). Each passes the same tests
+as its memory twin. A separate update role owns the updates table, and the
+store refuses an update role equal to the coordinator role. Set up as the GMA
+README shows, the coordinator role has no grant on that table.
+`PostgresModelStore` now binds `params` with `Json`. With a `json` column, as
+the GMA README now creates it, a version with `-0.0` or `1e16` in its
+parameters loads after a restart. A `jsonb` column keeps the old limit until
+the README's `ALTER` runs, and rows stored before then keep the values `jsonb`
+gave them. The healthcare demo's models table is still `jsonb`.
+Still to come: settings that build these stores, and a GMA that calls
+`recover` when it starts. Until then the GMA keeps rounds, enrolments and
+updates in memory unless the application passes its own stores in
+`GmaDeps`, and the "done when" test does not exist yet.
 
 ### B3. Add privacy accounting and secure aggregation (P1, L)
 

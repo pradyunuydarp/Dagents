@@ -31,6 +31,9 @@ store; an application can hand its GMA its own through
 ``GmaDeps(updates=...)``. :class:`InMemoryUpdateStore` keeps the updates in
 this process only. After a restart its pending updates are gone, so an
 aggregation that needs them is refused: the round fails closed.
+``PostgresUpdateStore`` (``dagents/gma/infrastructure/postgres_rounds.py``)
+keeps them in a table, which a restarted GMA reads again. Both stores make
+the same checks, with :func:`checked_update`, and pass the same tests.
 """
 
 from __future__ import annotations
@@ -108,6 +111,41 @@ class UpdateStore(Protocol):
         """
 
 
+def checked_update(
+    record: RoundRecord, site_id: str, upload: UpdateUpload, kind: ModelKind
+) -> tuple[dict[str, float], str]:
+    """Check an upload against the round, as every store's ``put`` does first, and return the update and its digest.
+
+    Makes the checks in the module docstring that need only the round and the
+    upload: the site was selected, the round is a training round that is
+    ``dispatched`` or ``collecting`` and was not discarded, the job digest is
+    the plan's round digest, and the model kind accepts the update. Raises
+    :class:`NotSelected` or :class:`RoundConflict`. Returns the update as
+    floats and the digest the model kind computes for it.
+    """
+    round_id = record.manifest.round_id
+    if site_id not in record.plan.selected_sites:
+        raise NotSelected(f"site {site_id} was not selected for round {round_id}")
+    if record.manifest.phase != "training":
+        raise RoundConflict(
+            f"round {round_id} is in the {record.manifest.phase} phase; only a training round takes updates"
+        )
+    if record.abandoned_reason is not None:
+        raise RoundConflict(f"round {round_id} was discarded; it takes no more updates")
+    if record.status not in _OPEN_STATUSES:
+        raise RoundConflict(f"round {round_id} is {record.status}; it takes no more updates")
+    if upload.job_digest != record.plan.round_digest:
+        raise RoundConflict(f"the job digest does not match the round digest of {round_id}")
+    if not getattr(kind, "trainable", False):
+        raise RoundConflict(f"round {round_id} starts from a {kind.kind} model, which cannot be trained")
+    try:
+        vector = {name: float(value) for name, value in kind.check_update(upload.update).items()}
+        digest = kind.update_digest(vector)
+    except ValueError as error:
+        raise RoundConflict(f"the update for {round_id} was refused: {error}") from error
+    return vector, digest
+
+
 class InMemoryUpdateStore:
     """Clipped updates in this process, keyed by round and site.
 
@@ -136,27 +174,8 @@ class InMemoryUpdateStore:
         - `kind`: the model kind of the round's starting model. It checks the
           update's names and computes the digest.
         """
+        vector, digest = checked_update(record, site_id, upload, kind)
         round_id = record.manifest.round_id
-        if site_id not in record.plan.selected_sites:
-            raise NotSelected(f"site {site_id} was not selected for round {round_id}")
-        if record.manifest.phase != "training":
-            raise RoundConflict(
-                f"round {round_id} is in the {record.manifest.phase} phase; only a training round takes updates"
-            )
-        if record.abandoned_reason is not None:
-            raise RoundConflict(f"round {round_id} was discarded; it takes no more updates")
-        if record.status not in _OPEN_STATUSES:
-            raise RoundConflict(f"round {round_id} is {record.status}; it takes no more updates")
-        if upload.job_digest != record.plan.round_digest:
-            raise RoundConflict(f"the job digest does not match the round digest of {round_id}")
-        if not getattr(kind, "trainable", False):
-            raise RoundConflict(f"round {round_id} starts from a {kind.kind} model, which cannot be trained")
-        try:
-            vector = {name: float(value) for name, value in kind.check_update(upload.update).items()}
-            digest = kind.update_digest(vector)
-        except ValueError as error:
-            raise RoundConflict(f"the update for {round_id} was refused: {error}") from error
-
         key = (round_id, site_id)
         with self._lock:
             if round_id in self._discarded:
@@ -215,4 +234,4 @@ class InMemoryUpdateStore:
         return {round_id: max(0.0, float(now) - oldest[round_id]) for round_id in sorted(oldest)}
 
 
-__all__ = ["InMemoryUpdateStore", "StoredUpdate", "UpdateStore"]
+__all__ = ["InMemoryUpdateStore", "StoredUpdate", "UpdateStore", "checked_update"]

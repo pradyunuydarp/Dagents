@@ -34,10 +34,14 @@ import contextvars
 from dataclasses import dataclass, field
 import functools
 import logging
+import math
 import threading
 from typing import TYPE_CHECKING, Any, AsyncIterator, Callable, TypeVar
 
 from fastapi import FastAPI, Request
+from fastapi.encoders import jsonable_encoder
+from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from dagents.common.application.ethical_guard import AuditSink
@@ -398,8 +402,34 @@ def create_app(settings: Settings | None = None, deps: GmaDeps | None = None) ->
     return app
 
 
+def _non_finite(value: Any) -> bool:
+    return isinstance(value, float) and not math.isfinite(value)
+
+
+def _finite_only(value: Any) -> Any:
+    """``value`` with every NaN or infinite number left out: a dict drops the key, a list the item."""
+    if isinstance(value, dict):
+        return {key: _finite_only(item) for key, item in value.items() if not _non_finite(item)}
+    if isinstance(value, list):
+        return [_finite_only(item) for item in value if not _non_finite(item)]
+    return value
+
+
 def _install_error_handlers(app: FastAPI) -> None:
-    """Answer framework, planner, store and agent errors as ``{detail, code}``."""
+    """Answer framework, planner, store and agent errors as ``{detail, code}``, and invalid requests with 422."""
+
+    async def invalid_request(request: Request, error: Exception) -> JSONResponse:
+        """FastAPI's own 422 answer, with any NaN or infinite input left out of it.
+
+        Python reads ``NaN`` and ``Infinity`` in a JSON body, and FastAPI's
+        answer repeats each refused input. A JSON answer cannot hold either
+        number, so without this the request would get a 500 instead of 422.
+        """
+        assert isinstance(error, RequestValidationError)
+        try:
+            return await request_validation_exception_handler(request, error)
+        except ValueError:
+            return JSONResponse({"detail": _finite_only(jsonable_encoder(error.errors()))}, status_code=422)
 
     async def framework_error(request: Request, error: Exception) -> JSONResponse:
         assert isinstance(error, DagentsError)
@@ -427,6 +457,7 @@ def _install_error_handlers(app: FastAPI) -> None:
             return agent_error_response(503, "agent_unavailable", str(error))
         return agent_error_response(502, "agent_error", str(error))
 
+    app.add_exception_handler(RequestValidationError, invalid_request)
     app.add_exception_handler(DagentsError, framework_error)
     app.add_exception_handler(PlannerUnavailableError, planner_error)
     app.add_exception_handler(RoleScopeError, role_error)

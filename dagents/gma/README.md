@@ -120,7 +120,7 @@ set role coord;
 create table coord.models (
   version text primary key check (length(version) between 1 and 200),
   kind text not null check (length(kind) between 1 and 64),
-  params jsonb not null,
+  params json not null,
   digest text not null check (length(digest) between 1 and 200),
   parent_version text references coord.models (version),
   created_at timestamptz not null default now(),
@@ -158,6 +158,130 @@ reset role;
 The anchor table is optional. Without `GMA_AUDIT_ANCHOR_TABLE`, the GMA keeps
 the anchor in memory, and the first check of the audit chain after a restart
 reads every record.
+
+`params` is `json`, so a version's parameters come back as they were
+registered. A `jsonb` column returns `-0.0` as `0.0`, and `1e16` and larger
+floats as whole numbers. A model kind whose digest tells these apart then
+refuses the version when a restarted GMA loads it. A kind that writes `-0.0`
+into the text it hashes, as the toy linear kind in `dagents/tests` does,
+refuses it for `-0.0`. A kind that hashes the JSON text as stored refuses it
+for both. A models table made from an earlier version of this README has
+`params jsonb`. It works as before, with that limit, until you change the
+column:
+
+```sql
+alter table coord.models alter column params type json using params::json;
+```
+
+Rows stored before the change keep the values `jsonb` gave them.
+
+### Round state tables
+
+The GMA keeps site enrolments, rounds and the clipped updates of running
+training rounds in memory, unless the application that builds it passes its
+own stores in `GmaDeps`. `dagents.gma.infrastructure.postgres_rounds` has a
+Postgres store for each, and each passes the same tests as its memory twin.
+No setting builds them: the application builds them and passes them.
+
+| Store | `GmaDeps` field | Table | Owner |
+|---|---|---|---|
+| `PostgresRoundRepository` | `rounds` | rounds | the coordinator role |
+| `PostgresEnrolmentStore` | `enrolments` | site enrolments | the coordinator role |
+| `PostgresUpdateStore` | `updates` | clipped updates | the update role |
+
+The update role must differ from the coordinator role: `PostgresUpdateStore`
+raises `RoleScopeError` when they are the same. Give the coordinator role no
+grant on the updates table. Then nothing that acts as the coordinator role can
+read an update vector: not a route, not the release flow, not a reporting
+login. The login must be able to act as both roles.
+
+For the coordinator role `coord` above, and an update role `coord_updates`
+that owns the schema `coord_updates`:
+
+```sql
+set role coord;
+
+create table coord.rounds (
+  seq bigint generated always as identity unique,
+  round_id text primary key,
+  phase text not null,
+  status text not null check (status in ('planned', 'dispatched', 'collecting', 'aggregated', 'closed')),
+  record_version integer not null,
+  record json not null,
+  closed_reason text,
+  created_at bigint not null,
+  updated_at bigint not null
+);
+
+create index on coord.rounds (seq) where status in ('planned', 'dispatched', 'collecting');
+
+create table coord.site_enrolments (
+  site_id text primary key,
+  registration json not null,
+  saved_at timestamptz not null default now()
+);
+
+reset role;
+set role coord_updates;
+
+create table coord_updates.updates (
+  round_id text not null,
+  site_id text not null,
+  update_values json,
+  digest text,
+  job_digest text,
+  received_at double precision not null,
+  discarded boolean not null default false,
+  primary key (round_id, site_id),
+  check ((site_id = '') = (update_values is null))
+);
+
+reset role;
+```
+
+Each table's SQL is also a constant in the module (`ROUND_TABLE_DDL`,
+`ENROLMENT_TABLE_DDL`, `UPDATE_TABLE_DDL`), and
+`dagents/tests/test_round_store.py` checks that this section matches them.
+The columns are `json`, for the reason given above. A round record that holds
+NaN or an infinite number, which `json` cannot store, is refused with
+`InvalidRoundRecord` (`422`), and the memory store refuses the same records.
+The stores read each JSON column as text and decode it row by row, so a row
+whose JSON Python cannot decode (nested too deep, a whole number of more than
+4,300 digits) or that holds `1e400` counts as unreadable: a read of that round
+fails, a list leaves it out, and recovery can close it from its columns. In
+the updates table, the row whose `site_id` is `''` is the
+round's gate row: after a discard it refuses every later upload for the round,
+in any process.
+
+```python
+from dagents.common.infrastructure.postgres_lease import KeptConnection
+from dagents.gma.app_factory import GmaDeps, create_app
+from dagents.gma.infrastructure.postgres_rounds import (
+    PostgresEnrolmentStore,
+    PostgresRoundRepository,
+    PostgresUpdateStore,
+)
+
+lease = KeptConnection(database_url, name="coordinator")  # the application closes it
+gma = create_app(
+    settings,
+    GmaDeps(
+        registry=registry,
+        network=network,
+        coordinator_lease=lease,  # GMA_MODEL_TABLE and GMA_AUDIT_TABLE use it too
+        rounds=PostgresRoundRepository(lease, "coord", "coord.rounds"),
+        enrolments=PostgresEnrolmentStore(lease, "coord", "coord.site_enrolments"),
+        updates=PostgresUpdateStore(lease, "coord_updates", "coord_updates.updates", coordinator_role="coord"),
+    ),
+)
+```
+
+With `PostgresUpdateStore`, clipped updates stay in the table until
+aggregation or a discard deletes them. Copies also stay in the write-ahead log
+and in any backup taken while they were stored. Leave the table's data out of
+logical dumps (`pg_dump --exclude-table-data`). The GMA does not yet call
+`FederatedRoundController.recover` when it starts (see
+[What it stores](#what-it-stores)).
 
 When a table is missing, the routes that use it answer `503`
 `store_not_set_up`. In 0.1.0a1 the message says to apply the migrations; it
@@ -274,9 +398,9 @@ or a connection string.
 |---|---|
 | Model versions, their status and latest release decision | `InMemoryModelStore`, or `PostgresModelStore` with `GMA_MODEL_TABLE` |
 | The release Guard's audit chain | Memory, or `PostgresAuditSink` with `GMA_AUDIT_TABLE` |
-| Enrolments and rounds | Memory, or the stores in `GmaDeps.enrolments` and `GmaDeps.rounds` |
+| Enrolments and rounds | Memory, or the stores in `GmaDeps.enrolments` and `GmaDeps.rounds`, such as `PostgresEnrolmentStore` and `PostgresRoundRepository` ([Round state tables](#round-state-tables)) |
 | Addresses of joined sites | Memory, in the agent network |
-| Clipped training updates | Memory, or the store in `GmaDeps.updates`, until aggregation or discard |
+| Clipped training updates | Memory, or the store in `GmaDeps.updates`, such as `PostgresUpdateStore`, until aggregation or discard |
 
 With the default stores, a restart during a round loses the round and its
 updates, so it cannot be aggregated. Model versions, decisions and audit
@@ -291,6 +415,6 @@ discarded.
 - `application/`: `model_registry.py`, `release_service.py`,
   `site_directory.py`, `site_addresses.py`, `aggregation_service.py`
 - `adapters/`: `http_federation_engine.py`, `telemetry_sink.py`
-- `infrastructure/`: `update_store.py`, `postgres_models.py`, in-memory
-  persistence
+- `infrastructure/`: `update_store.py`, `postgres_models.py`,
+  `postgres_rounds.py`, in-memory persistence
 - `app_factory.py`, `routes.py`, `config.py`, `di.py`, `main.py`: wiring

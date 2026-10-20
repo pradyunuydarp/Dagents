@@ -19,7 +19,8 @@ The agents keep their state in memory unless their settings name a database:
 an LMA can keep its audit chain and its job log in Postgres, and a GMA its
 model registry and its audit chain. No setting moves a GMA's rounds, site
 enrolments or stored updates out of memory. An application that builds the
-GMA in its own process can pass its own stores for them in `GmaDeps`.
+GMA in its own process can pass its own stores for them in `GmaDeps`, such as
+the Postgres stores in `dagents/gma/infrastructure/postgres_rounds.py`.
 
 The governance and federation code is shared, in `dagents/common/`:
 `GovernanceService` and the `EthicalGuard` behind the governance endpoints of
@@ -115,14 +116,16 @@ connection string.
 | `not_found` | 404 | An LMA started without a site; no released model; an unknown model version, model kind or condition pack |
 | `conflict` | 409 | A round id used twice, a late result, a second offer, update or approval, a model that does not match its digest, a classification that differs from the registered one. A refusal by the planner's model lifecycle rule adds `refusal` |
 | `aggregation_refused` | 409 | The planner does not permit aggregation, or a stored update is missing or changed |
-| `invalid_request` | 422 | A release evaluation the GMA cannot run as asked, or a model version whose name or parameters are not valid |
+| `invalid_request` | 422 | A release evaluation the GMA cannot run as asked, a model version whose name or parameters are not valid, or a round record that holds NaN or an infinite number |
 | `planner_unavailable` | 503 | `dagentsc` could not be run, or its answer could not be read |
 | `store_unavailable`, `store_not_set_up` | 503 | The agent's database could not be reached, or is not set up for the agent's role |
 | `agent_unavailable` | 503 | The other agent did not answer, or no address is configured for it |
 | `bad_gateway` (LMA), `agent_error` (GMA) | 502 | The other agent answered with an error |
 
 The routes that existed before keep FastAPI's `{"detail": ...}` for their own
-`400`, `404` and `422` answers.
+`400`, `404` and `422` answers. Python reads `NaN` and `Infinity` in a JSON
+body, but a JSON answer cannot hold them, so the GMA's `422` answer leaves out
+any such input it refused.
 
 **Where the examples come from.** The examples with an `Authorization` header
 were captured from configured agents: the getting-started example's two stores,
@@ -1580,7 +1583,9 @@ The GMA keeps its state in memory, so a restart clears it. The two exceptions
 are the model registry and the release Guard's audit chain of a GMA whose
 settings name a database table for them. An application that builds the GMA
 can also pass its own stores for site enrolments, rounds and updates in
-`GmaDeps`. Nothing is removed while it runs, except the stored updates.
+`GmaDeps`. The framework has a Postgres store for each; the
+[GMA README](../../../dagents/gma/README.md#round-state-tables) has their
+tables. Nothing is removed while it runs, except the stored updates.
 
 | What | Class | Written by | Read by |
 |---|---|---|---|
@@ -1592,11 +1597,11 @@ can also pass its own stores for site enrolments, rounds and updates in
 | Source definitions | `InMemorySourceCatalog`, inside `DefaultSourceResolver` | `POST /api/v1/sources` | The source endpoints, and profiles and model runs that name a `source_id` |
 | Data classifications added at runtime | `GovernanceService` | `PUT /api/v1/governance/classifications/{classification_id}` | `GET /api/v1/governance/classifications` |
 | Guard decisions | `InMemoryAuditLog`, or `PostgresAuditSink` with `GMA_AUDIT_TABLE` | Enforce, and the release Guard of each release evaluation | `GET /api/v1/governance/audit`, `GET /api/v1/governance/audit:summary` |
-| Site enrolments, one per site id | `InMemorySiteRegistry`, or the `SiteRegistry` in `GmaDeps.enrolments` | `PUT /api/v1/federation/sites/{site_id}`, `POST /api/v1/federation/sites:refresh` | The site list, round planning and dispatch |
+| Site enrolments, one per site id | `InMemorySiteRegistry`, or the `SiteRegistry` in `GmaDeps.enrolments`, such as `PostgresEnrolmentStore` | `PUT /api/v1/federation/sites/{site_id}`, `POST /api/v1/federation/sites:refresh` | The site list, round planning and dispatch |
 | Site summaries, for `GMA_SUMMARY_TTL_SECONDS` | `SiteDirectory` | `GET /api/v1/federation/sites/summaries` | The same endpoint |
 | Addresses of sites that joined while the GMA runs | `SiteAddressBook`, in the agent network | `PUT /api/v1/federation/sites/{site_id}/address`, `DELETE` of the same path | The site address list, the site refresh, the summaries and round dispatch |
-| Rounds, one per round id, with their plan, acceptances, results, dispatch calls, readiness, candidate and decision | `InMemoryRoundRepository`, or the `RoundRepository` in `GmaDeps.rounds` | Dispatch, results, aggregation, discard and release evaluation | The round list and lookup, and every round endpoint |
-| The sites' clipped updates, until the round is stored as aggregated, the HTTP engine refuses its aggregation, or the round is discarded or closed | `InMemoryUpdateStore`, or the `UpdateStore` in `GmaDeps.updates` | `PUT /api/v1/federation/rounds/{round_id}/updates/{site_id}` | The HTTP engine's aggregation only; no route reads an update |
+| Rounds, one per round id, with their plan, acceptances, results, dispatch calls, readiness, candidate and decision | `InMemoryRoundRepository`, or the `RoundRepository` in `GmaDeps.rounds`, such as `PostgresRoundRepository` | Dispatch, results, aggregation, discard and release evaluation | The round list and lookup, and every round endpoint |
+| The sites' clipped updates, until the round is stored as aggregated, the HTTP engine refuses its aggregation, or the round is discarded or closed | `InMemoryUpdateStore`, or the `UpdateStore` in `GmaDeps.updates`, such as `PostgresUpdateStore`, whose table belongs to an update role separate from the coordinator role | `PUT /api/v1/federation/rounds/{round_id}/updates/{site_id}` | The HTTP engine's aggregation only; no route reads an update |
 | Model versions, with their parameters, status and latest release decision | `InMemoryModelStore`, or `PostgresModelStore` with `GMA_MODEL_TABLE` | Registration, aggregation, release evaluation and approval | The model version endpoints, dispatch and aggregation |
 
 ### Limits of the GMA in this version
@@ -2825,14 +2830,19 @@ worker per site with `InProcessFederationEngine.register_worker`.
 
 A round id can be used once: dispatching a manifest whose `round_id` is already
 stored is refused with `409`, so the first round's results and decision stay.
-When the engine fails, the round is closed with the failure as
-`abandoned_reason`. The versioned path answers `202` and the short path `200`.
-Both finish before they answer.
+When the engine fails, or the round store refuses the results it returned, the
+round is closed with `the engine failed while it dispatched the round` as
+`abandoned_reason`, and the engine deletes its updates. A store refuses a result
+that holds NaN or an infinite number, because it keeps rounds as JSON. The
+versioned path answers `202` and the short path `200`. Both finish before they
+answer.
 
 **Errors.** `409` (`conflict`) when the round id is already stored, or when the
 HTTP engine finds that the round's model is not registered or does not match
 `model_artifact_digest`. `422` when a field fails validation, for example a
-stop condition that is not in the list. `503` as for planning.
+stop condition that is not in the list or a `mu` that is NaN or infinite.
+`422` (`invalid_request`) when the engine returned a result that holds NaN or
+an infinite number; the round is closed. `503` as for planning.
 
 **Related.** [Plan without dispatching](#gma-post-api-v1-federation-rounds-plan),
 [record a result](#gma-post-api-v1-federation-rounds-round-id-results),
@@ -2907,7 +2917,7 @@ for every round when the HTTP engine collects the results, as the examples "A
 result for a round that was aggregated" and "A result posted to a round the
 HTTP engine collects" show. `422` when a
 field fails validation, for example a `participation` value that is not in the
-list.
+list, or a metric or `update_norm` that is NaN or infinite.
 
 **Related.** [The SiteResult object](#the-siteresult-object),
 [check readiness](#gma-get-api-v1-federation-rounds-round-id-readiness).
