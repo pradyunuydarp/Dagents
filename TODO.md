@@ -77,7 +77,13 @@ effort and a check for each item, in
   makes it meaningful; the protocol itself is absent.
 - Add differential-privacy accounting with a tracked budget across rounds. The Guard's noise
   strategy marks where the mechanism belongs and is not one.
-- Durable round state. Round lineage is in-memory, so a coordinator restart loses it.
+- Durable round state. The GMA keeps site enrolments, rounds and pending training updates in
+  memory, so a coordinator restart loses a round in progress. These parts exist: the planner's
+  recovery rule (`dagentsc federation round recover`), its rule for a retried release
+  evaluation, the store interfaces an application can pass in `GmaDeps`, aggregate and release
+  retries that give the same candidate and decision, and `FederatedRoundController.recover`.
+  Still to do: Postgres stores for rounds, enrolments and updates, and a GMA that calls
+  `recover` when it starts (review item B2 in `docs/review/third-party-evaluation-todo.md`).
 
 ### Supply chain and evidence
 

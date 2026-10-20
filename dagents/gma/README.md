@@ -56,8 +56,10 @@ cannot work, such as `GMA_ENGINE=http` with no LMA addresses and no agent
 network, or a model table with no database. `GmaDeps` can also hand it a model
 store, a coordinator database lease, an audit sink, and its own stores for
 rounds (`rounds`, a `RoundRepository`), site enrolments (`enrolments`, a
-`SiteRegistry`) and training updates (`updates`, an `UpdateStore`). Anything
-left out is built in memory, new for each app.
+`SiteRegistry`) and training updates (`updates`, an `UpdateStore`). Each of
+those three stores left out is built in memory, new for each app. A model
+store or audit sink left out follows the settings below: Postgres when its
+table is set, memory otherwise.
 `examples/getting-started/shop/agents.py` builds a GMA and two LMAs this way.
 
 The Docker image (`dagents/gma/Dockerfile`) builds `dagentsc` in a first stage
