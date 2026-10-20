@@ -412,6 +412,16 @@ Preferred integration pattern:
 
 This keeps failure isolation, upgrade independence, explicit contracts, and simpler Kubernetes deployment.
 
+Python services call the planner through `dagents/common/infrastructure/dagents_runner.py`. Each call
+has limits, read from the process environment like `DAGENTSC_BIN`: `DAGENTSC_TIMEOUT_SECONDS`
+(default 10), `DAGENTSC_MAX_INPUT_BYTES` and `DAGENTSC_MAX_OUTPUT_BYTES` (default 16 MiB each).
+The runner stops a planner that runs or prints past them, with every process it started, and refuses
+an input over its limit before the planner starts. `DAGENTSC_SHA256` pins the planner binary: with
+another hash the runner starts nothing. Each of these raises `PlannerUnavailableError`, and the Guard
+denies the request and records the denial. Every audit record names its planner in
+`planner_version` (the `dagents` version) and `planner_sha256` (the binary's SHA-256); the digest
+leaves out either field when it is null, so chains stored before the fields existed still verify.
+
 ## Working Assumptions for Contributors and Coding Agents
 
 - Preserve the LMA/GMA split: local execution belongs in LMA, fleet-wide assimilation and coordination belongs in GMA.

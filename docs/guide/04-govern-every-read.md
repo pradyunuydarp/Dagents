@@ -40,8 +40,11 @@ sequenceDiagram
   Guard-->>App: GuardDecision: permitted, payload, withheld fields, audit id
 ```
 
-If the planner cannot be reached, the Guard skips the middle steps, denies the
-request and still writes the audit record.
+If the planner cannot be reached, runs past its limits, or answers with a plan
+the Guard cannot apply, the Guard skips the middle steps, denies the request
+and still writes the audit record. If applying the plan to the records fails,
+for example on an integer too large for a float, the Guard denies the request
+in the same way.
 
 ## 1. Build the request
 
@@ -433,9 +436,13 @@ An LMA started from settings keeps its chain in Postgres when it has
 with `GMA_DATABASE_URL`, `GMA_DATABASE_ROLE` and `GMA_AUDIT_TABLE`. Without
 them, each keeps its chain in memory.
 
-Each record's digest covers every field and the previous record's digest, so
-removing or editing a record breaks every digest after it. `verify_chain()`
-recomputes the chain. The chain shows tampering. It is not a signature. A
+Each record names the planner that decided: `planner_version` (the `dagents`
+version) and `planner_sha256` (the SHA-256 of the planner binary). Its digest
+covers its fields and the previous record's digest, so removing or editing a
+record breaks every digest after it. The two planner fields are left out of
+the digest when they are empty, so chains stored before they existed still
+verify. `verify_chain()` recomputes the chain. The chain shows tampering. It is
+not a signature. A
 production audit store also needs append-only storage and retention rules.
 
 ## What can go wrong
@@ -446,7 +453,9 @@ production audit store also needs append-only storage and retention rules.
 | `cohort_size is required at table granularity when minimum_cohort is 20` | A table, column or model update request did not say how many records it concerns | Set `cohort_size` to the real number of records |
 | `cohort_size 12 is below minimum_cohort 20` | The group is too small to describe | This is the policy working. Ask for a larger group or a row request with more protection |
 | A field you expected comes back redacted for everyone | The field is not in the classification, so it is `high` by default | Add it to `field_sensitivity` with the sensitivity you have decided |
-| Every decision is `deny` with "The planner could not be reached" | The planner is missing in this process | Set `DAGENTSC_BIN` or put `dagentsc` on `PATH` |
+| Every decision is `deny` with "The planner could not be reached" | The planner is missing in this process, or it failed: the log line "restriction planner failed for ..." says why | Set `DAGENTSC_BIN` or put `dagentsc` on `PATH`. For a timeout, a size limit or a pinned hash, see [Planner settings](08-deploy.md#planner-settings) |
+| Every decision is `deny` with "The planner's plan names a strategy the Guard cannot apply" | The planner comes from another version of Dagents than the package, so it sends a strategy this Guard does not know, or a `generalize` level above 308 | Use the planner from the same release as the package |
+| A decision is `deny` with "The Guard could not apply the planner's plan to these records" | A record holds a value the strategy cannot be computed on, such as an integer too large for a float. The log line "the Guard could not apply the plan for ..." names the error's type | Check the records your source returns for that field |
 | `409` with "the request's classification X differs from the one registered with this agent" | The agent runs with a site or condition packs, and the request's inline classification is not the registered one | Send the registered classification (`GET /api/v1/governance/classifications`), or change it in the extension |
 | `503` with the code `planner_unavailable` from an agent's `restrictions:plan` | The agent cannot run `dagentsc` | Put the planner in the agent's container (Step 8) |
 

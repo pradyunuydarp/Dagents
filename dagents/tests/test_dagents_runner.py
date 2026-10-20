@@ -21,7 +21,7 @@ class DagentsRunnerTests(unittest.TestCase):
     def completed(self, payload: dict[str, object]) -> subprocess.CompletedProcess[str]:
         return subprocess.CompletedProcess(args=["dagentsc"], returncode=0, stdout=json.dumps(payload), stderr="")
 
-    @patch("dagents.common.infrastructure.dagents_runner.subprocess.run")
+    @patch("dagents.common.infrastructure.dagents_runner._run_process")
     def test_source_validation_uses_stdin_payload(self, run) -> None:
         run.return_value = self.completed({"valid": True, "errors": [], "warnings": []})
 
@@ -42,7 +42,7 @@ class DagentsRunnerTests(unittest.TestCase):
         stdin_payload = json.loads(run.call_args.kwargs["input"])
         self.assertEqual(stdin_payload["sourceId"], "orders")
 
-    @patch("dagents.common.infrastructure.dagents_runner.subprocess.run")
+    @patch("dagents.common.infrastructure.dagents_runner._run_process")
     def test_quality_evaluation_uses_temp_files_and_converts_output(self, run) -> None:
         run.return_value = self.completed(
             {
@@ -91,14 +91,14 @@ class PlannerUnavailableTests(unittest.TestCase):
 
     def test_a_binary_that_cannot_be_run_raises_planner_unavailable(self) -> None:
         with patch(
-            "dagents.common.infrastructure.dagents_runner.subprocess.run", side_effect=PermissionError("denied")
+            "dagents.common.infrastructure.dagents_runner.subprocess.Popen", side_effect=PermissionError("denied")
         ):
             with self.assertRaises(dagents_runner.PlannerUnavailableError):
                 dagents_runner.round_digest({"round_id": "r"})
             with self.assertRaises(dagents_runner.PlannerUnavailableError):
                 dagents_runner.evaluate_dataset_quality([{"id": "a"}], [])
 
-    @patch("dagents.common.infrastructure.dagents_runner.subprocess.run")
+    @patch("dagents.common.infrastructure.dagents_runner._run_process")
     def test_a_non_zero_exit_raises_planner_unavailable(self, run) -> None:
         run.return_value = self.failed()
         with self.assertRaises(dagents_runner.PlannerUnavailableError):
@@ -106,7 +106,7 @@ class PlannerUnavailableTests(unittest.TestCase):
         with self.assertRaises(dagents_runner.PlannerUnavailableError):
             dagents_runner.evaluate_dataset_quality([{"id": "a"}], [])
 
-    @patch("dagents.common.infrastructure.dagents_runner.subprocess.run")
+    @patch("dagents.common.infrastructure.dagents_runner._run_process")
     def test_output_that_is_not_json_raises_planner_unavailable(self, run) -> None:
         run.return_value = subprocess.CompletedProcess(args=["dagentsc"], returncode=0, stdout="{not json", stderr="")
         with self.assertRaises(dagents_runner.PlannerUnavailableError):
@@ -130,7 +130,7 @@ class PlannerLookupOrderTests(unittest.TestCase):
         self.bundled = self.root / "_bin" / "dagentsc"
         self.empty_path = self.root / "empty-path"
         self.empty_path.mkdir()
-        environ = {key: value for key, value in os.environ.items() if key != "DAGENTSC_BIN"}
+        environ = {key: value for key, value in os.environ.items() if key not in ("DAGENTSC_BIN", "DAGENTSC_SHA256")}
         environ["PATH"] = str(self.empty_path)
         patcher = patch.dict(os.environ, environ, clear=True)
         patcher.start()
@@ -277,19 +277,19 @@ def completed_result(site_id: str, examples: int, job_digest: str) -> dict[str, 
 class ReadinessPayloadTests(unittest.TestCase):
     """The runner sends selectedSites only when the caller gives a selection."""
 
-    @patch("dagents.common.infrastructure.dagents_runner.subprocess.run")
+    @patch("dagents.common.infrastructure.dagents_runner._run_process")
     def test_no_selection_sends_no_key(self, run) -> None:
         run.return_value = subprocess.CompletedProcess(args=["dagentsc"], returncode=0, stdout="{}", stderr="")
         dagents_runner.evaluate_aggregation_readiness(MANIFEST, [])
         self.assertNotIn("selectedSites", json.loads(run.call_args.kwargs["input"]))
 
-    @patch("dagents.common.infrastructure.dagents_runner.subprocess.run")
+    @patch("dagents.common.infrastructure.dagents_runner._run_process")
     def test_a_selection_is_sent_unchanged(self, run) -> None:
         run.return_value = subprocess.CompletedProcess(args=["dagentsc"], returncode=0, stdout="{}", stderr="")
         dagents_runner.evaluate_aggregation_readiness(MANIFEST, [], selected_sites=("Site_Alpha",))
         self.assertEqual(["Site_Alpha"], json.loads(run.call_args.kwargs["input"])["selectedSites"])
 
-    @patch("dagents.common.infrastructure.dagents_runner.subprocess.run")
+    @patch("dagents.common.infrastructure.dagents_runner._run_process")
     def test_an_empty_selection_is_still_sent(self, run) -> None:
         # An empty selection accepts no result; dropping it would accept every result.
         run.return_value = subprocess.CompletedProcess(args=["dagentsc"], returncode=0, stdout="{}", stderr="")
@@ -665,7 +665,7 @@ def close(reason: str, message: str) -> dict:
 class RoundRecoveryPayloadTests(unittest.TestCase):
     """The runner sends every key in camelCase and reads the answer back in snake_case."""
 
-    @patch("dagents.common.infrastructure.dagents_runner.subprocess.run")
+    @patch("dagents.common.infrastructure.dagents_runner._run_process")
     def test_keys_are_converted_both_ways(self, run) -> None:
         run.return_value = subprocess.CompletedProcess(
             args=["dagentsc"],
@@ -838,7 +838,7 @@ class RoundRecoveryTests(unittest.TestCase):
 class StoredDecisionPayloadTests(unittest.TestCase):
     """A stored decision reaches the planner in camelCase, with its caller data unchanged."""
 
-    @patch("dagents.common.infrastructure.dagents_runner.subprocess.run")
+    @patch("dagents.common.infrastructure.dagents_runner._run_process")
     def test_gate_result_keys_are_converted_and_their_values_are_not(self, run) -> None:
         run.return_value = subprocess.CompletedProcess(
             args=["dagentsc"],

@@ -28,7 +28,9 @@ python3 -m venv .venv
 .venv/bin/python -m dagents
 ```
 
-`python -m dagents` prints the installed version and the planner it found. On
+`python -m dagents` prints the installed version and the planner it found.
+Versions after 0.1.0a1 also print the SHA-256 of the planner file and the
+limits of each planner call. On
 a platform other than the three in the table, the package has no planner, and
 the Guard denies every request until `DAGENTSC_BIN` names one or `dagentsc` is
 on `PATH`. Start the agents, each in its own terminal:
@@ -63,7 +65,10 @@ export DAGENTSC_BIN=$PWD/bindings/ocaml/_build/default/bin/dagentsc.exe
 ```
 
 `DAGENTSC_BIN` tells the Python services where the planner is. Without it, the
-Guard cannot reach the planner and denies every request.
+Guard cannot reach the planner and denies every request. Four more settings
+limit how long each planner call may run and how much it may read and print,
+and pin the planner file's SHA-256. Their defaults suit this page; the guide's
+[Planner settings](../guide/08-deploy.md#planner-settings) section lists them.
 
 ## 3. Call the planner directly
 

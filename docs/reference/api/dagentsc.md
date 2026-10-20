@@ -69,6 +69,17 @@ flowchart LR
   request and records the denial, the core service renders Kubernetes YAML in
   Python instead and answers `500` for a Compose file, and the healthcare demo
   answers `503`. Services read JSON output, so they never see exit code `3`.
+- **Limits.** `dagents_runner.py` stops a call that runs past
+  `DAGENTSC_TIMEOUT_SECONDS` (default 10) or prints more than
+  `DAGENTSC_MAX_OUTPUT_BYTES` (default 16777216), and refuses an input over
+  `DAGENTSC_MAX_INPUT_BYTES` (default 16777216) before it starts the planner.
+  Each is a `PlannerUnavailableError`, like a non-zero exit. The planner runs
+  in a process group of its own, so stopping it also stops every process it
+  started. A command that reads its input from files gets no standard input.
+- **Which planner ran.** `dagentsc` prints no version. The Guard names the
+  planner in each audit record by the `dagents` package version and the
+  SHA-256 of the binary. When `DAGENTSC_SHA256` is set, the runner starts only
+  a binary with that hash.
 - **Unknown keys** in the input are ignored. Defaults are the cautious value:
   a site is not enrolled unless `enrolled` is true, a release gate is blocking
   unless `blocking` is false, and a field the classification does not list is

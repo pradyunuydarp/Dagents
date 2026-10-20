@@ -31,6 +31,7 @@ import time
 from typing import Any, Callable, Mapping, Protocol
 from uuid import uuid4
 
+from dagents.common.application.ethical_guard import unusable_restrictions
 from dagents.common.application.governance_service import GovernanceService
 from dagents.common.application.ports import SiteRecordSource
 from dagents.common.application.running_profile import RunningProfile
@@ -274,8 +275,9 @@ class SiteService:
         The site's planner decides, on a ``before_send`` table request for the
         label at that cohort size. :meth:`GovernanceService.plan` records
         nothing, so page views do not grow the audit chain. A decision is kept
-        per count. ``withheld`` (the planner could not be asked) is not kept,
-        so the next call asks again: the Guard fails closed.
+        per count. ``withheld`` (the planner could not be asked, or its plan
+        names a strategy the Guard cannot apply) is not kept, so the next call
+        asks again: the Guard fails closed.
         """
         if self.label_field is None or labelled <= 0:
             return "no_labels", None
@@ -298,6 +300,14 @@ class SiteService:
             plan = self.governance.plan(request)
         except Exception:  # noqa: BLE001 - any planner failure withholds the rate
             logger.warning("site %s: the planner could not decide the label rate, so it is withheld", self.site_id)
+            return "withheld", None
+        if unusable_restrictions(plan):
+            # The Guard would deny a request with this plan, so the rate does not leave on it.
+            logger.warning(
+                "site %s: the planner's plan for the label rate names a strategy the Guard cannot apply, "
+                "so the rate is withheld",
+                self.site_id,
+            )
             return "withheld", None
         decision: tuple[LabelRateStatus, str | None]
         if plan.decision != "deny":

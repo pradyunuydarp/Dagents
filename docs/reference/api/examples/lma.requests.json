@@ -1079,6 +1079,8 @@
         "/records/*/audit_id",
         "/records/*/recorded_at",
         "/records/*/previous_digest",
+        "/records/*/planner_version",
+        "/records/*/planner_sha256",
         "/records/*/digest"
       ]
     },

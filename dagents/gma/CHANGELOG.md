@@ -2,6 +2,36 @@
 
 ## Unreleased
 
+- Each planner call has limits: `DAGENTSC_TIMEOUT_SECONDS` (default 10),
+  `DAGENTSC_MAX_INPUT_BYTES` and `DAGENTSC_MAX_OUTPUT_BYTES` (default 16 MiB
+  each). The runner stops a planner that runs past the timeout or prints too
+  much, with every process it started, and refuses an input over its limit
+  before the planner starts. Each is a planner failure: the release Guard
+  denies and records the denial, and a planner route answers `503`
+  `planner_unavailable`. Before, a planner that hung blocked the caller with no
+  limit.
+- Every audit record of the release Guard names the planner:
+  `planner_version` (the `dagents` version) and `planner_sha256` (the SHA-256
+  of the planner binary), denials included. Records stored before have neither
+  field, and their chains still verify, in memory and in Postgres.
+- `DAGENTSC_SHA256` pins the planner binary's SHA-256. With another hash the
+  runner starts no planner, and the GMA logs its "has no planner" warning with
+  both hashes when it is built.
+- The GMA refuses to start when a planner limit is zero, negative or not a
+  number, or when `DAGENTSC_SHA256` is not 64 hexadecimal digits.
+- The release Guard denies a request whose plan names a strategy it cannot
+  apply (an unknown name, a missing or extra parameter, or a `generalize`
+  level above 308), and records the denial. It also denies, and records, a
+  request when applying the plan to the records fails. Before, `enforce`
+  raised and wrote no audit record.
+- A planner answer that nests more than 200 levels deep is a planner failure,
+  on every supported Python version: a planner route such as `rounds:plan`
+  answers `503` `planner_unavailable`. So does `restrictions:plan` when the
+  planner's answer is not a restriction plan. Before, both answered `500`.
+- The runner hashes only a regular file. A `DAGENTSC_BIN` that names a device
+  or a FIFO has no hash, and the release Guard denies at once. The hash is kept
+  per path, size, modification time and change time, so a binary rewritten in
+  place with its old modification time is hashed again.
 - `GmaDeps` gains `rounds`, `enrolments` and `updates`, so an application that
   builds the GMA with `create_app` can pass its own round store
   (`RoundRepository`), enrolment store (`SiteRegistry`) and update store

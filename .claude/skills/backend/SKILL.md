@@ -42,6 +42,15 @@ falls through from a configured `DAGENTSC_BIN` that does not exist to another
 planner. An agent built without a planner it can start logs one warning
 (`warn_if_no_planner`), because it still answers `/health`.
 
+Each call runs under `DAGENTSC_TIMEOUT_SECONDS`, `DAGENTSC_MAX_INPUT_BYTES` and
+`DAGENTSC_MAX_OUTPUT_BYTES`, and `DAGENTSC_SHA256` can pin the binary; a call
+past a limit or a binary with another hash is a `PlannerUnavailableError`, so
+the Guard denies. Every audit record names its planner (`planner_version`,
+`planner_sha256`). The hash differs between builds: **never** pin one in a
+committed file or a test, and list both fields as volatile wherever stored
+records are compared. A new `AuditRecord` field goes into
+`DIGEST_FIELDS_LEFT_OUT_WHEN_NULL`, or every stored chain stops verifying.
+
 **An installed package reads no env file.** `dagents/common/env.py` reads
 `env/.env.*` only next to a source tree's `dagents/` folder, never from
 `site-packages`, where another distribution could install an `env/` folder.

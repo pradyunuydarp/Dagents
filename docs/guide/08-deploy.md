@@ -37,7 +37,8 @@ An image that installs the `dagents` package from PyPI on Linux x86_64 or
 Linux aarch64 gets the planner inside the wheel and needs no OCaml stage
 ([Install the package](00-install.md#2-check-that-the-package-has-a-planner)).
 Add `RUN python -m dagents` after the install: it exits with status 1 when it
-finds no planner, so the build stops.
+finds no planner, so the build stops. To make each container start only the
+planner you tested, pin its SHA-256 with `DAGENTSC_SHA256` (section 3).
 
 An LMA without the planner also refuses every federated job. A GMA without it
 cannot plan a round, decide readiness, evaluate release gates or change a model
@@ -94,6 +95,66 @@ deployment, not as a tested one.
   the app sends its address to the GMA. The full lists are in [`dagents/lma/README.md`](../../dagents/lma/README.md) and
   [`dagents/gma/README.md`](../../dagents/gma/README.md). Tokens and database
   addresses come from the environment and are never committed.
+
+### Planner settings
+
+Every process that calls the planner reads these variables from its
+environment, the same way it reads `DAGENTSC_BIN`. An unset or empty variable
+takes its default.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `DAGENTSC_BIN` | none | The planner to start. Without it, the runner uses the planner in the package, then `dagentsc` on `PATH` |
+| `DAGENTSC_SHA256` | none | The SHA-256 the planner file must have, as 64 hexadecimal digits. The runner starts no other file |
+| `DAGENTSC_TIMEOUT_SECONDS` | `10` | How long one planner call may run, in seconds. Fractions are allowed |
+| `DAGENTSC_MAX_INPUT_BYTES` | `16777216` (16 MiB) | The most bytes one call may send the planner, input files included |
+| `DAGENTSC_MAX_OUTPUT_BYTES` | `16777216` (16 MiB) | The most bytes the planner may print for one call |
+
+Each default is far above what the repository's own suites, demos and examples
+need. The comments above the defaults in
+[`dagents/common/infrastructure/dagents_runner.py`](../../dagents/common/infrastructure/dagents_runner.py)
+record how they were measured. The 10-second timeout also stops a planner that
+hangs before an agent client's own 30-second timeout, so the caller gets the
+Guard's denial instead of a timeout.
+
+When a call runs past the timeout or prints more than the output limit, the
+runner stops the planner and every process it started. It refuses an input
+over the input limit before the planner starts. It also refuses an answer that
+nests objects and lists more than 200 levels deep. Real answers nest far less
+deeply, and this limit is not a setting. Each of these is a planner failure:
+the Guard denies the request and records the denial, and a route that only
+asks the planner answers `503` with the code `planner_unavailable`.
+
+A value that is zero, negative or not a number stops the agent from starting.
+`create_app` raises `ValueError` with the variable's name, `dagents-lma` and
+`dagents-gma` print the reason and exit with status 1, and `python -m dagents`
+exits with status 1.
+
+**Pin the planner's hash.** Read the hash of the planner in the image you
+tested, and set it in the environment of every container that runs that image:
+
+```bash
+docker run --rm --entrypoint sha256sum your-image /usr/local/bin/dagentsc
+export DAGENTSC_SHA256=<the 64 hexadecimal digits it printed>
+```
+
+For a planner from a GitHub Release, or the one in a wheel, use the line for
+your platform in that release's `SHA256SUMS`. When the file has another hash,
+the runner does not start it:
+
+- the Guard denies every request and records each denial with the file's hash;
+- the LMA or GMA logs its "has no planner" warning with both hashes when it is
+  built;
+- `python -m dagents` prints both hashes and exits with status 1.
+
+The runner hashes the file again only when its path, size, modification time
+or change time changes, so a call costs one `stat`. The change time catches a
+copy that rewrites the file in place and keeps its old modification time, such
+as `cp -p`. A path that is not a regular file, such as a device or a FIFO, is
+not read: it has no hash, and with a pin the runner does not start it. A rebuilt planner has a new hash, so pin
+the new one when you deploy a new image. The pin catches a stale or wrong
+build. It does not stop someone who can replace the file, because whoever can
+write the file can also change the setting.
 
 ## 4. Keep each source on its own machine
 
@@ -316,6 +377,14 @@ With the GMA's default stores, a restart during a round loses the round and
 its stored updates, so the round cannot be aggregated. It fails closed. Model
 versions, release decisions and audit chains survive.
 
+Each audit record names the planner that decided: `planner_version` and
+`planner_sha256`. Records stored by 0.1.0a1 have neither field, and their
+chain still verifies after an upgrade, because the digest leaves out each of
+the two fields when it is empty. Rolling back to 0.1.0a1 after newer records
+exist does not work: 0.1.0a1 drops the two fields when it reads a record, so
+it reports the chain broken from the first newer record on, and its failed
+check deletes the stored anchor.
+
 If your application runs the controller and the Guard inside its own service,
 as in paths B and C, give them persistent stores:
 
@@ -369,6 +438,9 @@ its routes do not wait for it.
 | What you see | Why | What to do |
 |---|---|---|
 | Every Guard request in a container is denied | `dagentsc` is not on the container's `PATH` | Add the build stage and the copy line from section 1 |
+| Every Guard request is denied, and the agent logged "has no planner: the planner at ... has SHA-256 ..., not the ... that DAGENTSC_SHA256 requires" | The image holds another build of the planner than the one you pinned, for example after a rebuild | Deploy the planner you pinned, or pin the new hash (section 3) |
+| The agent does not start: `ValueError: DAGENTSC_TIMEOUT_SECONDS must be a number of seconds above 0` | A planner setting is zero, negative or not a number. The same holds for the other planner settings | Correct the value, or unset it to use the default (section 3) |
+| Some Guard requests are denied, and the log says "dagentsc did not finish within 10 seconds (DAGENTSC_TIMEOUT_SECONDS), so it was stopped" | The planner hung, or the machine is too busy to run it in time | Check the machine's load first. Raise `DAGENTSC_TIMEOUT_SECONDS` only after you measure how long the planner takes there |
 | A service calls `http://127.0.0.1:8020` inside Compose and gets no answer | It used the public address inside the network | Use the `*_INTERNAL_URL` value |
 | The browser console shows a CORS error | The page calls an agent or service directly | Call your own backend, or allow the page's origin there |
 | Rounds and audit records are gone after a deploy | The agent keeps them in memory | Set the Postgres settings in section 9. Rounds stay in memory unless your application passes its own round store |
