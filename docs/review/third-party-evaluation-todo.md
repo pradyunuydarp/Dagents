@@ -251,6 +251,26 @@ audit chain. Implement it for PostgreSQL, reusing the role-scoped access in
 finishes the round. The release decision matches an uninterrupted run, and the
 audit chain verifies.
 
+**Status.** Partly done. The GMA's model registry, with each version's release
+decision, and the release Guard's audit chain were already kept in Postgres
+(`GMA_MODEL_TABLE`, `GMA_AUDIT_TABLE`). Pull request #22 added two planner
+rules. `dagentsc federation round recover` decides whether a round that a
+restart left unfinished is kept or closed. The `release_evaluated` lifecycle
+event can carry the decision the version already holds: the same decision for
+the same round changes nothing, and a different one is refused as
+`decision_differs`. Pull request #23 added the `GmaDeps` fields `rounds`,
+`enrolments` and `updates`, so an application can pass its own stores to the
+GMA. It also added the `UpdateStore` protocol, with `pending_ages`, and the
+`RoundRepository` methods `unfinished` and `quarantine`. The `SiteRegistry`
+and `RoundRepository` protocols existed before. A retried aggregate now gives
+the candidate the first attempt registered, and a retried release evaluation
+saves the decision the version holds. `FederatedRoundController.recover` asks the
+planner about each unfinished round and closes the ones it cannot finish.
+Still to come: Postgres stores for rounds, enrolments and updates, and a GMA
+that calls `recover` when it starts. Until then the GMA keeps those three in
+memory unless the application passes its own stores, and the "done when" test
+does not exist yet.
+
 ### B3. Add privacy accounting and secure aggregation (P1, L)
 
 **Finding.** `TODO.md` lists both. The `add_noise` strategy in

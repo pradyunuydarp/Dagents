@@ -104,9 +104,20 @@ Current implementation includes:
   round planning and dispatch, results, readiness, aggregation, discard and
   release evaluation; with `GMA_ENGINE=http`, jobs go to the LMAs over their
   HTTP API and training updates go to a write-only update store
+- site enrolments, rounds and the update store in memory, unless the
+  application that builds the GMA passes its own stores in `GmaDeps`
+  (`enrolments`, `rounds`, `updates`)
+- retries after a store error: a retried aggregate gives the candidate the
+  first attempt registered, and a retried release evaluation saves on the
+  round the decision the version already holds, through the planner's
+  stored-decision rule (`decision_differs` when it would differ)
 - a model registry (`/model-versions`): registration, the released model with
   an `ETag`, and approval, with every status change decided by the planner's
   lifecycle rule; in memory or in Postgres
+
+`FederatedRoundController.recover` closes the rounds a restart left unfinished,
+as the planner's `federation round recover` rule decides, for a round store
+that outlives the process. The GMA does not call it yet.
 
 `dagents/gma/README.md` lists the settings and routes.
 
@@ -283,8 +294,9 @@ Implemented framework capabilities currently include:
 - core-service Kubernetes manifest and Docker Compose file generation for workload deployment
 - GRAILS-style governance: the Ethical-Restriction Rails as a typed OCaml planner, and the Ethical
   Guard enforcing its decisions in the LMA and GMA request paths with a digest-chained audit log
-- federated round control: signed round manifests, site eligibility, quorum, aggregation
-  readiness, and release gates, with an adapter seam for a specialist federated runtime
+- federated round control: round manifests with a digest, site eligibility, quorum, aggregation
+  readiness, release gates, model version status, and whether a round that a restart left
+  unfinished is kept or closed, with an adapter seam for a specialist federated runtime
 - a consumer extension registry, so an app contributes feature contracts, data classifications,
   condition packs, model kinds, site sources, pipeline steps, and model adapters without forking
   the framework

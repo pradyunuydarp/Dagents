@@ -39,6 +39,10 @@ Check each item before your application handles real data.
       check them before they leave the source.
 - [ ] Every metric a release gate names is reported, under the same name.
 - [ ] A person approves each release, and the approval is recorded.
+- [ ] Every round gets a new round id, also after a restart.
+- [ ] If your round store outlives the process, the process calls `recover`
+      once when it starts, before any round write
+      ([Step 8, section 9](08-deploy.md#9-state-that-survives-a-restart)).
 
 **Deployment and tests**
 

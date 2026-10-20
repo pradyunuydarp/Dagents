@@ -352,13 +352,17 @@ whether to keep or close it:
 | `collecting`, training, oldest update older than `update_max_age_seconds` | Close (`updates_expired`) |
 | `collecting`, training, otherwise | Keep |
 
+`update_max_age_seconds` is an optional argument of `recover`. Without it, no
+age limit applies. The rows are checked in order, and the first that matches
+decides.
+
 A closed readable round goes through `discard`, with the planner's sentence as
 its reason. Then `recover` deletes the stored updates of every round that is
-no longer unfinished. It returns a `RecoveryReport` with one entry per
-unfinished round and the rounds whose leftover updates it deleted. Pass
-`updates_kept=True` only when your update store keeps updates across a
-restart. The GMA does not call `recover` yet, and its routes do not wait for
-it.
+no longer unfinished or that the round store does not hold. It returns a
+`RecoveryReport` with one entry per unfinished round and the rounds whose
+leftover updates it deleted. Pass `updates_kept=True` only when your update
+store keeps updates across a restart. The GMA does not call `recover` yet, and
+its routes do not wait for it.
 
 ## What can go wrong
 

@@ -90,9 +90,9 @@ The remaining commands (`dataset profile`, `source metadata`, `transform
 compile`, `transform apply`, `governance assess`, `federation round recover`)
 are not called by any service in this version. The demo scripts in
 `docs/demo/` call `transform compile` and `transform apply`. `federation round
-recover` is for a GMA that keeps its rounds across a restart, which is not
-built yet. Each endpoint card on the other pages lists the commands its example
-ran.
+recover` is called by `FederatedRoundController.recover`, for a round store
+that outlives the process. The GMA does not call `recover` yet. Each endpoint
+card on the other pages lists the commands its example ran.
 
 The planners' design is in `bindings/ocaml/README.md`.
 

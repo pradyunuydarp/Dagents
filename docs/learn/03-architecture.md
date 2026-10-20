@@ -61,7 +61,7 @@ The planner modules:
 | `model_router` | Which model family suits a dataset and task |
 | `manifest_compiler` | Kubernetes or Docker Compose YAML for a workload |
 | `governance_compiler` | What protection a request needs (Step 2) |
-| `federation_compiler` | Which sites may join a round, whether quorum is met, whether aggregation may run, and whether a candidate passes its release gates |
+| `federation_compiler` | Which sites may join a round, whether quorum is met, whether aggregation may run, whether a candidate passes its release gates, every change of a model version's status, and whether a round that a restart left unfinished is kept or closed |
 
 ## The two agents
 
@@ -92,12 +92,15 @@ Both agents use the same code layout:
 | `adapters/` | Code that talks to specific technologies |
 | `infrastructure/` | Messaging and storage, behind interfaces |
 
-Messaging is in memory today, and so are the GMA's enrolments and rounds. With
-a database, an LMA keeps its audit chain and job log in Postgres, and the GMA
-keeps its model registry and its own audit chain there. Each runs every query
-as one database role. The stroke demo runs one LMA per hospital and a GMA, and
-calls them only through their APIs. It keeps each site's records and audit
-chain in Postgres, as described below.
+Messaging is in memory today. By default the GMA also keeps its site
+enrolments, its rounds and the training updates of running rounds in memory,
+so a restart loses a round in progress. An application that builds the GMA in
+its own code can pass its own stores for them. With a database, an LMA keeps
+its audit chain and job log in Postgres, and the GMA keeps its model registry
+and its own audit chain there. Each runs every query as one database role.
+The stroke demo runs one LMA per hospital and a GMA, and calls them only
+through their APIs. It keeps each site's records and audit chain in Postgres,
+as described below.
 
 ## Four guard boundaries
 
@@ -162,6 +165,24 @@ person's approval releases a candidate only when the stored decision says
 `release`, the Guard permitted it, its metrics came from the study's rounds,
 and the model it was compared with is still the one in use. The GMA's model
 registry applies the planner's answer and keeps no status rule of its own.
+
+When the candidate is in the model registry, the GMA stores the release
+decision twice: with the model version, then on the round. If the second write
+fails, the operator sends the same request again.
+The planner compares the decision it computes again with the one the version
+already holds. The same decision for the same round leaves the version as it
+is, and the GMA saves the decision on the round. A different decision is
+refused (`decision_differs`), and the round stays undecided.
+
+The planner also decides what happens to a round after a restart
+(`dagentsc federation round recover`). It closes a round whose dispatch was
+cut off and a round whose stored record cannot be read. It also closes a
+training round whose stored updates were lost or are older than a limit,
+unless the round's candidate is already registered. It keeps every other
+round. The operator runs a closed round again under a new round id.
+`FederatedRoundController.recover` asks the planner about each unfinished
+round, for a round store that outlives the process. The GMA does not call it
+yet.
 
 The stroke demo runs eight rounds in order: analytics, evaluation of the model in
 use, five training rounds, and validation of the candidate at each hospital.
