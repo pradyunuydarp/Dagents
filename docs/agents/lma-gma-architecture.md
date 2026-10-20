@@ -64,7 +64,7 @@ joined address. The rules are in [`dagents/gma/README.md`](../../dagents/gma/REA
 | Apply the Guard at `before_read`, `before_train` and `before_send`, and keep the site's audit chain | Plan each round, check quorum, and keep round records |
 | Report counts, and a label rate only when the site's planner permits it | Report what every site says about itself (`GET /federation/sites/summaries`), never a record |
 | Check each offered job before reading any data, run accepted jobs on the Guard's payload, and log each job | Offer each selected site its job, ask it to run, and record the status of every call |
-| Send a training job's clipped update to the GMA, never into a result | Hold training updates in a write-only store until aggregation, then delete them |
+| Send a training job's clipped update to the GMA, never into a result | Hold training updates in a write-only store until the round is aggregated or discarded, then delete them |
 | | Combine updates with the model kind's `combine` and the planner's weights into a candidate |
 | | Run the `before_release` Guard and the release gates, and approve a release only when the planner's lifecycle rule allows it |
 

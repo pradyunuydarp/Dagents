@@ -85,9 +85,10 @@ export DAGENTSC_BIN=$PWD/bindings/ocaml/_build/default/bin/dagentsc.exe
 | Spring services | `mvn -f services/spring-services/pom.xml package`, then `java -jar` each service's jar with its `env/.env.spring-*` settings ([details](spring-services.md)) |
 | Everything | `docker compose --env-file env/.env.compose up --build` |
 
-Each Python service keeps its state in memory, so a restart clears what earlier
-requests stored. The healthcare demo reads Postgres only when
-`HEALTHCARE_DEMO_DATABASE_URL` is set.
+Each Python service keeps its state in memory by default, so a restart clears
+what earlier requests stored. The State item under
+[Requests and responses](#requests-and-responses) lists the exceptions. The
+healthcare demo reads Postgres only when `HEALTHCARE_DEMO_DATABASE_URL` is set.
 
 ## Versions and paths
 
@@ -126,9 +127,12 @@ requests stored. The healthcare demo reads Postgres only when
   exceptions in the healthcare demo: a data entry, an outcome, a Guard probe and
   a pilot request refuse an unknown key with `422`.
 - **State.** Nothing is persisted across restarts except in the healthcare demo
-  with a database, and in an LMA or GMA whose settings name database tables for
-  its audit chain, job log or model registry. Ids such as `plan_id` are yours to choose where a field
-  allows it; otherwise the service makes one.
+  with a database, in an LMA or GMA whose settings name database tables for
+  its audit chain, job log or model registry, and in a GMA that an application
+  builds with its own stores for rounds, site enrolments or training updates
+  ([what the GMA stores](agents.md#what-the-gma-stores)). Ids such as
+  `plan_id` are yours to choose where a field allows it; otherwise the service
+  makes one.
 
 ## Authentication
 
