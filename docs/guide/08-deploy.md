@@ -110,19 +110,20 @@ takes its default.
 | `DAGENTSC_MAX_INPUT_BYTES` | `16777216` (16 MiB) | The most bytes one call may send the planner, input files included |
 | `DAGENTSC_MAX_OUTPUT_BYTES` | `16777216` (16 MiB) | The most bytes the planner may print for one call |
 
-The defaults leave a wide margin. In about 8,100 planner calls measured across
-the repository's suites, demos and examples, the slowest took 50 ms, the
-largest input was 11,277 bytes and the largest answer was 14,637 bytes. Ten
-seconds also stops a planner that hangs before an agent client's own 30-second
-timeout, so the caller gets the Guard's denial instead of a timeout.
+Each default is far above what the repository's own suites, demos and examples
+need. The comments above the defaults in
+[`dagents/common/infrastructure/dagents_runner.py`](../../dagents/common/infrastructure/dagents_runner.py)
+record how they were measured. The 10-second timeout also stops a planner that
+hangs before an agent client's own 30-second timeout, so the caller gets the
+Guard's denial instead of a timeout.
 
 When a call runs past the timeout or prints more than the output limit, the
 runner stops the planner and every process it started. It refuses an input
 over the input limit before the planner starts. It also refuses an answer that
-nests objects and lists more than 200 levels deep. The deepest real answer has
-six levels, and this limit is not a setting. Each of these is a planner
-failure: the Guard denies the request and records the denial, and a route that
-only asks the planner answers `503` with the code `planner_unavailable`.
+nests objects and lists more than 200 levels deep. Real answers nest far less
+deeply, and this limit is not a setting. Each of these is a planner failure:
+the Guard denies the request and records the denial, and a route that only
+asks the planner answers `503` with the code `planner_unavailable`.
 
 A value that is zero, negative or not a number stops the agent from starting.
 `create_app` raises `ValueError` with the variable's name, `dagents-lma` and

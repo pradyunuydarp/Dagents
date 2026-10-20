@@ -366,10 +366,10 @@ test, and an audit record names the planner that decided.
 (`DAGENTSC_TIMEOUT_SECONDS`, default 10 seconds) and caps on its input and
 output (`DAGENTSC_MAX_INPUT_BYTES` and `DAGENTSC_MAX_OUTPUT_BYTES`, 16 MiB
 each). The defaults are far above the slowest (50 ms) and largest (11 KB in,
-15 KB out) of about 8,100 planner calls measured across the repository's
-suites, demos and examples. The runner kills a planner that runs or prints past
-a limit, with every process it started, and an LMA or GMA refuses to start
-with a limit that is zero, negative or not a number.
+15 KB out) of about 8,100 planner calls measured on 19 October 2026 across
+the repository's suites, demos and examples. The runner kills a planner that
+runs or prints past a limit, with every process it started, and an LMA or GMA
+refuses to start with a limit that is zero, negative or not a number.
 `dagents/tests/test_planner_failures.py` shows a denial and an audit record
 for each case in the list, and for a pinned hash that differs. An unknown
 strategy now denies the whole request; before, the Guard withheld that field

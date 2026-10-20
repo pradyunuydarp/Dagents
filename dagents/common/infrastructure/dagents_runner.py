@@ -85,11 +85,14 @@ class PlannerUnavailableError(RuntimeError):
     """
 
 
-# The three defaults below were measured on about 8,100 real planner calls: the
-# agent suite, the healthcare suite and pilot, the getting-started example, the
-# captured API examples (scripts/capture_api_examples.py --check), core-service's
-# suite, every docs/demo input, and the manifest compiler on the seven-component
-# stack of generate_manifests_local.py.
+# The three defaults below were measured on 19 October 2026, on about 8,100 real
+# planner calls: the agent suite, the healthcare suite and pilot, the
+# getting-started example, the captured API examples
+# (scripts/capture_api_examples.py --check), core-service's suite, every
+# docs/demo input, and the manifest compiler on the seven-component stack of
+# generate_manifests_local.py. Tests added since then make more calls, so the
+# numbers below are the maxima on that day. For this reason the site's guide
+# (docs/guide/08-deploy.md) quotes none of them.
 
 #: How long one planner call may run, in seconds, when ``DAGENTSC_TIMEOUT_SECONDS``
 #: is not set. The median call took 5 ms and the slowest 50 ms, on a 4-core
@@ -589,9 +592,9 @@ def _check_input_size(size: int, limits: PlannerLimits) -> None:
     """Refuse an input larger than ``DAGENTSC_MAX_INPUT_BYTES`` before the planner starts.
 
     The planner reads its whole input into memory before it decides. The
-    largest input the repository sends is 11 KB, so one past the limit is a
-    caller's mistake, and starting the planner on it could end in a timeout or
-    an out-of-memory kill instead of a clear reason.
+    largest input measured for the defaults above was 11 KB, so one past the
+    limit is a caller's mistake, and starting the planner on it could end in a
+    timeout or an out-of-memory kill instead of a clear reason.
     """
     if size > limits.max_input_bytes:
         raise PlannerUnavailableError(
@@ -755,13 +758,14 @@ def _exit_failure(returncode: int, stderr: bytes | str) -> PlannerUnavailableErr
 
 
 #: The deepest a planner answer may nest, counting each object and each list as
-#: one level: ``{"a": [1]}`` is two levels deep. The deepest real answer in the
-#: repository is six levels (``pipeline compile``, in the captured API
-#: examples); the agent suite, the healthcare suite, core-service's suite and
-#: the getting-started example see no answer deeper than three. The limit is
-#: fixed rather than left to Python: the key conversion is recursive, and how
-#: deep it can go depends on the Python version (about 500 nested lists on
-#: 3.11, about 1,000 on 3.12 and later). 200 levels stay far inside both.
+#: one level: ``{"a": [1]}`` is two levels deep. On 19 October 2026 the
+#: deepest real answer in the repository was six levels (``pipeline compile``,
+#: in the captured API examples); the agent suite, the healthcare suite,
+#: core-service's suite and the getting-started example saw no answer deeper
+#: than three. The limit is fixed rather than left to Python: the key
+#: conversion is recursive, and how deep it can go depends on the Python
+#: version (about 500 nested lists on 3.11, about 1,000 on 3.12 and later).
+#: 200 levels stay far inside both.
 MAX_ANSWER_DEPTH = 200
 
 #: The message for an answer deeper than :data:`MAX_ANSWER_DEPTH`, or deeper
