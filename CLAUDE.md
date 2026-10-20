@@ -64,7 +64,8 @@ bindings/ocaml/  the planners (dune workspace)
   lib/model_router        dataset profile + task -> model family + packaging mode
   lib/manifest_compiler   typed workload spec -> Kubernetes YAML or a Docker Compose file
   lib/governance_compiler GRAILS ethical restrictions: what protection a request needs
-  lib/federation_compiler federated round manifests, eligibility, quorum, release gates
+  lib/federation_compiler federated round manifests, eligibility, quorum, release gates,
+                          model version status, round recovery after a restart
   bin/dagentsc.ml         the command-line program services call
 contracts/grpc/  shared LMA/GMA protobuf contract
 services/
@@ -958,12 +959,21 @@ login and database; the store reads an optional per-site connection string,
 
 `bindings/ocaml/lib/federation_compiler` makes every deterministic decision:
 eligibility, quorum, aggregation readiness (which counts only the sites the
-plan selected), release gates, and every change of a model version's status
-(`dagentsc federation model lifecycle`).
+plan selected), release gates, every change of a model version's status
+(`dagentsc federation model lifecycle`), and whether a round that a restart
+left unfinished is kept or closed (`dagentsc federation round recover`).
 `dagents/common/application/federation.py` holds state and side effects and calls
 the planner for the rest; the GMA's model registry
 (`dagents/gma/application/model_registry.py`) applies the lifecycle answer and
 keeps no status rule of its own. Do not write a planning rule again in Python.
+
+When the model registry holds the candidate, a release evaluation sends the
+decision the version already holds with the `release_evaluated` event. For the
+same round, the planner allows the same decision without a status change and
+refuses a different one as `decision_differs`. So a retry after a failed round
+write saves the decision on the round.
+`FederatedRoundController.recover` asks `round recover` about each unfinished
+round and closes what it says to close. The GMA does not call `recover` yet.
 
 The federated protocol belongs to a dedicated runtime behind `FederationEngine`.
 The in-process engine is a simulator for tests and the getting-started example;
@@ -1051,14 +1061,17 @@ versions and handle approvals. They call each other through
 `dagents/common/infrastructure/agent_client.py`, in one process through
 `httpx.ASGITransport` or over HTTP, with bearer tokens of fixed scopes
 (`agent_auth.py`). With a database, an LMA keeps its audit chain and job log in
-Postgres and the GMA keeps its model registry and audit chain there; the GMA's
-enrolments, rounds and pending updates stay in memory. The getting-started
-example's `step5_agents_over_http.py` runs a round this way, and so does the
-healthcare demo: it calls one LMA per hospital and a GMA only through their
-APIs, in its own process on the published demo and as separate processes in
-network mode. Every successful answer of the demo whose body is a JSON object
-lists the agent calls behind it (`framework_calls`); errors, the hospital list
-and the SVG charts do not.
+Postgres and the GMA keeps its model registry and audit chain there. The GMA's
+enrolments, rounds and pending updates stay in memory, unless the application
+that builds it passes its own stores in `GmaDeps` (`rounds`, `enrolments`,
+`updates`). The framework has no Postgres store for them yet, and the GMA does
+not call `FederatedRoundController.recover` when it starts. The getting-started
+example's `step5_agents_over_http.py` runs a round through `agent_client`, and
+so does the healthcare demo: it calls one LMA per hospital and a GMA only
+through their APIs, in its own process on the published demo and as separate
+processes in network mode. Every successful answer of the demo whose body is
+a JSON object lists the agent calls behind it (`framework_calls`); errors, the
+hospital list and the SVG charts do not.
 
 Open work is in `TODO.md`. The main item is live Kubernetes validation on
 Minikube, which is blocked on local Docker Desktop disk space (see `CHANGES.md`).

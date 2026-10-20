@@ -77,7 +77,7 @@ copies of one rule drift apart; this repo has had that bug (see §5).
 | `lib/model_router` | Dataset profile + task → model family + packaging mode |
 | `lib/manifest_compiler` | Typed workload spec → Kubernetes YAML or a Docker Compose file |
 | `lib/governance_compiler` | GRAILS: the protection each field of a request needs |
-| `lib/federation_compiler` | Round manifests, eligibility, quorum, aggregation readiness, release gates |
+| `lib/federation_compiler` | Round manifests, eligibility, quorum, aggregation readiness, release gates, every change of a model version's status, whether a round that a restart left unfinished is kept or closed |
 
 ## 2. Hard rules
 
@@ -104,7 +104,10 @@ copies of one rule drift apart; this repo has had that bug (see §5).
 ### Federation
 
 - `bindings/ocaml/lib/federation_compiler` decides eligibility, quorum,
-  aggregation readiness and release gates.
+  aggregation readiness, release gates, every change of a model version's
+  status (`federation model lifecycle`, including the stored-decision rule for
+  a retried release evaluation) and whether a round that a restart left
+  unfinished is kept or closed (`federation round recover`).
   `dagents/common/application/federation.py` holds state and side effects and
   calls the planner for the rest.
 - **Aggregation produces a candidate, never a release.** A release needs its
