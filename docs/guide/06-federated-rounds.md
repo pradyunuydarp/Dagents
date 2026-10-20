@@ -386,6 +386,8 @@ class FederationEngine(Protocol):
       with stored updates, the age in seconds of its oldest update.
       :meth:`FederatedRoundController.recover` tells the planner the age, and
       deletes the updates of rounds that are no longer unfinished.
+      :meth:`FederatedRoundController.expire_updates` finds with it the
+      rounds whose updates are older than the age limit.
     """
 
     name: str
@@ -560,8 +562,11 @@ your process and at the GMA:
   deletes its updates.
   Call it once when your process starts, before any round write, if your
   round store outlives the process
-  ([Step 8, section 9](08-deploy.md#9-state-that-survives-a-restart)). The GMA
-  does not call it yet.
+  ([Step 8, section 9](08-deploy.md#9-state-that-survives-a-restart)). A GMA
+  built with `create_app` calls it itself. A controller built with
+  `update_max_age_seconds=` also asks the same planner rule, before each
+  dispatch, about every round whose oldest stored update is older than the
+  limit (`expire_updates`).
 
 ## 6. Run the round through the LMA and GMA
 
@@ -974,10 +979,14 @@ this:
    `POST .../rounds/{round_id}:discard`, so no update stays in the GMA's
    update store.
 
-The GMA's update store is in memory, unless your application passes its own
-(`GmaDeps(updates=...)`, [Step 8, section 9](08-deploy.md#9-state-that-survives-a-restart)).
-With the memory store, a GMA restart loses the pending updates, so the round
-cannot be aggregated.
+The GMA's update store is in memory, unless `GMA_UPDATE_TABLE` names a table
+or your application passes its own (`GmaDeps(updates=...)`,
+[Step 8, section 9](08-deploy.md#9-state-that-survives-a-restart)). With the
+memory store, a GMA restart loses the pending updates. If the round store
+survives the restart (`GMA_ROUND_TABLE`, or a round store in `GmaDeps` that
+survives a restart), the restarted GMA closes the round (`updates_not_kept`)
+and a later aggregate of it gets `409`. With the default round store in
+memory, the round itself is gone, and an aggregate of it gets `404`.
 
 The stroke demo runs its training rounds this way. Its study operator,
 [`apps/healthcare-demo/backend/app/services/pilot.py`](../../apps/healthcare-demo/backend/app/services/pilot.py),

@@ -104,11 +104,16 @@ Current implementation includes:
   round planning and dispatch, results, readiness, aggregation, discard and
   release evaluation; with `GMA_ENGINE=http`, jobs go to the LMAs over their
   HTTP API and training updates go to a write-only update store
-- site enrolments, rounds and the update store in memory, unless the
-  application that builds the GMA passes its own stores in `GmaDeps`
-  (`enrolments`, `rounds`, `updates`), such as the Postgres stores in
-  `dagents/gma/infrastructure/postgres_rounds.py`; no setting builds those
-  stores yet
+- site enrolments, rounds and the update store in memory, or in Postgres with
+  `GMA_ENROLMENT_TABLE`, `GMA_ROUND_TABLE` and the opt-in `GMA_UPDATE_TABLE`
+  (with `GMA_ENGINE=http`, `GMA_UPDATE_ROLE` and `GMA_UPDATE_MAX_AGE_SECONDS`), or in stores the
+  application passes in `GmaDeps` (`enrolments`, `rounds`, `updates`)
+- recovery after a restart: the GMA asks the planner about each unfinished
+  round once, in its lifespan or at the first round write, and the round
+  writes answer `503` `recovery_failed` while it fails; before each dispatch
+  it asks the same rule about rounds with stored updates older than the age
+  limit, which applies to an update store that survives a restart or when
+  `GMA_UPDATE_MAX_AGE_SECONDS` is set
 - retries after a store error: a retried aggregate gives the candidate the
   first attempt registered, and a retried release evaluation saves on the
   round the decision the version already holds, through the planner's
@@ -119,7 +124,8 @@ Current implementation includes:
 
 `FederatedRoundController.recover` closes the rounds a restart left unfinished,
 as the planner's `federation round recover` rule decides, for a round store
-that outlives the process. The GMA does not call it yet.
+that outlives the process. A GMA calls it itself; recovery assumes one GMA
+process with one uvicorn worker.
 
 `dagents/gma/README.md` lists the settings and routes.
 

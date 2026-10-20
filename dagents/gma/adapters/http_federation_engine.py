@@ -35,7 +35,8 @@ training round the engine:
    attempt registered: ``<version_prefix>+<round_id>`` in the model registry
    with the round's starting version as its parent. It loads that version
    and checks its digest. It does this only when the GMA's round store keeps
-   round ids across a restart (``round_ids_survive_restart``). Then no other
+   round ids across a restart (``round_ids_survive_restart``), as the table
+   ``GMA_ROUND_TABLE`` names does. Then no other
    round can have used the id, and a registration request has no parent
    field, so only this round's aggregation can have registered the version.
    With the default round store in memory, a restart frees every round id

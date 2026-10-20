@@ -153,6 +153,17 @@ async def _source_reads(request: Request) -> None:
         raise SourceReadsDisabled("this GMA reads no source: it was started with GMA_ALLOW_SOURCE_READS=0")
 
 
+async def require_recovered(request: Request) -> None:
+    """Wait until the GMA has recovered the rounds a restart left unfinished (``GmaState.ensure_recovered``).
+
+    The routes that change a round depend on it, after the token check. It is
+    async, and the recovery runs on the GMA's own handler threads, so a request
+    that waits for it holds no server thread. Raises ``RecoveryFailed`` (503)
+    while the recovery fails.
+    """
+    await request.app.state.gma.ensure_recovered()
+
+
 ServiceDep = Annotated[AggregationService, Depends(_service)]
 GovernanceDep = Annotated[GovernanceService, Depends(_governance)]
 RoundsDep = Annotated[FederatedRoundController, Depends(_rounds)]
@@ -170,6 +181,10 @@ ReporterDep = Annotated[Caller, Depends(_REPORTER)]
 #: The admin and every site's token: the released model, which each site's LMA reads.
 ADMIN_OR_SITE = [Depends(_REPORTER)]
 SOURCE_READS = [Depends(require_scope("admin")), Depends(_source_reads)]
+#: The admin token, then recovery after a restart: the routes that change a round.
+ROUND_WRITE = [*ADMIN, Depends(require_recovered)]
+#: A site's token for its own site, then recovery after a restart: the update upload.
+UPLOAD = [Depends(require_scope("site", bind_site="site_id")), Depends(require_recovered)]
 
 
 # --------------------------------------------------------------------------- #
@@ -201,7 +216,8 @@ class AgentErrorDetail(BaseModel):
     code: str = Field(
         description=(
             "What kind of error: `conflict`, `forbidden`, `not_found`, `unauthorized`, `invalid_request`, "
-            "`aggregation_refused`, `planner_unavailable`, `store_unavailable`, `store_not_set_up` and so on."
+            "`aggregation_refused`, `planner_unavailable`, `store_unavailable`, `store_not_set_up`, "
+            "`recovery_failed` and so on."
         )
     )
 
@@ -268,6 +284,14 @@ _SOURCE_SPEC_SCHEMA.pop("$defs", None)
 _SOURCE_ID = Path(description="The `source_id` the source was registered with.")
 _SOURCE_READS_OFF = _coded("The GMA was started with `GMA_ALLOW_SOURCE_READS=0`, so it reads no source.")
 _PLANNER_FAILED = _coded("`planner_unavailable`: the planner could not be run, or its answer could not be used.")
+_RECOVERY_TEXT = (
+    "`recovery_failed`: the GMA has not yet recovered the rounds a restart left unfinished, so it takes no round "
+    "write. The next round write tries the recovery again."
+)
+_RECOVERY_FAILED = _coded(_RECOVERY_TEXT)
+_PLANNER_OR_RECOVERY_FAILED = _coded(
+    "`planner_unavailable`: the planner could not be run, or its answer could not be used. " + _RECOVERY_TEXT
+)
 _ROUND_ID = Path(description="The `round_id` of a round dispatched with `POST /api/v1/federation/rounds`.")
 _UNKNOWN_ROUND = {"model": ErrorDetail, "description": "No round has this id."}
 _VERSION = Path(description="The model version's name: 1 to 200 characters.")
@@ -861,8 +885,9 @@ def register_site(site_id: Annotated[str, _SITE_ID], registration: SiteRegistrat
     """Enrol or update one site in the consortium.
 
     The enrolment is stored under `site_id`; sending the same id again
-    replaces it. The GMA keeps enrolments in memory, unless the application
-    that built it passed its own enrolment store. Round planning reads every
+    replaces it. The GMA keeps enrolments in the table `GMA_ENROLMENT_TABLE`
+    names, in the enrolment store the application that built it passed, or
+    else in memory, where a restart loses them. Round planning reads every
     stored enrolment.
     """
     if registration.site_id != site_id:
@@ -1086,11 +1111,11 @@ _DISPATCH_ERRORS = {
         "`conflict`: a round with this id is already stored, or (HTTP engine) the round's model is not "
         "registered or does not match `model_artifact_digest`."
     ),
-    503: _PLANNER_FAILED,
+    503: _PLANNER_OR_RECOVERY_FAILED,
 }
 
 
-@router.post("/federation/rounds", responses={200: {"model": RoundRecord}, **_DISPATCH_ERRORS}, dependencies=ADMIN)
+@router.post("/federation/rounds", responses={200: {"model": RoundRecord}, **_DISPATCH_ERRORS}, dependencies=ROUND_WRITE)
 def dispatch_round(manifest: RoundManifest, rounds: RoundsDep):
     """Plan a round and, if quorum allows, dispatch its jobs to the selected sites.
 
@@ -1100,6 +1125,16 @@ def dispatch_round(manifest: RoundManifest, rounds: RoundsDep):
     job, then runs it, up to `GMA_DISPATCH_CONCURRENCY` sites at a time; the
     round holds the sites' answers (`acceptances`), their results, every call
     made (`dispatch`) and the planner's `readiness`, since every result is in.
+
+    Before it plans, the GMA looks for stored updates older than
+    `GMA_UPDATE_MAX_AGE_SECONDS`, 24 hours by default when the update store
+    survives a restart. It asks the planner about each unfinished round that
+    holds one, closes the rounds the planner says to close and deletes their
+    updates, and deletes the old updates of rounds that are finished. A GMA
+    that keeps its updates in memory runs this check only when the setting is
+    set. A round whose dispatch a restart cut cannot
+    resume: the GMA closes it when it recovers, and the operator dispatches
+    it again under a new round id.
     """
     return rounds.dispatch_round(manifest)
 
@@ -1108,7 +1143,7 @@ def dispatch_round(manifest: RoundManifest, rounds: RoundsDep):
     "/api/v1/federation/rounds",
     status_code=202,
     responses={202: {"model": RoundRecord}, **_DISPATCH_ERRORS},
-    dependencies=ADMIN,
+    dependencies=ROUND_WRITE,
 )
 def dispatch_round_v1(manifest: RoundManifest, rounds: RoundsDep):
     """Versioned alias for round dispatch."""
@@ -1157,13 +1192,14 @@ _RESULT_ERRORS = {
     403: _coded("`forbidden`: the round's plan did not select this site."),
     404: _UNKNOWN_ROUND,
     409: _coded("`conflict`: the round is `aggregated` or `closed`, so it takes no more results."),
+    503: _RECOVERY_FAILED,
 }
 
 
 @router.post(
     "/federation/rounds/{round_id}/results",
     responses={200: {"model": RoundRecord, "description": "The round, with the result stored."}, **_RESULT_ERRORS},
-    dependencies=ADMIN,
+    dependencies=ROUND_WRITE,
 )
 def submit_result(round_id: Annotated[str, _ROUND_ID], result: SiteResult, rounds: RoundsDep):
     """Record one site's returned result against its round.
@@ -1187,7 +1223,7 @@ def submit_result(round_id: Annotated[str, _ROUND_ID], result: SiteResult, round
     "/api/v1/federation/rounds/{round_id}/results",
     status_code=202,
     responses={202: {"model": RoundRecord, "description": "The round, with the result stored."}, **_RESULT_ERRORS},
-    dependencies=ADMIN,
+    dependencies=ROUND_WRITE,
 )
 def submit_result_v1(round_id: Annotated[str, _ROUND_ID], result: SiteResult, rounds: RoundsDep):
     """Versioned alias for submitting a site result."""
@@ -1229,11 +1265,11 @@ _AGGREGATE_RESPONSES = {
         "engine) the candidate's name holds another model, as after a restart that freed a round id the model "
         "store still uses. The engine then deletes the round's updates."
     ),
-    503: _PLANNER_FAILED,
+    503: _PLANNER_OR_RECOVERY_FAILED,
 }
 
 
-@router.post("/federation/rounds/{round_id}:aggregate", responses=_AGGREGATE_RESPONSES, dependencies=ADMIN)
+@router.post("/federation/rounds/{round_id}:aggregate", responses=_AGGREGATE_RESPONSES, dependencies=ROUND_WRITE)
 def aggregate_round(round_id: Annotated[str, _ROUND_ID], rounds: RoundsDep):
     """Produce a candidate model, if and only if aggregation is permitted.
 
@@ -1246,7 +1282,8 @@ def aggregate_round(round_id: Annotated[str, _ROUND_ID], rounds: RoundsDep):
     store error, the updates are kept: a retry combines them again and gets
     the same candidate. When the updates are gone after a restart, a retry
     returns the registered candidate, but only if the GMA's round store keeps
-    round ids across restarts. The default store in memory does not.
+    round ids across restarts, as the table `GMA_ROUND_TABLE` names does. The
+    default store in memory does not.
     """
     try:
         return rounds.aggregate(round_id)
@@ -1254,7 +1291,7 @@ def aggregate_round(round_id: Annotated[str, _ROUND_ID], rounds: RoundsDep):
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
-@router.post("/api/v1/federation/rounds/{round_id}:aggregate", responses=_AGGREGATE_RESPONSES, dependencies=ADMIN)
+@router.post("/api/v1/federation/rounds/{round_id}:aggregate", responses=_AGGREGATE_RESPONSES, dependencies=ROUND_WRITE)
 def aggregate_round_v1(round_id: Annotated[str, _ROUND_ID], rounds: RoundsDep):
     """Versioned alias for candidate aggregation."""
     return aggregate_round(round_id, rounds)
@@ -1269,13 +1306,14 @@ _UPLOAD_RESPONSES = {
         "`conflict`: the round is not a `dispatched` or `collecting` training round, `job_digest` is not the "
         "plan's `round_digest`, an update from this site is already stored, or the model kind refused the update."
     ),
+    503: _RECOVERY_FAILED,
 }
 
 
 @router.put(
     "/federation/rounds/{round_id}/updates/{site_id}",
     responses=_UPLOAD_RESPONSES,
-    dependencies=[Depends(require_scope("site", bind_site="site_id"))],
+    dependencies=UPLOAD,
 )
 async def upload_update(
     round_id: Annotated[str, _ROUND_ID],
@@ -1296,9 +1334,10 @@ async def upload_update(
     deleted once the round is stored as aggregated, when the HTTP engine
     refuses the aggregation (for example because an update is missing or
     changed), or when the round is discarded or closed. A planner refusal of
-    the aggregation keeps them. The work runs on the GMA's own upload threads,
-    never on the server's, so an upload does not wait for the dispatch that
-    caused it.
+    the aggregation keeps them. The work runs on the GMA's own handler
+    threads, never on the server's, so an upload does not wait for the
+    dispatch that caused it. So does the recovery after a restart, which the
+    upload waits for, as every round write does.
     """
 
     def store() -> UpdateReceipt:
@@ -1322,7 +1361,7 @@ async def upload_update(
 @router.put(
     "/api/v1/federation/rounds/{round_id}/updates/{site_id}",
     responses=_UPLOAD_RESPONSES,
-    dependencies=[Depends(require_scope("site", bind_site="site_id"))],
+    dependencies=UPLOAD,
 )
 async def upload_update_v1(
     round_id: Annotated[str, _ROUND_ID],
@@ -1337,7 +1376,11 @@ async def upload_update_v1(
     return await upload_update(round_id, site_id, upload, rounds, models, updates, threads)
 
 
-_DISCARD_RESPONSES = {204: {"description": "The round's updates are deleted and the reason is stored."}, 404: _UNKNOWN_ROUND}
+_DISCARD_RESPONSES = {
+    204: {"description": "The round's updates are deleted and the reason is stored."},
+    404: _UNKNOWN_ROUND,
+    503: _RECOVERY_FAILED,
+}
 
 
 @router.post(
@@ -1345,7 +1388,7 @@ _DISCARD_RESPONSES = {204: {"description": "The round's updates are deleted and 
     status_code=204,
     response_class=Response,
     responses=_DISCARD_RESPONSES,
-    dependencies=ADMIN,
+    dependencies=ROUND_WRITE,
 )
 def discard_round(round_id: Annotated[str, _ROUND_ID], request: DiscardRequest, rounds: RoundsDep) -> Response:
     """Give up a round: delete its stored updates and record why.
@@ -1367,7 +1410,7 @@ def discard_round(round_id: Annotated[str, _ROUND_ID], request: DiscardRequest, 
     status_code=204,
     response_class=Response,
     responses=_DISCARD_RESPONSES,
-    dependencies=ADMIN,
+    dependencies=ROUND_WRITE,
 )
 def discard_round_v1(round_id: Annotated[str, _ROUND_ID], request: DiscardRequest, rounds: RoundsDep) -> Response:
     """Versioned alias for discarding a round."""
@@ -1393,11 +1436,11 @@ _RELEASE_RESPONSES = {
         "The body does not match the request model (FastAPI's validation error, `detail` is a list), or "
         "`invalid_request`: the round flow got gates or metrics in the body, or no `release_requester`."
     ),
-    503: _PLANNER_FAILED,
+    503: _PLANNER_OR_RECOVERY_FAILED,
 }
 
 
-@router.post("/federation/rounds/{round_id}:evaluate-release", responses=_RELEASE_RESPONSES, dependencies=ADMIN)
+@router.post("/federation/rounds/{round_id}:evaluate-release", responses=_RELEASE_RESPONSES, dependencies=ROUND_WRITE)
 def evaluate_release(round_id: Annotated[str, _ROUND_ID], payload: ReleaseEvaluationRequest, releases: ReleasesDep):
     """Evaluate a round's candidate against the release gates and record the verdict.
 
@@ -1424,7 +1467,7 @@ def evaluate_release(round_id: Annotated[str, _ROUND_ID], payload: ReleaseEvalua
         raise _unknown_round(round_id) from exc
 
 
-@router.post("/api/v1/federation/rounds/{round_id}:evaluate-release", responses=_RELEASE_RESPONSES, dependencies=ADMIN)
+@router.post("/api/v1/federation/rounds/{round_id}:evaluate-release", responses=_RELEASE_RESPONSES, dependencies=ROUND_WRITE)
 def evaluate_release_v1(round_id: Annotated[str, _ROUND_ID], payload: ReleaseEvaluationRequest, releases: ReleasesDep):
     """Versioned alias for release evaluation."""
     return evaluate_release(round_id, payload, releases)

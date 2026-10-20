@@ -28,6 +28,7 @@ event and recovery verdict comes from the real ``dagentsc``.
 
 from __future__ import annotations
 
+import asyncio
 import dataclasses
 import time
 import unittest
@@ -45,7 +46,7 @@ from dagents.common.application.federation import (
     RoundRecovery,
     UnfinishedRound,
 )
-from dagents.common.domain.errors import RoundConflict, StoreNotSetUpError, StoreUnavailableError
+from dagents.common.domain.errors import AggregationRefused, RoundConflict, StoreNotSetUpError, StoreUnavailableError
 from dagents.common.domain.federation import CandidateModel, ModelVersionRegistration, RoundRecord, UpdateUpload
 from dagents.common.infrastructure import dagents_runner
 from dagents.common.infrastructure.agent_client import AgentError
@@ -561,10 +562,20 @@ class ForeignCandidateTests(StudyTestCase):
     def check_aggregate_after_a_restart_is_refused(self) -> None:
         self.dispatch()
         self.restart()
-        error = self.assert_agent_error(lambda: self.gma.aggregate(self.round_id), 409, "aggregation_refused")
-        self.assertIn("no update", error.detail)
+        # The engine does not take the other model for this round's candidate: an aggregate
+        # on the controller finds no update and is refused.
+        with self.assertRaises(AggregationRefused) as refused:
+            self.controller.aggregate(self.round_id)
+        self.assertIn("no update", str(refused.exception))
         self.assertEqual(0, len(self.extension.linear.combined))
         self.assertIsNone(self.gma.get_round(self.round_id).candidate)
+        # Through the GMA's route, recovery runs first. The updates were not kept and no
+        # candidate is registered for the round, so the planner closes it.
+        error = self.assert_agent_error(lambda: self.gma.aggregate(self.round_id), 409, "conflict")
+        self.assertIn("not kept across the restart", error.detail)
+        self.assertEqual(0, len(self.extension.linear.combined))
+        stored = self.gma.get_round(self.round_id)
+        self.assertEqual(("closed", None), (stored.status, stored.candidate))
 
     def test_without_a_parent_it_is_not_registered_for_the_round_and_recovery_closes_the_round(self) -> None:
         self.register_without_parent()
@@ -792,6 +803,10 @@ class RoundRecoveryTests(StudyTestCase):
         self.start(Stores(clock=self.clock))
         self.digests = register_models(self.gma)
         self.gma.refresh_sites()
+        # The GMA recovers once, as its lifespan does when uvicorn starts it, so its
+        # first round write does not recover the rounds a test stores directly.
+        asyncio.run(self.study.state.ensure_recovered())
+        self.assertTrue(self.study.state.recovered)
 
     def recover(self, **arguments: Any) -> RecoveryReport:
         arguments.setdefault("now", self.clock.now)

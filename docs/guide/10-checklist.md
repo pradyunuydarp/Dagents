@@ -42,7 +42,11 @@ Check each item before your application handles real data.
 - [ ] Every round gets a new round id, also after a restart.
 - [ ] If your round store outlives the process, the process calls `recover`
       once when it starts, before any round write
-      ([Step 8, section 9](08-deploy.md#9-state-that-survives-a-restart)).
+      ([Step 8, section 9](08-deploy.md#9-state-that-survives-a-restart)). A
+      GMA built with `create_app` does this itself.
+- [ ] A GMA that keeps its rounds in Postgres runs as one process with one
+      uvicorn worker, and a rollout stops the old process before it starts
+      the new one.
 
 **Deployment and tests**
 

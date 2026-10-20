@@ -769,13 +769,17 @@ class UploadThreadTests(unittest.TestCase):
 
     ROUNDS = 8
 
+    def gma_settings(self, **values) -> Settings:  # noqa: ANN003 - Settings fields
+        """The GMA's settings. A subclass adds its own, such as tables in a database."""
+        return Settings(**values)
+
     def test_more_training_dispatches_than_thread_tokens_all_complete(self) -> None:
         registry = toy_registry()
         gma_network = AgentNetwork.in_process(thread_tokens=4, timeout_s=5.0, dispatch_timeout_s=60.0)
         self.addCleanup(gma_network.close)
         lma_network = AgentNetwork.in_process(thread_tokens=64, timeout_s=30.0, dispatch_timeout_s=60.0)
         self.addCleanup(lma_network.close)
-        settings = Settings(
+        settings = self.gma_settings(
             engine="http",
             admin_token=ADMIN_TOKEN,
             site_tokens=dict(SITE_TOKENS),
@@ -783,7 +787,9 @@ class UploadThreadTests(unittest.TestCase):
             dispatch_concurrency=3,
             summary_ttl_seconds=0.0,
         )
-        gma_network.add_app(GMA_AGENT, create_app(settings, GmaDeps(registry=registry, network=lma_network)))
+        self.gma_app = create_app(settings, GmaDeps(registry=registry, network=lma_network))
+        self.addCleanup(self.gma_app.state.gma.close)
+        gma_network.add_app(GMA_AGENT, self.gma_app)
         for site_id in SITES:
             lma = build_fixture_lma(site_id, registry=registry, network=gma_network)
             lma_network.add_app(lma_agent(site_id), lma.app)

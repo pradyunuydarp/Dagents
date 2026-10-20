@@ -94,10 +94,14 @@ Both agents use the same code layout:
 
 Messaging is in memory today. By default the GMA also keeps its site
 enrolments, its rounds and the training updates of running rounds in memory,
-so a restart loses a round in progress. An application that builds the GMA in
-its own code can pass its own stores for them. With a database, an LMA keeps
-its audit chain and job log in Postgres, and the GMA keeps its model registry
-and its own audit chain there. Each runs every query as one database role.
+so a restart loses a round in progress. With a database, an LMA keeps its
+audit chain and job log in Postgres, and the GMA can keep its model registry,
+its own audit chain, its rounds, its site enrolments and, if the operator
+chooses, the training updates there. Each query runs as one database role:
+the site's role in an LMA, and in the GMA the coordinator's role, or a
+separate update role for the training updates. A GMA that keeps its rounds
+there recovers after a restart, and the study goes on. Recovery assumes one
+GMA process with one uvicorn worker.
 The stroke demo runs one LMA per hospital and a GMA, and calls them only
 through their APIs. It keeps each site's records and audit chain in Postgres,
 as described below.
@@ -181,8 +185,10 @@ training round whose stored updates were lost or are older than a limit,
 unless the round's candidate is already registered. It keeps every other
 round. The operator runs a closed round again under a new round id.
 `FederatedRoundController.recover` asks the planner about each unfinished
-round, for a round store that outlives the process. The GMA does not call it
-yet.
+round, for a round store that outlives the process. A GMA whose rounds are in
+a table runs it once after a restart, before it takes a round write, and its
+round writes wait for it. Before each dispatch, the GMA asks the same rule
+about rounds whose stored updates are older than its limit.
 
 The stroke demo runs eight rounds in order: analytics, evaluation of the model in
 use, five training rounds, and validation of the candidate at each hospital.

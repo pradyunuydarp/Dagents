@@ -11,6 +11,7 @@
 | `SiteAddressDiffers` | `address_differs` | 403 |
 | `SiteConfiguredElsewhere` | `configured_elsewhere` | 409 |
 | `SiteConfigured` | `configured` | 409 |
+| `RecoveryFailed` | `recovery_failed` | 503 |
 
 Like the errors in :mod:`dagents.common.domain.errors`, a message never holds a
 connection string, a host or a credential.
@@ -98,9 +99,29 @@ class SiteConfigured(SiteAddressRefused):
     http_status: ClassVar[int] = 409
 
 
+class RecoveryFailed(DagentsError):
+    """The GMA could not yet recover the rounds a restart left unfinished, so it takes no round write.
+
+    ``cause`` is the code of the error recovery raised, such as
+    ``planner_unavailable`` or ``store_unavailable``, never its message. The
+    next round write tries the recovery again.
+    """
+
+    code: ClassVar[str] = "recovery_failed"
+    http_status: ClassVar[int] = 503
+
+    def __init__(self, cause: str) -> None:
+        super().__init__(
+            "the GMA could not yet recover the rounds a restart left unfinished "
+            f"({cause}), so it takes no round write; the next round write tries again"
+        )
+        self.cause = cause
+
+
 __all__ = [
     "InvalidReleaseRequest",
     "InvalidSiteAddress",
+    "RecoveryFailed",
     "SiteAddressDiffers",
     "SiteAddressRefused",
     "SiteConfigured",

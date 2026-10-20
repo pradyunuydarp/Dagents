@@ -51,15 +51,17 @@ gma = create_app(
 ```
 
 `create_app` builds everything at once, because an app called in process
-through `httpx.ASGITransport` gets no lifespan events. It refuses settings that
-cannot work, such as `GMA_ENGINE=http` with no LMA addresses and no agent
-network, or a model table with no database. `GmaDeps` can also hand it a model
-store, a coordinator database lease, an audit sink, and its own stores for
-rounds (`rounds`, a `RoundRepository`), site enrolments (`enrolments`, a
-`SiteRegistry`) and training updates (`updates`, an `UpdateStore`). Each of
-those three stores left out is built in memory, new for each app. A model
-store or audit sink left out follows the settings below: Postgres when its
-table is set, memory otherwise.
+through `httpx.ASGITransport` gets no lifespan events. It opens no database
+connection: each Postgres store connects on its first operation. It refuses
+settings that cannot work, such as `GMA_ENGINE=http` with no LMA addresses and
+no agent network, or a table with no database (the rules are under
+[Settings](#settings)). `GmaDeps` can also hand it a model store, a
+coordinator database lease, an audit sink, and its own stores for rounds
+(`rounds`, a `RoundRepository`), site enrolments (`enrolments`, a
+`SiteRegistry`) and training updates (`updates`, an `UpdateStore`). A store
+handed in takes the place of its table setting. Each store left out follows
+the settings below: Postgres when its table is set, memory otherwise, new for
+each app.
 `examples/getting-started/shop/agents.py` builds a GMA and two LMAs this way.
 
 The Docker image (`dagents/gma/Dockerfile`) builds `dagentsc` in a first stage
@@ -92,6 +94,11 @@ environment.
 | `GMA_DATABASE_URL`, `GMA_DATABASE_ROLE` | none | The coordinator database and the role every query runs as. The address is never shown in a log or a response |
 | `GMA_MODEL_TABLE` | none | `schema.table` for the model registry; in memory without it |
 | `GMA_AUDIT_TABLE`, `GMA_AUDIT_ANCHOR_TABLE` | none | `schema.table` for the release Guard's audit chain and its anchor; in memory without them |
+| `GMA_ROUND_TABLE` | none | `schema.table` for the round records; in memory without it |
+| `GMA_ENROLMENT_TABLE` | none | `schema.table` for the site enrolments; in memory without it |
+| `GMA_UPDATE_TABLE` | none | `schema.table` for the clipped updates of running training rounds; in memory without it. Needs `GMA_ENGINE=http` |
+| `GMA_UPDATE_ROLE` | none | The role that owns the updates table. Every read and write of an update acts as this role |
+| `GMA_UPDATE_MAX_AGE_SECONDS` | `86400` with a durable update store; none in memory | How old, in seconds, a round's oldest stored update may be. The 24-hour default applies when the updates are kept in a store that survives a restart (`GMA_UPDATE_TABLE`). A GMA that keeps them in memory runs no age check unless this is set. See [Recovery after a restart](#recovery-after-a-restart) |
 | `GMA_ALLOW_SOURCE_READS` | `1` | `0` makes the source, dataset profile and model job routes answer `403` |
 | `GMA_REQUIRE_TOKENS` | `0` | `1` refuses to start without a token |
 
@@ -102,13 +109,36 @@ configured registry has condition packs runs its Guard strict about
 classifications: a request whose inline classification differs from the
 registered one answers `409`.
 
+Every table setting shares one kept connection to `GMA_DATABASE_URL`. The GMA
+refuses to start (`ValueError`, naming the settings and never a value) when:
+
+- a table is set without `GMA_DATABASE_URL` (or a lease in `GmaDeps`) or
+  without `GMA_DATABASE_ROLE`;
+- `GMA_ROUND_TABLE` is set without `GMA_MODEL_TABLE` and `GMA_AUDIT_TABLE`,
+  or their stores in `GmaDeps`. A round kept across a restart needs its
+  candidate and the release Guard's chain kept too, or its release can be
+  decided differently;
+- `GMA_UPDATE_TABLE` is set without `GMA_ROUND_TABLE` (or a round store in
+  `GmaDeps` that survives a restart), or without `GMA_UPDATE_ROLE`;
+- `GMA_UPDATE_TABLE` or `GMA_UPDATE_MAX_AGE_SECONDS` is set, or `GmaDeps`
+  holds an update store that survives a restart, without `GMA_ENGINE=http`.
+  The simulator neither reads nor deletes stored updates, so nothing would
+  ever delete them;
+- `GMA_UPDATE_ROLE` equals `GMA_DATABASE_ROLE`, so a coordinator-role reader
+  could read update vectors;
+- `GMA_UPDATE_ROLE` is set without `GMA_UPDATE_TABLE`, or
+  `GMA_UPDATE_MAX_AGE_SECONDS` without `GMA_UPDATE_TABLE` or an update store
+  in `GmaDeps`;
+- `GMA_UPDATE_MAX_AGE_SECONDS` is not a finite number above 0.
+
 ## Postgres tables
 
 The GMA does not create its tables, and the package has no migrations. Before
-you start a GMA with `GMA_MODEL_TABLE` or `GMA_AUDIT_TABLE`, create the tables
-they name. Create them as `GMA_DATABASE_ROLE`, so that role owns them. The
-login in `GMA_DATABASE_URL` must be a member of that role, and the role must be
-allowed to create tables in the schema.
+you start a GMA with a table setting, create the table it names. Create the
+coordinator's tables as `GMA_DATABASE_ROLE`, so that role owns them, and the
+updates table as `GMA_UPDATE_ROLE`. The login in `GMA_DATABASE_URL` must be a
+member of each role, and each role must be allowed to create tables in its
+schema.
 
 For a coordinator role `coord` that owns the schema `coord`, with
 `GMA_MODEL_TABLE=coord.models`, `GMA_AUDIT_TABLE=coord.audit` and
@@ -178,22 +208,25 @@ Rows stored before the change keep the values `jsonb` gave them.
 ### Round state tables
 
 The GMA keeps site enrolments, rounds and the clipped updates of running
-training rounds in memory, unless the application that builds it passes its
-own stores in `GmaDeps`. `dagents.gma.infrastructure.postgres_rounds` has a
-Postgres store for each, and each passes the same tests as its memory twin.
-No setting builds them: the application builds them and passes them.
+training rounds in memory, unless a table setting names a table for them or
+the application that builds it passes its own stores in `GmaDeps`.
+`dagents.gma.infrastructure.postgres_rounds` has a Postgres store for each,
+and each passes the same tests as its memory twin.
 
-| Store | `GmaDeps` field | Table | Owner |
-|---|---|---|---|
-| `PostgresRoundRepository` | `rounds` | rounds | the coordinator role |
-| `PostgresEnrolmentStore` | `enrolments` | site enrolments | the coordinator role |
-| `PostgresUpdateStore` | `updates` | clipped updates | the update role |
+| Store | Setting | `GmaDeps` field | Table | Owner |
+|---|---|---|---|---|
+| `PostgresRoundRepository` | `GMA_ROUND_TABLE` | `rounds` | rounds | the coordinator role |
+| `PostgresEnrolmentStore` | `GMA_ENROLMENT_TABLE` | `enrolments` | site enrolments | the coordinator role |
+| `PostgresUpdateStore` | `GMA_UPDATE_TABLE`, `GMA_UPDATE_ROLE` | `updates` | clipped updates | the update role |
 
-The update role must differ from the coordinator role: `PostgresUpdateStore`
-raises `RoleScopeError` when they are the same. Give the coordinator role no
-grant on the updates table. Then nothing that acts as the coordinator role can
-read an update vector: not a route, not the release flow, not a reporting
-login. The login must be able to act as both roles.
+`GMA_UPDATE_TABLE` is opt-in: without it, a training round that a restart cuts
+between its dispatch and its aggregate is closed, and the operator runs it
+again. The update role must differ from the coordinator role: the GMA refuses
+to start, and `PostgresUpdateStore` raises `RoleScopeError`, when they are the
+same. Give the coordinator role no grant on the updates table. Then nothing
+that acts as the coordinator role can read an update vector: not a route, not
+the release flow, not a reporting login. The login must be able to act as both
+roles.
 
 For the coordinator role `coord` above, and an update role `coord_updates`
 that owns the schema `coord_updates`:
@@ -253,6 +286,23 @@ the updates table, the row whose `site_id` is `''` is the
 round's gate row: after a discard it refuses every later upload for the round,
 in any process.
 
+For these tables, the settings are:
+
+```bash
+GMA_DATABASE_ROLE=coord
+GMA_MODEL_TABLE=coord.models
+GMA_AUDIT_TABLE=coord.audit
+GMA_AUDIT_ANCHOR_TABLE=coord.audit_anchor
+GMA_ROUND_TABLE=coord.rounds
+GMA_ENROLMENT_TABLE=coord.site_enrolments
+GMA_UPDATE_TABLE=coord_updates.updates   # optional
+GMA_UPDATE_ROLE=coord_updates            # with GMA_UPDATE_TABLE
+GMA_ENGINE=http                          # with GMA_UPDATE_TABLE
+GMA_SITE_ENDPOINTS=site-a=http://127.0.0.1:8082,site-b=http://127.0.0.1:8083
+```
+
+An application that builds the GMA can build the stores itself and pass them:
+
 ```python
 from dagents.common.infrastructure.postgres_lease import KeptConnection
 from dagents.gma.app_factory import GmaDeps, create_app
@@ -277,15 +327,93 @@ gma = create_app(
 ```
 
 With `PostgresUpdateStore`, clipped updates stay in the table until
-aggregation or a discard deletes them. Copies also stay in the write-ahead log
-and in any backup taken while they were stored. Leave the table's data out of
-logical dumps (`pg_dump --exclude-table-data`). The GMA does not yet call
-`FederatedRoundController.recover` when it starts (see
-[What it stores](#what-it-stores)).
+aggregation, a discard, recovery or the age limit deletes them. The age limit
+does not delete the updates of a `collecting` training round whose candidate
+is registered: they stay until its aggregate is retried or the round is
+discarded. Copies also
+stay in the write-ahead log and in any backup taken while they were stored.
+Leave the table's data out of logical dumps (`pg_dump --exclude-table-data`).
+On Supabase, the one login can read the table through `pg_read_all_data`.
 
 When a table is missing, the routes that use it answer `503`
 `store_not_set_up`. In 0.1.0a1 the message says to apply the migrations; it
 means that a table in this section is missing.
+
+## Recovery after a restart
+
+A GMA whose round store survives a restart (`GMA_ROUND_TABLE`) finds the
+rounds that the stopped process left unfinished. It recovers them once,
+before it takes a round write:
+
+- **Under uvicorn**, the lifespan starts the recovery and waits for it up to
+  10 seconds (`START_RECOVERY_WAIT_SECONDS`) before the GMA serves. A
+  recovery normally takes less than a second. When it takes longer, the GMA
+  serves while it finishes, and logs that it started before its recovery
+  finished. A failure is logged and not raised, so the GMA still starts and
+  `/health` answers.
+- **In process** (`httpx.ASGITransport`), no lifespan runs, so the first
+  round write runs it.
+- **The round writes wait for it**: dispatch, posted results, `:aggregate`,
+  `:discard`, `:evaluate-release` and the update upload, in both path forms.
+  It runs on the GMA's own handler threads, so a waiting request, an upload
+  among them, holds no server thread. While it fails, these routes answer
+  `503` `recovery_failed`, and the next round write tries again. Once the
+  GMA serves, reads, `/health` and approval do not wait for it. At start,
+  `/health` answers only after the lifespan's wait, which is at most 10
+  seconds.
+
+For each unfinished round, oldest first, the GMA asks the planner
+(`dagentsc federation round recover`) whether to keep or close it, and tells
+it whether the update store survives a restart, whether the round's candidate
+is registered, and how old the round's oldest stored update is. A round the
+planner closes is discarded with the planner's sentence as its reason, and its
+updates are deleted; a round whose record cannot be read is closed from its
+columns. Then the GMA deletes the stored updates of rounds that are finished
+or not stored. Every keep or close decision comes from the planner.
+
+Before each dispatch, the GMA also asks the same planner rule about every
+unfinished round whose oldest stored update is older than
+`GMA_UPDATE_MAX_AGE_SECONDS`, and deletes the old updates of finished rounds.
+It leaves out a round it is dispatching now. This age check, and the age
+given to the recovery, apply when the update store survives a restart
+(`GMA_UPDATE_TABLE`), with a default of 24 hours, or when
+`GMA_UPDATE_MAX_AGE_SECONDS` is set. A GMA that keeps its updates in memory
+and sets no limit runs no age check. The planner keeps a `collecting`
+training round whose candidate is registered, however old its updates are.
+
+What resumes after a restart at each point of a study:
+
+| The process stopped | After the restart |
+|---|---|
+| Between rounds | Everything resumes. With `GMA_ENROLMENT_TABLE`, the enrolments do too; without it, the next round closes for lack of quorum until the operator refreshes the sites. |
+| During a dispatch (`dispatched`) | Recovery closes the round (`dispatch_interrupted`) and deletes its updates. A late upload gets `409`. The operator dispatches the round again under a new id. Its results can differ, because the candidate name and the Guard's noise seeds contain the round id. |
+| While an analytics or evaluation round is `collecting` | The round resumes from its record. |
+| While a training round is `collecting` | With `GMA_UPDATE_TABLE` the round resumes, and its aggregate gives the candidate an uninterrupted run gives. Without it, recovery closes the round (`updates_not_kept`), unless its candidate is already registered. |
+| Inside an aggregate, after the candidate was registered | A retried aggregate returns the registered candidate, with or without `GMA_UPDATE_TABLE`. Until then the round stays `collecting` with its stored updates, and the age limit does not close it. |
+| `aggregated`, before the release evaluation | Resumes. The candidate is in `GMA_MODEL_TABLE`. |
+| Between the version's decision and the round's | A retried evaluation saves the same decision on the round and adds one record to the Guard's chain. |
+| Decided, before approval | Resumes. Approval reads only the model store. |
+
+`dagents/tests/test_gma_restart.py` restarts a GMA built from its settings at
+these points and compares the study with an uninterrupted run, and
+`dagents/tests/test_gma_process_restart.py` does the same with a GMA process
+stopped with SIGKILL and started again on its port.
+
+Limits:
+
+- **One GMA process, with one uvicorn worker.** The image runs one. The stores
+  are correct with two writers, but recovery is not: a second GMA on the same
+  tables closes the first one's dispatch. The work is lost, and nothing is
+  decided wrongly.
+- **Stop the old process before you start the new one.** The Kubernetes
+  manifest the framework renders today uses Kubernetes' default rolling
+  update, which starts the new pod first.
+- **After a restore from a backup**, never reuse a round id, and restore the
+  audit table and its anchor together.
+- **A database that stops answering holds the coordinator connection.** The
+  GMA serves after its 10-second wait at start, but reads and writes that use
+  the connection wait until the database answers. The statement timeout is
+  enforced by the server, so it ends a slow query but not this wait.
 
 ## Routes
 
@@ -338,8 +466,9 @@ refuses aggregation, the updates stay until the round is discarded. A store
 error keeps them, so the aggregate can be retried: the retry combines them
 again and gets the candidate the first attempt registered. Without stored
 updates, a retry returns that registered candidate only when the round store
-keeps round ids across restarts (`survives_restart`); the default store in
-memory does not. Every result comes from a site's
+keeps round ids across restarts (`survives_restart`), as the store
+`GMA_ROUND_TABLE` builds does; the default store in memory does not. Every
+result comes from a site's
 `jobs:run` answer, so the
 results route refuses a posted result (`409`), and only a GMA on this engine
 records `metrics_source: rounds` in a release decision. The update upload runs
@@ -386,8 +515,8 @@ The GMA answers its own errors as `{"detail": ..., "code": ...}`: `401`
 `unauthorized`, `403` `forbidden`, `not_joinable` or `address_differs`, `404`
 `not_found`, `409` `conflict`, `aggregation_refused`, `configured_elsewhere` or
 `configured`, `422` `invalid_request`, `502` `agent_error`, `503`
-`planner_unavailable`, `store_unavailable`, `store_not_set_up` or
-`agent_unavailable`. A lifecycle
+`planner_unavailable`, `store_unavailable`, `store_not_set_up`,
+`recovery_failed` or `agent_unavailable`. A lifecycle
 refusal adds `refusal`. Routes that existed before keep FastAPI's `{detail}`
 for their own `400`, `404` and `422` answers. No `detail` holds a host, a token
 or a connection string.
@@ -398,16 +527,14 @@ or a connection string.
 |---|---|
 | Model versions, their status and latest release decision | `InMemoryModelStore`, or `PostgresModelStore` with `GMA_MODEL_TABLE` |
 | The release Guard's audit chain | Memory, or `PostgresAuditSink` with `GMA_AUDIT_TABLE` |
-| Enrolments and rounds | Memory, or the stores in `GmaDeps.enrolments` and `GmaDeps.rounds`, such as `PostgresEnrolmentStore` and `PostgresRoundRepository` ([Round state tables](#round-state-tables)) |
+| Enrolments and rounds | Memory, `PostgresEnrolmentStore` with `GMA_ENROLMENT_TABLE` and `PostgresRoundRepository` with `GMA_ROUND_TABLE`, or the stores in `GmaDeps.enrolments` and `GmaDeps.rounds` ([Round state tables](#round-state-tables)) |
 | Addresses of joined sites | Memory, in the agent network |
-| Clipped training updates | Memory, or the store in `GmaDeps.updates`, such as `PostgresUpdateStore`, until aggregation or discard |
+| Clipped training updates | Memory, `PostgresUpdateStore` with `GMA_UPDATE_TABLE`, or the store in `GmaDeps.updates`, until aggregation, discard, recovery or the age limit. The age limit leaves the updates of a `collecting` training round whose candidate is registered until its aggregate is retried or it is discarded |
 
 With the default stores, a restart during a round loses the round and its
 updates, so it cannot be aggregated. Model versions, decisions and audit
-chains survive in Postgres. The GMA does not call
-`FederatedRoundController.recover` when it starts, so with stores that outlive
-the process, a round cut during its dispatch stays open until it is
-discarded.
+chains survive in Postgres. With every table set, a study resumes after a
+restart, as [Recovery after a restart](#recovery-after-a-restart) describes.
 
 ## Layout
 

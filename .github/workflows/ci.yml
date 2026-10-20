@@ -488,8 +488,12 @@ jobs:
         # These modules also run in the agents job, which has no database, so
         # their database tests skip there. They run here: role scoping, the
         # connection lease, the model store and registry, the LMA job log, the
-        # GMA's coordinator wiring, and the GMA's round, enrolment and update
-        # stores with the controller tests run on them. The registry, the GMA
+        # GMA's coordinator wiring, the GMA's round, enrolment and update
+        # stores with the controller tests run on them, a GMA that builds
+        # those stores from its table settings and is restarted inside the
+        # test process, and a GMA process killed with SIGKILL and started
+        # again on its port (it starts the GMA and three LMAs on loopback
+        # ports 9800-9899). The registry, the GMA
         # and the controller tests also need the planner. The job installs
         # only the healthcare demo's requirements, the set its image installs,
         # so a framework dependency the demo lacks fails here.
@@ -505,6 +509,9 @@ jobs:
             dagents.tests.test_job_log \
             dagents.tests.test_gma_release \
             dagents.tests.test_round_store \
+            dagents.tests.test_gma_settings \
+            dagents.tests.test_gma_restart \
+            dagents.tests.test_gma_process_restart \
             2>&1 | tee framework-database.log
 
       - name: Fail if the database tests skipped
@@ -564,6 +571,13 @@ jobs:
             --require-ran dagents.tests.test_round_store.PostgresRoundStateTests \
             --require-ran dagents.tests.test_round_store.PostgresSiteRefusalTests \
             --require-ran dagents.tests.test_round_store.PostgresNonFiniteRequestTests \
+            --require-ran dagents.tests.test_gma_settings.PostgresSettingsWiringTests \
+            --require-ran dagents.tests.test_gma_restart.StudyRestartTests \
+            --require-ran dagents.tests.test_gma_restart.CrashWindowRestartTests \
+            --require-ran dagents.tests.test_gma_restart.InMemoryStateRestartTests \
+            --require-ran dagents.tests.test_gma_restart.RecoveryRestartTests \
+            --require-ran dagents.tests.test_gma_restart.PostgresUploadThreadTests \
+            --require-ran dagents.tests.test_gma_process_restart.GmaProcessRestartTests \
             framework-database.log || status=1
           exit "${status}"
 

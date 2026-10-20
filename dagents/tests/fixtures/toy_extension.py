@@ -17,6 +17,10 @@ It contributes:
   :func:`toy_records`.
 
 Every number is deterministic, so a test can compare results exactly.
+
+One setting is read from the environment, by an LMA process that loads this
+extension: ``TOY_TRAIN_HOLD_FILE`` (see :func:`wait_while_held`). It lets a
+test stop the GMA while the LMAs still run a training job.
 """
 
 from __future__ import annotations
@@ -24,7 +28,11 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import os
+from pathlib import Path
 import random
+import threading
+import time
 from typing import Any, Iterable, Mapping
 
 from dagents.common.domain.errors import ModelVerificationError
@@ -111,6 +119,48 @@ def toy_records(site_id: str, count: int = 30, labelled_share: float = 1.0) -> l
     return records
 
 
+#: The variable that names the hold file of :func:`wait_while_held`.
+TRAIN_HOLD_VARIABLE = "TOY_TRAIN_HOLD_FILE"
+
+#: The longest a training job waits for the hold file to go, in seconds, so a
+#: test that fails with the file in place cannot hold an LMA for ever.
+TRAIN_HOLD_LIMIT_SECONDS = 60.0
+
+
+def hold_markers(hold: Path) -> list[Path]:
+    """The marker files of the training jobs that wait for ``hold`` now: one per job."""
+    return sorted(hold.parent.glob(f"{hold.name}.*"))
+
+
+def wait_while_held() -> None:
+    """Wait while the file that ``TOY_TRAIN_HOLD_FILE`` names exists, for at most 60 seconds.
+
+    :meth:`ToyLinearKind.train` calls this first, so a training job at an LMA
+    started with the variable waits there: after its ``before_train`` and
+    ``before_read`` Guard decisions, before its update goes to the GMA.
+    ``test_gma_process_restart.py`` uses it to stop the GMA during a dispatch.
+
+    While a job waits, a marker file named after the hold file, the process
+    and the thread exists next to it (:func:`hold_markers`), so a test can see
+    that every LMA's job has reached the hold. Without the variable, or when
+    the file does not exist, nothing waits.
+    """
+    name = os.environ.get(TRAIN_HOLD_VARIABLE, "").strip()
+    if not name:
+        return
+    hold = Path(name)
+    if not hold.exists():
+        return
+    marker = hold.with_name(f"{hold.name}.{os.getpid()}-{threading.get_ident()}")
+    marker.touch()
+    try:
+        deadline = time.monotonic() + TRAIN_HOLD_LIMIT_SECONDS
+        while hold.exists() and time.monotonic() < deadline:
+            time.sleep(0.05)
+    finally:
+        marker.unlink(missing_ok=True)
+
+
 def _digest(values: Mapping[str, float]) -> str:
     """``sha256:`` and the hex digest of the values as JSON with sorted keys."""
     material = json.dumps(dict(values), sort_keys=True, separators=(",", ":"), allow_nan=False)
@@ -188,6 +238,7 @@ class ToyLinearKind:
     def train(
         self, params: Mapping[str, Any], records: list[Mapping[str, Any]], label_field: str
     ) -> TrainingOutcome:
+        wait_while_held()
         start = self._vector(params, "the parameters", ModelVerificationError)
         labelled = _labelled(records, label_field)
         if not labelled:

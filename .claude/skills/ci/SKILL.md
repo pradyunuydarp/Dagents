@@ -117,6 +117,17 @@ the planner, and `NetworkScriptDeployTests` skips without bash and curl. The
 `run_frontend_demo.sh --deploy --check` against PostgreSQL 16 and fails unless
 the smoke test prints `ok  deploy: hospital pl-290 joined`.
 
+A GMA that keeps its rounds in Postgres is restarted in two ways, and both run
+in the `demo-apps` job's "Framework database tests" step and in
+`healthcare-data.yml`. `dagents/tests/test_gma_restart.py` builds a new GMA app
+in the test process at each restart point. `dagents/tests/test_gma_process_restart.py`
+starts the GMA (`python -m dagents.gma`, settings from the environment) and
+three LMAs as processes on loopback ports 9800-9899, kills the GMA's process
+group with SIGKILL and starts it again on its port. Every database class of
+both modules is in both `--require-ran` lists. `tests/test_ci_guards.py` finds
+them although their tables fixture opens the database through a helper
+imported from `test_round_store`.
+
 ### c. A convention written down but not checked
 
 Defence: the `contracts` job. `scripts/service_inventory.py --check` regenerates
