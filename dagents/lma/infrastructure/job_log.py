@@ -32,7 +32,6 @@ from collections import deque
 from datetime import datetime, timezone
 import json
 import logging
-import re
 import threading
 from typing import Any, Mapping
 
@@ -40,7 +39,7 @@ from pydantic import ValidationError
 
 from dagents.common.domain.site import JobLogEntry
 from dagents.common.infrastructure.postgres_lease import KeptConnection
-from dagents.common.infrastructure.postgres_roles import validate_role_name
+from dagents.common.infrastructure.postgres_roles import table_identifier, validate_role_name
 
 try:  # psycopg is optional for an LMA that keeps its job log in memory
     from psycopg import sql
@@ -58,8 +57,6 @@ PAYLOAD_KEYS = ("participation", "contributed_examples", "update_norm", "update_
 
 #: How many entries the in-memory log keeps before it drops the oldest.
 DEFAULT_CAPACITY = 1000
-
-_IDENTIFIER = re.compile(r"^[a-z_][a-z0-9_]{0,62}$")
 
 
 def check_limit(limit: Any) -> int:
@@ -123,14 +120,6 @@ class InMemoryJobLog:
         return [entry_of(round_id, phase, json.loads(json.dumps(payload)), at) for round_id, phase, payload, at in newest]
 
 
-def _table_identifier(table: str) -> Any:
-    """Quote ``schema.table`` (or ``table``) after checking each part."""
-    parts = table.split(".") if isinstance(table, str) else []
-    if not 1 <= len(parts) <= 2 or not all(_IDENTIFIER.fullmatch(part) for part in parts):
-        raise ValueError(f"the job log table must be 'schema.table' in lower case, got {table!r}")
-    return sql.Identifier(*parts)
-
-
 def _timestamp(value: datetime) -> str:
     return value.astimezone(timezone.utc).isoformat()
 
@@ -158,7 +147,7 @@ class PostgresJobLog:
         self._lease = lease
         self.role = validate_role_name(role)
         self.table = table
-        self._table = _table_identifier(table)
+        self._table = table_identifier(table, "job log table")
         self._insert = sql.SQL(
             "INSERT INTO {table} (round_id, phase, payload) VALUES (%s, %s, %s) RETURNING submitted_at"
         ).format(table=self._table)

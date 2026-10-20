@@ -2,6 +2,61 @@
 
 ## Unreleased
 
+- `GmaDeps` gains `rounds`, `enrolments` and `updates`, so an application that
+  builds the GMA with `create_app` can pass its own round store
+  (`RoundRepository`), enrolment store (`SiteRegistry`) and update store
+  (`UpdateStore`). Each one left out is built in memory, new for each app, as
+  before. `build_round_controller(engine, sites=, rounds=)` in `di.py` takes
+  the same stores. No setting changes.
+- New `UpdateStore` protocol (`infrastructure/update_store.py`) with `kind`,
+  `put`, `get`, `updates`, `discard`, `pending_rounds` and `pending_ages(now)`,
+  the age in seconds of each round's oldest stored update. The routes and the
+  HTTP engine use the protocol. `InMemoryUpdateStore` takes an optional
+  `clock`. A store refuses a `put` for a round after a `discard` of that round.
+- `RoundRepository` gains `unfinished()`, a summary (`round_id`, `status`,
+  `phase`, `readable`) of each `planned`, `dispatched` or `collecting` round,
+  oldest first, and `quarantine(round_id, reason)`, which closes such a round
+  without reading its record and keeps its id reserved. An application's own
+  round store needs both before it can call `recover`.
+- New `FederatedRoundController.recover(updates_kept=, now=,
+  update_max_age_seconds=)`. For each unfinished round, oldest first, it asks
+  the planner (`dagentsc federation round recover`) whether to keep or close
+  it, closes each round the planner says to close, and then deletes the stored
+  updates of rounds that are no longer unfinished. The GMA does not call it
+  yet.
+- Aggregation with the HTTP engine deletes a round's updates once the round is
+  stored as `aggregated`, or when the engine refuses the aggregation: a
+  missing or changed update (`409` `aggregation_refused`), or a candidate name
+  that holds another model (`409` `conflict`). When the planner refuses
+  aggregation, the engine does not run and the updates stay until the round is
+  discarded, as before. Before, the engine deleted them every time it ran,
+  before the round was written. A store error now keeps them, so the
+  aggregate can be retried: the retry combines them again and gets the
+  candidate the first attempt registered.
+- When no update is stored for a training round, the HTTP engine returns
+  `<version_prefix>+<round_id>` if it is registered with the round's starting
+  version as its parent, after it checks the digest. It does this only when
+  the round store passed in `GmaDeps.rounds` has `survives_restart = True`,
+  so round ids stay used across restarts. The default store in memory has
+  `survives_restart = False`: after a restart a round id is free again while
+  a model store in Postgres keeps the old candidate, and a new round with
+  that id gets `409` `conflict` instead of the old round's candidate.
+  `HttpFederationEngine` takes the answer as `round_ids_survive_restart`.
+- A round-flow release evaluation sends the decision the version already holds
+  to the planner's lifecycle rule. A retry after the round's write failed now
+  saves the same decision on the round and changes nothing on the version, for
+  a `release` and for a `reject`. Before, a retried rejection got `409`
+  `not_candidate` on every attempt. A decision that differs from the stored
+  one gets `409` with `refusal: decision_differs`. If the planner allows the
+  same decision for the same round but changes a status, which today's rule
+  never does, the registry stores nothing and answers `503`
+  (`planner_unavailable`). The GMA and its `dagentsc` must come from the same
+  release, because the lifecycle input has new keys.
+- The Postgres model store and audit sink check their table names with the
+  shared `table_identifier` in `dagents/common/infrastructure/postgres_roles.py`.
+  They accept and refuse the same names as before. The audit sink's error now
+  starts "the audit table must be", and a table name that is not a string
+  raises `ValueError` instead of `AttributeError`.
 - The Python package is now `dagents` (it was `agents`), so every import and
   `uvicorn` module path of the framework starts with `dagents.`:
   `uvicorn dagents.gma.main:app`. So does any `GMA_EXTENSIONS` entry that

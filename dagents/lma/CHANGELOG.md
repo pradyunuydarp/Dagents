@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- The Postgres job log and audit sink check their table names with one shared
+  helper, `table_identifier` in `dagents/common/infrastructure/postgres_roles.py`.
+  They accept and refuse the same names as before. The audit sink's error now
+  starts "the audit table must be", and a table name that is not a string
+  raises `ValueError` instead of `AttributeError`.
 - The Python package is now `dagents` (it was `agents`), so every import and
   `uvicorn` module path of the framework starts with `dagents.`:
   `uvicorn dagents.lma.main:app`. So does any `LMA_EXTENSIONS` entry that

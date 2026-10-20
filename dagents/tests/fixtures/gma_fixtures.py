@@ -453,11 +453,15 @@ def build_study(
     *,
     registry: ExtensionRegistry | None = None,
     sites: tuple[str, ...] = SITES,
+    stores: dict[str, Any] | None = None,
     **settings: Any,
 ) -> GmaStudy:
     """Build a GMA (``GMA_ENGINE=http``, tokens on, source reads off) and one fixture LMA per site.
 
-    ``settings`` override the GMA's :class:`dagents.gma.config.Settings`.
+    ``stores`` go into the GMA's :class:`dagents.gma.app_factory.GmaDeps`
+    (``rounds``, ``enrolments``, ``updates``); the GMA builds memory stores
+    for the ones left out. ``settings`` override the GMA's
+    :class:`dagents.gma.config.Settings`.
     """
     from dagents.common.infrastructure.agent_client import GMA_AGENT, lma_agent
     from dagents.gma.app_factory import GmaDeps, create_app
@@ -476,7 +480,7 @@ def build_study(
             "allow_source_reads": False,
         }
         values.update(settings)
-        gma_app = create_app(Settings(**values), GmaDeps(registry=registry, network=network))
+        gma_app = create_app(Settings(**values), GmaDeps(registry=registry, network=network, **(stores or {})))
         recorder = BodyRecorder(gma_app)
         network.add_app(GMA_AGENT, recorder)
         meter = ConcurrencyMeter()

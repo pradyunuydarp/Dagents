@@ -300,10 +300,10 @@ allow that origin by name. The stroke demo does this with FastAPI's
 The agents can keep some of their state in Postgres. Each one runs every query
 as one role, in a transaction that starts with `SET LOCAL ROLE`:
 
-| Agent | Kept in Postgres with | Always in memory |
+| Agent | Kept in Postgres with | In memory |
 |---|---|---|
 | LMA | The audit chain (`LMA_AUDIT_TABLE`, `LMA_AUDIT_ANCHOR_TABLE`) and the job log (`LMA_JOB_LOG_TABLE`), with `LMA_DATABASE_URL` and `LMA_SITE_ROLE` | The records it read and the running profile, which it rebuilds from the site's source |
-| GMA | The model registry (`GMA_MODEL_TABLE`) and the release Guard's audit chain (`GMA_AUDIT_TABLE`, `GMA_AUDIT_ANCHOR_TABLE`), with `GMA_DATABASE_URL` and `GMA_DATABASE_ROLE` | Enrolments, rounds and the clipped updates of rounds still running |
+| GMA | The model registry (`GMA_MODEL_TABLE`) and the release Guard's audit chain (`GMA_AUDIT_TABLE`, `GMA_AUDIT_ANCHOR_TABLE`), with `GMA_DATABASE_URL` and `GMA_DATABASE_ROLE` | Enrolments, rounds and the clipped updates of rounds still running, unless your application passes its own stores in `GmaDeps` (below) |
 
 The agents do not create these tables, and the `dagents` package has no
 migrations. Create each table before you start the agent, as the "Postgres
@@ -312,9 +312,9 @@ and the [GMA README](../../dagents/gma/README.md#postgres-tables) shows. Until
 then, the routes that use a missing table answer `503` with the code
 `store_not_set_up`.
 
-A GMA restart during a round loses the round and its stored updates, so the
-round cannot be aggregated. It fails closed. Model versions, release decisions
-and audit chains survive.
+With the GMA's default stores, a restart during a round loses the round and
+its stored updates, so the round cannot be aggregated. It fails closed. Model
+versions, release decisions and audit chains survive.
 
 If your application runs the controller and the Guard inside its own service,
 as in paths B and C, give them persistent stores:
@@ -323,10 +323,42 @@ as in paths B and C, give them persistent stores:
 |---|---|---|
 | Audit log | `InMemoryAuditLog` | `PostgresAuditSink`, or your own `AuditSink` |
 | Site enrolments | `InMemorySiteRegistry` | Your own class with `save`, `get` and `list` (`SiteRegistry` protocol) |
-| Round records | `InMemoryRoundRepository` | Your own class with `save`, `create`, `update`, `get` and `list` (`RoundRepository` protocol). `create` and `update` must be atomic: the controller relies on them to refuse a reused round id and to keep results that arrive at the same time |
+| Round records | `InMemoryRoundRepository` | Your own class with `save`, `create`, `update`, `get`, `list`, `unfinished` and `quarantine` (`RoundRepository` protocol). `create` and `update` must be atomic: the controller relies on them to refuse a reused round id and to keep results that arrive at the same time. `unfinished` lists the rounds in `planned`, `dispatched` or `collecting`, oldest first, as `UnfinishedRound` summaries; it reads the status and phase without the record, so a record it cannot read is listed with `readable` false. `quarantine(round_id, reason)` closes such a round without reading its record and keeps its id reserved. Set the class attribute `survives_restart = True` when the store keeps its records after the process stops. Only then does the GMA's HTTP engine return a candidate that an earlier attempt registered when no update is stored, and only then does recovery count that candidate as registered. A store without the attribute counts as `False` |
+| Clipped updates of running training rounds (GMA only) | `InMemoryUpdateStore` | Your own class with `kind`, `put`, `get`, `updates`, `discard`, `pending_rounds` and `pending_ages` (`UpdateStore` protocol, `dagents/gma/infrastructure/update_store.py`). It must refuse a `put` for a round after a `discard` of that round |
 
 Pass them to `GovernanceService(audit=...)` and
-`FederatedRoundController(engine, sites=..., rounds=...)`.
+`FederatedRoundController(engine, sites=..., rounds=...)`, or to
+`build_round_controller(engine, sites=..., rounds=...)` in `dagents/gma/di.py`.
+An application that builds the GMA with `create_app` passes them in `GmaDeps`:
+`audit`, `enrolments`, `rounds` and `updates`. Each of `enrolments`, `rounds`
+and `updates` left out is built in memory, new for each app. A left-out
+`audit` is the Postgres audit chain in `GMA_AUDIT_TABLE` when that is set, and
+otherwise in memory.
+
+**After a restart.** With a round store that outlives the process, call
+`recover(updates_kept=..., now=time.time())` on the `FederatedRoundController`
+once when the process starts, before any round write. A dispatch still running
+in the same process would be closed too. For each unfinished round, oldest
+first, `recover` asks the planner (`dagentsc federation round recover`)
+whether to keep or close it:
+
+| Round | Planner's answer |
+|---|---|
+| Its record cannot be read | Close (`unreadable_record`), with `quarantine` |
+| `planned` or `dispatched` | Close (`dispatch_interrupted`): a dispatch cannot resume. Run it again under a new round id |
+| `collecting`, analytics or evaluation | Keep: the record holds the results |
+| `collecting`, training, its candidate already registered (only with `survives_restart = True`) | Keep: a retried aggregate returns that candidate |
+| `collecting`, training, `updates_kept=False` | Close (`updates_not_kept`) |
+| `collecting`, training, oldest update older than `update_max_age_seconds` | Close (`updates_expired`) |
+| `collecting`, training, otherwise | Keep |
+
+A closed readable round goes through `discard`, with the planner's sentence as
+its reason. Then `recover` deletes the stored updates of every round that is
+no longer unfinished. It returns a `RecoveryReport` with one entry per
+unfinished round and the rounds whose leftover updates it deleted. Pass
+`updates_kept=True` only when your update store keeps updates across a
+restart. The GMA does not call `recover` yet, and its routes do not wait for
+it.
 
 ## What can go wrong
 
@@ -335,7 +367,7 @@ Pass them to `GovernanceService(audit=...)` and
 | Every Guard request in a container is denied | `dagentsc` is not on the container's `PATH` | Add the build stage and the copy line from section 1 |
 | A service calls `http://127.0.0.1:8020` inside Compose and gets no answer | It used the public address inside the network | Use the `*_INTERNAL_URL` value |
 | The browser console shows a CORS error | The page calls an agent or service directly | Call your own backend, or allow the page's origin there |
-| Rounds and audit records are gone after a deploy | The agent keeps them in memory | Set the Postgres settings in section 9; rounds always stay in memory |
+| Rounds and audit records are gone after a deploy | The agent keeps them in memory | Set the Postgres settings in section 9. Rounds stay in memory unless your application passes its own round store |
 | `401` with the code `unauthorized` | The agent has tokens, and the call has no `Authorization: Bearer` header or a token the agent does not accept | Send the token for the route's scope (section 6) |
 | `403` with the code `forbidden` | The token's scope may not call the route, or a site's token was used for another site | Use the token of the right scope |
 | An agent logs "runs without tokens: every caller may call every route" | No token is configured | Set the tokens, and `LMA_REQUIRE_TOKENS=1` or `GMA_REQUIRE_TOKENS=1` |

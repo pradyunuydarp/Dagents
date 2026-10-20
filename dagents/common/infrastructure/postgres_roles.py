@@ -95,6 +95,10 @@ _SETTING_PATTERN = re.compile(r"^[a-z][a-z0-9_]{0,62}(\.[a-z][a-z0-9_]{0,62})?$"
 #: :func:`acting_as` itself, and nothing else may change it.
 _FORBIDDEN_SETTINGS = frozenset({"role", "session_authorization"})
 
+#: One part of a table name: a lower-case identifier of at most 63 characters
+#: (PostgreSQL's identifier limit). Unlike a role name, it may start with ``_``.
+_TABLE_PART_PATTERN = re.compile(r"^[a-z_][a-z0-9_]{0,62}$")
+
 #: Seconds to wait for a connection when the caller does not say.
 DEFAULT_CONNECT_TIMEOUT_SECONDS = 10
 
@@ -135,6 +139,29 @@ def validate_setting_name(name: str) -> str:
     if name in _FORBIDDEN_SETTINGS:
         raise RoleScopeError(f"refusing setting {name!r}: acting_as sets the role itself")
     return name
+
+
+def table_identifier(table: str, what: str) -> Any:
+    """Check a ``schema.table`` (or ``table``) name and return it quoted, part by part.
+
+    Every Postgres store in the framework names its table with this, so each
+    accepts and refuses the same names.
+
+    Params:
+    - `table`: the name from the caller's configuration. Each part is a
+      lower-case identifier of 1-63 letters, digits or underscores that does
+      not start with a digit.
+    - `what`: what the table is for, such as ``audit table``; the error names
+      it.
+
+    Returns a ``psycopg.sql.Identifier``. Raises ``ValueError`` for any other
+    name, and ``RoleScopeError`` when psycopg is not installed.
+    """
+    parts = table.split(".") if isinstance(table, str) else []
+    if not 1 <= len(parts) <= 2 or not all(_TABLE_PART_PATTERN.fullmatch(part) for part in parts):
+        raise ValueError(f"the {what} must be 'schema.table' in lower case, got {table!r}")
+    _require_driver()
+    return sql.Identifier(*parts)
 
 
 def _current_user_of(row: Any) -> Any:

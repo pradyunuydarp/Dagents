@@ -2,8 +2,11 @@
 
 A site's LMA sends its clipped update here while it runs a training job
 (``PUT /api/v1/federation/rounds/{round_id}/updates/{site_id}``). The GMA's
-HTTP engine reads the updates when it aggregates the round, then deletes them.
-No route reads an update back, and a ``SiteResult`` never carries one.
+HTTP engine reads the updates when it aggregates the round. They are deleted
+once the round is stored as aggregated, when the HTTP engine refuses the
+aggregation (a missing or changed update, for example), or when the round is
+discarded or closed. When the planner refuses aggregation, they are kept. No
+route reads an update back, and a ``SiteResult`` never carries one.
 
 ``put`` checks each upload against the round as the controller stored it:
 
@@ -19,12 +22,15 @@ The store answers with the digest the model kind computes for the stored
 update. The site compares it with its own, so a store that changed an update
 gets no contribution.
 
-Updates live in memory only. After a restart the pending updates are gone, so
-an aggregation that needs them is refused: the round fails closed.
-
 Once a round is discarded, the store refuses later uploads for it as well. An
 LMA that is still running its job when the round is given up would otherwise
 leave its update behind after the deletion.
+
+:class:`UpdateStore` is what the GMA's routes and its HTTP engine need from a
+store; an application can hand its GMA its own through
+``GmaDeps(updates=...)``. :class:`InMemoryUpdateStore` keeps the updates in
+this process only. After a restart its pending updates are gone, so an
+aggregation that needs them is refused: the round fails closed.
 """
 
 from __future__ import annotations
@@ -32,6 +38,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import threading
 import time
+from typing import Callable, Protocol, runtime_checkable
 
 from dagents.common.domain.errors import NotSelected, RoundConflict
 from dagents.common.domain.federation import RoundRecord, UpdateReceipt, UpdateUpload
@@ -66,12 +73,55 @@ class StoredUpdate:
         )
 
 
-class InMemoryUpdateStore:
-    """Clipped updates in this process, keyed by round and site."""
+@runtime_checkable
+class UpdateStore(Protocol):
+    """Where the GMA keeps the clipped updates of running training rounds.
 
-    def __init__(self) -> None:
+    ``kind`` names the store, such as ``in-memory``. Every implementation
+    makes the checks in the module docstring in ``put``, and refuses a
+    ``put`` for a round after a ``discard`` of that round, even when the
+    discard found no update to delete.
+    """
+
+    kind: str
+
+    def put(self, record: RoundRecord, site_id: str, upload: UpdateUpload, kind: ModelKind) -> UpdateReceipt:
+        """Check one site's upload against the round, store it, and return its digest."""
+
+    def get(self, round_id: str, site_id: str) -> StoredUpdate | None:
+        """One site's stored update for a round, as a copy, or ``None``."""
+
+    def updates(self, round_id: str) -> dict[str, StoredUpdate]:
+        """Every stored update for a round, by site id in id order, as copies."""
+
+    def discard(self, round_id: str) -> int:
+        """Delete every update stored for a round, refuse later uploads for it, and return how many were deleted."""
+
+    def pending_rounds(self) -> list[str]:
+        """Rounds that still have stored updates, in id order."""
+
+    def pending_ages(self, now: float) -> dict[str, float]:
+        """For each round with stored updates, in id order, how many seconds before ``now`` its oldest update arrived.
+
+        ``now`` is a Unix time the caller reads from its clock. An update
+        that arrived after ``now`` counts as 0 seconds old, never less.
+        """
+
+
+class InMemoryUpdateStore:
+    """Clipped updates in this process, keyed by round and site.
+
+    Params:
+    - `clock`: gives the Unix time a ``put`` records as ``received_at``;
+      ``time.time`` when left out. Tests pass their own.
+    """
+
+    kind = "in-memory"
+
+    def __init__(self, clock: Callable[[], float] = time.time) -> None:
         self._updates: dict[tuple[str, str], StoredUpdate] = {}
         self._discarded: set[str] = set()
+        self._clock = clock
         self._lock = threading.Lock()
 
     def put(self, record: RoundRecord, site_id: str, upload: UpdateUpload, kind: ModelKind) -> UpdateReceipt:
@@ -119,7 +169,7 @@ class InMemoryUpdateStore:
                 update=vector,
                 digest=digest,
                 job_digest=upload.job_digest,
-                received_at=time.time(),
+                received_at=float(self._clock()),
             )
         return UpdateReceipt(digest=digest)
 
@@ -156,5 +206,13 @@ class InMemoryUpdateStore:
         with self._lock:
             return sorted({round_id for round_id, _ in self._updates})
 
+    def pending_ages(self, now: float) -> dict[str, float]:
+        """For each round with stored updates, in id order, the age in seconds of its oldest update."""
+        oldest: dict[str, float] = {}
+        with self._lock:
+            for (round_id, _), stored in self._updates.items():
+                oldest[round_id] = min(oldest.get(round_id, stored.received_at), stored.received_at)
+        return {round_id: max(0.0, float(now) - oldest[round_id]) for round_id in sorted(oldest)}
 
-__all__ = ["InMemoryUpdateStore", "StoredUpdate"]
+
+__all__ = ["InMemoryUpdateStore", "StoredUpdate", "UpdateStore"]

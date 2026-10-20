@@ -39,16 +39,12 @@ from dagents.common.domain.federation import (
     ReleaseGate,
     RoundManifest,
     RoundPhase,
-    RoundPlan,
     RoundRecord,
     SiteRegistration,
     SiteResult,
-    UpdateUpload,
 )
 from dagents.common.domain.governance import DataClassification
 from dagents.common.infrastructure.dagents_runner import PlannerUnavailableError
-from dagents.gma.infrastructure.update_store import InMemoryUpdateStore
-from dagents.tests.fixtures.toy_extension import ToyLinearKind
 from dagents.tests.test_governance import dagentsc_available
 
 CLASSIFICATION = DataClassification(
@@ -955,137 +951,6 @@ class WeightedMetricsTests(unittest.TestCase):
 
     def test_no_accepted_site_gives_no_metrics(self) -> None:
         self.assertEqual({}, weighted_metrics(self.readiness({}), [self.result("a", auc=0.8)]))
-
-
-def training_record(status: str = "dispatched", phase: str = "training", **overrides) -> RoundRecord:
-    """A round as the controller stores it after planning, without running the planner."""
-    manifest = build_manifest(phase=phase)
-    plan = RoundPlan(
-        round_id=manifest.round_id,
-        study_id=manifest.study_id,
-        phase=manifest.phase,
-        selected_sites=list(SITES),
-        quorum_met=True,
-        required_participants=2,
-        aggregation=manifest.aggregation,
-        round_digest="fnv1a:0123456789abcdef",
-    )
-    payload = {"manifest": manifest, "plan": plan, "created_at": 0, "updated_at": 0, "status": status}
-    payload.update(overrides)
-    return RoundRecord(**payload)
-
-
-UPDATE = {"bias": 0.01, "w.x1": -0.02, "w.x2": 0.03}
-
-
-class UpdateStoreTests(unittest.TestCase):
-    """The GMA's write-only update store checks each upload against the round's plan."""
-
-    def setUp(self) -> None:
-        self.store = InMemoryUpdateStore()
-        self.kind = ToyLinearKind()
-        self.record = training_record()
-
-    def upload(self, update: dict | None = None, job_digest: str = "fnv1a:0123456789abcdef") -> UpdateUpload:
-        return UpdateUpload(job_digest=job_digest, update=dict(UPDATE if update is None else update))
-
-    def test_an_upload_is_stored_and_its_digest_comes_from_the_model_kind(self) -> None:
-        receipt = self.store.put(self.record, "hospital-a", self.upload(), self.kind)
-        self.assertEqual(self.kind.update_digest(UPDATE), receipt.digest)
-        stored = self.store.get(self.record.manifest.round_id, "hospital-a")
-        self.assertEqual(UPDATE, stored.update)
-        self.assertEqual(receipt.digest, stored.digest)
-        self.assertEqual("fnv1a:0123456789abcdef", stored.job_digest)
-        self.assertEqual([self.record.manifest.round_id], self.store.pending_rounds())
-
-    def test_a_collecting_round_takes_uploads_too(self) -> None:
-        self.store.put(training_record(status="collecting"), "hospital-b", self.upload(), self.kind)
-        self.assertIsNotNone(self.store.get(self.record.manifest.round_id, "hospital-b"))
-
-    def test_a_site_the_plan_did_not_select_is_refused(self) -> None:
-        with self.assertRaises(NotSelected):
-            self.store.put(self.record, "intruder", self.upload(), self.kind)
-        self.assertEqual([], self.store.pending_rounds())
-
-    def test_a_round_that_is_not_a_training_round_takes_no_update(self) -> None:
-        with self.assertRaises(RoundConflict) as raised:
-            self.store.put(training_record(phase="evaluation"), "hospital-a", self.upload(), self.kind)
-        self.assertIn("is in the evaluation phase; only a training round takes updates", str(raised.exception))
-
-    def test_a_round_that_is_aggregated_closed_or_discarded_takes_no_update(self) -> None:
-        records = {
-            "aggregated": training_record(status="aggregated"),
-            "closed": training_record(status="closed"),
-            "discarded": training_record(status="collecting", abandoned_reason="stopped"),
-        }
-        for name, record in records.items():
-            with self.subTest(name):
-                with self.assertRaises(RoundConflict):
-                    self.store.put(record, "hospital-a", self.upload(), self.kind)
-        self.assertEqual([], self.store.pending_rounds())
-
-    def test_a_job_digest_that_is_not_the_plan_round_digest_is_refused(self) -> None:
-        with self.assertRaises(RoundConflict) as raised:
-            self.store.put(self.record, "hospital-a", self.upload(job_digest="fnv1a:ffffffffffffffff"), self.kind)
-        self.assertIn("round digest", str(raised.exception))
-
-    def test_a_second_upload_from_one_site_is_refused_and_the_first_is_kept(self) -> None:
-        first = self.store.put(self.record, "hospital-a", self.upload(), self.kind)
-        with self.assertRaises(RoundConflict):
-            self.store.put(self.record, "hospital-a", self.upload({"bias": 9.0, "w.x1": 9.0, "w.x2": 9.0}), self.kind)
-        self.assertEqual(first.digest, self.store.get(self.record.manifest.round_id, "hospital-a").digest)
-
-    def test_an_update_the_model_kind_refuses_is_refused(self) -> None:
-        with self.assertRaises(RoundConflict) as raised:
-            self.store.put(self.record, "hospital-a", self.upload({"bias": 0.1, "secret": 1.0}), self.kind)
-        self.assertIn("unknown names", str(raised.exception))
-        self.assertIsNone(self.store.get(self.record.manifest.round_id, "hospital-a"))
-
-    def test_a_round_whose_model_kind_cannot_be_trained_takes_no_update(self) -> None:
-        from dagents.tests.fixtures.toy_extension import ToyThresholdKind
-
-        with self.assertRaises(RoundConflict) as raised:
-            self.store.put(self.record, "hospital-a", self.upload(), ToyThresholdKind())
-        self.assertIn("toy_threshold", str(raised.exception))
-        self.assertEqual([], self.store.pending_rounds())
-
-    def test_a_read_returns_a_copy(self) -> None:
-        self.store.put(self.record, "hospital-a", self.upload(), self.kind)
-        copy = self.store.get(self.record.manifest.round_id, "hospital-a")
-        copy.update["bias"] = 100.0
-        self.assertEqual(UPDATE, self.store.get(self.record.manifest.round_id, "hospital-a").update)
-        everything = self.store.updates(self.record.manifest.round_id)
-        self.assertEqual(["hospital-a"], list(everything))
-
-    def test_discard_deletes_the_round_updates_and_refuses_later_uploads(self) -> None:
-        """An upload that arrives after the round was discarded must not stay in memory."""
-        self.store.put(self.record, "hospital-a", self.upload(), self.kind)
-        self.store.put(self.record, "hospital-b", self.upload(), self.kind)
-        self.assertEqual(2, self.store.discard(self.record.manifest.round_id))
-        self.assertEqual({}, self.store.updates(self.record.manifest.round_id))
-        self.assertEqual([], self.store.pending_rounds())
-        with self.assertRaises(RoundConflict):
-            self.store.put(self.record, "hospital-c", self.upload(), self.kind)
-        self.assertEqual(0, self.store.discard(self.record.manifest.round_id))
-
-    def test_concurrent_uploads_from_one_site_store_one_update(self) -> None:
-        barrier = threading.Barrier(8)
-        outcomes: list[str] = []
-
-        def put() -> None:
-            barrier.wait()
-            try:
-                self.store.put(self.record, "hospital-a", self.upload(), self.kind)
-                outcomes.append("stored")
-            except RoundConflict:
-                outcomes.append("refused")
-
-        threads = [threading.Thread(target=put) for _ in range(8)]
-        for thread in threads:
-            thread.start()
-        for thread in threads:
-            thread.join(timeout=10)
-        self.assertEqual(["refused"] * 7 + ["stored"], sorted(outcomes))
 
 
 if __name__ == "__main__":

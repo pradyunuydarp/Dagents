@@ -243,6 +243,16 @@ def _planner_decision(decision: ModelReleaseDecision | None) -> dict[str, Any] |
     }
 
 
+def _compared_decision(decision: ModelReleaseDecision) -> dict[str, Any]:
+    """The fields of a release decision the lifecycle rule compares, besides the action and the Guard verdict."""
+    return {
+        "round_id": decision.round_id,
+        "baseline_version": decision.baseline_version,
+        "metrics_source": decision.metrics_source,
+        "gate_results": [result.model_dump(mode="json") for result in decision.gate_results],
+    }
+
+
 class ModelRegistry:
     """Model versions, their parameters and their status, over a :class:`ModelStore`.
 
@@ -439,7 +449,9 @@ class ModelRegistry:
             return self._same_content(stored, kind, parameters, digest, parent_version)
         return self.require(version)
 
-    def record_release_decision(self, version: str, decision: ModelReleaseDecision) -> ModelVersion:
+    def record_release_decision(
+        self, version: str, decision: ModelReleaseDecision, *, stored: ModelReleaseDecision | None = None
+    ) -> ModelVersion:
         """Store a release decision with the version, as the lifecycle rule's ``release_evaluated`` event.
 
         A candidate stays a candidate when the gates decided ``release`` and
@@ -447,22 +459,52 @@ class ModelRegistry:
         sets the decision's ``decided_at``. Returns the version without its
         parameters.
 
+        Params:
+        - `stored`: the decision the version already holds, which the caller
+          read with the version. The planner compares the new decision with
+          it. When both are for the same round and every recorded field is
+          equal, the event changes nothing: neither the status nor the stored
+          decision and its ``decided_at``. This is what a retry gets after the
+          model's decision was stored and the round's was not. A stored
+          decision for another round, or none, gives the usual answer.
+
         Raises :class:`UnknownModelVersion`, and :class:`ModelLifecycleRefused`
-        (``not_candidate``) for a version that is not a candidate. A refused
-        decision is not stored.
+        with ``not_candidate`` for a version that is not a candidate, or
+        ``decision_differs`` for a decision for the stored decision's round
+        that differs from it. A refused decision is not stored. Raises
+        :class:`PlannerUnavailableError` when the planner allows the same
+        decision for the stored decision's round but changes a status, which
+        today's rule never does; nothing is stored then either.
         """
         model = self._store.get(version)
         if model is None:
             raise UnknownModelVersion(f"model version {version} is not registered")
-        outcome = self._lifecycle(
-            version,
-            {
-                "kind": "release_evaluated",
-                "status": model.status,
-                "action": decision.action,
-                "guard_permitted": decision.guard_permitted,
-            },
-        )
+        event: dict[str, Any] = {
+            "kind": "release_evaluated",
+            "status": model.status,
+            "action": decision.action,
+            "guard_permitted": decision.guard_permitted,
+        }
+        if stored is not None:
+            event.update(_compared_decision(decision))
+            event["stored_decision"] = {
+                "action": stored.action,
+                "guard_permitted": stored.guard_permitted,
+                **_compared_decision(stored),
+            }
+        outcome = self._lifecycle(version, event)
+        if stored is not None and stored.round_id == decision.round_id:
+            # For the stored decision's round the planner allows only the same
+            # decision, so the stored one and its decided_at are kept. Its
+            # answer has no field that says so, so check that it changes no
+            # status instead of assuming it: an answer that does comes from a
+            # changed rule, and dropping it would hide that.
+            if outcome.status_changes:
+                raise PlannerUnavailableError(
+                    f"the planner's model lifecycle answer changes a status for the decision {version} "
+                    f"already holds for round {decision.round_id}, which it should leave unchanged"
+                )
+            return self.require(version)
         self._store.apply(outcome.status_changes, decision=(version, decision.model_copy(update={"decided_at": None})))
         return self.require(version)
 

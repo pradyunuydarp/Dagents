@@ -31,16 +31,40 @@ the order the calls finished. Results come back sorted by site.
 training round the engine:
 
 1. loads the starting model and checks its digest;
-2. checks, for each site the planner accepted, that an update is stored, that
-   the model kind's digest of it equals the digest stored with it and the
-   digest the site reported, and that the planner gave the site a weight;
-3. calls ``kind.combine(start.params, [(weight, update), ...])``;
-4. registers ``<version_prefix>+<round_id>`` as a candidate through the model
-   registry (the planner's ``aggregated`` lifecycle event);
-5. always deletes the round's stored updates, whether or not it succeeded.
+2. when no update is stored for the round, returns the candidate an earlier
+   attempt registered: ``<version_prefix>+<round_id>`` in the model registry
+   with the round's starting version as its parent. It loads that version
+   and checks its digest. It does this only when the GMA's round store keeps
+   round ids across a restart (``round_ids_survive_restart``). Then no other
+   round can have used the id, and a registration request has no parent
+   field, so only this round's aggregation can have registered the version.
+   With the default round store in memory, a restart frees every round id
+   while a model store in Postgres keeps the versions, so the engine never
+   takes this step;
+3. otherwise checks, for each site the planner accepted, that an update is
+   stored, that the model kind's digest of it equals the digest stored with
+   it and the digest the site reported, and that the planner gave the site a
+   weight;
+4. calls ``kind.combine(start.params, [(weight, update), ...])``;
+5. registers ``<version_prefix>+<round_id>`` as a candidate through the model
+   registry (the planner's ``aggregated`` lifecycle event). When the name is
+   taken, the registry returns the stored version if its contents are the
+   same, and raises :class:`ModelVersionConflict` if they differ.
 
 Every failed check raises :class:`AggregationRefused`, so no candidate is
-made from an update that cannot be traced to a site.
+made from an update that cannot be traced to a site. After that refusal, and
+after a name that holds another model, the engine deletes the round's stored
+updates, because no retry of the round can pass. Any other error, such as a
+model store that cannot be reached, keeps them, so a retry can combine them
+again. After a successful aggregation the updates stay until the round
+controller has stored the round as aggregated and calls
+:meth:`HttpFederationEngine.discard`. A retry after a failure between the two
+combines the kept updates again and gets the registered candidate back from
+step 5. After a restart that lost the updates, step 2 returns it.
+
+When the planner refuses aggregation (for example ``quorum_not_met``), the
+round controller raises before it calls the engine, so the updates stay until
+the round is discarded or closed.
 """
 
 from __future__ import annotations
@@ -69,9 +93,16 @@ from dagents.common.domain.federation import (
     RoundSubmission,
     SiteResult,
 )
+from dagents.common.extensions.registry import ModelKind
 from dagents.common.infrastructure.agent_client import AgentError, AgentNetwork, CallLog, without_addresses
-from dagents.gma.application.model_registry import ModelRegistry, UnknownModelKind
-from dagents.gma.infrastructure.update_store import InMemoryUpdateStore
+from dagents.gma.application.model_registry import (
+    ModelRegistry,
+    ModelStatusConflict,
+    ModelVersionConflict,
+    ModelVersionExists,
+    UnknownModelKind,
+)
+from dagents.gma.infrastructure.update_store import StoredUpdate, UpdateStore
 
 logger = logging.getLogger(__name__)
 
@@ -97,6 +128,12 @@ class HttpFederationEngine:
     - `updates`: the update store the LMAs upload to.
     - `lma_tokens`: the coordinator token to send to each site's LMA.
     - `concurrency`: how many sites are called at once.
+    - `round_ids_survive_restart`: whether the GMA's round store keeps its
+      records, and so keeps each round id used, after the process stops.
+      Only then does an aggregation without stored updates return the
+      candidate an earlier attempt registered, and only then does
+      :meth:`candidate_registered` answer true. The GMA sets it from the
+      round store's ``survives_restart`` attribute.
     """
 
     name = "http"
@@ -109,16 +146,20 @@ class HttpFederationEngine:
         network: AgentNetwork,
         *,
         models: ModelRegistry,
-        updates: InMemoryUpdateStore,
+        updates: UpdateStore,
         lma_tokens: Mapping[str, str] | None = None,
         concurrency: int = 3,
         history: int = DEFAULT_HISTORY,
+        round_ids_survive_restart: bool = False,
     ) -> None:
         if not isinstance(concurrency, int) or concurrency < 1:
             raise ValueError("the dispatch concurrency must be a whole number of at least 1")
+        if not isinstance(round_ids_survive_restart, bool):
+            raise TypeError("round_ids_survive_restart must be True or False")
         self._network = network
         self._models = models
         self._updates = updates
+        self._round_ids_survive_restart = round_ids_survive_restart
         self._tokens = dict(lma_tokens or {})
         self._concurrency = concurrency
         self._history = history
@@ -179,10 +220,20 @@ class HttpFederationEngine:
     ) -> CandidateModel:
         """Average the metrics; for a training round, combine the stored updates into a candidate.
 
+        A training round with no stored updates whose candidate an earlier
+        attempt registered gets that candidate back, when the round store
+        keeps round ids across a restart (see ``round_ids_survive_restart``).
+
         Raises :class:`AggregationRefused` when the starting model does not
-        verify or cannot be trained, or when an accepted site's update is
-        missing, changed, does not match the site's reported digest or has no
-        planner weight. The round's updates are deleted either way.
+        verify or cannot be trained, when the registered candidate does not
+        verify, or when an accepted site's update is missing, changed, does
+        not match the site's reported digest or has no planner weight. Raises
+        :class:`ModelVersionConflict` when the candidate's name holds another
+        model, as after a restart that freed a round id the model store still
+        uses. The round's updates are deleted after both, because no retry of
+        the round can pass. Other errors keep them, and so does a successful
+        aggregation: the round controller calls :meth:`discard` once it has
+        stored the round.
         """
         round_id = manifest.round_id
         metrics_only = CandidateModel(
@@ -199,9 +250,17 @@ class HttpFederationEngine:
         if manifest.phase != "training":
             return metrics_only
         try:
-            version, digest = self._combine(manifest, readiness, results)
-        finally:
+            version, digest = self._training_candidate(manifest, readiness, results)
+        except AggregationRefused:
             self.discard(round_id)
+            raise
+        except ModelVersionConflict as error:
+            # A status that changed while the request ran, or a store that
+            # answers out of step, can pass on a retry, so they keep the
+            # updates. A name that holds another model cannot.
+            if not isinstance(error, (ModelStatusConflict, ModelVersionExists)):
+                self.discard(round_id)
+            raise
         return metrics_only.model_copy(
             update={
                 "candidate_version": version,
@@ -213,6 +272,31 @@ class HttpFederationEngine:
     def discard(self, round_id: str) -> None:
         """Delete the round's stored updates; later uploads for it are refused."""
         self._updates.discard(round_id)
+
+    def candidate_registered(self, manifest: RoundManifest) -> bool:
+        """Whether a training round's candidate is in the model registry, as its aggregation registers it.
+
+        The candidate is ``<version_prefix>+<round_id>``, with the round's
+        starting version as its parent and the prefix of the starting model's
+        kind. The answer is false when the round store does not keep round
+        ids across a restart (``round_ids_survive_restart``), because a round
+        with the same id that ran before the restart may have registered the
+        version. Round recovery after a restart tells the planner the answer.
+        """
+        if manifest.phase != "training" or not self._round_ids_survive_restart:
+            return False
+        kind_name = self._models.kind_of(manifest.model_version)
+        if kind_name is None:
+            return False
+        try:
+            kind = self._models.kind(kind_name)
+        except UnknownModelKind:
+            return False
+        return self._registered_candidate(manifest, kind) is not None
+
+    def pending_update_ages(self, now: float) -> dict[str, float]:
+        """For each round with stored updates, in id order, the age in seconds of its oldest update."""
+        return self._updates.pending_ages(now)
 
     # --- Dispatch -------------------------------------------------------------------
 
@@ -309,9 +393,10 @@ class HttpFederationEngine:
 
     # --- Aggregation ----------------------------------------------------------------
 
-    def _combine(
+    def _training_candidate(
         self, manifest: RoundManifest, readiness: AggregationReadiness, results: list[SiteResult]
     ) -> tuple[str, str]:
+        """The candidate's version and digest: the registered one, or one combined from the updates now."""
         round_id = manifest.round_id
         try:
             start = self._models.load(manifest.model_version, manifest.model_artifact_digest)
@@ -320,8 +405,44 @@ class HttpFederationEngine:
             raise AggregationRefused(f"the starting model of {round_id} cannot be used: {error}") from error
         if not getattr(kind, "trainable", False):
             raise AggregationRefused(f"training starts from a {kind.kind} model, which cannot be trained")
-
         stored = self._updates.updates(round_id)
+        if not stored:
+            version = self._registered_candidate(manifest, kind)
+            if version is not None:
+                try:
+                    model = self._models.load(version)
+                except ModelVerificationError as error:
+                    raise AggregationRefused(f"the registered candidate {version} cannot be used: {error}") from error
+                return model.version, model.digest
+        return self._combine(manifest, readiness, results, start, kind, stored)
+
+    def _registered_candidate(self, manifest: RoundManifest, kind: ModelKind) -> str | None:
+        """``<version_prefix>+<round_id>``, when it can only be the candidate an earlier attempt of this round registered.
+
+        That holds when the round store keeps round ids across a restart and
+        the registry holds the version with the round's starting version as
+        parent. Without such a round store, a round with the same id that ran
+        before a restart may have registered the version from other updates,
+        so this returns ``None`` without reading the registry.
+        """
+        if not self._round_ids_survive_restart:
+            return None
+        version = f"{kind.version_prefix}+{manifest.round_id}"
+        stored = self._models.get(version)
+        if stored is None or stored.parent_version != manifest.model_version:
+            return None
+        return version
+
+    def _combine(
+        self,
+        manifest: RoundManifest,
+        readiness: AggregationReadiness,
+        results: list[SiteResult],
+        start: JobModel,
+        kind: ModelKind,
+        stored: Mapping[str, StoredUpdate],
+    ) -> tuple[str, str]:
+        round_id = manifest.round_id
         reported = {result.site_id: result for result in results}
         weighted: list[tuple[float, dict[str, float]]] = []
         for site_id in sorted(readiness.accepted_sites):

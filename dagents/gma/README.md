@@ -54,7 +54,10 @@ gma = create_app(
 through `httpx.ASGITransport` gets no lifespan events. It refuses settings that
 cannot work, such as `GMA_ENGINE=http` with no LMA addresses and no agent
 network, or a model table with no database. `GmaDeps` can also hand it a model
-store, a coordinator database lease and an audit sink.
+store, a coordinator database lease, an audit sink, and its own stores for
+rounds (`rounds`, a `RoundRepository`), site enrolments (`enrolments`, a
+`SiteRegistry`) and training updates (`updates`, an `UpdateStore`). Anything
+left out is built in memory, new for each app.
 `examples/getting-started/shop/agents.py` builds a GMA and two LMAs this way.
 
 The Docker image (`dagents/gma/Dockerfile`) builds `dagentsc` in a first stage
@@ -176,7 +179,7 @@ The routes for sites, rounds and model versions, in their `/api/v1` form:
 | `POST /federation/rounds/{round_id}:aggregate` | `admin` | Make the candidate and store it on the round. `409` `aggregation_refused` with the reason; `409` `conflict` for a round that was discarded, aggregated before or closed |
 | `PUT /federation/rounds/{round_id}/updates/{site_id}` | `site`, bound to `site_id` | Store one site's clipped update for a running training round. No route reads an update back |
 | `POST /federation/rounds/{round_id}:discard` | `admin` | Give up a round: delete its updates, record why (`204`) |
-| `POST /federation/rounds/{round_id}:evaluate-release` | `admin` | With a `condition_id`: the release Guard, the pack's gates and the lifecycle rule, with metrics from the study's rounds. Without one: the gates and metrics in the body only. A round takes one decision (`409` for a second); a lifecycle refusal leaves the round unchanged |
+| `POST /federation/rounds/{round_id}:evaluate-release` | `admin` | With a `condition_id`: the release Guard, the pack's gates and the lifecycle rule, with metrics from the study's rounds. Without one: the gates and metrics in the body only. A round takes one decision (`409` for a second); a lifecycle refusal leaves the round unchanged. A retry after the round's write failed saves the decision the version holds, and a decision that differs from it gets `409` `decision_differs` |
 | `GET /governance/audit:summary` | `admin` | Whether the GMA's audit chain verifies, and its length |
 | `GET /model-versions?limit=20` | `admin` | The model in use and the newest versions, without parameters |
 | `GET /model-versions:released` | `admin`, `site` | The released version with its parameters. `ETag` is its digest; `If-None-Match` gives `304` |
@@ -200,9 +203,18 @@ HTTP error becomes a `failed` result with its reason, and a refusal a
 `rejected` result. Each call is recorded on the round as a dispatch row (site,
 step, status, milliseconds, outcome). For a training round, aggregation checks
 every stored update against the digest its site reported, calls the model
-kind's `combine` with the planner's weights, registers
-`<version_prefix>+<round_id>` as a candidate, and always deletes the round's
-updates. Every result comes from a site's `jobs:run` answer, so the
+kind's `combine` with the planner's weights and registers
+`<version_prefix>+<round_id>` as a candidate. The round's updates are deleted
+once the round is stored as aggregated, or when the engine refuses the
+aggregation: a missing or changed update (`409` `aggregation_refused`), or a
+candidate name that holds another model (`409` `conflict`). When the planner
+refuses aggregation, the updates stay until the round is discarded. A store
+error keeps them, so the aggregate can be retried: the retry combines them
+again and gets the candidate the first attempt registered. Without stored
+updates, a retry returns that registered candidate only when the round store
+keeps round ids across restarts (`survives_restart`); the default store in
+memory does not. Every result comes from a site's
+`jobs:run` answer, so the
 results route refuses a posted result (`409`), and only a GMA on this engine
 records `metrics_source: rounds` in a release decision. The update upload runs
 on a small thread pool of the GMA's own (8 threads), so an upload never waits
@@ -260,12 +272,16 @@ or a connection string.
 |---|---|
 | Model versions, their status and latest release decision | `InMemoryModelStore`, or `PostgresModelStore` with `GMA_MODEL_TABLE` |
 | The release Guard's audit chain | Memory, or `PostgresAuditSink` with `GMA_AUDIT_TABLE` |
-| Enrolments and rounds | Memory |
+| Enrolments and rounds | Memory, or the stores in `GmaDeps.enrolments` and `GmaDeps.rounds` |
 | Addresses of joined sites | Memory, in the agent network |
-| Clipped training updates | Memory, until aggregation or discard |
+| Clipped training updates | Memory, or the store in `GmaDeps.updates`, until aggregation or discard |
 
-A restart during a round loses the round and its updates, so it cannot be
-aggregated. Model versions, decisions and audit chains survive in Postgres.
+With the default stores, a restart during a round loses the round and its
+updates, so it cannot be aggregated. Model versions, decisions and audit
+chains survive in Postgres. The GMA does not call
+`FederatedRoundController.recover` when it starts, so with stores that outlive
+the process, a round cut during its dispatch stays open until it is
+discarded.
 
 ## Layout
 

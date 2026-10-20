@@ -72,7 +72,6 @@ chain can change its anchor.
 
 from __future__ import annotations
 
-import re
 import threading
 from typing import Any, Callable, Mapping
 
@@ -80,7 +79,12 @@ from pydantic import ValidationError
 
 from dagents.common.application.ethical_guard import audit_digest
 from dagents.common.domain.governance import AuditRecord
-from dagents.common.infrastructure.postgres_roles import acting_as, validate_role_name, validate_setting_name
+from dagents.common.infrastructure.postgres_roles import (
+    acting_as,
+    table_identifier,
+    validate_role_name,
+    validate_setting_name,
+)
 
 try:
     from psycopg import errors, sql
@@ -105,22 +109,12 @@ COLUMNS: tuple[str, ...] = (
 #: The columns of an anchor table, in table order (see the module docstring).
 ANCHOR_COLUMNS: tuple[str, ...] = ("id", "seq", "digest", "record_count", "verified_at")
 
-_IDENTIFIER = re.compile(r"^[a-z_][a-z0-9_]{0,62}$")
-
 #: An anchor: the seq and digest of the last record a successful check
 #: covered, and how many records the table held up to and including it.
 Anchor = tuple[int, str, int]
 
 #: The anchor of an empty chain. A check from it reads every record.
 NO_ANCHOR: Anchor = (0, "", 0)
-
-
-def _table_identifier(table: str) -> "sql.Composable":
-    """Quote ``schema.table`` (or ``table``) after checking each part."""
-    parts = table.split(".")
-    if not 1 <= len(parts) <= 2 or not all(_IDENTIFIER.fullmatch(part) for part in parts):
-        raise ValueError(f"audit table must be 'schema.table' in lower case, got {table!r}")
-    return sql.Identifier(*parts)
 
 
 class PostgresAuditSink:
@@ -158,9 +152,9 @@ class PostgresAuditSink:
         self._connect = connection_factory
         self.role = validate_role_name(role)
         self.table = table
-        self._table = _table_identifier(table)
+        self._table = table_identifier(table, "audit table")
         self.anchor_table = anchor_table
-        self._anchor_table = _table_identifier(anchor_table) if anchor_table is not None else None
+        self._anchor_table = table_identifier(anchor_table, "audit anchor table") if anchor_table is not None else None
         self._settings = {validate_setting_name(name): value for name, value in (settings or {}).items()}
         # The digest of the record this sink appended last, or None before
         # the first append and after a failed one.

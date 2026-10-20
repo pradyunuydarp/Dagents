@@ -360,7 +360,7 @@ class FederationEngine(Protocol):
     approved runtime, or the in-process simulator below. Nothing above this
     interface should know which.
 
-    Three members are optional. The controller uses them only when the engine
+    Five members are optional. The controller uses them only when the engine
     has them:
 
     - ``dispatch_calls(round_id) -> list[DispatchCall]``: the calls the engine
@@ -368,13 +368,24 @@ class FederationEngine(Protocol):
       round's ``dispatch`` field.
     - ``discard(round_id)``: delete what the engine still holds for the round,
       such as stored model updates. The controller calls it from
-      :meth:`FederatedRoundController.discard`, and when ``submit_round`` or
-      ``collect_results`` raises.
+      :meth:`FederatedRoundController.discard`, when ``submit_round`` or
+      ``collect_results`` raises, after ``aggregate`` once the round is
+      stored as aggregated, and from :meth:`FederatedRoundController.recover`.
+      An engine that refuses an aggregation deletes the round's updates
+      itself.
     - ``collects_results: bool``: true when the engine collects every result
       from the sites itself, as the GMA's HTTP engine does. The controller
       then refuses results posted through
       :meth:`FederatedRoundController.submit_result`, so a caller cannot
       replace a site's result, its metrics or its example count.
+    - ``candidate_registered(manifest) -> bool``: whether the candidate of a
+      training round is already in the model registry, as an aggregation that
+      stopped before the round was stored leaves it.
+      :meth:`FederatedRoundController.recover` tells the planner.
+    - ``pending_update_ages(now) -> Mapping[str, float]``: for each round
+      with stored updates, the age in seconds of its oldest update.
+      :meth:`FederatedRoundController.recover` tells the planner the age, and
+      deletes the updates of rounds that are no longer unfinished.
     """
 
     name: str
@@ -539,7 +550,18 @@ your process and at the GMA:
   engine to delete what it holds for the round, such as stored updates. An
   aggregated round keeps its candidate. At the GMA, call
   `POST /api/v1/federation/rounds/{round_id}:discard` for a training round
-  that was not aggregated; aggregating a round deletes its updates itself.
+  that was not aggregated; aggregating a round deletes its updates itself,
+  once the round is stored as `aggregated`.
+- **A restart can leave rounds unfinished.**
+  `recover(updates_kept=..., now=...)` asks the planner
+  (`dagentsc federation round recover`) about each round that is still
+  `planned`, `dispatched` or `collecting`, oldest first. It closes each round
+  the planner says to close, with the planner's sentence as the reason, and
+  deletes its updates.
+  Call it once when your process starts, before any round write, if your
+  round store outlives the process
+  ([Step 8, section 9](08-deploy.md#9-state-that-survives-a-restart)). The GMA
+  does not call it yet.
 
 ## 6. Run the round through the LMA and GMA
 
@@ -941,15 +963,21 @@ this:
    the planner accepted, that its update is stored and matches the digest the
    site reported. It calls the kind's `combine` with the planner's weights,
    registers the result as a candidate named `<version_prefix>+<round_id>`,
-   and deletes the round's updates whether or not it succeeded. Any failed
-   check answers `409` with the code `aggregation_refused`, and no candidate is
-   made.
+   and deletes the round's updates once the round is stored as `aggregated`.
+   Any failed check answers `409` with the code `aggregation_refused`, no
+   candidate is made, and the updates are deleted. If the planner refuses
+   aggregation, for example with `quorum_not_met`, the updates stay until
+   you discard the round. If a store does not answer (`503`), the updates stay,
+   so you can send the aggregate again: it combines them again and gets the
+   candidate the first attempt registered.
 5. End a training round that was not aggregated with
    `POST .../rounds/{round_id}:discard`, so no update stays in the GMA's
-   memory.
+   update store.
 
-The update store is in memory. A GMA restart loses the pending updates, so the
-round cannot be aggregated.
+The GMA's update store is in memory, unless your application passes its own
+(`GmaDeps(updates=...)`, [Step 8, section 9](08-deploy.md#9-state-that-survives-a-restart)).
+With the memory store, a GMA restart loses the pending updates, so the round
+cannot be aggregated.
 
 The stroke demo runs its training rounds this way. Its study operator,
 [`apps/healthcare-demo/backend/app/services/pilot.py`](../../apps/healthcare-demo/backend/app/services/pilot.py),
@@ -1041,6 +1069,18 @@ A round takes one release decision. A second evaluation of the same round
 answers `409` before the Guard runs. When the lifecycle rule refuses the
 decision (`409`, `not_candidate`), neither the round nor the version stores
 anything; only the Guard's audit record stays.
+
+The version's decision and the round's decision are two writes. If the round's
+write fails, for example because its store does not answer (`503`), send the
+same request again. The Guard runs again with the same request id, gives the
+same answer and adds one audit record. The lifecycle rule receives the
+decision the version already holds:
+
+- The same decision for the same round changes nothing on the version, and the
+  GMA saves it on the round. This works for a rejected candidate too.
+- A decision that differs, for example because another version was released
+  between the two requests, answers `409` with the refusal `decision_differs`.
+  The round stays undecided.
 
 **Approve.** `POST /api/v1/model-versions/{version}:approve` asks the planner
 (`dagentsc federation model lifecycle`) and refuses, with `409` and the
@@ -1227,5 +1267,8 @@ second evaluation of the round both answer `409`. The round endpoints are in the
 | A store's result is `rejected` and its `refusal_reason` is `the runner produced a model update but this site has no update channel` | A training runner returned an update and the worker has no channel | Pass `update_channel=` to the worker (section 7) |
 | A result is `rejected` with a `refusal_reason` from the LMA, such as a digest that does not match | The LMA refused the job when it was offered (section 6) | Read the reason in the result, or in the LMA's job log (`GET /api/v1/federation/jobs`) |
 | `409` with the refusal `baseline_changed` on an approval | Another version was released after the gates compared the candidate | Run the evaluation and validation rounds again, then evaluate the release again |
+| `409` with the code `conflict` and "model version ... is already registered with different contents" from `:aggregate` | The candidate's name `<version_prefix>+<round_id>` holds another model. With the default round store in memory, a GMA restart frees every round id, while a model store in Postgres keeps the candidates of the rounds before it. The GMA deleted the round's updates | Use a new round id for every round, also after a restart |
+| `409` with the refusal `decision_differs` on a release evaluation | An earlier request stored its decision with the version but not on the round, and the decision computed now differs, for example in `baseline_version` | Run a new training round and evaluate its candidate |
+| `503` with the code `store_unavailable` from `:aggregate` or `:evaluate-release` | A store did not answer while the GMA wrote the candidate, the round or the decision | Send the same request again. A retried aggregate gives the same candidate, and a retried release evaluation saves the decision the version holds |
 
 Next: [Step 7: Call the framework services](07-framework-services.md).
