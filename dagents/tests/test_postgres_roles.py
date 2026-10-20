@@ -79,6 +79,104 @@ class RoleNameTests(unittest.TestCase):
                     validate_role_name(name)
 
 
+#: Table names every Postgres store accepts: ``table`` or ``schema.table``, each
+#: part a lower-case identifier of at most 63 characters.
+GOOD_TABLES = (
+    "audit",
+    "a.audit",
+    "_private",
+    "coordinator.models",
+    "site_uk_134.site_jobs",
+    "a1.b2",
+    "_a._b",
+    "a" * 63,
+    f"{'s' * 63}.{'t' * 63}",
+)
+
+#: Table names every Postgres store refuses. They include the names the
+#: audit, model and job log tests refused before the stores shared one check.
+BAD_TABLES = (
+    "",
+    "Audit",
+    "Anchor",
+    "A.models",
+    "A.jobs",
+    "a.b.c",
+    "a;drop",
+    "models; DROP TABLE x",
+    "jobs; DROP TABLE x",
+    "1audit",
+    "a.1b",
+    ".audit",
+    "audit.",
+    "a..b",
+    "a" * 64,
+    f"a.{'b' * 64}",
+    "a b",
+    "a-b",
+    "audit\n",
+    " audit",
+    'a"b',
+    "ä",
+)
+
+
+@unittest.skipIf(psycopg is None, SKIP_PREFIX + "psycopg is not installed")
+class TableNameTests(unittest.TestCase):
+    """One check for every store's ``schema.table`` name, so no store accepts a name another refuses."""
+
+    def test_a_good_name_is_quoted_part_by_part(self) -> None:
+        from dagents.common.infrastructure.postgres_roles import table_identifier
+
+        for table in GOOD_TABLES:
+            with self.subTest(table=table):
+                self.assertEqual(sql.Identifier(*table.split(".")), table_identifier(table, "audit table"))
+
+    def test_a_bad_name_is_refused_with_the_table_it_was_for(self) -> None:
+        from dagents.common.infrastructure.postgres_roles import table_identifier
+
+        for table in (*BAD_TABLES, None, 5):
+            with self.subTest(table=table):
+                with self.assertRaises(ValueError) as raised:
+                    table_identifier(table, "models table")  # type: ignore[arg-type]
+                self.assertIn("the models table must be 'schema.table' in lower case", str(raised.exception))
+
+    def stores(self) -> dict[str, Any]:
+        """Build each Postgres store with a table name. Building one opens no connection."""
+        from dagents.common.infrastructure.postgres_audit import PostgresAuditSink
+        from dagents.gma.infrastructure.postgres_models import PostgresModelStore
+        from dagents.lma.infrastructure.job_log import PostgresJobLog
+
+        no_connection = SimpleNamespace()
+        return {
+            "audit table": lambda table: PostgresAuditSink(lambda: None, "alpha", table),
+            "audit anchor table": lambda table: PostgresAuditSink(lambda: None, "alpha", "a.audit", anchor_table=table),
+            "models table": lambda table: PostgresModelStore(no_connection, "alpha", table),  # type: ignore[arg-type]
+            "job log table": lambda table: PostgresJobLog(no_connection, "alpha", table),  # type: ignore[arg-type]
+        }
+
+    def test_every_store_accepts_and_refuses_the_same_names(self) -> None:
+        for what, build in self.stores().items():
+            for table in GOOD_TABLES:
+                with self.subTest(store=what, table=table):
+                    build(table)
+            for table in BAD_TABLES:
+                with self.subTest(store=what, table=table):
+                    with self.assertRaises(ValueError) as raised:
+                        build(table)
+                    self.assertIn(f"the {what} must be 'schema.table' in lower case", str(raised.exception))
+
+    def test_the_stores_keep_no_copy_of_the_check(self) -> None:
+        from dagents.common.infrastructure import postgres_audit
+        from dagents.gma.infrastructure import postgres_models
+        from dagents.lma.infrastructure import job_log
+
+        for module in (postgres_audit, postgres_models, job_log):
+            with self.subTest(module=module.__name__):
+                self.assertFalse(hasattr(module, "_table_identifier"))
+                self.assertFalse(hasattr(module, "_IDENTIFIER"))
+
+
 class FakeConnection:
     """Just enough of a connection to reach acting_as's own checks."""
 

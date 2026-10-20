@@ -953,6 +953,17 @@ module Federation_types = struct
   (** The status a caller may ask for when it registers a version. *)
   type requested_status = RequestCandidate | RequestReleased
 
+  (** One round's release decision on a version: the six fields a repeated
+      [release_evaluated] event is compared on. *)
+  type round_decision = {
+    decided_round_id : string;
+    decided_action : release_action;
+    decided_guard_permitted : bool;
+    decided_baseline_version : string option;
+    decided_metrics_source : metrics_source;
+    decided_gate_results : gate_result list;
+  }
+
   (** Something that happened to one model version, with what the rule needs
       to decide the status changes that follow. *)
   type lifecycle_event =
@@ -963,6 +974,13 @@ module Federation_types = struct
         (** A training round produced the version from [parent_version]. *)
     | ReleaseEvaluated of { status : model_status; action : release_action; guard_permitted : bool }
         (** The release gates and the release Guard decided on the version. *)
+    | ReleaseEvaluatedWithStoredDecision of {
+        status : model_status;
+        new_decision : round_decision;
+        stored_decision : round_decision;
+      }
+        (** The same event, with the decision the version already holds, so a
+            retried evaluation of the same round changes nothing. *)
     | ApprovalRequested of {
         status : model_status;
         decision : recorded_release_decision option;
@@ -972,6 +990,14 @@ module Federation_types = struct
 
   (** One question for the model lifecycle rule: an event on one version. *)
   type lifecycle_request = { lifecycle_version : string; lifecycle_event : lifecycle_event }
+
+  (** A field of a {!round_decision} other than its round id. *)
+  type decision_field =
+    | DecisionAction
+    | DecisionGuardPermitted
+    | DecisionBaselineVersion
+    | DecisionMetricsSource
+    | DecisionGateResults
 
   (** Why the lifecycle rule refused an event. Each carries what its reason
       names. *)
@@ -983,6 +1009,9 @@ module Federation_types = struct
     | GuardDenied
     | MetricsNotFromRounds  (** The decision's metrics did not come from the rounds. *)
     | BaselineChanged of { checked_against : string option; in_use : string option }
+    | DecisionDiffers of { differing_round_id : string; differing_fields : decision_field list }
+        (** The version holds another decision for the same round. The fields
+            that differ are in field order. *)
 
   (** One version moving from one status to another. [from_status] is [None]
       for a version the event adds to the registry. *)
@@ -993,6 +1022,34 @@ module Federation_types = struct
 
   (** The verdict with a sentence that explains it. *)
   type lifecycle_outcome = { verdict : lifecycle_verdict; lifecycle_reason : string }
+
+  (** Where a stored round stands. The five values are the statuses a round
+      record can have in the GMA's store. *)
+  type round_status = RoundPlanned | RoundDispatched | RoundCollecting | RoundAggregated | RoundClosed
+
+  (** What recovery knows about one stored round after a restart.
+
+      The clock stays with the caller, so ages are inputs, in seconds.
+      [oldest_update_age_seconds] is [None] when no update is stored, and
+      [update_max_age_seconds] is [None] when updates have no age limit. *)
+  type round_recovery_request = {
+    recovery_status : round_status;
+    recovery_phase : round_phase;
+    record_readable : bool;  (** Whether the stored record can be read. *)
+    updates_kept : bool;  (** Whether the round's training updates survive a restart. *)
+    candidate_registered : bool;  (** Whether this round's candidate is in the model registry. *)
+    oldest_update_age_seconds : float option;
+    update_max_age_seconds : float option;
+  }
+
+  (** Why recovery closes a round. *)
+  type recovery_close_reason = UnreadableRecord | DispatchInterrupted | UpdatesNotKept | UpdatesExpired
+
+  (** What recovery does with one round. *)
+  type recovery_verdict = KeepRound | CloseRound of recovery_close_reason
+
+  (** The verdict with a sentence that explains it. *)
+  type round_recovery = { recovery_verdict : recovery_verdict; recovery_message : string }
 end
 
 include Federation_types
@@ -1318,6 +1375,49 @@ let string_of_lifecycle_refusal = function
   | GuardDenied -> "guard_denied"
   | MetricsNotFromRounds -> "metrics_not_from_rounds"
   | BaselineChanged _ -> "baseline_changed"
+  | DecisionDiffers _ -> "decision_differs"
+
+(** Convert a decision field to its snake_case name, as a reason names it. *)
+let string_of_decision_field = function
+  | DecisionAction -> "action"
+  | DecisionGuardPermitted -> "guard_permitted"
+  | DecisionBaselineVersion -> "baseline_version"
+  | DecisionMetricsSource -> "metrics_source"
+  | DecisionGateResults -> "gate_results"
+
+(** Parse stable API strings into gate-outcome variants. *)
+let gate_outcome_of_string = function
+  | "passed" -> GatePassed
+  | "failed" -> GateFailed
+  | "not_evaluated" -> GateNotEvaluated
+  | value -> invalid_arg ("Unknown gate outcome: " ^ value)
+
+(** Convert a round status to its stable JSON/API string. *)
+let string_of_round_status = function
+  | RoundPlanned -> "planned"
+  | RoundDispatched -> "dispatched"
+  | RoundCollecting -> "collecting"
+  | RoundAggregated -> "aggregated"
+  | RoundClosed -> "closed"
+
+(** Parse stable API strings into round-status variants. *)
+let round_status_of_string = function
+  | "planned" -> RoundPlanned
+  | "dispatched" -> RoundDispatched
+  | "collecting" -> RoundCollecting
+  | "aggregated" -> RoundAggregated
+  | "closed" -> RoundClosed
+  | value -> invalid_arg ("Unknown round status: " ^ value)
+
+(** Convert a recovery close reason to its stable JSON/API string. *)
+let string_of_recovery_close_reason = function
+  | UnreadableRecord -> "unreadable_record"
+  | DispatchInterrupted -> "dispatch_interrupted"
+  | UpdatesNotKept -> "updates_not_kept"
+  | UpdatesExpired -> "updates_expired"
+
+(** Convert a recovery verdict to its stable JSON/API string, without its reason. *)
+let string_of_recovery_verdict = function KeepRound -> "keep" | CloseRound _ -> "close"
 
 (** Parse stable API strings into release-action variants. *)
 let release_action_of_string = function

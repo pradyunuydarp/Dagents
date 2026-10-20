@@ -1,0 +1,5 @@
+{
+  "verdict": "close",
+  "reason": "dispatch_interrupted",
+  "message": "The round is dispatched, and a dispatch cannot resume after a restart, so it is closed; run it again under a new round id."
+}

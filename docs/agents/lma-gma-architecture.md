@@ -172,14 +172,16 @@ string. The full table is in the API reference, under
 
 ## What each agent stores
 
-| Agent | In Postgres, when configured | Always in memory |
+| Agent | In Postgres, when configured | In memory |
 |---|---|---|
 | LMA | The audit chain and the job log, written as the site's role | The records it read and the running profile |
-| GMA | The model registry and the release Guard's audit chain, written as the coordinator's role | Enrolments, rounds and pending training updates |
+| GMA | The model registry and the release Guard's audit chain, written as the coordinator's role | Enrolments, rounds and pending training updates, unless the application that builds the GMA passes its own stores in `GmaDeps` |
 
-A GMA restart during a round loses the round and its updates, so the round
-cannot be aggregated. Model versions, release decisions and audit chains
-survive.
+With the default stores, a GMA restart during a round loses the round and its
+updates, so the round cannot be aggregated. Model versions, release decisions
+and audit chains survive. `FederatedRoundController.recover` closes the rounds
+a restart left unfinished, as the planner decides, for a store that outlives
+the process. The GMA does not call it yet.
 
 ## Repository shape
 
@@ -220,7 +222,8 @@ every endpoint is in the [API reference](../reference/api/agents.md).
 ## Current limits
 
 - Messaging is in memory, and broker-backed delivery is later work.
-- The GMA's enrolments and rounds are in memory.
+- The GMA's enrolments and rounds are in memory, unless the application that
+  builds it passes its own stores.
 - The in-process engine is a simulator. The HTTP engine moves jobs and
   updates; it is not a secure-aggregation protocol, and the GMA sees each
   site's clipped update.

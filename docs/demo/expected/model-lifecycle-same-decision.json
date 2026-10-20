@@ -1,0 +1,6 @@
+{
+  "allowed": true,
+  "refusal": null,
+  "reason": "returns-logreg+returns-train-2 already has the same release decision for round returns-train-2, so nothing changes",
+  "statusChanges": []
+}

@@ -40,7 +40,7 @@ from dagents.common.domain.federation import (
     ModelVersionRegistration,
 )
 from dagents.common.extensions import ExtensionRegistry
-from dagents.common.infrastructure.dagents_runner import PlannerUnavailableError
+from dagents.common.infrastructure.dagents_runner import PlannerUnavailableError, model_lifecycle
 from dagents.common.infrastructure.postgres_lease import KeptConnection
 from dagents.gma.application.model_registry import (
     InvalidModelVersion,
@@ -497,6 +497,90 @@ class ModelRegistryContract:
         self.assertIsNone(registry.get("rule-v1").release_decision)
         with self.assertRaises(UnknownModelVersion):
             registry.record_release_decision("missing", decision())
+
+    # A repeated release decision -------------------------------------------------------
+
+    def test_the_same_decision_for_the_same_round_again_changes_nothing(self) -> None:
+        """A retry after a failed round write sends the stored decision; the planner then changes nothing."""
+        registry = self.seeded()
+        cases = {"release": decision(), "reject": decision(action="reject"), "guard": decision(guard_permitted=False)}
+        for number, (name, first) in enumerate(cases.items(), start=1):
+            with self.subTest(name):
+                version = self.trained(registry, number).version
+                stored = registry.record_release_decision(version, first)
+                again = registry.record_release_decision(version, first, stored=stored.release_decision)
+                # The status and the stored decision, with the time it was stored, are as they were.
+                self.assertEqual(stored, again)
+                self.assertEqual(stored, registry.get(version))
+
+    def test_without_the_stored_decision_a_rejected_version_is_still_refused(self) -> None:
+        registry = self.seeded()
+        candidate = self.trained(registry)
+        stored = registry.record_release_decision(candidate.version, decision(action="reject"))
+        with self.assertRaises(ModelLifecycleRefused) as raised:
+            registry.record_release_decision(candidate.version, decision(action="reject"))
+        self.assertEqual("not_candidate", raised.exception.refusal)
+        self.assertEqual(stored, registry.get(candidate.version))
+
+    def test_a_different_decision_for_the_same_round_is_refused_and_changes_nothing(self) -> None:
+        registry = self.seeded()
+        candidate = self.trained(registry)
+        stored = registry.record_release_decision(candidate.version, decision())
+        changes = {
+            "action": {"action": "reject"},
+            "guard_permitted": {"guard_permitted": False},
+            "baseline_version": {"baseline_version": "rule-v0"},
+            "metrics_source": {"metrics_source": "request"},
+            "gate_results": {"gate_results": []},
+        }
+        for field, change in changes.items():
+            with self.subTest(field):
+                with self.assertRaises(ModelLifecycleRefused) as raised:
+                    registry.record_release_decision(
+                        candidate.version, decision(**change), stored=stored.release_decision
+                    )
+                self.assertEqual("decision_differs", raised.exception.refusal)
+                self.assertIn(field, raised.exception.reason)
+                self.assertIn("study-training-2", raised.exception.reason)
+                self.assertEqual(stored, registry.get(candidate.version))
+
+    def test_a_planner_answer_that_changes_a_status_for_an_unchanged_decision_is_refused(self) -> None:
+        """The registry applies the planner's answer; it does not assume the same round means no change.
+
+        Today's planner never changes a status for the same decision of the
+        same round. A planner whose rule changed would, and the registry must
+        not drop that answer without saying so. A stub is the only way to
+        reach this case; the real planner runs underneath it.
+        """
+        registry = self.seeded()
+        candidate = self.trained(registry)
+        stored = registry.record_release_decision(candidate.version, decision())
+
+        def with_a_status_change(version: str, event: dict[str, Any]) -> dict[str, Any]:
+            answer = model_lifecycle(version, event)
+            if "stored_decision" in event:
+                answer["status_changes"] = [
+                    {"version": version, "from_status": "candidate", "to_status": "rejected"}
+                ]
+            return answer
+
+        with patch("dagents.gma.application.model_registry.model_lifecycle", side_effect=with_a_status_change):
+            with self.assertRaises(PlannerUnavailableError) as raised:
+                registry.record_release_decision(candidate.version, decision(), stored=stored.release_decision)
+        self.assertIn(candidate.version, str(raised.exception))
+        # Nothing was written: the status, the decision and its time are as they were.
+        self.assertEqual(stored, registry.get(candidate.version))
+
+    def test_a_stored_decision_for_another_round_gives_the_usual_answer(self) -> None:
+        registry = self.seeded()
+        candidate = self.trained(registry)
+        earlier = registry.record_release_decision(candidate.version, decision(round_id="study-training-1"))
+        self.assertEqual("candidate", earlier.status)
+        later = registry.record_release_decision(
+            candidate.version, decision(action="reject"), stored=earlier.release_decision
+        )
+        self.assertEqual("rejected", later.status)
+        self.assertEqual(("reject", "study-training-2"), (later.release_decision.action, later.release_decision.round_id))
 
     # Approval ------------------------------------------------------------------------
 

@@ -12,7 +12,7 @@ What the app holds (``app.state.gma``, a :class:`GmaState`):
 | Extension registry | ``deps.registry``; otherwise a new registry with ``GMA_EXTENSIONS``; otherwise the default registry |
 | Governance | A Guard over ``deps.audit``, the Postgres audit chain in ``GMA_AUDIT_TABLE``, or memory. Strict about classifications when a configured registry has condition packs |
 | Model registry | ``deps.model_store``, the Postgres table in ``GMA_MODEL_TABLE``, or memory |
-| Update store | In memory, write-only |
+| Round records, site enrolments, update store | ``deps.rounds``, ``deps.enrolments`` and ``deps.updates``; otherwise in memory. The update store is write-only |
 | Agent network | ``deps.network``, or one built over HTTP from ``GMA_SITE_ENDPOINTS`` (empty when only ``GMA_JOINABLE_SITE_ENDPOINTS`` is set) |
 | Round engine | The HTTP engine (``GMA_ENGINE=http``) or the in-process simulator |
 | Site directory, release service | The parts above |
@@ -45,6 +45,8 @@ from dagents.common.application.federation import (
     FederatedRoundController,
     FederationEngine,
     InProcessFederationEngine,
+    RoundRepository,
+    SiteRegistry,
 )
 from dagents.common.application.governance_service import GovernanceService
 from dagents.common.domain.errors import DagentsError
@@ -79,7 +81,7 @@ from dagents.gma.application.site_directory import SiteDirectory
 from dagents.gma.config import Settings
 from dagents.gma.di import build_aggregation_service, build_governance_service, build_round_controller
 from dagents.gma.infrastructure.postgres_models import InMemoryModelStore
-from dagents.gma.infrastructure.update_store import InMemoryUpdateStore
+from dagents.gma.infrastructure.update_store import InMemoryUpdateStore, UpdateStore
 
 if TYPE_CHECKING:  # pragma: no cover - for annotations only
     from dagents.common.infrastructure.postgres_lease import KeptConnection
@@ -141,6 +143,13 @@ class GmaDeps:
     - `coordinator_lease`: a kept Postgres connection for the coordinator's
       tables. The caller closes it.
     - `audit`: the release Guard's audit sink.
+    - `rounds`: where round records are kept (a ``RoundRepository``).
+    - `enrolments`: where site enrolments are kept (a ``SiteRegistry``).
+    - `updates`: where the clipped updates of running training rounds are
+      kept until aggregation or a discard (an ``UpdateStore``).
+
+    The GMA builds what is left out: the three round stores in memory, new
+    for each app.
     """
 
     registry: ExtensionRegistry | None = None
@@ -148,6 +157,9 @@ class GmaDeps:
     model_store: ModelStore | None = None
     coordinator_lease: KeptConnection | None = None
     audit: AuditSink | None = None
+    rounds: RoundRepository | None = None
+    enrolments: SiteRegistry | None = None
+    updates: UpdateStore | None = None
 
 
 @dataclass
@@ -160,7 +172,7 @@ class GmaState:
     governance: GovernanceService
     rounds: FederatedRoundController
     models: ModelRegistry
-    updates: InMemoryUpdateStore
+    updates: UpdateStore
     directory: SiteDirectory
     releases: ReleaseService
     engine: FederationEngine
@@ -305,7 +317,7 @@ def create_app(settings: Settings | None = None, deps: GmaDeps | None = None) ->
         strict = configured and bool(extensions.list_condition_packs())
         governance = build_governance_service(registry=extensions, audit=audit, strict_classifications=strict)
         models = ModelRegistry(model_store, extensions)
-        updates = InMemoryUpdateStore()
+        updates = deps.updates if deps.updates is not None else InMemoryUpdateStore()
 
         network = deps.network
         if network is None and (settings.site_endpoints or settings.joinable_site_endpoints):
@@ -323,10 +335,11 @@ def create_app(settings: Settings | None = None, deps: GmaDeps | None = None) ->
                 updates=updates,
                 lma_tokens=settings.lma_tokens,
                 concurrency=settings.dispatch_concurrency,
+                round_ids_survive_restart=getattr(deps.rounds, "survives_restart", False) is True,
             )
         else:
             engine = InProcessFederationEngine()
-        rounds = build_round_controller(engine)
+        rounds = build_round_controller(engine, sites=deps.enrolments, rounds=deps.rounds)
         service = build_aggregation_service()
         directory = SiteDirectory(
             network,

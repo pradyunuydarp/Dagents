@@ -296,6 +296,13 @@ let evaluate_release gates candidate_metrics baseline_metrics candidate_version 
     rollback_version;
   }
 
+(** Join words as a sentence lists them: ["a"], ["a and b"], ["a, b and c"]. *)
+let join_words words =
+  match List.rev words with
+  | [] -> ""
+  | [ only ] -> only
+  | last :: earlier -> String.concat ", " (List.rev earlier) ^ " and " ^ last
+
 (** The sentence for a lifecycle refusal.
 
     The approval refusals keep the wording the healthcare demo's approval
@@ -319,6 +326,10 @@ let refusal_reason version = function
       in
       let now = match in_use with Some released -> released ^ " is now in use" | None -> "no model is now in use" in
       Printf.sprintf "%s %s, but %s. Run the pilot again." version checked now
+  | DecisionDiffers { differing_round_id; differing_fields } ->
+      Printf.sprintf "%s already has a release decision for round %s, and this one differs in %s" version
+        differing_round_id
+        (join_words (List.map string_of_decision_field differing_fields))
 
 (** A refused event: no status changes, and the refusal's sentence. *)
 let refuse version refusal =
@@ -370,6 +381,80 @@ let decide_approval version status decision released_version =
                               };
                             ]))))
 
+(** Decide a [release_evaluated] event from the version's status, the gates'
+    action and the Guard verdict: the rule as it was before the stored
+    decision existed. *)
+let decide_release_evaluated version status action guard_permitted =
+  match status with
+  | ModelReleased | ModelRejected | ModelSuperseded -> refuse version (NotCandidate status)
+  | ModelCandidate -> (
+      let rejected because =
+        allow
+          (Printf.sprintf "%s is rejected, because %s" version because)
+          [ { changed_version = version; from_status = Some ModelCandidate; to_status = ModelRejected } ]
+      in
+      (* The gates are named before the Guard, as in the approval order. *)
+      match (action, guard_permitted) with
+      | ReleaseCandidate, true ->
+          allow
+            (Printf.sprintf
+               "%s stays a candidate: the release gates decided release and the release Guard permitted it"
+               version)
+            []
+      | ReleaseCandidate, false -> rejected "the release Guard did not permit it"
+      | (RequireAnotherRound | RejectCandidate), _ ->
+          rejected ("the release gates decided " ^ string_of_release_action action))
+
+(** Whether two optional numbers are equal with no tolerance. [Float.equal]
+    counts -0.0 and 0.0 as equal, and NaN as equal to itself. *)
+let same_number left right =
+  match (left, right) with
+  | None, None -> true
+  | Some left, Some right -> Float.equal left right
+  | None, Some _ | Some _, None -> false
+
+(** Whether two gate results are equal in every field. *)
+let same_gate_result left right =
+  left.result_gate_id = right.result_gate_id
+  && left.outcome = right.outcome
+  && same_number left.observed right.observed
+  && same_number left.threshold right.threshold
+  && left.gate_detail = right.gate_detail
+
+(** Whether two lists of gate results are equal, item by item, in order. *)
+let same_gate_results left right =
+  List.length left = List.length right && List.for_all2 same_gate_result left right
+
+(** The fields in which a new decision differs from the stored one, in field
+    order. The round ids are compared by the caller. *)
+let differing_decision_fields new_decision stored =
+  List.filter_map
+    (fun (field, same) -> if same then None else Some field)
+    [
+      (DecisionAction, new_decision.decided_action = stored.decided_action);
+      (DecisionGuardPermitted, new_decision.decided_guard_permitted = stored.decided_guard_permitted);
+      (DecisionBaselineVersion, new_decision.decided_baseline_version = stored.decided_baseline_version);
+      (DecisionMetricsSource, new_decision.decided_metrics_source = stored.decided_metrics_source);
+      (DecisionGateResults, same_gate_results new_decision.decided_gate_results stored.decided_gate_results);
+    ]
+
+(** Decide a [release_evaluated] event that carries the version's stored
+    decision. A stored decision for another round leaves the event to
+    {!decide_release_evaluated}. For the same round, the status does not
+    matter: the same decision changes nothing, and any other is refused. *)
+let decide_release_evaluated_with_stored version status new_decision stored =
+  if new_decision.decided_round_id <> stored.decided_round_id then
+    decide_release_evaluated version status new_decision.decided_action new_decision.decided_guard_permitted
+  else
+    match differing_decision_fields new_decision stored with
+    | [] ->
+        allow
+          (Printf.sprintf "%s already has the same release decision for round %s, so nothing changes" version
+             stored.decided_round_id)
+          []
+    | fields ->
+        refuse version (DecisionDiffers { differing_round_id = stored.decided_round_id; differing_fields = fields })
+
 let decide_model_lifecycle request =
   let version = request.lifecycle_version in
   let added status = { changed_version = version; from_status = None; to_status = status } in
@@ -398,25 +483,71 @@ let decide_model_lifecycle request =
             (Printf.sprintf "%s is a candidate; %s stays %s" version parent_version
                (string_of_model_status parent_status))
             [ added ModelCandidate ])
-  | ReleaseEvaluated { status; action; guard_permitted } -> (
-      match status with
-      | ModelReleased | ModelRejected | ModelSuperseded -> refuse version (NotCandidate status)
-      | ModelCandidate -> (
-          let rejected because =
-            allow
-              (Printf.sprintf "%s is rejected, because %s" version because)
-              [ { changed_version = version; from_status = Some ModelCandidate; to_status = ModelRejected } ]
-          in
-          (* The gates are named before the Guard, as in the approval order. *)
-          match (action, guard_permitted) with
-          | ReleaseCandidate, true ->
-              allow
-                (Printf.sprintf
-                   "%s stays a candidate: the release gates decided release and the release Guard permitted it"
-                   version)
-                []
-          | ReleaseCandidate, false -> rejected "the release Guard did not permit it"
-          | (RequireAnotherRound | RejectCandidate), _ ->
-              rejected ("the release gates decided " ^ string_of_release_action action)))
+  | ReleaseEvaluated { status; action; guard_permitted } ->
+      decide_release_evaluated version status action guard_permitted
+  | ReleaseEvaluatedWithStoredDecision { status; new_decision; stored_decision } ->
+      decide_release_evaluated_with_stored version status new_decision stored_decision
   | ApprovalRequested { status; decision; released_version } ->
       decide_approval version status decision released_version
+
+(** Format a number of seconds for a message: whole numbers without a
+    fraction, others with the fewest digits that read back as the same
+    number. *)
+let seconds_text value =
+  if Float.is_integer value && Float.abs value < 1e15 then Printf.sprintf "%.0f" value
+  else
+    let exact precision =
+      let text = Printf.sprintf "%.*g" precision value in
+      if float_of_string text = value then Some text else None
+    in
+    match exact 12 with
+    | Some text -> text
+    | None -> ( match exact 15 with Some text -> text | None -> Printf.sprintf "%.17g" value)
+
+(** A kept round and the sentence that explains it. *)
+let keep message = { recovery_verdict = KeepRound; recovery_message = message }
+
+(** A closed round, its reason and the sentence that explains it. *)
+let close reason message = { recovery_verdict = CloseRound reason; recovery_message = message }
+
+(** The end of each sentence that closes a round the operator can run
+    again. *)
+let run_again = "so it is closed; run it again under a new round id."
+
+(** Decide a readable collecting training round: rows 5 to 8 of the table. *)
+let decide_collecting_training request =
+  match (request.candidate_registered, request.updates_kept) with
+  | true, _ ->
+      keep
+        ("The round's candidate is already registered, "
+        ^ "so it stays open and a retried aggregate returns that candidate.")
+  | false, false -> close UpdatesNotKept ("The round's training updates were not kept across the restart, " ^ run_again)
+  | false, true -> (
+      let kept = keep "The round's training updates are kept, so it stays open." in
+      match (request.oldest_update_age_seconds, request.update_max_age_seconds) with
+      | Some age, Some limit ->
+          if age > limit then
+            close UpdatesExpired
+              (Printf.sprintf
+                 "The round's oldest stored update is %s seconds old, more than the limit of %s seconds, %s"
+                 (seconds_text age) (seconds_text limit) run_again)
+          else kept
+      | None, _ | _, None -> kept)
+
+let decide_round_recovery request =
+  let status = string_of_round_status request.recovery_status in
+  match (request.recovery_status, request.record_readable) with
+  | (RoundAggregated | RoundClosed), _ -> keep (Printf.sprintf "The round is already %s, so it stays as it is." status)
+  | (RoundPlanned | RoundDispatched | RoundCollecting), false ->
+      close UnreadableRecord
+        (Printf.sprintf "The round is %s, but its stored record cannot be read, so it is closed." status)
+  | (RoundPlanned | RoundDispatched), true ->
+      close DispatchInterrupted
+        (Printf.sprintf "The round is %s, and a dispatch cannot resume after a restart, %s" status run_again)
+  | RoundCollecting, true -> (
+      match request.recovery_phase with
+      | AnalyticsRound | EvaluationRound ->
+          keep
+            (Printf.sprintf "The %s round already holds its results, so it stays open and can be aggregated."
+               (string_of_round_phase request.recovery_phase))
+      | TrainingRound -> decide_collecting_training request)

@@ -2437,7 +2437,7 @@
       },
       {
        "status": "409",
-       "description": "`aggregation_refused`: the planner does not permit aggregation, or (HTTP engine) a stored update is missing or does not match its digest. `conflict`: the round was discarded.",
+       "description": "`aggregation_refused`: the planner does not permit aggregation. The round's updates are then kept until the round is discarded or closed. With the HTTP engine, the code also means that a stored update is missing or does not match its digest, or that the candidate an earlier attempt registered does not match its digest. The engine then deletes the round's updates. `conflict`: the round was discarded, or (HTTP engine) the candidate's name holds another model, as after a restart that freed a round id the model store still uses. The engine then deletes the round's updates.",
        "content_type": "application/json",
        "schema": {
         "$ref": "#/components/schemas/AgentErrorDetail"
@@ -2601,7 +2601,7 @@
       },
       {
        "status": "409",
-       "description": "`conflict`: `candidate_version` is not the round's candidate, the metrics round measured another version, or the lifecycle rule refused the decision (`refusal: not_candidate`).",
+       "description": "`conflict`: `candidate_version` is not the round's candidate, the metrics round measured another version, the round already holds a decision or is closed, or the lifecycle rule refused the decision. `refusal: not_candidate`: the version is no longer a candidate. `refusal: decision_differs`: an earlier request stored a decision for this round with the version but not on the round, and the decision computed now differs from it, for example because another version was released since. The round stays undecided.",
        "content_type": "application/json",
        "schema": {
         "$ref": "#/components/schemas/LifecycleRefusalDetail"
@@ -5089,7 +5089,7 @@
      "method": "PUT",
      "path": "/federation/rounds/{round_id}/updates/{site_id}",
      "summary": "Store one site's clipped model update for a training round.",
-     "description": "The site's LMA calls it while it runs its job. The update store checks the\nupload against the round as the GMA stored it, and the model kind of the\nround's starting model checks the update's names and values and computes\nits digest, which the answer returns. The site compares it with its own.\nNo route reads an update back; aggregation reads the updates and then\ndeletes them. The work runs on the GMA's own upload threads, never on the\nserver's, so an upload does not wait for the dispatch that caused it.",
+     "description": "The site's LMA calls it while it runs its job. The update store checks the\nupload against the round as the GMA stored it, and the model kind of the\nround's starting model checks the update's names and values and computes\nits digest, which the answer returns. The site compares it with its own.\nNo route reads an update back. Aggregation reads the updates. They are\ndeleted once the round is stored as aggregated, when the HTTP engine\nrefuses the aggregation (for example because an update is missing or\nchanged), or when the round is discarded or closed. A planner refusal of\nthe aggregation keeps them. The work runs on the GMA's own upload threads,\nnever on the server's, so an upload does not wait for the dispatch that\ncaused it.",
      "status_code": 200,
      "deprecated": false,
      "handler": {
@@ -5113,7 +5113,7 @@
        },
        {
         "kind": "method",
-        "class": "InMemoryUpdateStore",
+        "class": "UpdateStore",
         "module": "dagents.gma.infrastructure.update_store",
         "file": "dagents/gma/infrastructure/update_store.py",
         "name": "put"
@@ -5214,7 +5214,7 @@
      "method": "POST",
      "path": "/federation/rounds/{round_id}:aggregate",
      "summary": "Produce a candidate model, if and only if aggregation is permitted.",
-     "description": "A candidate is not a release. It becomes one only after the release gates\npass and a person approves it. With the HTTP engine, a training round's\nstored updates are combined by the model kind with the planner's weights,\nthe candidate is registered as `<version_prefix>+<round_id>`, and the\nround's updates are deleted.",
+     "description": "A candidate is not a release. It becomes one only after the release gates\npass and a person approves it. With the HTTP engine, a training round's\nstored updates are combined by the model kind with the planner's weights,\nthe candidate is registered as `<version_prefix>+<round_id>`, and the\nround's updates are deleted once the round is stored as `aggregated`. If\nan attempt fails after it registered the candidate, for example on a\nstore error, the updates are kept: a retry combines them again and gets\nthe same candidate. When the updates are gone after a restart, a retry\nreturns the registered candidate, but only if the GMA's round store keeps\nround ids across restarts. The default store in memory does not.",
      "status_code": 200,
      "deprecated": false,
      "handler": {
@@ -5264,7 +5264,7 @@
       },
       {
        "status": "409",
-       "description": "`aggregation_refused`: the planner does not permit aggregation, or (HTTP engine) a stored update is missing or does not match its digest. `conflict`: the round was discarded.",
+       "description": "`aggregation_refused`: the planner does not permit aggregation. The round's updates are then kept until the round is discarded or closed. With the HTTP engine, the code also means that a stored update is missing or does not match its digest, or that the candidate an earlier attempt registered does not match its digest. The engine then deletes the round's updates. `conflict`: the round was discarded, or (HTTP engine) the candidate's name holds another model, as after a restart that freed a round id the model store still uses. The engine then deletes the round's updates.",
        "content_type": "application/json",
        "schema": {
         "$ref": "#/components/schemas/AgentErrorDetail"
@@ -5294,7 +5294,7 @@
      "method": "POST",
      "path": "/federation/rounds/{round_id}:discard",
      "summary": "Give up a round: delete its stored updates and record why.",
-     "description": "A `dispatched` or `collecting` round becomes `closed` and takes no more\nresults or updates. An aggregated round keeps its candidate. The first\nreason is kept in `abandoned_reason`. Call it at the end of every training\nround, so no site's update stays in the GMA's memory.",
+     "description": "A `dispatched` or `collecting` round becomes `closed` and takes no more\nresults or updates. An aggregated round keeps its candidate. The first\nreason is kept in `abandoned_reason`. Call it at the end of every training\nround, so no site's update stays in the GMA's update store.",
      "status_code": 204,
      "deprecated": false,
      "handler": {
@@ -5362,7 +5362,7 @@
      "method": "POST",
      "path": "/federation/rounds/{round_id}:evaluate-release",
      "summary": "Evaluate a round's candidate against the release gates and record the verdict.",
-     "description": "With a `condition_id` (the round flow), the GMA reads the gates from the\ncondition pack, the candidate's metrics from `metrics_from_round` and the\nbaseline from `baseline_from_round`, runs the `before_release` Guard (its\ndecision joins the GMA's audit chain), runs the planner's gates\n(`dagentsc federation release evaluate`) and its lifecycle rule\n(`dagentsc federation model lifecycle`), and stores the decision with the\nmodel version. Without a `condition_id` (the bare flow), it evaluates the\ngates and metrics in the body, runs no Guard and changes no model version.\nEither way the decision is saved in the round, which becomes `closed`.",
+     "description": "With a `condition_id` (the round flow), the GMA reads the gates from the\ncondition pack, the candidate's metrics from `metrics_from_round` and the\nbaseline from `baseline_from_round`, runs the `before_release` Guard (its\ndecision joins the GMA's audit chain), runs the planner's gates\n(`dagentsc federation release evaluate`) and its lifecycle rule\n(`dagentsc federation model lifecycle`), and stores the decision with the\nmodel version. Without a `condition_id` (the bare flow), it evaluates the\ngates and metrics in the body, runs no Guard and changes no model version.\nEither way the decision is saved in the round, which becomes `closed`.\n\nIn the round flow the lifecycle rule also reads the decision the version\nalready holds. When an earlier request stored it for this round and then\nfailed to save it on the round, a retry that computes the same decision\nchanges nothing on the version and saves the decision on the round; a\nretry that computes a different one answers 409 with\n`refusal: decision_differs`.",
      "status_code": 200,
      "deprecated": false,
      "handler": {
@@ -5418,7 +5418,7 @@
       },
       {
        "status": "409",
-       "description": "`conflict`: `candidate_version` is not the round's candidate, the metrics round measured another version, or the lifecycle rule refused the decision (`refusal: not_candidate`).",
+       "description": "`conflict`: `candidate_version` is not the round's candidate, the metrics round measured another version, the round already holds a decision or is closed, or the lifecycle rule refused the decision. `refusal: not_candidate`: the version is no longer a candidate. `refusal: decision_differs`: an earlier request stored a decision for this round with the version but not on the round, and the decision computed now differs from it, for example because another version was released since. The round stays undecided.",
        "content_type": "application/json",
        "schema": {
         "$ref": "#/components/schemas/LifecycleRefusalDetail"
@@ -5657,7 +5657,7 @@
      "method": "PUT",
      "path": "/federation/sites/{site_id}",
      "summary": "Enrol or update one site in the consortium.",
-     "description": "The enrolment is stored in memory under `site_id`; sending the same id\nagain replaces it. Round planning reads every stored enrolment.",
+     "description": "The enrolment is stored under `site_id`; sending the same id again\nreplaces it. The GMA keeps enrolments in memory, unless the application\nthat built it passed its own enrolment store. Round planning reads every\nstored enrolment.",
      "status_code": 200,
      "deprecated": false,
      "handler": {
@@ -9242,7 +9242,7 @@
         }
        ],
        "title": "Refusal",
-       "description": "The planner's refusal: `already_released`, `not_candidate`, `no_decision`, `gates_decided`, `guard_denied`, `metrics_not_from_rounds` or `baseline_changed`. Absent for other conflicts."
+       "description": "The planner's refusal: `already_released`, `not_candidate`, `no_decision`, `gates_decided`, `guard_denied`, `metrics_not_from_rounds`, `baseline_changed` or `decision_differs`. Absent for other conflicts."
       }
      },
      "type": "object",
@@ -47920,7 +47920,7 @@
      "function": "federation_model",
      "file": "bindings/ocaml/bin/dagentsc.ml"
     },
-    "doc": "Handle `dagentsc federation model lifecycle`.\n\nReads `{\"version\": ..., \"event\": {\"kind\": ...}}` and prints whether the event is allowed, the refusal and its reason, and the status changes a model registry applies. A refusal is a normal result, so it exits 0.",
+    "doc": "Handle `dagentsc federation model lifecycle`.\n\nReads `{\"version\": ..., \"event\": {\"kind\": ...}}` and prints whether the event is allowed, the refusal and its reason, and the status changes a model registry applies. A refusal is a normal result, so it exits 0. A `release_evaluated` event may carry `storedDecision`, the decision the version already holds; then the same decision for the same round changes nothing, and a different one is refused as `decision_differs`.",
     "calls": [
      {
       "module": "Dagents_federation_compiler",
@@ -48034,6 +48034,40 @@
     ],
     "writes": [
      "round_plan"
+    ]
+   },
+   {
+    "id": "dagentsc-federation-round-recover",
+    "words": [
+     "federation",
+     "round",
+     "recover"
+    ],
+    "usage": "dagentsc federation round recover [--input <file|->]",
+    "flags": [
+     {
+      "name": "--input",
+      "default": "-",
+      "repeated": false
+     }
+    ],
+    "handler": {
+     "function": "federation_round_recover",
+     "file": "bindings/ocaml/bin/dagentsc.ml"
+    },
+    "doc": "Handle `dagentsc federation round recover`.\n\nReads what recovery knows about one round stored before a restart: `{\"status\", \"phase\", \"readable\", \"updatesKept\", \"candidateRegistered\", \"oldestUpdateAgeSeconds\", \"updateMaxAgeSeconds\"}`. Prints whether to keep or close the round, the reason for a close and a sentence. A close is a normal result, so it exits 0. Input with a missing key, an unknown status or phase, a value of the wrong type, an age that is negative or not finite, or a limit that is not a finite number above 0 is refused.",
+    "calls": [
+     {
+      "module": "Dagents_federation_compiler",
+      "function": "decide_round_recovery",
+      "folder": "bindings/ocaml/lib/federation_compiler"
+     }
+    ],
+    "reads": [
+     "round_recovery_request"
+    ],
+    "writes": [
+     "round_recovery"
     ]
    },
    {

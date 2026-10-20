@@ -154,7 +154,37 @@ val yojson_of_aggregation_method : aggregation_method -> Yojson.Safe.t
     to a release. *)
 val recorded_release_decision_of_yojson : Yojson.Safe.t -> recorded_release_decision
 (** Parse one model lifecycle event: [registered], [aggregated],
-    [release_evaluated] or [approval_requested], named by its ["kind"]. *)
+    [release_evaluated] or [approval_requested], named by its ["kind"].
+
+    A [release_evaluated] event may carry [storedDecision], the decision the
+    version already holds, with the keys [roundId], [action],
+    [guardPermitted], [baselineVersion], [metricsSource] and [gateResults]
+    (each gate result with [gateId], [outcome], [observed], [threshold] and
+    [detail]). Every key is required; [baselineVersion], [metricsSource],
+    [observed] and [threshold] may be [null], and a [null] [metricsSource] is
+    [MetricsSourceUnrecorded]. The event then also requires its own
+    [guardPermitted], [roundId], [baselineVersion], [metricsSource] and
+    [gateResults], and reads as [ReleaseEvaluatedWithStoredDecision].
+
+    Without [storedDecision], or with [null], the event reads as
+    [ReleaseEvaluated], exactly as before the key existed. Its [roundId],
+    [baselineVersion], [metricsSource] and [gateResults] are then optional,
+    but come all together or not at all, and are checked when given.
+
+    Example test case:
+    {[
+      let event =
+        lifecycle_event_of_yojson
+          (`Assoc
+             [
+               ("kind", `String "release_evaluated");
+               ("status", `String "candidate");
+               ("action", `String "release");
+               ("storedDecision", `Null);
+             ])
+      in
+      assert (event = ReleaseEvaluated { status = ModelCandidate; action = ReleaseCandidate; guard_permitted = false })
+    ]} *)
 val lifecycle_event_of_yojson : Yojson.Safe.t -> lifecycle_event
 (** Parse a model lifecycle request, [{"version": ..., "event": {...}}].
 
@@ -175,6 +205,37 @@ val lifecycle_request_of_yojson : Yojson.Safe.t -> lifecycle_request
 val yojson_of_status_change : status_change -> Yojson.Safe.t
 (** Serialize a lifecycle outcome: [allowed], [refusal], [reason], [statusChanges]. *)
 val yojson_of_lifecycle_outcome : lifecycle_outcome -> Yojson.Safe.t
+
+(** Parse what recovery knows about one stored round:
+    [{"status", "phase", "readable", "updatesKept", "candidateRegistered",
+    "oldestUpdateAgeSeconds", "updateMaxAgeSeconds"}].
+
+    Every key is required. [oldestUpdateAgeSeconds] is [null] or a finite
+    number of 0 or more; [updateMaxAgeSeconds] is [null] or a finite number
+    above 0. An unknown status or phase, a value of the wrong type or a
+    missing key raises [Invalid_argument].
+
+    Example test case:
+    {[
+      let request =
+        round_recovery_request_of_yojson
+          (`Assoc
+             [
+               ("status", `String "dispatched");
+               ("phase", `String "training");
+               ("readable", `Bool true);
+               ("updatesKept", `Bool false);
+               ("candidateRegistered", `Bool false);
+               ("oldestUpdateAgeSeconds", `Null);
+               ("updateMaxAgeSeconds", `Int 86400);
+             ])
+      in
+      assert (request.recovery_status = RoundDispatched)
+    ]} *)
+val round_recovery_request_of_yojson : Yojson.Safe.t -> round_recovery_request
+(** Serialize a recovery verdict: [verdict] (["keep"] or ["close"]), [reason]
+    ([null] for a kept round) and [message]. *)
+val yojson_of_round_recovery : round_recovery -> Yojson.Safe.t
 
 (** Parse a deployment target: absent or [null] (Kubernetes), ["kubernetes"],
     ["compose"], or an object with a [kind]. Raises [Invalid_argument] on an

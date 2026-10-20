@@ -40,7 +40,6 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import logging
-import re
 import threading
 from typing import Any, Mapping, Sequence
 
@@ -49,7 +48,7 @@ from pydantic import ValidationError
 from dagents.common.domain.errors import StoreNotSetUpError
 from dagents.common.domain.federation import ModelReleaseDecision, ModelStatusChange, ModelVersion
 from dagents.common.infrastructure.postgres_lease import KeptConnection
-from dagents.common.infrastructure.postgres_roles import validate_role_name
+from dagents.common.infrastructure.postgres_roles import table_identifier, validate_role_name
 from dagents.gma.application.model_registry import (
     InvalidModelVersion,
     ModelStatusConflict,
@@ -85,8 +84,6 @@ COLUMNS = (
     "release_decision",
     "decided_at",
 )
-
-_IDENTIFIER = re.compile(r"^[a-z_][a-z0-9_]{0,62}$")
 
 
 def _timestamp(value: datetime) -> str:
@@ -228,14 +225,6 @@ class InMemoryModelStore:
                 row["decided_at"] = _now()
 
 
-def _table_identifier(table: str) -> Any:
-    """Quote ``schema.table`` (or ``table``) after checking each part."""
-    parts = table.split(".") if isinstance(table, str) else []
-    if not 1 <= len(parts) <= 2 or not all(_IDENTIFIER.fullmatch(part) for part in parts):
-        raise ValueError(f"the models table must be 'schema.table' in lower case, got {table!r}")
-    return sql.Identifier(*parts)
-
-
 class PostgresModelStore:
     """Model versions in one Postgres table, every operation acting as one role.
 
@@ -257,7 +246,7 @@ class PostgresModelStore:
         self._lease = lease
         self.role = validate_role_name(role)
         self.table = table
-        self._table = _table_identifier(table)
+        self._table = table_identifier(table, "models table")
         self.location = {"table": table, "role": self.role}
         self._select = sql.SQL("SELECT {columns} FROM {table}").format(
             columns=sql.SQL(", ").join(sql.Identifier(column) for column in COLUMNS), table=self._table

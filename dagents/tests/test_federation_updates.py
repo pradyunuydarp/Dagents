@@ -796,6 +796,22 @@ class PlannerLifecycleContractTests(unittest.TestCase):
         self.assertEqual(refused.refusal, "already_released")
         self.assertEqual(refused.status_changes, [])
 
+    def test_a_decision_that_differs_from_the_stored_one_parses(self) -> None:
+        from dagents.common.domain.federation import ModelLifecycleDecision
+        from dagents.common.infrastructure.dagents_runner import model_lifecycle
+
+        stored = {
+            "round_id": "round-7",
+            "action": "release",
+            "guard_permitted": True,
+            "baseline_version": "v1",
+            "metrics_source": "rounds",
+            "gate_results": [],
+        }
+        event = {"kind": "release_evaluated", "status": "candidate", **stored, "action": "reject", "stored_decision": stored}
+        refused = ModelLifecycleDecision.model_validate(model_lifecycle("v2", event))
+        self.assertEqual((refused.allowed, refused.refusal, refused.status_changes), (False, "decision_differs", []))
+
 
 class SiteRecordSourcePortTests(unittest.TestCase):
     """The ports an LMA reads a site's records through, and records its jobs in."""

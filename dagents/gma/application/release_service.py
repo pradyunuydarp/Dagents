@@ -28,10 +28,22 @@
    (``release_evaluated``) keeps it a candidate or rejects it, and the decision
    is stored with the version, with its ``metrics_source`` and the
    ``baseline_version``: the version the baseline round measured, or, without
-   a baseline round, the version released now. A version that is no longer a
-   candidate is refused (409, ``not_candidate``): neither the registry nor the
-   round stores anything, and only the Guard's audit record stays.
+   a baseline round, the version released now. The event carries the decision
+   the version already holds. A version that is no longer a candidate is
+   refused (409, ``not_candidate``): neither the registry nor the round stores
+   anything, and only the Guard's audit record stays.
 9. The decision is saved on the round, which becomes ``closed``.
+
+**A retry after step 8.** If the round's write in step 9 fails, the version
+holds the decision and the round does not. A retry runs the Guard again with
+the same request id, so its answer is the same and the audit chain gains one
+record. The planner compares the decision it computes again with the stored
+one. The same decision for the same round changes nothing in the registry,
+and step 9 saves it on the round. A decision that differs in any recorded
+field is refused (409, ``decision_differs``), for example when another version
+was released between the two requests and so the baseline changed. The round
+then stays undecided, and a new training round gives a new candidate to
+decide on.
 
 ``metrics_source`` is ``rounds`` only when the GMA's engine collects every
 result from the sites itself (the HTTP engine), so no caller can post the
@@ -198,6 +210,8 @@ class ReleaseService:
         )
         status = None
         if model is not None:
+            # The stored decision lets a retry after a failed round write go
+            # through: the same decision for this round changes nothing.
             updated = self._models.record_release_decision(
                 request.candidate_version,
                 ModelReleaseDecision(
@@ -208,6 +222,7 @@ class ReleaseService:
                     baseline_version=baseline_version,
                     metrics_source=source,
                 ),
+                stored=model.release_decision,
             )
             status = updated.status
         self._rounds.save_release_decision(round_id, decision)

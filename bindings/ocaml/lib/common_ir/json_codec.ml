@@ -1260,6 +1260,125 @@ let recorded_release_decision_of_yojson (json : Yojson.Safe.t) =
       }
   | _ -> fail "Expected release decision object"
 
+(** Read a bool field that must be present. *)
+let required_bool_field name fields =
+  match field name fields with `Bool value -> value | _ -> fail ("Expected bool field: " ^ name)
+
+(** Read a field that must be present and holds a string or [null]. *)
+let required_string_option_field name fields =
+  match field name fields with
+  | `String value -> Some value
+  | `Null -> None
+  | _ -> fail ("Expected string or null field: " ^ name)
+
+(** Read a field that must be present and holds a number or [null]. *)
+let required_float_option_field name fields =
+  match field name fields with
+  | `Float value -> Some value
+  | `Int value -> Some (float_of_int value)
+  | `Intlit value -> Some (float_of_string value)
+  | `Null -> None
+  | _ -> fail ("Expected number or null field: " ^ name)
+
+(** Read a metrics source that must be present. [null] is
+    [MetricsSourceUnrecorded], as for a decision stored before the source was
+    recorded. *)
+let required_metrics_source_field name fields =
+  match required_string_option_field name fields with
+  | Some value -> metrics_source_of_string value
+  | None -> MetricsSourceUnrecorded
+
+(** Parse one gate result as a release decision stores it. Every key is
+    required, because a repeated decision is compared on all of them. *)
+let gate_result_of_yojson (json : Yojson.Safe.t) =
+  match json with
+  | `Assoc fields ->
+      let result_gate_id = string_field "gateId" fields in
+      let outcome = gate_outcome_of_string (string_field "outcome" fields) in
+      let observed = required_float_option_field "observed" fields in
+      let threshold = required_float_option_field "threshold" fields in
+      let gate_detail = string_field "detail" fields in
+      { result_gate_id; outcome; observed; threshold; gate_detail }
+  | _ -> fail "Expected gate result object"
+
+(** Read a required list of gate results, keeping their order. *)
+let gate_results_field name fields =
+  match field name fields with
+  | `List values -> List.map gate_result_of_yojson values
+  | _ -> fail ("Expected list field: " ^ name)
+
+(** Read the four keys of a round's release decision besides its action and
+    Guard verdict: [roundId], [baselineVersion], [metricsSource] and
+    [gateResults]. All four are required; [baselineVersion] and
+    [metricsSource] may hold [null]. *)
+let decision_keys_of_fields fields =
+  let round_id = non_empty_string_field "roundId" fields in
+  let baseline_version = required_string_option_field "baselineVersion" fields in
+  let metrics_source = required_metrics_source_field "metricsSource" fields in
+  let gate_results = gate_results_field "gateResults" fields in
+  (round_id, baseline_version, metrics_source, gate_results)
+
+(** Read a round's release decision from [fields], given its action and Guard
+    verdict. *)
+let round_decision_of_fields ~action ~guard_permitted fields =
+  let decided_round_id, decided_baseline_version, decided_metrics_source, decided_gate_results =
+    decision_keys_of_fields fields
+  in
+  {
+    decided_round_id;
+    decided_action = action;
+    decided_guard_permitted = guard_permitted;
+    decided_baseline_version;
+    decided_metrics_source;
+    decided_gate_results;
+  }
+
+(** Parse the release decision a version already holds. Every key is
+    required. *)
+let stored_round_decision_of_yojson (json : Yojson.Safe.t) =
+  match json with
+  | `Assoc fields ->
+      let action = release_action_of_string (string_field "action" fields) in
+      let guard_permitted = required_bool_field "guardPermitted" fields in
+      round_decision_of_fields ~action ~guard_permitted fields
+  | _ -> fail "Expected stored decision object"
+
+(** The keys of a [release_evaluated] event that describe its new decision
+    beyond the action and the Guard verdict. *)
+let new_decision_keys = [ "roundId"; "baselineVersion"; "metricsSource"; "gateResults" ]
+
+(** Parse a [release_evaluated] event.
+
+    Without [storedDecision] (absent or [null]) the event reads as it always
+    has. The new decision's keys then come all together or not at all; when
+    given they are checked, and the answer does not depend on them. With
+    [storedDecision], the event's [guardPermitted] and every new-decision key
+    are required. *)
+let release_evaluated_of_fields fields =
+  let status_field name = model_status_of_string (string_field name fields) in
+  match List.assoc_opt "storedDecision" fields with
+  | None | Some `Null ->
+      (* The same record as before the stored decision existed, so an event
+         without it reads, and fails, exactly as it did. *)
+      let event =
+        ReleaseEvaluated
+          {
+            status = status_field "status";
+            action = release_action_of_string (string_field "action" fields);
+            guard_permitted = bool_field_with_default "guardPermitted" false fields;
+          }
+      in
+      if List.exists (fun key -> List.mem_assoc key fields) new_decision_keys then
+        ignore (decision_keys_of_fields fields : string * string option * metrics_source * gate_result list);
+      event
+  | Some stored ->
+      let status = status_field "status" in
+      let action = release_action_of_string (string_field "action" fields) in
+      let guard_permitted = required_bool_field "guardPermitted" fields in
+      let new_decision = round_decision_of_fields ~action ~guard_permitted fields in
+      let stored_decision = stored_round_decision_of_yojson stored in
+      ReleaseEvaluatedWithStoredDecision { status; new_decision; stored_decision }
+
 (** Parse one model lifecycle event from its ["kind"] discriminator. *)
 let lifecycle_event_of_yojson (json : Yojson.Safe.t) =
   let status_field name fields = model_status_of_string (string_field name fields) in
@@ -1283,13 +1402,7 @@ let lifecycle_event_of_yojson (json : Yojson.Safe.t) =
               parent_version = non_empty_string_field "parentVersion" fields;
               parent_status = status_field "parentStatus" fields;
             }
-      | "release_evaluated" ->
-          ReleaseEvaluated
-            {
-              status = status_field "status" fields;
-              action = release_action_of_string (string_field "action" fields);
-              guard_permitted = bool_field_with_default "guardPermitted" false fields;
-            }
+      | "release_evaluated" -> release_evaluated_of_fields fields
       | "approval_requested" ->
           ApprovalRequested
             {
@@ -1337,6 +1450,60 @@ let yojson_of_lifecycle_outcome outcome =
       ("refusal", refusal);
       ("reason", `String outcome.lifecycle_reason);
       ("statusChanges", `List (List.map yojson_of_status_change changes));
+    ]
+
+(** Read an age in seconds that must be present: [null], or a finite number
+    that [valid] accepts. *)
+let required_seconds_field name ~valid ~expected fields =
+  match required_float_option_field name fields with
+  | None -> None
+  | Some value when Float.is_finite value && valid value -> Some value
+  | Some _ -> fail ("Expected " ^ name ^ " to be null or " ^ expected)
+
+(** Parse what recovery knows about one stored round. Every key is required,
+    and the keys are read in order, so the first bad key is the one named. *)
+let round_recovery_request_of_yojson (json : Yojson.Safe.t) =
+  match json with
+  | `Assoc fields ->
+      let recovery_status = round_status_of_string (string_field "status" fields) in
+      let recovery_phase = round_phase_of_string (string_field "phase" fields) in
+      let record_readable = required_bool_field "readable" fields in
+      let updates_kept = required_bool_field "updatesKept" fields in
+      let candidate_registered = required_bool_field "candidateRegistered" fields in
+      let oldest_update_age_seconds =
+        required_seconds_field "oldestUpdateAgeSeconds"
+          ~valid:(fun age -> age >= 0.0)
+          ~expected:"a finite number of seconds, 0 or more" fields
+      in
+      let update_max_age_seconds =
+        required_seconds_field "updateMaxAgeSeconds"
+          ~valid:(fun limit -> limit > 0.0)
+          ~expected:"a finite number of seconds, more than 0" fields
+      in
+      {
+        recovery_status;
+        recovery_phase;
+        record_readable;
+        updates_kept;
+        candidate_registered;
+        oldest_update_age_seconds;
+        update_max_age_seconds;
+      }
+  | _ -> fail "Expected round recovery object"
+
+(** Serialize a recovery verdict as [verdict], [reason] and [message]. A kept
+    round has a [null] reason. *)
+let yojson_of_round_recovery recovery =
+  let reason =
+    match recovery.recovery_verdict with
+    | KeepRound -> `Null
+    | CloseRound reason -> `String (string_of_recovery_close_reason reason)
+  in
+  `Assoc
+    [
+      ("verdict", `String (string_of_recovery_verdict recovery.recovery_verdict));
+      ("reason", reason);
+      ("message", `String recovery.recovery_message);
     ]
 
 (** Serialize a deployment target in its object form, with every key, so that

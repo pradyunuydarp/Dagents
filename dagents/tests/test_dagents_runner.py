@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import os
 import pathlib
 import subprocess
@@ -11,6 +12,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+from dagents.common.domain.federation import GateResult, ModelReleaseDecision
 from dagents.common.infrastructure import dagents_runner
 from dagents.tests.test_governance import dagentsc_available
 
@@ -457,6 +459,432 @@ class ModelLifecycleTests(unittest.TestCase):
             with self.subTest(event=event):
                 with self.assertRaises(dagents_runner.PlannerUnavailableError):
                     dagents_runner.model_lifecycle(CANDIDATE, event)
+
+
+#: Gate results as a release decision stores them, with every key. The gate
+#: ids and the detail are caller data and must reach the planner unchanged.
+GATE_RESULTS = [
+    {
+        "gate_id": "AUC_Overall",
+        "outcome": "passed",
+        "observed": 0.84,
+        "threshold": 0.8,
+        "detail": "AUC_Overall=0.84 required >= 0.8",
+    },
+    {"gate_id": "alerts_per_1000", "outcome": "not_evaluated", "observed": None, "threshold": None, "detail": ""},
+]
+
+#: One round's release decision: the six fields the planner compares.
+ROUND_DECISION = {
+    "round_id": "pilot-training-5",
+    "action": "release",
+    "guard_permitted": True,
+    "baseline_version": "rule-v1",
+    "metrics_source": "rounds",
+    "gate_results": GATE_RESULTS,
+}
+
+MODEL_STATUSES = ("candidate", "released", "rejected", "superseded")
+
+
+def release_evaluated(status: str, stored: dict | None, **changes) -> dict:
+    """A ``release_evaluated`` event whose new decision is ROUND_DECISION with ``changes``."""
+    event = {"kind": "release_evaluated", "status": status, **ROUND_DECISION, **changes}
+    if stored is not None:
+        event["stored_decision"] = stored
+    return event
+
+
+def todays_answer(status: str, action: str, guard_permitted: bool) -> dict:
+    """The answer to a ``release_evaluated`` event with only the keys it had before stored decisions."""
+    return dagents_runner.model_lifecycle(
+        CANDIDATE, {"kind": "release_evaluated", "status": status, "action": action, "guard_permitted": guard_permitted}
+    )
+
+
+@unittest.skipUnless(dagentsc_available(), "dagentsc binary is not available")
+class ModelLifecycleStoredDecisionTests(unittest.TestCase):
+    """A repeated ``release_evaluated`` event is compared with the decision the version holds."""
+
+    SAME = f"{CANDIDATE} already has the same release decision for round pilot-training-5, so nothing changes"
+
+    def differs(self, fields: str) -> dict:
+        return {
+            "allowed": False,
+            "refusal": "decision_differs",
+            "reason": f"{CANDIDATE} already has a release decision for round pilot-training-5, and this one differs in {fields}",
+            "status_changes": [],
+        }
+
+    def test_the_same_decision_for_the_same_round_changes_nothing_on_every_status(self) -> None:
+        for status in MODEL_STATUSES:
+            with self.subTest(status=status):
+                self.assertEqual(
+                    {"allowed": True, "refusal": None, "reason": self.SAME, "status_changes": []},
+                    dagents_runner.model_lifecycle(CANDIDATE, release_evaluated(status, ROUND_DECISION)),
+                )
+
+    def test_a_retried_rejection_is_no_longer_refused_as_not_candidate(self) -> None:
+        rejected = {**ROUND_DECISION, "action": "reject"}
+        self.assertEqual("not_candidate", todays_answer("rejected", "reject", True)["refusal"])
+        outcome = dagents_runner.model_lifecycle(CANDIDATE, release_evaluated("rejected", rejected, action="reject"))
+        self.assertEqual((True, None, []), (outcome["allowed"], outcome["refusal"], outcome["status_changes"]))
+        self.assertEqual(self.SAME, outcome["reason"])
+
+    def test_each_differing_field_is_refused_and_named(self) -> None:
+        changes = {
+            "action": {"action": "reject"},
+            "guard_permitted": {"guard_permitted": False},
+            "baseline_version": {"baseline_version": None},
+            "metrics_source": {"metrics_source": "request"},
+            "gate_results": {"gate_results": GATE_RESULTS[:1]},
+        }
+        for field, change in changes.items():
+            for status in MODEL_STATUSES:
+                with self.subTest(field=field, status=status):
+                    self.assertEqual(
+                        self.differs(field),
+                        dagents_runner.model_lifecycle(CANDIDATE, release_evaluated(status, ROUND_DECISION, **change)),
+                    )
+
+    def test_several_differing_fields_are_named_in_field_order(self) -> None:
+        outcome = dagents_runner.model_lifecycle(
+            CANDIDATE,
+            release_evaluated("candidate", ROUND_DECISION, gate_results=[], metrics_source=None, action="reject"),
+        )
+        self.assertEqual(self.differs("action, metrics_source and gate_results"), outcome)
+
+    def test_gate_numbers_are_compared_exactly(self) -> None:
+        nudged = [{**GATE_RESULTS[0], "observed": math.nextafter(0.84, 1.0)}, GATE_RESULTS[1]]
+        self.assertEqual(
+            self.differs("gate_results"),
+            dagents_runner.model_lifecycle(CANDIDATE, release_evaluated("candidate", ROUND_DECISION, gate_results=nudged)),
+        )
+        # A number stored as an integer is the same number: jsonb may write 1.0 as 1.
+        whole = [{**GATE_RESULTS[0], "threshold": 1.0}, GATE_RESULTS[1]]
+        stored = {**ROUND_DECISION, "gate_results": [{**GATE_RESULTS[0], "threshold": 1}, GATE_RESULTS[1]]}
+        self.assertEqual(
+            self.SAME,
+            dagents_runner.model_lifecycle(CANDIDATE, release_evaluated("candidate", stored, gate_results=whole))["reason"],
+        )
+
+    def test_a_stored_decision_for_another_round_gives_todays_answer(self) -> None:
+        earlier = {**ROUND_DECISION, "round_id": "pilot-training-4"}
+        for status in MODEL_STATUSES:
+            for action, guard_permitted in (("release", True), ("release", False), ("reject", True), ("another_round", True)):
+                with self.subTest(status=status, action=action, guard_permitted=guard_permitted):
+                    self.assertEqual(
+                        todays_answer(status, action, guard_permitted),
+                        dagents_runner.model_lifecycle(
+                            CANDIDATE,
+                            release_evaluated(status, earlier, action=action, guard_permitted=guard_permitted),
+                        ),
+                    )
+
+    def test_without_a_stored_decision_the_new_keys_change_nothing(self) -> None:
+        for status in MODEL_STATUSES:
+            with self.subTest(status=status):
+                expected = todays_answer(status, "release", True)
+                self.assertEqual(expected, dagents_runner.model_lifecycle(CANDIDATE, release_evaluated(status, None)))
+                self.assertEqual(
+                    expected,
+                    dagents_runner.model_lifecycle(CANDIDATE, {**release_evaluated(status, None), "stored_decision": None}),
+                )
+
+    def test_the_registry_models_dump_to_a_stored_decision_the_planner_reads(self) -> None:
+        """The registry's stored ``ModelReleaseDecision`` can be sent as it is: the planner ignores ``decided_at``."""
+        stored = ModelReleaseDecision(
+            **(ROUND_DECISION | {"gate_results": [GateResult(**gate) for gate in GATE_RESULTS]}),
+            decided_at="2026-10-19T09:00:00+00:00",
+        ).model_dump(mode="json")
+        self.assertEqual(
+            self.SAME,
+            dagents_runner.model_lifecycle(CANDIDATE, release_evaluated("released", stored))["reason"],
+        )
+
+    def test_a_stored_decision_without_the_new_decision_raises_planner_unavailable(self) -> None:
+        incomplete_gate = {key: value for key, value in GATE_RESULTS[0].items() if key != "threshold"}
+        events = {
+            "no new round id": {
+                key: value for key, value in release_evaluated("candidate", ROUND_DECISION).items() if key != "round_id"
+            },
+            "no new gate results": {
+                key: value for key, value in release_evaluated("candidate", ROUND_DECISION).items() if key != "gate_results"
+            },
+            "no guard verdict": {
+                key: value
+                for key, value in release_evaluated("candidate", ROUND_DECISION).items()
+                if key != "guard_permitted"
+            },
+            "stored decision without a baseline key": release_evaluated(
+                "candidate", {key: value for key, value in ROUND_DECISION.items() if key != "baseline_version"}
+            ),
+            "stored gate without a threshold": release_evaluated(
+                "candidate", {**ROUND_DECISION, "gate_results": [incomplete_gate]}
+            ),
+            "unknown gate outcome": release_evaluated(
+                "candidate", {**ROUND_DECISION, "gate_results": [{**GATE_RESULTS[0], "outcome": "skipped"}]}
+            ),
+            "part of the new keys without a stored decision": {
+                key: value for key, value in release_evaluated("candidate", None).items() if key != "metrics_source"
+            },
+        }
+        for name, event in events.items():
+            with self.subTest(event=name):
+                with self.assertRaises(dagents_runner.PlannerUnavailableError):
+                    dagents_runner.model_lifecycle(CANDIDATE, event)
+
+
+#: What recovery knows about a collecting training round whose updates are
+#: kept and fresh: the inputs of row 8.
+OPEN_TRAINING_ROUND = {
+    "status": "collecting",
+    "phase": "training",
+    "readable": True,
+    "updates_kept": True,
+    "candidate_registered": False,
+    "oldest_update_age_seconds": 3600.0,
+    "update_max_age_seconds": 86400.0,
+}
+
+RUN_AGAIN = "so it is closed; run it again under a new round id."
+
+
+def recovery(**changes) -> dict:
+    return dagents_runner.round_recovery(**{**OPEN_TRAINING_ROUND, **changes})
+
+
+def keep(message: str) -> dict:
+    return {"verdict": "keep", "reason": None, "message": message}
+
+
+def close(reason: str, message: str) -> dict:
+    return {"verdict": "close", "reason": reason, "message": message}
+
+
+class RoundRecoveryPayloadTests(unittest.TestCase):
+    """The runner sends every key in camelCase and reads the answer back in snake_case."""
+
+    @patch("dagents.common.infrastructure.dagents_runner._run_process")
+    def test_keys_are_converted_both_ways(self, run) -> None:
+        run.return_value = subprocess.CompletedProcess(
+            args=["dagentsc"],
+            returncode=0,
+            stdout=json.dumps({"verdict": "keep", "reason": None, "message": "kept"}),
+            stderr="",
+        )
+        answer = recovery(oldest_update_age_seconds=None)
+        self.assertEqual(["federation", "round", "recover", "--input", "-"], run.call_args.args[0][1:])
+        self.assertEqual(
+            {
+                "status": "collecting",
+                "phase": "training",
+                "readable": True,
+                "updatesKept": True,
+                "candidateRegistered": False,
+                # None is sent as null, never dropped: every key is required.
+                "oldestUpdateAgeSeconds": None,
+                "updateMaxAgeSeconds": 86400.0,
+            },
+            json.loads(run.call_args.kwargs["input"]),
+        )
+        self.assertEqual({"verdict": "keep", "reason": None, "message": "kept"}, answer)
+
+    def test_every_input_is_required(self) -> None:
+        for key in OPEN_TRAINING_ROUND:
+            with self.subTest(key=key):
+                with self.assertRaises(TypeError):
+                    dagents_runner.round_recovery(**{name: value for name, value in OPEN_TRAINING_ROUND.items() if name != key})
+
+
+@unittest.skipUnless(dagentsc_available(), "dagentsc binary is not available")
+class RoundRecoveryTests(unittest.TestCase):
+    """``dagentsc federation round recover`` keeps or closes a round stored before a restart."""
+
+    def test_row_1_an_aggregated_or_closed_round_is_kept_whatever_else_is_given(self) -> None:
+        for status in ("aggregated", "closed"):
+            for phase in ("analytics", "evaluation", "training"):
+                for readable, updates_kept, candidate_registered in ((True, True, False), (False, False, True)):
+                    with self.subTest(status=status, phase=phase, readable=readable, updates_kept=updates_kept):
+                        self.assertEqual(
+                            keep(f"The round is already {status}, so it stays as it is."),
+                            recovery(
+                                status=status,
+                                phase=phase,
+                                readable=readable,
+                                updates_kept=updates_kept,
+                                candidate_registered=candidate_registered,
+                                oldest_update_age_seconds=999999.0,
+                            ),
+                        )
+
+    def test_row_2_an_unreadable_open_round_is_closed(self) -> None:
+        for status in ("planned", "dispatched", "collecting"):
+            for phase in ("analytics", "training"):
+                with self.subTest(status=status, phase=phase):
+                    self.assertEqual(
+                        close(
+                            "unreadable_record",
+                            f"The round is {status}, but its stored record cannot be read, so it is closed.",
+                        ),
+                        recovery(status=status, phase=phase, readable=False, candidate_registered=True),
+                    )
+
+    def test_row_3_a_planned_or_dispatched_round_is_closed(self) -> None:
+        for status in ("planned", "dispatched"):
+            for phase in ("analytics", "evaluation", "training"):
+                with self.subTest(status=status, phase=phase):
+                    self.assertEqual(
+                        close(
+                            "dispatch_interrupted",
+                            f"The round is {status}, and a dispatch cannot resume after a restart, {RUN_AGAIN}",
+                        ),
+                        recovery(status=status, phase=phase, candidate_registered=True),
+                    )
+
+    def test_row_4_a_collecting_round_that_does_not_train_is_kept(self) -> None:
+        for phase in ("analytics", "evaluation"):
+            with self.subTest(phase=phase):
+                # Training inputs that would close a training round do not matter here.
+                self.assertEqual(
+                    keep(f"The {phase} round already holds its results, so it stays open and can be aggregated."),
+                    recovery(phase=phase, updates_kept=False, oldest_update_age_seconds=999999.0),
+                )
+
+    def test_row_5_a_training_round_with_a_registered_candidate_is_kept(self) -> None:
+        for updates_kept in (True, False):
+            with self.subTest(updates_kept=updates_kept):
+                self.assertEqual(
+                    keep(
+                        "The round's candidate is already registered, so it stays open and a retried aggregate "
+                        "returns that candidate."
+                    ),
+                    recovery(candidate_registered=True, updates_kept=updates_kept, oldest_update_age_seconds=999999.0),
+                )
+
+    def test_row_6_a_training_round_whose_updates_were_not_kept_is_closed(self) -> None:
+        for age in (None, 10.0, 999999.0):
+            with self.subTest(age=age):
+                self.assertEqual(
+                    close(
+                        "updates_not_kept",
+                        f"The round's training updates were not kept across the restart, {RUN_AGAIN}",
+                    ),
+                    recovery(updates_kept=False, oldest_update_age_seconds=age),
+                )
+
+    def test_row_7_a_training_round_with_an_expired_update_is_closed(self) -> None:
+        self.assertEqual(
+            close(
+                "updates_expired",
+                "The round's oldest stored update is 90061 seconds old, more than the limit of 86400 seconds, "
+                + RUN_AGAIN,
+            ),
+            recovery(oldest_update_age_seconds=90061.0),
+        )
+        self.assertEqual(
+            "updates_expired", recovery(oldest_update_age_seconds=math.nextafter(86400.0, math.inf))["reason"]
+        )
+
+    def test_row_8_any_other_training_round_is_kept(self) -> None:
+        cases = {
+            "fresh update": {},
+            "age equal to the limit": {"oldest_update_age_seconds": 86400.0},
+            "age 0": {"oldest_update_age_seconds": 0},
+            "no stored update": {"oldest_update_age_seconds": None},
+            "no age limit": {"update_max_age_seconds": None, "oldest_update_age_seconds": 999999999.0},
+            "neither": {"update_max_age_seconds": None, "oldest_update_age_seconds": None},
+        }
+        for name, changes in cases.items():
+            with self.subTest(case=name):
+                self.assertEqual(keep("The round's training updates are kept, so it stays open."), recovery(**changes))
+
+    def test_the_same_input_gives_the_same_answer(self) -> None:
+        for changes in ({}, {"oldest_update_age_seconds": 90061.5}, {"status": "dispatched"}):
+            with self.subTest(changes=changes):
+                self.assertEqual(recovery(**changes), recovery(**changes))
+
+    def test_input_the_planner_cannot_read_raises_planner_unavailable(self) -> None:
+        cases = {
+            "unknown status": {"status": "running"},
+            "unknown phase": {"phase": "inference"},
+            "negative age": {"oldest_update_age_seconds": -1.0},
+            "infinite age": {"oldest_update_age_seconds": math.inf},
+            "age that is not a number": {"oldest_update_age_seconds": math.nan},
+            "zero limit": {"update_max_age_seconds": 0},
+            "negative limit": {"update_max_age_seconds": -60.0},
+            "infinite limit": {"update_max_age_seconds": math.inf},
+            "readable that is not a bool": {"readable": "yes"},
+            "updates kept as a number": {"updates_kept": 1},
+            "age as text": {"oldest_update_age_seconds": "3600"},
+        }
+        for name, changes in cases.items():
+            with self.subTest(case=name):
+                with self.assertRaises(dagents_runner.PlannerUnavailableError):
+                    recovery(**changes)
+
+    def test_a_missing_key_raises_planner_unavailable(self) -> None:
+        """The function needs every input, so this sends the payload past it."""
+        for key in OPEN_TRAINING_ROUND:
+            with self.subTest(key=key):
+                with self.assertRaises(dagents_runner.PlannerUnavailableError) as raised:
+                    dagents_runner.run_dagentsc(
+                        ["federation", "round", "recover", "--input", "-"],
+                        {name: value for name, value in OPEN_TRAINING_ROUND.items() if name != key},
+                    )
+                self.assertIn(dagents_runner.to_camel_case(key), str(raised.exception))
+
+
+class StoredDecisionPayloadTests(unittest.TestCase):
+    """A stored decision reaches the planner in camelCase, with its caller data unchanged."""
+
+    @patch("dagents.common.infrastructure.dagents_runner._run_process")
+    def test_gate_result_keys_are_converted_and_their_values_are_not(self, run) -> None:
+        run.return_value = subprocess.CompletedProcess(
+            args=["dagentsc"],
+            returncode=0,
+            stdout=json.dumps({"allowed": False, "refusal": "decision_differs", "reason": "r", "statusChanges": []}),
+            stderr="",
+        )
+        stored = {**ROUND_DECISION, "round_id": "pilot_training_5", "baseline_version": "rule_V1"}
+        answer = dagents_runner.model_lifecycle(
+            CANDIDATE, release_evaluated("candidate", stored, round_id="pilot_training_5")
+        )
+        sent = json.loads(run.call_args.kwargs["input"])["event"]
+        camel_gates = [
+            {
+                "gateId": "AUC_Overall",
+                "outcome": "passed",
+                "observed": 0.84,
+                "threshold": 0.8,
+                "detail": "AUC_Overall=0.84 required >= 0.8",
+            },
+            {"gateId": "alerts_per_1000", "outcome": "not_evaluated", "observed": None, "threshold": None, "detail": ""},
+        ]
+        self.assertEqual(
+            {
+                "kind": "release_evaluated",
+                "status": "candidate",
+                "roundId": "pilot_training_5",
+                "action": "release",
+                "guardPermitted": True,
+                "baselineVersion": "rule-v1",
+                "metricsSource": "rounds",
+                "gateResults": camel_gates,
+                "storedDecision": {
+                    "roundId": "pilot_training_5",
+                    "action": "release",
+                    "guardPermitted": True,
+                    "baselineVersion": "rule_V1",
+                    "metricsSource": "rounds",
+                    "gateResults": camel_gates,
+                },
+            },
+            sent,
+        )
+        self.assertEqual(
+            {"allowed": False, "refusal": "decision_differs", "reason": "r", "status_changes": []}, answer
+        )
 
 
 class KeyConversionTests(unittest.TestCase):
