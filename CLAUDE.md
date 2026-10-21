@@ -194,7 +194,9 @@ a statically linked `dagentsc-static` for `packaging`), `agents`,
 `framework-services` (core-service twice, with and without `DAGENTSC_BIN`),
 `contracts`, `spring`, `demo-apps`, `frontends`, `deploy-smoke` (the
 healthcare UI in network mode with `--deploy` against PostgreSQL 16, where the
-smoke test adds Hospital 290 from the page), `packaging` (builds the sdist and
+smoke test adds Hospital 290 from the page), `nl2sql-e2e` (the NL2SQL demo's
+services as real processes with the planner and torch, its UI in Chromium
+against them, and the replay that Pages publishes), `packaging` (builds the sdist and
 a Linux wheel with the planner, installs the wheel into clean environments,
 one of them with openai-agents, and runs the agent suite on the newest
 versions the package's extras allow; see **Releasing**), `docs-impact`, and a
@@ -608,7 +610,8 @@ docker compose --env-file env/.env.compose up --build
 bash docs/demo/run_functional_layer_demo.sh   # OCaml planner output
 bash docs/demo/run_full_stack_demo.sh         # whole stack via compose
 bash docs/demo/run_demo_quick.sh              # fallback: build + tests + a few planner calls
-services/nl2sql-demo/scripts/run_local_demo.sh  # NL2SQL app, no Docker
+services/nl2sql-demo/scripts/run_local_demo.sh  # NL2SQL app and the framework services, no Docker
+services/nl2sql-demo/scripts/run_local_demo.sh --check  # the same on free ports, then a browser check of the UI
 ```
 
 `docs/demo/inputs/` holds request payloads and `docs/demo/expected/` the recorded

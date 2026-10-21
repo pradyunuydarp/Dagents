@@ -45,7 +45,11 @@ So the deploy checks the capture's content, not only that a file was written:
 ``capture_demo_recordings.py`` runs the agent-call checks
 (:func:`agent_call_problems`) itself and writes no recording that fails them.
 
-The NL2SQL capture has to contain real SQL and a trace.
+The NL2SQL capture has to contain real SQL and a trace, and every trace step
+must be ``ok``. The one exception is a step that calls a service the
+recording's ``planner`` note lists as not running during the capture
+(model-service, when the capture had no torch): the published page shows that
+step as a warning, and the note says why.
 
 Usage::
 
@@ -464,9 +468,47 @@ def _svgs(document: dict[str, Any], prefix: str, theme: str) -> list[dict[str, A
     return found
 
 
+#: Where the capture lists the services it could not start, at the end of the
+#: recording's ``planner`` note: ``...; not running during capture: model-service``.
+NOT_RUNNING_MARKER = "not running during capture:"
+
+
+def services_not_running(note: str) -> set[str]:
+    """The service names a recording's ``planner`` note lists as not running during the capture."""
+    if NOT_RUNNING_MARKER not in note:
+        return set()
+    listed = note.split(NOT_RUNNING_MARKER, 1)[1]
+    return {name.strip() for name in listed.split(",") if name.strip()}
+
+
+def step_service(step_name: str, service_names: list[str]) -> str | None:
+    """The service a trace step calls, or ``None`` for a planner step.
+
+    A step that calls a service starts with that service's name, as the status
+    check reports it: "pipeline-service register and run", "GMA register NL2SQL
+    LMA" (the agents are written in capitals in the step names).
+    """
+    lowered = step_name.lower()
+    return next((name for name in service_names if lowered.startswith(f"{name.lower()} ")), None)
+
+
 def check_nl2sql(document: dict[str, Any]) -> list[str]:
-    """Assert the capture actually demonstrates the framework integration."""
+    """Assert that the capture shows the framework integration.
+
+    Every trace step must be ``ok``, except a step that calls a service the
+    recording's note lists as not running during the capture (model-service,
+    when the capture had no torch). Any other warning means a framework call
+    failed while the capture ran, and the published page would show it.
+    """
     problems: list[str] = []
+    status_entries = entries_for(document, "GET", "/api/v1/dagents/status")
+    service_names = [
+        str(service.get("name", ""))
+        for entry in status_entries[:1]
+        for service in (entry["response"] or {}).get("services", [])
+    ]
+    not_running = services_not_running(str(document.get("planner", "")))
+    unexplained: dict[str, str] = {}
 
     generations = entries_for(document, "POST", "/api/v1/generate")
     if not generations:
@@ -479,6 +521,17 @@ def check_nl2sql(document: dict[str, Any]) -> list[str]:
         if not response.get("dagents_trace"):
             problems.append("a captured generation returned an empty Dagents trace")
             break
+        for step in response["dagents_trace"]:
+            name = str(step.get("name", ""))
+            if step.get("status") == "ok" or name in unexplained:
+                continue
+            if step_service(name, service_names) not in not_running:
+                unexplained[name] = str(step.get("detail", ""))[:200]
+    for name, detail in unexplained.items():
+        problems.append(
+            f"the trace step '{name}' is a warning ({detail}), and the recording's note does not list its "
+            "service as not running during the capture, so a framework call failed while recording"
+        )
 
     samples = entries_for(document, "GET", "/api/v1/samples")
     if not samples or not samples[0]["response"]:

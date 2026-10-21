@@ -800,6 +800,143 @@ jobs:
           }
 
   # ---------------------------------------------------------------------------
+  # The NL2SQL demo end to end. The demo-apps job runs its suite with the
+  # framework calls replaced by stubs, so a wrong route only turns a trace step
+  # into a warning and the suite stays green. This job starts core-service,
+  # pipeline-service, model-service, the LMA, the GMA and the NL2SQL backend as
+  # real processes with the planner, drives the built UI against them in
+  # Chromium, then records a real run and drives the replay that Pages
+  # publishes. model-service imports torch, so torch is installed here, from
+  # the PyTorch CPU index, and a failed install fails the job.
+  # ---------------------------------------------------------------------------
+  nl2sql-e2e:
+    name: NL2SQL demo end to end
+    runs-on: ubuntu-latest
+    needs: planners
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: |
+            dagents/*/requirements.txt
+            services/*/requirements.txt
+            services/nl2sql-demo/backend/requirements.txt
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: services/nl2sql-demo/frontend/package-lock.json
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: dagentsc
+          path: ${{ env.PLANNER_DIR }}
+
+      - name: Make the planner executable
+        run: chmod +x "${PLANNER_DIR}/dagentsc.exe"
+
+      - name: Install the services, torch and the frontend
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r dagents/lma/requirements.txt \
+                                -r dagents/gma/requirements.txt \
+                                -r services/core-service/requirements.txt \
+                                -r services/pipeline-service/requirements.txt \
+                                -r services/nl2sql-demo/backend/requirements.txt
+          python -m pip install --extra-index-url https://download.pytorch.org/whl/cpu \
+            -r services/model-service/requirements.txt
+          cd services/nl2sql-demo/frontend && npm ci
+
+      - name: The NL2SQL stack across real service processes
+        # Six uvicorn processes on loopback ports the test picks. Each sample's
+        # trace must have 22 steps, all ok, and stopping pipeline-service must
+        # turn only its step into a warning.
+        env:
+          DAGENTSC_BIN: ${{ env.PLANNER_DIR }}/dagentsc.exe
+        run: |
+          set -o pipefail
+          python -m unittest tests.test_nl2sql_stack_e2e -v 2>&1 | tee nl2sql-stack.log
+
+      - name: Fail if the NL2SQL stack test skipped
+        # It skips without the planner or without torch. Either would leave
+        # this job green without having started a service.
+        run: |
+          python scripts/ci_no_skipped_tests.py --forbid planner \
+            --require-ran tests.test_nl2sql_stack_e2e.Nl2SqlStackTests \
+            nl2sql-stack.log
+
+      - name: Install a browser for the browser checks
+        working-directory: services/nl2sql-demo/frontend
+        run: npx playwright install --with-deps chromium
+
+      - name: Locate the browser
+        # As in the frontends job: a browser check without a browser reports
+        # SKIP, which is not a pass.
+        working-directory: services/nl2sql-demo/frontend
+        run: |
+          browser="$(node -e \
+            "console.log(require('playwright-core').chromium.executablePath())" \
+            2>/dev/null || true)"
+          if [ ! -x "${browser}" ]; then
+            browser="$(find "${HOME}/.cache/ms-playwright" -type f -name 'chrome' \
+              -perm -u+x 2>/dev/null | head -1)"
+          fi
+          if [ ! -x "${browser}" ]; then
+            echo "No browser found. The browser checks would report SKIP, which is not a pass." >&2
+            exit 1
+          fi
+          echo "CHROMIUM_PATH=${browser}" >> "$GITHUB_ENV"
+
+      - name: Drive the live UI in a browser
+        # `run_local_demo.sh --check` starts the five services and the backend
+        # on free ports, builds the UI, serves it with `vite preview` and runs
+        # smoke.mjs. Its last check stops pipeline-service.
+        env:
+          DAGENTSC_BIN: ${{ env.PLANNER_DIR }}/dagentsc.exe
+          PYTHON_BIN: python
+        run: |
+          set -o pipefail
+          services/nl2sql-demo/scripts/run_local_demo.sh --check 2>&1 | tee nl2sql-smoke.log
+
+      - name: Fail if the live browser check skipped
+        # The script exits 0 when the smoke test skips; a skip proves nothing.
+        run: |
+          if grep -qi "smoke test skipped\|^SKIP" nl2sql-smoke.log; then
+            echo "The NL2SQL smoke test skipped instead of running." >&2
+            exit 1
+          fi
+          grep -q "ok  with pipeline-service stopped" nl2sql-smoke.log || {
+            echo "The NL2SQL smoke test did not run its check with pipeline-service stopped." >&2
+            exit 1
+          }
+
+      - name: Record a real run for the replay
+        # The same capture the Pages workflow runs, on the ports it uses.
+        env:
+          DAGENTSC_BIN: ${{ env.PLANNER_DIR }}/dagentsc.exe
+        run: python scripts/capture_demo_recordings.py --demo nl2sql
+
+      - name: Check the recording
+        run: python scripts/check_demo_recordings.py nl2sql
+
+      - name: Build the replay as Pages does and drive it in a browser
+        # Built under a subpath and served from a server that answers 404 for
+        # a missing file, as Pages does. smoke.mjs exits 2 without a browser,
+        # which fails this step.
+        working-directory: services/nl2sql-demo/frontend
+        env:
+          DEMO_BASE_PATH: /Dagents/nl2sql-demo/
+          VITE_DAGENTS_STATIC: "1"
+        run: |
+          npm run build
+          node smoke.mjs --replay dist --base "${DEMO_BASE_PATH}"
+
+  # ---------------------------------------------------------------------------
   # The framework site publishes docs/ from main, so a code change and the docs
   # it feeds land together. This fails when a change touches a code area that
   # scripts/check_docs_impact.py maps and none of that area's docs, unless a
@@ -972,6 +1109,7 @@ jobs:
       - demo-apps
       - frontends
       - deploy-smoke
+      - nl2sql-e2e
       - packaging
       - docs-impact
     steps:
@@ -990,6 +1128,7 @@ jobs:
           echo "demo-apps:          ${{ needs.demo-apps.result }}"
           echo "frontends:          ${{ needs.frontends.result }}"
           echo "deploy-smoke:       ${{ needs.deploy-smoke.result }}"
+          echo "nl2sql-e2e:         ${{ needs.nl2sql-e2e.result }}"
           echo "packaging:          ${PACKAGING}"
           echo "docs-impact:        ${DOCS_IMPACT}"
           if [ "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}" = "true" ]; then

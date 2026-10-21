@@ -428,6 +428,40 @@ jobs:
         # tests/test_social_previews.py runs this check on broken trees.
         run: python scripts/check_link_previews.py built --tree _site
 
+      - name: Install a browser for the published-page checks
+        # The NL2SQL frontend's npm ci above installed playwright-core.
+        working-directory: services/nl2sql-demo/frontend
+        run: npx playwright install --with-deps chromium
+
+      - name: Locate the browser
+        # A browser check without a browser reports SKIP, which is not a pass.
+        working-directory: services/nl2sql-demo/frontend
+        run: |
+          browser="$(node -e \
+            "console.log(require('playwright-core').chromium.executablePath())" \
+            2>/dev/null || true)"
+          if [ ! -x "${browser}" ]; then
+            browser="$(find "${HOME}/.cache/ms-playwright" -type f -name 'chrome' \
+              -perm -u+x 2>/dev/null | head -1)"
+          fi
+          if [ ! -x "${browser}" ]; then
+            echo "No browser found. The browser checks would report SKIP, which is not a pass." >&2
+            exit 1
+          fi
+          echo "CHROMIUM_PATH=${browser}" >> "$GITHUB_ENV"
+
+      - name: The NL2SQL replay works in a browser
+        # Opens _site/nl2sql-demo under the base path this site is served
+        # from, with a server that answers 404 for a missing file, as Pages
+        # does. Every sample must replay its SQL and trace, a warning step
+        # only for a service the recording's note lists as not running, an
+        # edited question must show "Not recorded", and no request may go to
+        # /api/. smoke.mjs exits 2 without a browser, which fails this step.
+        env:
+          NL2SQL_BASE: ${{ env.BASE_PATH }}/nl2sql-demo/
+        working-directory: services/nl2sql-demo/frontend
+        run: node smoke.mjs --replay ../../../_site/nl2sql-demo --base "${NL2SQL_BASE}"
+
       - uses: actions/upload-pages-artifact@v3
         with:
           path: _site
