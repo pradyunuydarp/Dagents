@@ -456,6 +456,23 @@ Defence:
   `run:` scripts, and a Pages browser install, found by its command, that runs
   the locked playwright-core.
 
+The drive itself once failed in CI with a race. It opened each hospital page
+from the header and waited for the record count and the audit log, but the
+previous hospital's page has both. A click changes the address at once, and
+the page changes its route only when the browser delivers the `hashchange`
+event. On the runner the drive read the page before that event: the check for
+Hospital 2 read Hospital 134's 524 records, 38 ms after the previous check.
+The page never showed one hospital's numbers under another's name. Now the
+drive waits until the address, the heading and the LMA heading name the
+hospital it asked for, checks that every "Dagents API calls" strip names that
+hospital's LMA, and records the page after every change from the click on, so
+a single render that shows one hospital's heading over another hospital's
+answers fails. `--hold-hashchange 300` holds every `hashchange` event for
+300 ms, so the race occurs on every route change; the drive before the fix
+failed with it three times in three runs, and passed without it. Throttling
+the CPU through the DevTools protocol did not reproduce the race. Run the
+drive with the option after a change to how it moves between pages.
+
 The approve button is checked only when the recorded gates allow a release:
 it must be turned off and say why. When they do not, the drive checks that no
 approve panel is shown. Outcome buttons are checked only when the recording

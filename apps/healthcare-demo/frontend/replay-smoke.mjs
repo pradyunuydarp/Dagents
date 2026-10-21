@@ -27,12 +27,16 @@
  *   3. a cohort size the recording lacks shows the "Not recorded" note with
  *      the sizes it holds;
  *   4. before the pilot, each hospital page and the consortium charts show
- *      the answers recorded before it;
+ *      the answers recorded before it. Each hospital page must name the
+ *      hospital the drive opened, and its "Dagents API calls" strips must
+ *      name only that hospital's LMA. No render from the click on may show
+ *      one hospital's heading over another hospital's numbers;
  *   5. the pilot replays: every release gate, the decision, the dispatch rows
  *      of every round, the audit chains, and the approve panel only when the
  *      recorded gates allow a release, with its button turned off;
  *   6. after the pilot, the consortium charts, each hospital's dashboard and
- *      its audit log show the answers recorded after it;
+ *      its audit log show the answers recorded after it, with the same
+ *      checks of which hospital the page shows;
  *   7. each chart, on the consortium page and on every hospital page, draws
  *      the recorded SVG for the light theme, and the recorded dark SVG after
  *      a switch to the dark theme;
@@ -47,11 +51,19 @@
  * requests it collected until then, which often name the cause.
  *
  * Usage:
- *   node replay-smoke.mjs <dist> [--base /Dagents/healthcare-demo/]
+ *   node replay-smoke.mjs <dist> [--base /Dagents/healthcare-demo/] [--hold-hashchange <ms>]
  *
  * `<dist>` is a build made with VITE_DAGENTS_STATIC=1, no
  * VITE_HEALTHCARE_API_BASE, and DEMO_BASE_PATH equal to `--base`. The base
  * defaults to the path Pages publishes the demo under.
+ *
+ * `--hold-hashchange <ms>` holds every `hashchange` event for that many
+ * milliseconds before the page's own listeners receive it. The page then
+ * keeps showing the previous page under the new address for that long. In
+ * one CI run the drive's next command ran before the page's route change, and
+ * the drive read the previous hospital's page; this option makes that happen
+ * on every route change, to show that the drive waits for the page it asked
+ * for.
  *
  * Exits 0 on success, 1 on failure, and 2 with a line starting "SKIP" when no
  * browser is available, like smoke.mjs. CI treats 2 as a failure.
@@ -64,12 +76,14 @@ import { normaliseBase, serveDist } from "./serve-dist.mjs";
 
 const args = process.argv.slice(2);
 const baseIndex = args.indexOf("--base");
+const holdIndex = args.indexOf("--hold-hashchange");
 const base = normaliseBase(baseIndex === -1 ? "/Dagents/healthcare-demo/" : args[baseIndex + 1]);
-const valueIndexes = new Set([baseIndex].filter((i) => i !== -1).map((i) => i + 1));
+const holdHashchange = holdIndex === -1 ? 0 : Number(args[holdIndex + 1]);
+const valueIndexes = new Set([baseIndex, holdIndex].filter((i) => i !== -1).map((i) => i + 1));
 const dist = args.find((arg, i) => !arg.startsWith("--") && !valueIndexes.has(i));
 
-if (!dist) {
-  console.log("usage: node replay-smoke.mjs <dist> [--base /Dagents/healthcare-demo/]");
+if (!dist || !Number.isInteger(holdHashchange) || holdHashchange < 0) {
+  console.log("usage: node replay-smoke.mjs <dist> [--base /Dagents/healthcare-demo/] [--hold-hashchange <ms>]");
   process.exit(1);
 }
 if (!existsSync(dist) || !statSync(dist).isDirectory() || !existsSync(resolve(dist, "index.html"))) {
@@ -161,7 +175,11 @@ const printCollected = () => {
 const digest = (text) => createHash("sha256").update(text, "utf8").digest("hex");
 
 try {
-  console.log(`Dagents healthcare demo — replay check of ${resolve(dist)} at ${server.url}\n`);
+  console.log(
+    `Dagents healthcare demo — replay check of ${resolve(dist)} at ${server.url}` +
+      (holdHashchange > 0 ? `, with each hashchange held ${holdHashchange} ms` : "") +
+      "\n",
+  );
 
   // 0. The build carries its recording, served at the address the page reads.
   const recordingResponse = await fetch(`${server.url}recording.json`);
@@ -207,6 +225,25 @@ try {
 
   browser = await chromium.launch({ executablePath });
   const context = await browser.newContext({ viewport: { width: 1280, height: 1100 }, colorScheme: "light" });
+  if (holdHashchange > 0) {
+    // Runs before the page's scripts, so this listener comes first. It stops
+    // the event and sends a copy once the time is up.
+    await context.addInitScript((ms) => {
+      window.addEventListener(
+        "hashchange",
+        (event) => {
+          if (event.held) return;
+          event.stopImmediatePropagation();
+          setTimeout(() => {
+            const late = new HashChangeEvent("hashchange", { oldURL: event.oldURL, newURL: event.newURL });
+            Object.defineProperty(late, "held", { value: true });
+            window.dispatchEvent(late);
+          }, ms);
+        },
+        { capture: true },
+      );
+    }, holdHashchange);
+  }
 
   // Everything the page loads must come from the published tree. A request to
   // any other origin is refused and counted, except the optional fonts.
@@ -580,44 +617,170 @@ try {
     beforeProblems.slice(0, 3).join("; ") || `${chartsBefore.charts.filter((c) => c.available).length} drawn`,
   );
 
+  /**
+   * Open a hospital's page from the header and wait until the page shows that
+   * hospital, with its dashboard and audit log loaded.
+   *
+   * The click changes the address at once, but the page changes its route
+   * only when the browser delivers the `hashchange` event. Until then it
+   * still shows the previous page, which has the same panels. Waiting for a
+   * panel alone once read the previous hospital's numbers in CI. So the drive
+   * waits until the address, the heading and the LMA heading all name the
+   * hospital, and reads everything in that same pass.
+   *
+   * A hospital's numbers and its "Dagents API calls" strips come from the
+   * same answers, and a strip names the LMA each call went to. So the strips
+   * show whose answers the page displays. A watcher records the page after
+   * every change while the route changes. Each recorded state must show one
+   * hospital only: its heading, its LMA heading, its record count and the LMA
+   * rows of every strip. A page that shows one hospital's numbers under
+   * another hospital's name fails, even when only for one render.
+   */
   const openHospital = async (site) => {
+    await page.evaluate(() => {
+      const view = () => {
+        const text = (selector) => document.querySelector(selector)?.textContent.trim() ?? null;
+        const lmaRows = (scope) =>
+          scope
+            ? [...scope.querySelectorAll('[data-api-calls] tr[data-call-service="lma"]')].map((tr) =>
+                tr.getAttribute("data-call-site"),
+              )
+            : [];
+        const audit = document.querySelector('[data-panel="audit"]');
+        const total = text('[data-panel="hospital-store"] [data-count="total"]');
+        return {
+          hash: location.hash,
+          heading: text(".page-head h1"),
+          site: text("#group-lma .ds-mono"),
+          total,
+          // The rounds table comes from the same answer as the record count.
+          rounds:
+            total === null
+              ? null
+              : document.querySelectorAll('[data-panel="contributions"] table.contributions tbody tr').length,
+          audit: audit?.querySelector("[data-audit-note]") ? audit.querySelectorAll(".audit-list li").length : null,
+          dashboardCalls: lmaRows(document.querySelector('[data-group="lma"] > .group-head')),
+          auditCalls: lmaRows(audit),
+          lmaCalls: lmaRows(document.querySelector("main")),
+        };
+      };
+      const states = [];
+      let last = "";
+      const record = () => {
+        const state = view();
+        const key = JSON.stringify(state);
+        if (key !== last) {
+          last = key;
+          states.push(state);
+        }
+      };
+      const observer = new MutationObserver(record);
+      observer.observe(document.body, { subtree: true, childList: true, characterData: true, attributes: true });
+      record();
+      window.__replayHospitalWatch = {
+        view,
+        stop: () => {
+          observer.disconnect();
+          record();
+          return states;
+        },
+      };
+    });
     await page.locator(`nav[aria-label="Pages"] a[href="#/hospitals/${site}"]`).click();
-    await page
-      .locator('[data-panel="hospital-store"] [data-count="total"]')
-      .waitFor({ timeout: 15000 })
-      .catch(() => {});
-    await page
-      .locator('[data-panel="audit"] [data-audit-note]')
-      .waitFor({ timeout: 15000 })
-      .catch(() => {});
+    const shown = await page
+      .waitForFunction(
+        ({ site, name }) => {
+          const view = window.__replayHospitalWatch.view();
+          return (
+            view.hash === `#/hospitals/${site}` &&
+            view.heading === name &&
+            view.site === site &&
+            view.total !== null &&
+            view.audit !== null
+          );
+        },
+        { site, name: nameOf(site) },
+        { timeout: 15000 },
+      )
+      .then(
+        () => true,
+        () => false,
+      );
+    const states = await page.evaluate(() => window.__replayHospitalWatch.stop());
+    return { shown, states, view: states[states.length - 1] };
   };
-  const hospitalCounts = () =>
-    page.evaluate(() => ({
-      total: document.querySelector('[data-panel="hospital-store"] [data-count="total"]')?.textContent.trim() ?? null,
-      contributions: document.querySelectorAll('[data-panel="contributions"] table.contributions tbody tr').length,
-      audit: document.querySelectorAll('[data-panel="audit"] .audit-list li').length,
-    }));
+  const nameOf = (site) => overview.hospitals.find((hospital) => hospital.site_id === site)?.display_name ?? site;
   const expectedCounts = (site, afterPilot) => {
     const dashboard = recorded(`/api/v1/hospitals/${site}`, afterPilot);
     const audit = recorded(`/api/v1/hospitals/${site}/audit?limit=50`, afterPilot);
     return {
       total: dashboard?.counts?.total?.toLocaleString("en-GB") ?? null,
-      contributions: dashboard?.contributions?.length ?? -1,
+      rounds: dashboard?.contributions?.length ?? -1,
       audit: audit?.records?.length ?? -1,
+      // Whether the recorded audit answer lists a call to the hospital's LMA,
+      // which the audit panel's strip then shows.
+      auditCalls: (audit?.framework_calls ?? []).some((call) => call.service === "lma" && call.site_id === site),
     };
   };
-  const sameCounts = (a, b) => a.total === b.total && a.contributions === b.contributions && a.audit === b.audit;
-  const describe = (counts) => `${counts.total} records, ${counts.contributions} rounds, ${counts.audit} audit records`;
+  const describe = (counts) => `${counts.total} records, ${counts.rounds} rounds, ${counts.audit} audit records`;
+  const listed = (sites) => [...new Set(sites)].join(", ") || "none";
+
+  /**
+   * What is wrong with the page `openHospital(site)` opened, or [] when it
+   * shows `site` with the answers recorded for it.
+   */
+  const hospitalProblems = (site, { shown, states, view }, afterPilot) => {
+    const problems = [];
+    // Every state the page passed through shows one hospital, whichever it is.
+    // Records are the same before and after the pilot; the capture enters none.
+    for (const state of states) {
+      if (state.site === null) continue;
+      const totals = [expectedCounts(state.site, false).total, expectedCounts(state.site, true).total];
+      if (
+        siteNamed(state.heading) !== state.site ||
+        state.lmaCalls.some((called) => called !== state.site) ||
+        (state.total !== null && !totals.includes(state.total))
+      ) {
+        problems.push(
+          `while the route changed to ${site}, the page showed "${state.heading}" over the LMA of ${state.site}, ` +
+            `with ${state.total ?? "no"} records and calls to the LMA of ${listed(state.lmaCalls)}`,
+        );
+        break;
+      }
+    }
+    if (!shown) {
+      problems.push(
+        `the page did not show ${site} with its dashboard and audit log within 15 s; it shows "${view.heading}" ` +
+          `over the LMA of ${view.site ?? "no hospital"} at ${view.hash || "#/"}`,
+      );
+      return problems;
+    }
+    const expected = expectedCounts(site, afterPilot);
+    if (view.total !== expected.total || view.rounds !== expected.rounds || view.audit !== expected.audit) {
+      problems.push(`page ${describe(view)}; recorded ${describe(expected)}`);
+    }
+    if (view.dashboardCalls.length === 0 || view.dashboardCalls.some((called) => called !== site)) {
+      problems.push(`the dashboard's strip lists calls to the LMA of ${listed(view.dashboardCalls)}`);
+    }
+    if ((expected.auditCalls && view.auditCalls.length === 0) || view.auditCalls.some((called) => called !== site)) {
+      problems.push(`the audit log's strip lists calls to the LMA of ${listed(view.auditCalls)}`);
+    }
+    return problems;
+  };
+  const hospitalDetail = (site, { states, view }, problems) =>
+    problems.length > 0
+      ? problems.join("; ")
+      : `${view.heading}: ${describe(view)}; strips call the LMA of ${site} only; ` +
+        `${states.length} page states recorded from the click on, none mixing two hospitals`;
 
   for (const site of sites) {
-    await openHospital(site);
-    const shown = await hospitalCounts();
-    const expected = expectedCounts(site, false);
+    const opened = await openHospital(site);
+    const problems = hospitalProblems(site, opened, false);
     const errors = await errorBanners();
     check(
-      `before the pilot, ${site}'s dashboard and audit log are the ones recorded before it`,
-      sameCounts(shown, expected) && errors.length === 0,
-      errors[0] ?? `page ${describe(shown)}; recorded ${describe(expected)}`,
+      `before the pilot, ${site}'s page shows its own dashboard and audit log, the ones recorded before it`,
+      problems.length === 0 && errors.length === 0,
+      errors[0] ?? hospitalDetail(site, opened, problems),
     );
   }
 
@@ -729,7 +892,7 @@ try {
   const differs =
     JSON.stringify(chartsBefore.charts.map((c) => [c.chart_id, c.available])) !==
       JSON.stringify(chartsAfter.charts.map((c) => [c.chart_id, c.available])) &&
-    sites.some((site) => expectedCounts(site, true).contributions > expectedCounts(site, false).contributions);
+    sites.some((site) => expectedCounts(site, true).rounds > expectedCounts(site, false).rounds);
   check(
     "the recording's answers after the pilot differ from those before it, so the switch can be seen",
     differs,
@@ -757,13 +920,12 @@ try {
   await chooseTheme("Light");
 
   for (const site of sites) {
-    await openHospital(site);
-    const shown = await hospitalCounts();
-    const expected = expectedCounts(site, true);
+    const opened = await openHospital(site);
+    const problems = hospitalProblems(site, opened, true);
     check(
-      `after the pilot, ${site}'s dashboard and audit log are the ones recorded after it`,
-      sameCounts(shown, expected),
-      `page ${describe(shown)}; recorded ${describe(expected)}`,
+      `after the pilot, ${site}'s page shows its own dashboard and audit log, the ones recorded after it`,
+      problems.length === 0,
+      hospitalDetail(site, opened, problems),
     );
     const listing = recorded(`/api/v1/hospitals/${site}/charts`, true);
     for (const theme of ["light", "dark"]) {

@@ -52,7 +52,15 @@ In Chromium, the check then:
    release, the approve button must be turned off with its reason. When they
    do not, there must be no approve panel;
 6. checks that after the pilot, the consortium charts, each hospital's
-   dashboard and its audit log show the answers recorded after it;
+   dashboard and its audit log show the answers recorded after it.
+
+   Each hospital page is opened from the header, and the check waits until
+   the address, the heading and the LMA heading name that hospital, with its
+   dashboard and audit log loaded. The "Dagents API calls" strips on the page
+   must name only that hospital's LMA, because a strip lists the calls behind
+   the answer above it. From the click on, the check also records the page
+   after every change. No recorded state may show one hospital's heading over
+   another hospital's record count or LMA calls;
 7. compares every chart, on the consortium page and on each hospital page,
    with the recorded SVG in the light theme, then in the dark theme;
 8. checks that the data-entry form and the panel to add a hospital are turned
@@ -64,7 +72,7 @@ In Chromium, the check then:
 When a check stops the run, the drive prints the first console errors and
 requests it collected until then.
 
-A run took 13 to 31 seconds on a machine with 4 CPUs that other jobs shared.
+A run took 12 to 31 seconds on a machine with 4 CPUs that other jobs shared.
 
 ### Run it locally
 
@@ -97,6 +105,25 @@ node serve-dist.mjs /tmp/healthcare-replay --port 11500
 Then open <http://127.0.0.1:11500/Dagents/healthcare-demo/>. When you stop the
 server with Ctrl-C, it lists every API request the page sent.
 
+### Check that the drive waits for each page
+
+A click on a link in the header changes the address at once. The page changes
+its route only when the browser delivers the `hashchange` event, and until
+then it still shows the previous page. In one CI run the drive read a hospital
+page in that gap and reported the previous hospital's 524 records under
+Hospital 2. After a change to the drive, run it once with the event held:
+
+```bash
+node replay-smoke.mjs /tmp/healthcare-replay --base /Dagents/healthcare-demo/ --hold-hashchange 300
+```
+
+`--hold-hashchange 300` holds every `hashchange` event for 300 ms before the
+page receives it, so the gap occurs on every route change. A drive that reads
+a page before it shows what the drive asked for fails. Runs with the option
+took 18 seconds. Throttling the CPU through the DevTools protocol, up to 20
+times slower, did not reproduce the gap, because it slows the page's event
+and the drive's commands alike.
+
 ### When it fails
 
 - **The banner check fails with "no banner".** The page did not load. The
@@ -116,6 +143,16 @@ server with Ctrl-C, it lists every API request the page sent.
   of the `useCallback` in `src/components/GuardProbe.tsx`, and a change to how
   `keyFor` in `src/api.ts` matches a body. The failure line names the control
   the drive changed before that ask.
+- **A hospital page shows another hospital's numbers.** The failure line says
+  which heading the page showed over which LMA, and which LMA its strips
+  called. The page has two guards against this. `src/App.tsx` keys
+  `HospitalPage` by its site id, so each hospital's page starts empty, and
+  `useResource` in `src/useResource.ts` returns an answer only for the path it
+  was fetched for. Without both, the previous hospital's answers stay on
+  screen under the new hospital's name until its own answers arrive. A line
+  that says the page did not show the hospital within 15 seconds means the
+  address, the heading or the LMA heading never named it, or its dashboard or
+  audit log never loaded.
 - **A page shows an error banner.** The UI sends a GET the recording does not
   hold, for example after a change to a query string. The hospital-page paths
   are defined once, in `capture_demo_recordings.hospital_view_paths`.
