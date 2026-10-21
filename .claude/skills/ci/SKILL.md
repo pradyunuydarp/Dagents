@@ -458,20 +458,32 @@ Defence:
 
 The drive itself once failed in CI with a race. It opened each hospital page
 from the header and waited for the record count and the audit log, but the
-previous hospital's page has both. A click changes the address at once, and
-the page changes its route only when the browser delivers the `hashchange`
-event. On the runner the drive read the page before that event: the check for
-Hospital 2 read Hospital 134's 524 records, 38 ms after the previous check.
-The page never showed one hospital's numbers under another's name. Now the
-drive waits until the address, the heading and the LMA heading name the
-hospital it asked for, checks that every "Dagents API calls" strip names that
-hospital's LMA, and records the page after every change from the click on, so
-a single render that shows one hospital's heading over another hospital's
-answers fails. `--hold-hashchange 300` holds every `hashchange` event for
-300 ms, so the race occurs on every route change; the drive before the fix
-failed with it three times in three runs, and passed without it. Throttling
-the CPU through the DevTools protocol did not reproduce the race. Run the
-drive with the option after a change to how it moves between pages.
+previous hospital's page has both. A click changes the address at once. The
+page re-renders for the new address only when the browser delivers the
+`hashchange` event, in a later task, and React draws the new route in a
+microtask at the end of that task. On the runner the drive read the page
+before it re-rendered: the check for Hospital 2 read Hospital 134's 524
+records, 38 ms after the previous check. The CI log does not show when the
+event arrived. A drive command runs between tasks, so it cannot read the page
+between the event and React's render. In 24 local route changes, 12 of them
+with the CPU throttled 6 times, a scratch drive sent a read every millisecond
+without waiting for the previous one. 748 reads saw the previous page under
+the new address, all before the event, and none came between the event and
+the render. So the read on the runner came before the event. The page never
+showed one hospital's numbers under another's name.
+
+Now the drive waits until the address, the heading and the LMA heading name
+the hospital it asked for, and checks that every "Dagents API calls" strip
+names that hospital's LMA. It records the page once just before the click and
+again after every change, so a single render that shows one hospital's
+heading over another hospital's answers fails. The failure line says whether
+that render came before the click, on the page the drive was leaving, or
+while the route changed. `--hold-hashchange 300` holds every `hashchange`
+event for 300 ms, which widens the gap before the event on every route
+change. The drive before the fix failed with it three times in three runs,
+and passed without it. Throttling the CPU through the DevTools protocol at 4,
+10 and 20 times did not reproduce the race in 21 route changes. Run the drive
+with the option after a change to how it moves between pages.
 
 The approve button is checked only when the recorded gates allow a release:
 it must be turned off and say why. When they do not, the drive checks that no

@@ -58,9 +58,11 @@ In Chromium, the check then:
    the address, the heading and the LMA heading name that hospital, with its
    dashboard and audit log loaded. The "Dagents API calls" strips on the page
    must name only that hospital's LMA, because a strip lists the calls behind
-   the answer above it. From the click on, the check also records the page
-   after every change. No recorded state may show one hospital's heading over
-   another hospital's record count or LMA calls;
+   the answer above it. The check also records the page once just before the
+   click and again after every change. No recorded state may show one
+   hospital's heading over another hospital's record count or LMA calls. A
+   failure line says whether such a state came before the click, on the page
+   the drive was leaving, or while the route changed;
 7. compares every chart, on the consortium page and on each hospital page,
    with the recorded SVG in the light theme, then in the dark theme;
 8. checks that the data-entry form and the panel to add a hospital are turned
@@ -107,22 +109,25 @@ server with Ctrl-C, it lists every API request the page sent.
 
 ### Check that the drive waits for each page
 
-A click on a link in the header changes the address at once. The page changes
-its route only when the browser delivers the `hashchange` event, and until
-then it still shows the previous page. In one CI run the drive read a hospital
-page in that gap and reported the previous hospital's 524 records under
-Hospital 2. After a change to the drive, run it once with the event held:
+A click on a link in the header changes the address at once. The page
+re-renders for the new address only when the browser delivers the
+`hashchange` event, in a later task: 5 to 10 ms after the click in local
+runs. React draws the new route in a microtask at the end of that task. Until
+the event arrives, the page still shows the previous page. In one CI run the
+drive read a hospital page before it re-rendered for the new address, and
+reported the previous hospital's 524 records under Hospital 2. After a change
+to the drive, run it once with the event held:
 
 ```bash
 node replay-smoke.mjs /tmp/healthcare-replay --base /Dagents/healthcare-demo/ --hold-hashchange 300
 ```
 
 `--hold-hashchange 300` holds every `hashchange` event for 300 ms before the
-page receives it, so the gap occurs on every route change. A drive that reads
-a page before it shows what the drive asked for fails. Runs with the option
-took 18 seconds. Throttling the CPU through the DevTools protocol, up to 20
-times slower, did not reproduce the gap, because it slows the page's event
-and the drive's commands alike.
+page receives it. This widens the gap before the event on every route change.
+A drive that reads a page before it shows what the drive asked for fails.
+Runs with the option took 17 to 20 seconds. Throttling the CPU through the
+DevTools protocol at 4, 10 and 20 times did not reproduce the race in 21 route
+changes.
 
 ### When it fails
 

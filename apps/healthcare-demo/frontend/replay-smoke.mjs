@@ -29,8 +29,8 @@
  *   4. before the pilot, each hospital page and the consortium charts show
  *      the answers recorded before it. Each hospital page must name the
  *      hospital the drive opened, and its "Dagents API calls" strips must
- *      name only that hospital's LMA. No render from the click on may show
- *      one hospital's heading over another hospital's numbers;
+ *      name only that hospital's LMA. No render from just before the click
+ *      on may show one hospital's heading over another hospital's numbers;
  *   5. the pilot replays: every release gate, the decision, the dispatch rows
  *      of every round, the audit chains, and the approve panel only when the
  *      recorded gates allow a release, with its button turned off;
@@ -60,10 +60,10 @@
  * `--hold-hashchange <ms>` holds every `hashchange` event for that many
  * milliseconds before the page's own listeners receive it. The page then
  * keeps showing the previous page under the new address for that long. In
- * one CI run the drive's next command ran before the page's route change, and
- * the drive read the previous hospital's page; this option makes that happen
- * on every route change, to show that the drive waits for the page it asked
- * for.
+ * one CI run the drive read a hospital page before it re-rendered for the
+ * new address, and so read the previous hospital's numbers. This option
+ * widens that gap on every route change, to show that the drive waits for
+ * the page it asked for.
  *
  * Exits 0 on success, 1 on failure, and 2 with a line starting "SKIP" when no
  * browser is available, like smoke.mjs. CI treats 2 as a failure.
@@ -621,20 +621,22 @@ try {
    * Open a hospital's page from the header and wait until the page shows that
    * hospital, with its dashboard and audit log loaded.
    *
-   * The click changes the address at once, but the page changes its route
-   * only when the browser delivers the `hashchange` event. Until then it
-   * still shows the previous page, which has the same panels. Waiting for a
-   * panel alone once read the previous hospital's numbers in CI. So the drive
-   * waits until the address, the heading and the LMA heading all name the
-   * hospital, and reads everything in that same pass.
+   * The click changes the address at once, but the page re-renders for it
+   * only when the browser delivers the `hashchange` event, in a later task.
+   * React draws the new route in a microtask at the end of that task. Until
+   * the event arrives, the page still shows the previous page, which has the
+   * same panels. Waiting for a panel alone once read the previous hospital's
+   * numbers in CI. So the drive waits until the address, the heading and the
+   * LMA heading all name the hospital, and reads everything in that same pass.
    *
    * A hospital's numbers and its "Dagents API calls" strips come from the
    * same answers, and a strip names the LMA each call went to. So the strips
-   * show whose answers the page displays. A watcher records the page after
-   * every change while the route changes. Each recorded state must show one
-   * hospital only: its heading, its LMA heading, its record count and the LMA
-   * rows of every strip. A page that shows one hospital's numbers under
-   * another hospital's name fails, even when only for one render.
+   * show whose answers the page displays. A watcher records the page once
+   * before the click and again after every change until the check. Each
+   * recorded state must show one hospital only: its heading, its LMA heading,
+   * its record count and the LMA rows of every strip. A page that shows one
+   * hospital's numbers under another hospital's name fails, even when only
+   * for one render.
    */
   const openHospital = async (site) => {
     await page.evaluate(() => {
@@ -666,21 +668,29 @@ try {
       };
       const states = [];
       let last = "";
+      // Set when the click reaches the page. A state recorded before it shows
+      // the page the drive is leaving, not the route change.
+      let clicked = false;
+      const onClick = () => {
+        clicked = true;
+      };
       const record = () => {
         const state = view();
         const key = JSON.stringify(state);
         if (key !== last) {
           last = key;
-          states.push(state);
+          states.push({ ...state, beforeClick: !clicked });
         }
       };
       const observer = new MutationObserver(record);
       observer.observe(document.body, { subtree: true, childList: true, characterData: true, attributes: true });
+      window.addEventListener("click", onClick, { capture: true });
       record();
       window.__replayHospitalWatch = {
         view,
         stop: () => {
           observer.disconnect();
+          window.removeEventListener("click", onClick, { capture: true });
           record();
           return states;
         },
@@ -733,20 +743,26 @@ try {
     const problems = [];
     // Every state the page passed through shows one hospital, whichever it is.
     // Records are the same before and after the pilot; the capture enters none.
-    for (const state of states) {
-      if (state.site === null) continue;
+    const mixed = (state) => {
       const totals = [expectedCounts(state.site, false).total, expectedCounts(state.site, true).total];
-      if (
+      return (
         siteNamed(state.heading) !== state.site ||
         state.lmaCalls.some((called) => called !== state.site) ||
         (state.total !== null && !totals.includes(state.total))
-      ) {
-        problems.push(
-          `while the route changed to ${site}, the page showed "${state.heading}" over the LMA of ${state.site}, ` +
-            `with ${state.total ?? "no"} records and calls to the LMA of ${listed(state.lmaCalls)}`,
-        );
-        break;
-      }
+      );
+    };
+    // The states recorded before the click, always including the first, show
+    // the page the drive is leaving. They are checked too, so a late render
+    // there fails, but the line says it came before the click. The first mixed
+    // state after the click gets a line of its own.
+    for (const beforeClick of [true, false]) {
+      const state = states.find((s) => s.beforeClick === beforeClick && s.site !== null && mixed(s));
+      if (!state) continue;
+      problems.push(
+        `${beforeClick ? `before the click to open ${site}` : `while the route changed to ${site}`}, ` +
+          `the page showed "${state.heading}" over the LMA of ${state.site}, ` +
+          `with ${state.total ?? "no"} records and calls to the LMA of ${listed(state.lmaCalls)}`,
+      );
     }
     if (!shown) {
       problems.push(
@@ -771,7 +787,7 @@ try {
     problems.length > 0
       ? problems.join("; ")
       : `${view.heading}: ${describe(view)}; strips call the LMA of ${site} only; ` +
-        `${states.length} page states recorded from the click on, none mixing two hospitals`;
+        `${states.length} page states recorded, the first just before the click; none mixes two hospitals`;
 
   for (const site of sites) {
     const opened = await openHospital(site);
