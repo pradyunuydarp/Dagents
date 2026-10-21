@@ -16,15 +16,18 @@ these tests check what can be checked here:
 - `healthcare-api-check.yml`: it runs on a schedule, the scheduled run sets
   the read-only switch of `test_deployed_api.py`, the run's first request is
   timed against the page's cold-start budget and fails the run when it is
-  slower, the browser job runs after it and fails on an API problem, and no
-  `${{ }}` appears inside a `run:` script;
+  slower, its time limit is longer than that budget, every curl call of the
+  probe has a time limit, the browser job runs after it and fails on an API
+  problem, and no `${{ }}` appears inside a `run:` script;
 - the read-only switch itself: `test_deployed_api.py`, run against a local
   stand-in for the API, sends no probe and no pilot with the switch on, and
   sends both without it;
 - the browser check itself, in Chromium, against a stand-in Pages tree and a
   stand-in API on free ports: a working page passes, a page the API keeps
   waiting with 503 answers passes, and a page that sends a POST or misses a
-  script file fails, while the stand-in API receives no POST.
+  script file fails, while the stand-in API receives no POST. An API in the
+  wrong state, or one that answers an error, fails each check of what it
+  serves with the daily run's options and only warns with the Pages job's.
 
 The contracts job sets up Node and requires `RequestRuleTests` and
 `ReadOnlySwitchTests` to run. The frontends job has Chromium, runs
@@ -134,6 +137,28 @@ count=$(cat "${calls}" 2>/dev/null || echo 0)
 echo $((count + 1)) > "${calls}"
 if [ "${count}" = 0 ]; then echo 1000; else echo $((1000 + STUB_WAKE)); fi
 """
+
+
+def curl_calls(script: str) -> list[str]:
+    """Each curl call in a step's script, with its continuation lines joined and comment lines left out."""
+    joined = re.sub(r"\\\n\s*", " ", script)
+    lines = [line for line in joined.splitlines() if not line.lstrip().startswith("#")]
+    return [match.group(0) for line in lines for match in re.finditer(r"\bcurl\s+-.*", line)]
+
+
+def time_limit_seconds(call: str, budget: int) -> int | None:
+    """The `--max-time` of a curl call, worked out by bash with `budget` set as the step sets it; None without one."""
+    match = re.search(r"\s(?:--max-time|-m)\s+(\"[^\"]*\"|\S+)", call)
+    if match is None:
+        return None
+    completed = subprocess.run(
+        ["bash", "-c", f"budget={budget}; printf '%s' {match.group(1)}"],
+        capture_output=True,
+        text=True,
+        timeout=10,
+        env={"PATH": "/usr/bin:/bin"},
+    )
+    return int(completed.stdout)
 
 
 def run_step(script: str, env: dict[str, str]) -> tuple[subprocess.CompletedProcess, str]:
@@ -491,6 +516,34 @@ class ApiCheckWorkflowWiringTests(unittest.TestCase):
                 else:
                     self.assertNotIn("::error::", completed.stdout)
 
+    def test_the_first_request_has_a_time_limit_past_the_page_budget(self) -> None:
+        """The request that wakes the service has a time limit, and the limit is longer than the page's budget.
+
+        The stand-in curl above ignores the limit, so this reads it from the
+        step. Without one, a service that accepts the connection and never
+        answers holds the job until GitHub stops it after six hours. A limit at
+        or under the budget would cut off a slow wake and report it as a
+        service that does not answer, instead of timing it.
+        """
+        budget = page_budget_seconds()
+        steps = self.jobs["probe"]["steps"]
+        calls = curl_calls(steps[step_index(steps, FIRST_REQUEST)]["run"])
+        self.assertEqual(1, len(calls), calls)
+        self.assertIn("/api/v1/health", calls[0])
+        limit = time_limit_seconds(calls[0], budget)
+        self.assertIsNotNone(limit, f"the first request has no time limit: {calls[0]}")
+        self.assertGreater(limit, budget, "a wake slower than the page's budget must be timed, not cut off")
+
+    def test_every_request_of_the_probe_has_a_time_limit(self) -> None:
+        """Without --max-time, curl waits for as long as the server keeps the connection open."""
+        found = 0
+        for step in self.jobs["probe"]["steps"]:
+            for call in curl_calls(step.get("run", "")):
+                found += 1
+                with self.subTest(step=step.get("name"), call=call[:80]):
+                    self.assertIsNotNone(time_limit_seconds(call, page_budget_seconds()), "a curl call has no time limit")
+        self.assertGreater(found, 1, "the probe's curl calls were not found")
+
     def test_a_service_that_does_not_answer_fails_the_first_request(self) -> None:
         completed, github_env = self.probe_first_request(120, status="000")
         self.assertEqual(1, completed.returncode, completed.stdout + completed.stderr)
@@ -696,38 +749,52 @@ process.stdout.write(reasons.join("; "));
 
 #: The stand-in stroke demo. It does what the real page does in the parts the
 #: check reads: it reads the API with GET, retries 502, 503 and 504 answers,
-#: lists the hospitals, says where the records are and how the agents run, and
-#: draws a hospital's chart from the API. `window.STAND_IN.post` makes it send
-#: a POST to the API when the page loads or when a hospital is opened.
+#: shows any other error answer in an error banner, lists the hospitals, says
+#: where the records are, how the agents run and which store is not ready, and
+#: draws a hospital's chart from the API, with an error banner when the chart
+#: does not load. `window.STAND_IN.post` makes it send a POST to the API when
+#: the page loads or when a hospital is opened.
 STAND_IN_APP = r"""
 const { api, post } = window.STAND_IN;
 const main = document.querySelector("main");
+const banners = document.querySelector(".banners");
 const send = () => fetch(new URL("/api/v1/pilot:run", api), { method: "POST", body: "{}" }).catch(() => {});
 async function getJson(path) {
   for (;;) {
     const response = await fetch(new URL(path, api));
-    if (![502, 503, 504].includes(response.status)) return response.json();
+    if (![502, 503, 504].includes(response.status)) {
+      if (!response.ok) throw new Error(`The demo server answered ${response.status}.`);
+      return response.json();
+    }
     await new Promise((done) => setTimeout(done, 300));
   }
 }
 function openHospital(siteId) {
   if (post === "open") send();
   main.innerHTML = `<h1>${siteId}</h1><section data-panel="hospital-charts"><figure data-available="yes"><img class="chart-image" alt="chart"></figure></section>`;
-  main.querySelector("img.chart-image").src = new URL(`/api/v1/charts/${siteId}.svg`, api).href;
+  const image = main.querySelector("img.chart-image");
+  image.addEventListener("error", () => image.insertAdjacentHTML("afterend", '<p class="banner error">The chart did not load.</p>'));
+  image.src = new URL(`/api/v1/charts/${siteId}.svg`, api).href;
 }
 if (post === "load") send();
-getJson("/api/v1/overview").then((overview) => {
-  const rows = main.querySelector('[data-panel="consortium"] tbody');
-  for (const hospital of overview.hospitals) {
-    const row = document.createElement("tr");
-    row.dataset.site = hospital.site_id;
-    row.innerHTML = `<td><a href="#/hospitals/${hospital.site_id}">${hospital.site_id}</a></td>`;
-    row.querySelector("a").addEventListener("click", () => openHospital(hospital.site_id));
-    rows.append(row);
+getJson("/api/v1/overview").then(
+  (overview) => {
+    const rows = main.querySelector('[data-panel="consortium"] tbody');
+    for (const hospital of overview.hospitals) {
+      const row = document.createElement("tr");
+      row.dataset.site = hospital.site_id;
+      row.innerHTML = `<td><a href="#/hospitals/${hospital.site_id}">${hospital.site_id}</a></td>`;
+      row.querySelector("a").addEventListener("click", () => openHospital(hospital.site_id));
+      rows.append(row);
+    }
+    document.querySelector("[data-agents-mode]").dataset.agentsMode = overview.agents_mode;
+    document.querySelector(".foot").textContent = `Records: ${overview.records}`;
+    if (overview.not_ready) banners.innerHTML = `<p class="banner" data-banner="not-ready">${overview.not_ready}</p>`;
+  },
+  (error) => {
+    banners.innerHTML = `<p class="banner error">${error.message}</p>`;
   }
-  document.querySelector("[data-agents-mode]").dataset.agentsMode = overview.agents_mode;
-  document.querySelector(".foot").textContent = `Records: ${overview.records}`;
-});
+);
 """
 
 STAND_IN_PAGE = """<!doctype html>
@@ -753,7 +820,11 @@ class StandInBrowserTests(unittest.TestCase):
     it would show there as a green run. These runs show that it passes a
     working page, stops and fails on a POST, and fails on a missing script
     file even when problems of the API only warn, as in the Pages deploy job.
-    The CI frontends job has Chromium and requires this class to run.
+    They also show that each check of what the API serves fails when the API
+    serves it wrong: the run fails with the daily run's options and warns with
+    the Pages job's. The warm-up's failure is not run here: it waits out the
+    page's budget and its margin, two minutes. The CI frontends job has
+    Chromium and requires this class to run.
     """
 
     @classmethod
@@ -762,8 +833,14 @@ class StandInBrowserTests(unittest.TestCase):
         if reason:
             raise unittest.SkipTest(f"the stand-in browser check cannot run: {reason}")
 
-    def serve_api(self, waking: int) -> tuple[int, list[tuple[str, str]]]:
-        """A stand-in API that records each request. The overview answers 503 `waking` times first, as a platform does while the API starts."""
+    def serve_api(self, waking: int, state: str = "working") -> tuple[int, list[tuple[str, str]]]:
+        """A stand-in API that records each request. The overview answers 503 `waking` times first, as a platform does while the API starts.
+
+        `state` is what the API serves after that: `working`; `wrong`, a
+        working API in the wrong state (two hospitals, records in memory, a
+        store not ready, the agents in another layout, a chart that answers
+        404); or `error`, where the app answers the overview with a 500.
+        """
         seen: list[tuple[str, str]] = []
         left = {"waking": waking}
         overview = {
@@ -771,6 +848,13 @@ class StandInBrowserTests(unittest.TestCase):
             "agents_mode": "in-process",
             "records": "Stored in Postgres, one schema per hospital.",
         }
+        if state == "wrong":
+            overview = {
+                "hospitals": [{"site_id": site} for site in ("uk-134", "it-002")],
+                "agents_mode": "network",
+                "records": "Kept in memory, loaded from the committed extract.",
+                "not_ready": "The store of ch-245 holds no records.",
+            }
 
         class Handler(BaseHTTPRequestHandler):
             def answer(self, status: int, body: bytes, content_type: str, app: bool = True) -> None:
@@ -791,8 +875,12 @@ class StandInBrowserTests(unittest.TestCase):
                 elif path == "/api/v1/overview" and left["waking"] > 0:
                     left["waking"] -= 1
                     self.answer(503, b"waking up", "text/plain", app=False)
+                elif path == "/api/v1/overview" and state == "error":
+                    self.answer(500, b'{"detail": "The stores cannot be read."}', "application/json")
                 elif path == "/api/v1/overview":
                     self.answer(200, json.dumps(overview).encode(), "application/json")
+                elif path.startswith("/api/v1/charts/") and state == "wrong":
+                    self.answer(404, b'{"detail": "No such chart."}', "application/json")
                 elif path.startswith("/api/v1/charts/"):
                     self.answer(200, CHART, "image/svg+xml")
                 else:
@@ -831,9 +919,11 @@ class StandInBrowserTests(unittest.TestCase):
         self.addCleanup(server.shutdown)
         return server.server_address[1]
 
-    def check(self, *arguments: str, post: str = "", missing: str = "", waking: int = 0) -> tuple[int, str, list, int]:
+    def check(
+        self, *arguments: str, post: str = "", missing: str = "", waking: int = 0, api: str = "working"
+    ) -> tuple[int, str, list, int]:
         """Build the tree, start both stand-ins, run the check, and return its exit code, output, the API's requests and the API's port."""
-        api_port, seen = self.serve_api(waking)
+        api_port, seen = self.serve_api(waking, api)
         api = f"http://127.0.0.1:{api_port}"
         directory = Path(tempfile.mkdtemp(prefix="published-check-"))
         self.addCleanup(shutil.rmtree, directory, True)
@@ -907,6 +997,56 @@ class StandInBrowserTests(unittest.TestCase):
         self.assertEqual(1, code, output)
         self.assertIn("stopped a POST to <the API>/api/v1/pilot:run", output)
         self.assertIn(("GET", "/api/v1/charts/uk-134.svg"), seen, "the hospital page opened")
+        self.assert_never_written(seen, output)
+
+    #: The checks of what the deployed API serves that the stand-in API in its
+    #: `wrong` state fails, one for each thing it serves wrong.
+    WRONG_API_CHECKS = (
+        "the overview lists 3 or more hospitals",
+        "the footer says the records are in Postgres",
+        '"Who does what" says the agents run in process',
+        "no store is reported not ready",
+        "a hospital page draws its charts",
+        "no failed API request, console error or uncaught error",
+    )
+
+    def test_each_problem_of_the_api_fails_the_daily_run(self) -> None:
+        """The daily run's options: an API in the wrong state fails each check of what it serves, and the run."""
+        code, output, seen, _ = self.check("--api-problems", "fail", "--warm-up", api="wrong")
+        self.assertEqual(1, code, output)
+        for name in self.WRONG_API_CHECKS:
+            with self.subTest(check=name):
+                self.assertIn(f"FAIL  {name}", output)
+        # The API part ran to its end: the API answered, and the page read it.
+        for name in (
+            "the API answers its health check within the page's cold-start budget",
+            "the consortium loads within the page's cold-start budget",
+            "the page read the API with GET requests",
+        ):
+            with self.subTest(check=name):
+                self.assertIn(f"ok    {name}", output)
+        self.assertIn(f"\n{len(self.WRONG_API_CHECKS)} check(s) failed", output)
+        self.assert_never_written(seen, output)
+
+    def test_the_same_problems_only_warn_in_the_pages_run(self) -> None:
+        """The Pages deploy job's options: the same API gives one warning per problem, and the run passes."""
+        code, output, seen, _ = self.check(api="wrong")
+        self.assertEqual(0, code, output)
+        for name in self.WRONG_API_CHECKS:
+            with self.subTest(check=name):
+                self.assertIn(f"warn  {name}", output)
+                self.assertIn(f"::warning::Stroke demo, what the deployed API serves: {name}.", output)
+        self.assertIn(f"every page passed; {len(self.WRONG_API_CHECKS)} warning(s) about the deployed API", output)
+        self.assert_never_written(seen, output)
+
+    def test_an_error_answer_from_the_api_fails_the_daily_run(self) -> None:
+        """The page shows an error the app answers at once, so the check reports it without waiting out the budget."""
+        code, output, seen, _ = self.check("--api-problems", "fail", api="error")
+        self.assertEqual(1, code, output)
+        self.assertRegex(
+            output, r"FAIL  the consortium loads within the page's cold-start budget — error: The demo server answered 500"
+        )
+        self.assertRegex(output, r"FAIL  no failed API request, console error or uncaught error — .*<the API>/api/v1/overview answered 500")
         self.assert_never_written(seen, output)
 
     def test_a_missing_script_file_fails_even_when_api_problems_only_warn(self) -> None:

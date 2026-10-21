@@ -327,7 +327,10 @@ The `frontends` job runs the script in Chromium against a stand-in Pages tree
 and a stand-in API on free ports (`StandInBrowserTests` in
 `tests/test_published_pages_wiring.py`): a working live page passes, and a
 page that sends a POST or misses a script file fails while the stand-in API
-receives no POST. The class skips without playwright-core or a browser, and
+receives no POST. A stand-in API in the wrong state (two hospitals, records in
+memory, a store not ready, a chart that answers 404) or one that answers an
+error fails each check of what it serves with `--api-problems fail` and gives
+warnings without it. The class skips without playwright-core or a browser, and
 the job requires it to run:
 
 ```bash
@@ -338,9 +341,9 @@ CHROMIUM_PATH=/path/to/chrome .venv/bin/python -m unittest tests.test_published_
 hand and every day at 06:41 UTC, outside the `ci` gate. The scheduled run sets
 `HEALTHCARE_DEPLOYED_API_READ_ONLY=1`: `apps/healthcare-demo/tests/test_deployed_api.py`
 then skips the five tests that send a probe or run a pilot, so the run adds no
-audit record and no model version. Its only POST asks to add a hospital, which
-the hosted API refuses with 403. A manual run also sends the probes and a
-pilot. Besides a failing test, these faults turn either run red:
+audit record and no model version. It still sends GET requests and two POST
+requests that ask to add a hospital, which the hosted API refuses with 403. A
+manual run also sends the probes and a pilot. Besides a failing test, these faults turn either run red:
 
 - a wake longer than the page's cold-start budget (`COLD_START_BUDGET_MS` in
   `apps/healthcare-demo/frontend/src/api.ts`, 90 seconds). The probe job's

@@ -469,7 +469,9 @@ activity.
   functions with Node, checks the order, conditions and `env:` of these steps
   in all three workflows, and runs the mode step's script. It runs the probe's
   first step with stand-in `curl` and `date` commands: a wake one second past
-  the budget fails it. It runs `test_deployed_api.py` against a local
+  the budget fails it. It reads every curl call of the probe for a
+  `--max-time`, and the first one's must be longer than the budget, so a slow
+  wake is timed and a service that never answers cannot hold the job. It runs `test_deployed_api.py` against a local
   stand-in, to show that the read-only run sends no probe and no pilot while a
   manual run sends both. The job requires `RequestRuleTests` (it skips without
   Node) and `ReadOnlySwitchTests` (it skips without httpx) to run.
@@ -478,6 +480,9 @@ activity.
   working live page and a page the API keeps waiting with 503 answers pass. A
   page that sends a POST, when it loads or after the page checks passed, and a
   page with a missing script file fail, and the stand-in API receives no POST.
+  A stand-in API in the wrong state, or one that answers an error, fails each
+  check of what the API serves with `--api-problems fail`, and gives one
+  warning per check without it, so a check that stops checking fails a test.
   The class skips without playwright-core or a browser, so the job requires it
   to run.
 

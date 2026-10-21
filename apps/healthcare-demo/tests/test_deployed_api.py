@@ -34,9 +34,9 @@ warning, because they are the only check of the deployed service.
 
 Set ``HEALTHCARE_DEPLOYED_API_READ_ONLY=1`` to skip the five tests that send a
 probe or run a pilot. The daily run of ``healthcare-api-check.yml`` sets it, so
-that run adds no audit record and no model version. Its only POST asks to add a
-hospital, which the hosted API refuses with 403 before it does anything. A
-manual run leaves it unset and runs every test.
+that run adds no audit record and no model version. Its only POST requests are
+the two that ask to add a hospital, which the hosted API refuses with 403
+before it does anything. A manual run leaves it unset and runs every test.
 """
 
 from __future__ import annotations
