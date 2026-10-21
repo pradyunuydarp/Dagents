@@ -445,6 +445,73 @@ the smoke test with `--agents-from openai-agents`. That option fails unless
 `tests/test_packaging.py` runs the file check and the option on synthetic
 distributions.
 
+### s. A published page that only fails across origins
+
+The published stroke demo is a production build on GitHub Pages that calls
+the API on another origin. The `frontends` and `deploy-smoke` jobs drive the
+Vite dev server, whose proxy puts the API on the page's own origin. So no job
+saw a CORS setting that blocks the page (an `expose_headers` without
+`X-Dagents-App`, an `allow_headers` without `Idempotency-Key`), a cold start
+whose connections are refused, or a database that is not migrated or holds no
+records. Section 10 of `smoke.mjs` rewrites answers to show empty stores, and
+rewritten answers drift from the backend without a failure.
+
+Defence: the `published-layout` job runs
+`apps/healthcare-demo/scripts/run_published_check.sh` against a PostgreSQL 16
+service container. The script builds the page for `/Dagents/healthcare-demo/`
+with `VITE_HEALTHCARE_API_BASE`, serves it with `vite preview` on `localhost`,
+and starts the API in process on `127.0.0.1` with the settings `render.yaml`
+sets and `HEALTHCARE_DEMO_CORS_ORIGINS` set to the page's exact origin. The
+service's superuser login only creates and drops the databases and adds
+Supabase's roles to each (`supabase/emulate_supabase_roles.sql`). The
+migrations, the seed and the API log in as `supa_like`, which is not a
+superuser, as Supabase's `postgres` role is not. A superuser passes every
+grant check. The script then runs `smoke.mjs` in three phases, each on a new
+database: `--expect-unmigrated`, `--expect-empty`, and, with the records
+loaded, `--expect-cold-start` (the page opens before the API starts) followed
+by the full run with `--api-base`.
+
+- The full run's first checks read `X-Dagents-App` and send a POST with
+  `Content-Type` and `Idempotency-Key` from the main page, which rewrites no
+  route. On a page with a rewritten route, Playwright answers the CORS
+  preflight itself, so the API's own answer is never tested there.
+- With `--api-base`, every answer the test rewrites gets the CORS headers the
+  API sends, so the simulated cases still run across origins. Without it, the
+  rewritten answers are unchanged.
+- The script exits 2 when the smoke test could not start a browser, which
+  fails the step. The next step fails on a `SKIP` or `FAIL` line, and when a
+  phase's passing lines are missing from the log.
+- Removing `X-Dagents-App` from `expose_headers` fails phase 1: the page
+  cannot read the header on the API's own 503, so it waits behind the
+  connecting banner. It also fails the full run's header check. Narrowing
+  `allow_headers` to `Content-Type` fails the preflight check.
+- An `acting_as` that skips `SET LOCAL ROLE` passed all 120 checks when the
+  API logged in as a superuser. As `supa_like` it fails phase 2 with
+  `permission denied for schema site_uk_134`.
+- The consortium-count check compares each count on its own and fails when a
+  count is not an integer. It once compared the counts through
+  `JSON.stringify`, which writes `NaN` as `null`, so after a column heading
+  was renamed the unread counts matched and the check passed.
+
+`smoke.mjs` runs in the `frontends`, `deploy-smoke` and `published-layout`
+jobs, so a change to it must pass `run_frontend_demo.sh --check`,
+`run_frontend_demo.sh --deploy --check` and the published check. Without
+`--api-base`, the cross-origin code changes nothing: the rewritten answers and
+the requests a script sends from the page stay as they were.
+
+What the job does not cover: it runs no proxy in front of the API and no CDN
+in front of the page, it connects to Postgres directly instead of through
+Supabase's pooler, and `supa_like` lacks the `pg_read_all_data` grant that
+Supabase gives its `postgres` role. So a green `published-layout` job says
+nothing about Render's or GitHub's configuration. The **Healthcare API check**
+workflow tests the deployed API (§6).
+
+```bash
+HEALTHCARE_DEMO_TEST_DATABASE_URL=postgresql://admin:pw@127.0.0.1:5432/postgres \
+  DAGENTSC_BIN=$PWD/bindings/ocaml/_build/default/bin/dagentsc.exe \
+  apps/healthcare-demo/scripts/run_published_check.sh
+```
+
 ## 3. The test loop
 
 CI runs the same commands a contributor runs. Write the failing test first,

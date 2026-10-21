@@ -862,6 +862,127 @@ jobs:
           }
 
   # ---------------------------------------------------------------------------
+  # The stroke demo as it is published: a production build under
+  # /Dagents/healthcare-demo/ on one origin, calling the API on another, with
+  # the agents in the API's process and the records in PostgreSQL 16, as
+  # render.yaml runs it. The frontends job drives the Vite dev server, whose
+  # proxy puts the API on the page's origin, so CORS, a cold start and a
+  # database that is not ready never reach it. run_published_check.sh drives
+  # the page against an unmigrated database, an empty one and a seeded one,
+  # opens the page before the API starts, and then runs the full smoke test
+  # across origins.
+  # ---------------------------------------------------------------------------
+  published-layout:
+    name: Stroke demo as published
+    runs-on: ubuntu-latest
+    needs: planners
+    # The check took 172 to 200 seconds on a busy development machine with 4
+    # CPUs.
+    # The limit leaves room for a cold runner and the installs, and stops a
+    # page that waits forever.
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: apps/healthcare-demo/frontend/package-lock.json
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: apps/healthcare-demo/requirements.txt
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: dagentsc
+          path: ${{ env.PLANNER_DIR }}
+
+      - name: Make the planner executable
+        run: chmod +x "${PLANNER_DIR}/dagentsc.exe"
+
+      - name: Install the demo and the frontend
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r apps/healthcare-demo/requirements.txt
+          cd apps/healthcare-demo/frontend && npm ci
+
+      - name: Install a browser for the smoke test
+        working-directory: apps/healthcare-demo/frontend
+        run: npx playwright install --with-deps chromium
+
+      - name: Locate the browser
+        # As in the frontends job: a smoke test without a browser reports SKIP,
+        # which is not a pass.
+        working-directory: apps/healthcare-demo/frontend
+        run: |
+          browser="$(node -e \
+            "console.log(require('playwright-core').chromium.executablePath())" \
+            2>/dev/null || true)"
+          if [ ! -x "${browser}" ]; then
+            browser="$(find "${HOME}/.cache/ms-playwright" -type f -name 'chrome' \
+              -perm -u+x 2>/dev/null | head -1)"
+          fi
+          if [ ! -x "${browser}" ]; then
+            echo "No browser found. The smoke test would report SKIP, which is not a pass." >&2
+            exit 1
+          fi
+          echo "CHROMIUM_PATH=${browser}" >> "$GITHUB_ENV"
+
+      - name: Check the published layout in a browser
+        # The script makes three scratch databases with the service's
+        # superuser login and adds Supabase's roles to each. The migrations,
+        # the seed and the API log in as supa_like, which is not a superuser,
+        # as on Supabase. It builds the page for /Dagents/healthcare-demo/,
+        # serves it on localhost and starts the API on 127.0.0.1, both on free
+        # ports. It exits 2 when the smoke test could not start a browser,
+        # which fails this step.
+        env:
+          HEALTHCARE_DEMO_TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
+          DAGENTSC_BIN: ${{ env.PLANNER_DIR }}/dagentsc.exe
+          PYTHON: python
+        run: |
+          set -o pipefail
+          apps/healthcare-demo/scripts/run_published_check.sh 2>&1 | tee published-layout.log
+
+      - name: Fail unless every phase passed
+        # A phase that never ran prints none of its lines, so each phase's
+        # lines are required, not only the absence of FAIL.
+        run: |
+          if grep -q "^SKIP\|  FAIL  " published-layout.log; then
+            echo "A published-layout check skipped or failed." >&2
+            exit 1
+          fi
+          for line in \
+            "ok  unmigrated: the data-entry page shows the API's sentence once" \
+            "ok  empty: each hospital chart without data shows the backend's reason" \
+            "ok  cold start: once the API answers, the banner goes and the hospitals table loads" \
+            "ok  published layout: the page reads X-Dagents-App from the API on another origin" \
+            "ok  published layout: a POST with Content-Type and Idempotency-Key passes the browser's CORS preflight" \
+            "ok  no console errors or failed requests" \
+            "The published layout passed: unmigrated, empty and seeded."; do
+            grep -qF "${line}" published-layout.log || {
+              echo "Missing from the log: ${line}" >&2
+              exit 1
+            }
+          done
+
+  # ---------------------------------------------------------------------------
   # The framework site publishes docs/ from main, so a code change and the docs
   # it feeds land together. This fails when a change touches a code area that
   # scripts/check_docs_impact.py maps and none of that area's docs, unless a
@@ -1034,6 +1155,7 @@ jobs:
       - demo-apps
       - frontends
       - deploy-smoke
+      - published-layout
       - packaging
       - docs-impact
     steps:
@@ -1052,6 +1174,7 @@ jobs:
           echo "demo-apps:          ${{ needs.demo-apps.result }}"
           echo "frontends:          ${{ needs.frontends.result }}"
           echo "deploy-smoke:       ${{ needs.deploy-smoke.result }}"
+          echo "published-layout:   ${{ needs.published-layout.result }}"
           echo "packaging:          ${PACKAGING}"
           echo "docs-impact:        ${DOCS_IMPACT}"
           if [ "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}" = "true" ]; then

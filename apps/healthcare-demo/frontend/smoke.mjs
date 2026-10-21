@@ -53,8 +53,17 @@
  *      includes it;
  *  12. nothing logs a console error or fails a request on the way.
  *
+ * It also checks that a hospital id the overview does not list shows the
+ * "Page not found" page, and that a record entered on the data-entry page
+ * raises the consortium table's records, entered and with-outcome counts and
+ * the hospital's running statistics by one once its outcome is recorded.
+ * With --expect-join, the pilot after the join counts the entered records in
+ * that hospital's analytics round and its labelled ones in the evaluation.
+ *
  * Usage:
  *   node smoke.mjs [baseUrl] [--screenshots <dir>] [--expect-join <site_id>]
+ *                  [--api-base <url>]
+ *                  [--expect-unmigrated | --expect-empty | --expect-cold-start <file>]
  *
  * `--screenshots` also writes the README screenshots (consortium, guard-denied,
  * federated-pilot, hospital, data-entry) to <dir>.
@@ -65,11 +74,32 @@
  * every other check, because the earlier checks count the hospitals the run
  * started with.
  *
+ * `--api-base` is for the published layout: the page is a production build
+ * that calls the API at <url>, on another origin
+ * (`scripts/run_published_check.sh`). The test then reads the API there, adds
+ * the CORS headers to every answer it rewrites, and also checks that the page
+ * reads X-Dagents-App across origins, that a POST with Content-Type and
+ * Idempotency-Key passes the browser's CORS preflight, that the agents run in
+ * the API's process and that the records are in Postgres.
+ *
+ * The last three options replace the full run with a short one, for the
+ * states the published page meets before the database is ready:
+ *
+ * - `--expect-unmigrated`: the API's database has no tables. Each page shows
+ *   the API's own 503 sentence once, at once, and never the connecting banner.
+ * - `--expect-empty`: the migrations ran and no records are loaded. The
+ *   consortium page and a hospital page show the backend's not-ready banner,
+ *   say the stores are empty, and show the backend's reason for each chart.
+ * - `--expect-cold-start <file>`: nothing answers at the API's address yet.
+ *   The page must show the connecting banner. The test then creates <file>,
+ *   the caller starts the API, and the banner must go and the hospitals table
+ *   load within the page's wait.
+ *
  * Exits 0 on success, 1 on failure, and 2 when no browser is available, so a
  * machine without Chromium reports "skipped" rather than "broken".
  */
 import { existsSync } from "node:fs";
-import { mkdir } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 
 const args = process.argv.slice(2);
 const shotIndex = args.indexOf("--screenshots");
@@ -80,9 +110,48 @@ if (expectJoin === "" || expectJoin?.startsWith("--")) {
   console.log("--expect-join needs a site id, such as pl-290");
   process.exit(1);
 }
-const valueIndexes = new Set([shotIndex, joinIndex].filter((i) => i !== -1).map((i) => i + 1));
+const apiBaseIndex = args.indexOf("--api-base");
+const coldStartIndex = args.indexOf("--expect-cold-start");
+const coldStartFile = coldStartIndex === -1 ? null : args[coldStartIndex + 1] ?? "";
+if (coldStartFile === "" || coldStartFile?.startsWith("--")) {
+  console.log("--expect-cold-start needs the path of a file to create when the API should start");
+  process.exit(1);
+}
+const shortRuns = {
+  unmigrated: args.includes("--expect-unmigrated"),
+  empty: args.includes("--expect-empty"),
+  "cold-start": coldStartFile !== null,
+};
+const chosenRuns = Object.keys(shortRuns).filter((name) => shortRuns[name]);
+if (chosenRuns.length > 1) {
+  console.log("Use one of --expect-unmigrated, --expect-empty and --expect-cold-start at a time");
+  process.exit(1);
+}
+/** The short run that replaces the full one, or null for the full run. */
+const phase = chosenRuns[0] ?? null;
+const valueIndexes = new Set([shotIndex, joinIndex, apiBaseIndex, coldStartIndex].filter((i) => i !== -1).map((i) => i + 1));
 const positional = args.filter((a, i) => !a.startsWith("--") && !valueIndexes.has(i));
 const baseUrl = (positional[0] ?? "http://127.0.0.1:5174/").replace(/\/?$/, "/");
+const pageOrigin = new URL(baseUrl).origin;
+
+/**
+ * The API's address when the page calls it on another origin, as the
+ * published page does; null when the page reaches the API through its own
+ * origin (the dev server's proxy).
+ */
+const apiBase = apiBaseIndex === -1 ? null : (args[apiBaseIndex + 1] ?? "").replace(/\/+$/, "");
+if (apiBase !== null && !/^https?:\/\/[^/?#]+$/.test(apiBase)) {
+  console.log("--api-base needs the API's origin, such as http://127.0.0.1:8080, with no path");
+  process.exit(1);
+}
+if (apiBase !== null && new URL(apiBase).origin === pageOrigin) {
+  console.log("--api-base must be another origin than the page, or the cross-origin checks prove nothing");
+  process.exit(1);
+}
+if (phase !== null && apiBase === null) {
+  console.log(`--expect-${phase} needs --api-base: it checks the published layout`);
+  process.exit(1);
+}
 
 /** Locate a Chromium the driver can launch, preferring the preinstalled one. */
 function findBrowser() {
@@ -150,10 +219,41 @@ const watch = (target) => {
 };
 watch(page);
 
+/** Where the test reads the API: through the page's origin, or at --api-base. */
+const apiRoot = apiBase === null ? baseUrl : `${apiBase}/`;
+
 const api = async (path) => {
-  const response = await page.request.get(new URL(path.replace(/^\//, ""), baseUrl).toString());
+  const response = await page.request.get(new URL(path.replace(/^\//, ""), apiRoot).toString());
   if (!response.ok()) throw new Error(`${path} returned ${response.status()}`);
   return response.json();
+};
+
+/** The address a script in the page sends an API request to, as the app's transport does. */
+const inPage = (path) => (apiBase === null ? path : `${apiBase}${path}`);
+
+/** The headers the API exposes to a page on another origin (`expose_headers` in the API's CORS settings). */
+const EXPOSED_HEADERS = "Retry-After, ETag, X-Dagents-App";
+
+/**
+ * The options of a rewritten answer. When the page calls the API on another
+ * origin, the browser reads an answer only with CORS headers, as the API
+ * sends them, so they are added. Otherwise the options are unchanged.
+ */
+const withCors = (options) => {
+  if (apiBase === null) return options;
+  const headers = {};
+  for (const source of [options.response?.headers() ?? {}, options.headers ?? {}]) {
+    for (const [name, value] of Object.entries(source)) headers[name.toLowerCase()] = value;
+  }
+  headers["access-control-allow-origin"] = pageOrigin;
+  headers["access-control-expose-headers"] = EXPOSED_HEADERS;
+  // A rewritten body has another length and no encoding; Playwright sets the
+  // length when none is given.
+  if (options.json !== undefined || options.body !== undefined) {
+    delete headers["content-length"];
+    delete headers["content-encoding"];
+  }
+  return { ...options, headers };
 };
 
 /** Wait until an image has loaded and report its natural width. */
@@ -251,6 +351,288 @@ const stripProblem = (strip) => {
 const callKeys = (calls) =>
   [...new Set((calls ?? []).map((c) => `${c.service} ${c.site_id ?? c.site ?? ""} ${c.method} ${c.path} ${c.via}`))].sort();
 
+/**
+ * Record, in the page, whether the connecting banner ever appeared and every
+ * error message the page showed. Both can come and go before a locator looks.
+ */
+const recordBanners = (target) =>
+  target.addInitScript(() => {
+    window.__seen = { connecting: false, alerts: [] };
+    new MutationObserver(() => {
+      if (document.querySelector('[data-banner="connecting"]')) window.__seen.connecting = true;
+      for (const alert of document.querySelectorAll('[role="alert"]')) {
+        const text = (alert.textContent ?? "").trim();
+        if (text && !window.__seen.alerts.includes(text)) window.__seen.alerts.push(text);
+      }
+    }).observe(document, { childList: true, subtree: true, characterData: true });
+  });
+
+/** Whether anything answers at the API's address. */
+const apiAnswers = () =>
+  page.request.get(`${apiBase}/api/v1/health`, { timeout: 3000 }).then(
+    () => true,
+    () => false
+  );
+
+/**
+ * --expect-cold-start: the page opens while nothing answers at the API's
+ * address, as on the first visit after the hosted API stopped. The browser
+ * gets refused connections, not a status, so this is the page's other retry
+ * path. The caller starts the API when the file appears.
+ */
+async function checkColdStart() {
+  const coldPage = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  try {
+    await recordBanners(coldPage);
+    const answering = await apiAnswers();
+    check("cold start: nothing answers at the API's address yet", !answering, answering ? "something answers there already" : "");
+    if (answering) return;
+    await coldPage.goto(baseUrl, { waitUntil: "domcontentloaded", timeout: 60000 });
+    const banner = coldPage.locator('[data-banner="connecting"]');
+    const shown = await banner.waitFor({ timeout: 30000 }).then(
+      () => true,
+      () => false
+    );
+    const bannerText = shown ? ((await banner.textContent()) ?? "").trim() : "";
+    check(
+      "cold start: the page shows the connecting banner while the API does not answer",
+      shown && /about 20 seconds/.test(bannerText),
+      bannerText || "no banner within 30 s"
+    );
+    if (!shown) return;
+    await writeFile(coldStartFile, `${new Date().toISOString()}\n`);
+    const asked = Date.now();
+    // The page waits 90 seconds for its first answer; a longer wait here only
+    // gives a clearer failure.
+    const rows = coldPage.locator('[data-panel="consortium"] table.hospitals tbody tr');
+    const loaded = await rows.first().waitFor({ timeout: 120000 }).then(
+      () => true,
+      () => false
+    );
+    const seconds = ((Date.now() - asked) / 1000).toFixed(1);
+    await coldPage.waitForTimeout(500);
+    const overview = loaded ? await api("/api/v1/overview") : null;
+    const rowCount = await rows.count();
+    const bannerLeft = await banner.count();
+    check(
+      "cold start: once the API answers, the banner goes and the hospitals table loads",
+      loaded && bannerLeft === 0 && rowCount > 0 && rowCount === overview?.hospitals.length,
+      `${loaded ? `loaded ${seconds} s after the test asked for the API to start` : "not loaded within 120 s"}; ` +
+        `${rowCount} rows; banner ${bannerLeft ? "still shown" : "gone"}`
+    );
+    const seen = await coldPage.evaluate(() => window.__seen);
+    const notReady = await coldPage.locator('[data-banner="not-ready"]').count();
+    check(
+      "cold start: the page showed no error and no not-ready banner",
+      seen.alerts.length === 0 && notReady === 0,
+      [...seen.alerts, notReady ? "not-ready banner shown" : ""].filter(Boolean).join(" | ")
+    );
+  } finally {
+    await coldPage.close();
+  }
+}
+
+/**
+ * --expect-unmigrated: the API's database has none of the app's tables. The
+ * API answers every data request with its own 503, which carries
+ * X-Dagents-App, so each page shows the sentence at once and never waits
+ * behind the connecting banner. The hospital id comes from the status, which
+ * still answers.
+ */
+async function checkUnmigrated() {
+  const status = await api("/api/v1/framework/status");
+  const siteId = status.agents?.lmas?.[0]?.site_id ?? null;
+  check(
+    "unmigrated: the status answers and reports the stores not ready",
+    status.ready === false && status.hospitals === null && Boolean(siteId),
+    `ready ${status.ready}, hospitals ${JSON.stringify(status.hospitals)}, first LMA ${siteId}`
+  );
+  const probe = await page.request.get(`${apiBase}/api/v1/overview`, { headers: { Origin: pageOrigin } });
+  const sentence = String((await probe.json().catch(() => null))?.detail ?? "");
+  check(
+    "unmigrated: the API answers its own 503 that says the database is not set up",
+    probe.status() === 503 &&
+      probe.headers()["x-dagents-app"] === "healthcare-demo" &&
+      probe.headers()["access-control-allow-origin"] === pageOrigin &&
+      /not set up/.test(sentence),
+    `HTTP ${probe.status()}, X-Dagents-App ${probe.headers()["x-dagents-app"] ?? "missing"}, ` +
+      `allowed origin ${probe.headers()["access-control-allow-origin"] ?? "missing"}: ${sentence}`
+  );
+  if (!siteId || !/not set up/.test(sentence)) return;
+
+  for (const [where, hash] of [
+    ["consortium page", ""],
+    ["hospital page", `#/hospitals/${siteId}`],
+    ["data-entry page", `#/hospitals/${siteId}/new`],
+  ]) {
+    const view = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    try {
+      await recordBanners(view);
+      // Each API request and how often it was sent: the app's 503 must not be retried.
+      const sent = new Map();
+      const problems = [];
+      view.on("response", (r) => {
+        if (!r.url().startsWith(`${apiBase}/`)) return;
+        const path = r.url().slice(apiBase.length);
+        sent.set(path, (sent.get(path) ?? 0) + 1);
+        if (r.status() >= 400 && !(r.status() === 503 && r.headers()["x-dagents-app"])) problems.push(`HTTP ${r.status()} ${path}`);
+      });
+      view.on("requestfailed", (r) => {
+        if (!optional(r.url())) problems.push(`request failed: ${r.url()} ${r.failure()?.errorText ?? ""}`);
+      });
+      view.on("pageerror", (e) => problems.push(`pageerror: ${e.message}`));
+      view.on("console", (m) => {
+        const text = `${m.text()} ${m.location()?.url ?? ""}`;
+        const expected = /status of 503/.test(m.text()) && (m.location()?.url ?? "").startsWith(`${apiBase}/`);
+        if (m.type() === "error" && !optional(text) && !expected) problems.push(m.text());
+      });
+      const started = Date.now();
+      await view.goto(`${baseUrl}${hash}`, { timeout: 60000 });
+      const shown = await view
+        .locator('[role="alert"]', { hasText: sentence })
+        .first()
+        .waitFor({ timeout: 15000 })
+        .then(
+          () => true,
+          () => false
+        );
+      const shownAfter = Date.now() - started;
+      // A retry would come one second after the first answer.
+      await view.waitForTimeout(2500);
+      const repeats = await view
+        .locator('[role="alert"]')
+        .evaluateAll((alerts, text) => alerts.filter((alert) => (alert.textContent ?? "").includes(text)).length, sentence);
+      const seen = await view.evaluate(() => window.__seen);
+      const again = [...sent].filter(([, times]) => times > 1).map(([path]) => path);
+      const title = ((await view.locator("main h1").first().textContent().catch(() => "")) ?? "").trim();
+      check(
+        `unmigrated: the ${where} shows the API's sentence once, at once, and never the connecting banner`,
+        shown && repeats === 1 && !seen.connecting && again.length === 0 && problems.length === 0 && !title.includes(siteId),
+        `${shown ? `shown after ${shownAfter} ms` : "not shown within 15 s"}; ${repeats} message(s); ` +
+          `banner ${seen.connecting ? "shown" : "not shown"}; ${again.length ? `sent again: ${again.join(", ")}` : `${sent.size} requests, none sent again`}; ` +
+          `heading "${title}"${problems.length ? `; ${problems.join(" | ")}` : ""}`
+      );
+    } finally {
+      await view.close();
+    }
+  }
+}
+
+/**
+ * --expect-empty: the migrations ran and no records are loaded. The backend
+ * reports every store readable and empty; each page shows its not-ready
+ * banner once, says each store is empty instead of showing zeros, and shows
+ * the reason the backend gives for each chart. The rewritten answers of
+ * section 10 of the full run check the same page states without a database.
+ */
+async function checkEmpty() {
+  const status = await api("/api/v1/framework/status");
+  const overview = await api("/api/v1/overview");
+  const names = overview.hospitals.map((item) => item.display_name);
+  check(
+    "empty: the backend reports every store readable and empty",
+    status.ready === false &&
+      Array.isArray(status.hospitals) &&
+      status.hospitals.length === overview.hospitals.length &&
+      overview.hospitals.length > 0 &&
+      status.hospitals.every((item) => item.record_count === 0) &&
+      overview.hospitals.every((item) => item.record_count === 0),
+    `ready ${status.ready}; ${JSON.stringify(status.hospitals)}`
+  );
+  /** Charts the backend lists as unavailable whose page does not show the backend's reason. */
+  const reasonsNotShown = async (view, scope, list) => {
+    const shown = new Map(
+      await view.locator(`${scope} figure[data-chart]`).evaluateAll((figures) =>
+        figures.map((figure) => [figure.getAttribute("data-chart"), figure.querySelector(".chart-unavailable")?.textContent?.trim() ?? null])
+      )
+    );
+    return list.charts
+      .filter((chart) => !chart.available)
+      .filter((chart) => shown.get(chart.chart_id) !== chart.reason)
+      .map((chart) => `${chart.chart_id}: "${shown.get(chart.chart_id) ?? "not shown"}" not "${chart.reason}"`);
+  };
+
+  const view = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  watch(view);
+  try {
+    await view.goto(baseUrl, { timeout: 60000 });
+    await view.locator('[data-panel="consortium"] table.hospitals tbody tr').first().waitFor({ timeout: 30000 });
+    await view.locator('[data-banner="not-ready"]').first().waitFor({ timeout: 15000 }).catch(() => {});
+    const banners = await view.locator('[data-banner="not-ready"]').allTextContents();
+    check(
+      "empty: the consortium page shows the not-ready banner once, naming every hospital",
+      banners.length === 1 && names.every((name) => banners[0].includes(name)),
+      `${banners.length} banners: ${banners[0] ?? ""}`
+    );
+    const emptyRows = await view.locator('[data-panel="consortium"] tr[data-site] [data-empty-store]').count();
+    const zeroCells = await view.locator('[data-panel="consortium"] tr[data-site] td.num').count();
+    const tableNote = (await view.locator('[data-panel="consortium"]').innerText()).includes("No hospital has records in its store yet.");
+    check(
+      "empty: each hospital's row says its store is empty, with no zero counts",
+      emptyRows === overview.hospitals.length && zeroCells === 0 && tableNote,
+      `${emptyRows} rows say the store is empty, ${zeroCells} count cells, note ${tableNote ? "shown" : "missing"}`
+    );
+    const consortiumCharts = await api("/api/v1/charts");
+    await view.locator('[data-panel="charts"] figure[data-chart]').first().waitFor({ timeout: 30000 });
+    const consortiumMissing = await reasonsNotShown(view, '[data-panel="charts"]', consortiumCharts);
+    check(
+      "empty: each consortium chart without data shows the backend's reason",
+      consortiumCharts.charts.some((chart) => !chart.available) && consortiumMissing.length === 0,
+      consortiumMissing.join("; ") || `${consortiumCharts.charts.filter((chart) => !chart.available).length} charts without data`
+    );
+
+    const siteId = overview.hospitals[0].site_id;
+    await view.goto(`${baseUrl}#/hospitals/${siteId}`, { timeout: 60000 });
+    await view.locator('[data-panel="hospital-store"] [data-empty-store]').waitFor({ timeout: 30000 }).catch(() => {});
+    await view.locator('[data-panel="hospital-charts"] figure[data-chart]').first().waitFor({ timeout: 30000 }).catch(() => {});
+    await view.waitForTimeout(500);
+    const hospitalBanners = await view.locator('[data-banner="not-ready"]').count();
+    const storeEmpty = await view.locator('[data-panel="hospital-store"] [data-empty-store]').count();
+    const tables = await view
+      .locator('[data-panel="profile"] table:not(.api-calls-table), [data-panel="worklist"] table:not(.api-calls-table)')
+      .count();
+    const profileText = await view.locator('[data-panel="profile"]').innerText();
+    const worklistText = await view.locator('[data-panel="worklist"]').innerText();
+    check(
+      "empty: the hospital page shows the banner once and says the store is empty instead of empty tables",
+      hospitalBanners === 1 &&
+        storeEmpty === 1 &&
+        tables === 0 &&
+        profileText.includes("No statistics yet") &&
+        worklistText.includes("No records to rank"),
+      `${hospitalBanners} banners, store note ${storeEmpty}, ${tables} tables, ` +
+        `profile note ${profileText.includes("No statistics yet")}, worklist note ${worklistText.includes("No records to rank")}`
+    );
+    const hospitalCharts = await api(`/api/v1/hospitals/${siteId}/charts`);
+    const hospitalMissing = await reasonsNotShown(view, '[data-panel="hospital-charts"]', hospitalCharts);
+    check(
+      "empty: each hospital chart without data shows the backend's reason",
+      hospitalCharts.charts.length > 0 && hospitalCharts.charts.every((chart) => !chart.available) && hospitalMissing.length === 0,
+      hospitalMissing.join("; ") || `${hospitalCharts.charts.length} charts`
+    );
+  } finally {
+    await view.close();
+  }
+  const unique = [...new Set(consoleErrors)];
+  check("empty: no console errors or failed requests", unique.length === 0, unique.join(" | "));
+}
+
+if (phase !== null) {
+  try {
+    console.log(`Dagents healthcare demo — published layout, ${phase} phase, against ${baseUrl}\n`);
+    if (phase === "cold-start") await checkColdStart();
+    else if (phase === "unmigrated") await checkUnmigrated();
+    else await checkEmpty();
+  } catch (error) {
+    console.log(`  FAIL  unexpected error — ${error.message}`);
+    failures.push("unexpected error");
+  } finally {
+    await browser.close();
+  }
+  console.log(failures.length ? `\n${failures.length} check(s) failed` : "\nall checks passed");
+  process.exit(failures.length ? 1 : 0);
+}
+
 try {
   console.log(`Dagents healthcare demo — frontend smoke test against ${baseUrl}\n`);
   const overview = await api("/api/v1/overview");
@@ -259,6 +641,60 @@ try {
   const labels = overview.field_labels ?? {};
 
   await page.goto(baseUrl, { waitUntil: "networkidle", timeout: 60000 });
+
+  if (apiBase !== null) {
+    // 0. The published layout: the page and the API are on different origins.
+    //    The page must read the header the API puts on its own answers, and
+    //    the browser must let a POST with the headers the app sends through
+    //    its CORS preflight. These requests come from the main page, which
+    //    rewrites no route: on a page that does, Playwright answers the
+    //    preflight itself and the API's answer is never tested.
+    const header = await page.evaluate(async (url) => {
+      try {
+        const response = await fetch(url);
+        return { status: response.status, app: response.headers.get("X-Dagents-App") };
+      } catch (error) {
+        return { status: 0, app: null, error: String(error) };
+      }
+    }, `${apiBase}/api/v1/health`);
+    check(
+      "published layout: the page reads X-Dagents-App from the API on another origin",
+      header.app === "healthcare-demo",
+      `HTTP ${header.status}, X-Dagents-App ${header.app ?? "not readable"}${header.error ? `, ${header.error}` : ""}`
+    );
+    // An empty record: the API refuses it with a 422 and stores nothing.
+    expectRefusal = true;
+    const preflight = await page.evaluate(async (url) => {
+      try {
+        const response = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "Idempotency-Key": `smoke-preflight-${Date.now()}` },
+          body: "{}",
+        });
+        return { status: response.status };
+      } catch (error) {
+        return { status: 0, error: String(error) };
+      }
+    }, `${apiBase}/api/v1/hospitals/${firstSite.site_id}/encounters`);
+    await page.waitForTimeout(500);
+    expectRefusal = false;
+    // A status the page can read means the browser sent the POST; a blocked
+    // preflight makes fetch fail with no status.
+    check(
+      "published layout: a POST with Content-Type and Idempotency-Key passes the browser's CORS preflight",
+      preflight.status === 422,
+      `HTTP ${preflight.status}${preflight.error ? `, ${preflight.error}` : ""}`
+    );
+    check(
+      "published layout: the API runs its agents in its own process, as the published API does",
+      status.agents?.mode === "in-process",
+      `mode ${status.agents?.mode ?? "missing"}`
+    );
+    if (header.app !== "healthcare-demo" || preflight.status !== 422) {
+      // The app would wait 90 seconds on every request the browser blocks.
+      throw new Error("the browser cannot use the API's answers across origins, so the other checks would only time out");
+    }
+  }
 
   // Panels are located by their `data-panel` hook rather than by position, so
   // reordering or restyling the page cannot silently retarget an assertion.
@@ -377,21 +813,69 @@ try {
     });
   }
 
+  //    A hospital id the overview does not list shows the "Page not found"
+  //    page. Opened directly, the hospital page can ask for the id before the
+  //    overview arrives, and the API answers its own 404. Only those 404s are
+  //    allowed; any other failed request fails the check.
+  const unknownId = "xx-000";
+  const unknownPage = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  try {
+    const unexpected = [];
+    const ownNotFound = (url, status, headers) =>
+      status === 404 && Boolean(headers["x-dagents-app"]) && new URL(url).pathname.startsWith(`/api/v1/hospitals/${unknownId}`);
+    unknownPage.on("response", (r) => {
+      if (r.status() >= 400 && !optional(r.url()) && !ownNotFound(r.url(), r.status(), r.headers())) {
+        unexpected.push(`HTTP ${r.status()} ${r.url()}`);
+      }
+    });
+    unknownPage.on("requestfailed", (r) => {
+      if (!optional(r.url())) unexpected.push(`request failed: ${r.url()} ${r.failure()?.errorText ?? ""}`);
+    });
+    unknownPage.on("pageerror", (e) => unexpected.push(`pageerror: ${e.message}`));
+    unknownPage.on("console", (m) => {
+      const where = m.location()?.url ?? "";
+      const own = /status of 404/.test(m.text()) && where.includes(`/api/v1/hospitals/${unknownId}`);
+      if (m.type() === "error" && !optional(`${m.text()} ${where}`) && !own) unexpected.push(m.text());
+    });
+    await unknownPage.goto(`${baseUrl}#/hospitals/${unknownId}`, { timeout: 60000 });
+    const notFound = unknownPage.locator("main h1", { hasText: "Page not found" });
+    const shown = await notFound.waitFor({ timeout: 30000 }).then(
+      () => true,
+      () => false
+    );
+    await unknownPage.waitForTimeout(500);
+    const lede = ((await unknownPage.locator("main .lede").first().textContent().catch(() => "")) ?? "").trim();
+    const backLink = await unknownPage.getByRole("link", { name: "Go to the consortium page" }).count();
+    const alerts = await unknownPage.locator('[role="alert"]').count();
+    check(
+      "an unknown hospital id shows the page-not-found page, with only the API's own 404s",
+      shown && lede === `There is no hospital with the id ${unknownId}.` && backLink === 1 && alerts === 0 && unexpected.length === 0,
+      `${shown ? "shown" : "not shown"}; "${lede}"; ${alerts} error messages${unexpected.length ? `; ${unexpected.join(" | ")}` : ""}`
+    );
+  } finally {
+    await unknownPage.close();
+  }
+
   // 2. The guard has three controls. Each is asserted separately, because each
   //    proves a different rule and any of them can regress on its own.
   const strategyFor = async (field) =>
     (await guardPanel.locator(`tbody tr:has(td:text-is("${field}")) td`).last().textContent())?.trim() ?? "";
   await guardPanel.getByRole("combobox", { name: "Hospital", exact: true }).selectOption(firstSite.site_id);
   let lastProbe = null;
+  let lastProbeResponse = null;
   const askGuard = async ({ verified, granularity, cohort }) => {
     const box = guardPanel.getByLabel("Requester verified");
     if (verified) await box.check();
     else await box.uncheck();
     await guardPanel.getByLabel("Granularity").selectOption(granularity);
     await guardPanel.getByLabel("Cohort size").fill(String(cohort));
-    const answered = page.waitForResponse((r) => r.url().includes("/api/v1/governance:probe"), { timeout: 30000 });
+    const answered = page.waitForResponse(
+      (r) => r.url().includes("/api/v1/governance:probe") && r.request().method() === "POST",
+      { timeout: 30000 }
+    );
     await page.getByRole("button", { name: "Ask the guard" }).click();
-    lastProbe = await (await answered).json().catch(() => null);
+    lastProbeResponse = await answered;
+    lastProbe = await lastProbeResponse.json().catch(() => null);
     await page.waitForTimeout(300);
     return (await guardPanel.locator(".verdict").first().textContent())?.trim() ?? "";
   };
@@ -446,6 +930,13 @@ try {
   const trustedStrategy = await strategyFor("systolic_bp");
   check("a verified row request is narrowed, not denied", /NARROW|PERMIT/.test(trusted), trusted);
   check("a trusted requester gets generalization", trustedStrategy.startsWith("generalize"), trustedStrategy);
+  if (apiBase !== null) {
+    check(
+      "published layout: the guard's probe went to the API's origin and passed its preflight",
+      new URL(lastProbeResponse.url()).origin === new URL(apiBase).origin && lastProbeResponse.status() === 200,
+      `HTTP ${lastProbeResponse.status()} from ${new URL(lastProbeResponse.url()).origin}`
+    );
+  }
   await releaseShownWithoutRows("verified row request");
   const probeStrips = await readStrips(page, '[data-panel="guard"]');
   const probeShown = callKeys(probeStrips.flatMap((strip) => strip.rows));
@@ -509,7 +1000,10 @@ try {
   //    The decision is whatever the gates decide; the test does not assume one.
   /** Run the pilot from the consortium page, wait until its gates are shown, and return the report. */
   const runPilot = async () => {
-    const pilotAnswer = page.waitForResponse((r) => r.url().includes("/api/v1/pilot:run"), { timeout: 180000 });
+    const pilotAnswer = page.waitForResponse(
+      (r) => r.url().includes("/api/v1/pilot:run") && r.request().method() === "POST",
+      { timeout: 180000 }
+    );
     await page.getByRole("button", { name: "Run the pilot" }).click();
     const report = await (await pilotAnswer).json();
     await pilotPanel.locator(".gates li").first().waitFor({ timeout: 180000 });
@@ -794,6 +1288,9 @@ try {
       /single login can read every schema/.test(storeText),
       storeText.split("\n")[2] ?? ""
     );
+  } else if (apiBase !== null) {
+    // The published API keeps the records in Postgres, so this layout must too.
+    check("published layout: the hospital's records are in Postgres, as the published API keeps them", false, `the store is ${storeKind}`);
   } else {
     console.log(`  info  the Postgres storage note is not shown: the store is ${storeKind}`);
   }
@@ -808,6 +1305,50 @@ try {
       fullPage: true,
     });
   }
+
+  //    What the entry below must change: the consortium table's counts for
+  //    this hospital, and the records the hospital's LMA counts in its
+  //    running statistics. Both are read right before the entry, because a
+  //    later check enters another record.
+  /**
+   * One hospital's counts as the consortium table shows them, read in a page
+   * of its own, so the main page stays where it is.
+   */
+  const consortiumCounts = async (siteId) => {
+    const view = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    watch(view);
+    try {
+      await view.goto(baseUrl, { timeout: 60000 });
+      const table = view.locator('[data-panel="consortium"] table.hospitals');
+      await table.locator(`tbody tr[data-site="${siteId}"]`).waitFor({ timeout: 30000 });
+      return await table.evaluate((element, site) => {
+        const headings = [...element.querySelectorAll("thead th")].map((th) => th.textContent?.trim() ?? "");
+        const cells = [...element.querySelectorAll(`tbody tr[data-site="${site}"] td`)];
+        // A cell's first text is its number; a note for narrow screens can follow it.
+        // A heading the table lacks, or a cell with no digits, gives null, which
+        // fails the check below, so a renamed column cannot pass unread.
+        const number = (heading) => {
+          const index = headings.indexOf(heading);
+          const digits = index === -1 ? "" : (cells[index]?.firstChild?.textContent ?? "").replace(/[^\d]/g, "");
+          return digits === "" ? null : Number(digits);
+        };
+        return { records: number("Records"), entered: number("Entered"), labelled: number("With outcome"), headings };
+      }, siteId);
+    } finally {
+      await view.close();
+    }
+  };
+  /** The running statistics on the hospital page: recorded plus missing for each field, the records the LMA counted. */
+  const profileTotals = () =>
+    page.locator('[data-panel="profile"] table.profile tbody tr').evaluateAll((rows) =>
+      rows.map((row) => {
+        const cells = [...row.querySelectorAll("td")];
+        const number = (cell) => Number((cell?.textContent ?? "").replace(/[^\d]/g, "") || NaN);
+        return [cells[0]?.getAttribute("title") ?? "", number(cells[1]) + number(cells[2])];
+      })
+    );
+  const countsBeforeEntry = await consortiumCounts(firstSite.site_id);
+  const profileBeforeEntry = await profileTotals();
 
   // 6. Data entry: the backend refuses an empty form and names the fields,
   //    then stores a valid record.
@@ -877,6 +1418,14 @@ try {
   await page.getByRole("button", { name: "Save the record" }).click();
   const storedResponse = await stored;
   check("a valid record is stored", storedResponse.status() === 201, `HTTP ${storedResponse.status()}`);
+  if (apiBase !== null) {
+    const key = storedResponse.request().headers()["idempotency-key"];
+    check(
+      "published layout: the entry went to the API's origin with its Idempotency-Key and passed its preflight",
+      new URL(storedResponse.url()).origin === new URL(apiBase).origin && Boolean(key),
+      `${new URL(storedResponse.url()).origin}, Idempotency-Key ${key ? "sent" : "missing"}`
+    );
+  }
   const savedPanel = page.locator('[data-panel="entry-result"]');
   const saved = savedPanel.locator("[data-encounter]");
   await saved.waitFor({ timeout: 30000 });
@@ -925,6 +1474,43 @@ try {
   await row.getByRole("button", { name: "Yes" }).click();
   await row.locator(".outcome-value").waitFor({ timeout: 30000 });
   check("the outcome is recorded", ((await row.locator(".outcome-value").textContent()) ?? "").trim() === "yes");
+
+  //    The record and its outcome reach what the coordinator sees: the
+  //    consortium table counts one more record, one more entered and one more
+  //    with an outcome. The LMA's running statistics count one more record.
+  //    Each count is compared on its own and must be an integer before and
+  //    after: a count the table did not give is a failure, never a match.
+  const counted = ["records", "entered", "labelled"];
+  const readable = (counts) => counted.every((key) => Number.isInteger(counts[key]));
+  const countsRaised = (before, after) =>
+    readable(before) && readable(after) && counted.every((key) => after[key] === before[key] + 1);
+  let countsAfterEntry = await consortiumCounts(firstSite.site_id);
+  for (let tries = 0; tries < 10 && readable(countsBeforeEntry) && !countsRaised(countsBeforeEntry, countsAfterEntry); tries += 1) {
+    await page.waitForTimeout(1000);
+    countsAfterEntry = await consortiumCounts(firstSite.site_id);
+  }
+  const show = (counts) => `${counts.records} records, ${counts.entered} entered, ${counts.labelled} with an outcome`;
+  const unread = [countsBeforeEntry, countsAfterEntry].find((counts) => !readable(counts));
+  check(
+    "the entry and its outcome raise the consortium table's records, entered and with-outcome counts by one",
+    countsRaised(countsBeforeEntry, countsAfterEntry),
+    `before: ${show(countsBeforeEntry)}; after: ${show(countsAfterEntry)}` +
+      (unread ? `; a count could not be read, and the table's headings are: ${unread.headings.join(", ")}` : "")
+  );
+  const profileRaised = (before, after) =>
+    before.length > 0 &&
+    after.length === before.length &&
+    before.every(([field, total]) => after.find(([other]) => other === field)?.[1] === total + 1);
+  let profileAfterEntry = await profileTotals();
+  for (let tries = 0; tries < 20 && !profileRaised(profileBeforeEntry, profileAfterEntry); tries += 1) {
+    await page.waitForTimeout(500);
+    profileAfterEntry = await profileTotals();
+  }
+  check(
+    "the entry raises the records the hospital's running statistics count by one",
+    profileRaised(profileBeforeEntry, profileAfterEntry),
+    `${profileBeforeEntry.length} fields; before ${profileBeforeEntry[0]?.join(" ") ?? "none"}, after ${profileAfterEntry[0]?.join(" ") ?? "none"}`
+  );
 
   // 8. The dark theme draws the charts again. Recording the outcome reloads
   //    the chart list, which also changes an image, so the test lets that
@@ -1040,7 +1626,7 @@ try {
     await coldPage.route("**/api/v1/overview", (route) => {
       if (platformAnswers === 0) return route.continue();
       platformAnswers -= 1;
-      return route.fulfill({ status: 503, contentType: "text/plain", body: "Service Unavailable" });
+      return route.fulfill(withCors({ status: 503, contentType: "text/plain", body: "Service Unavailable" }));
     });
     await coldPage.goto(baseUrl, { timeout: 60000 });
     const banner = coldPage.locator('[data-banner="connecting"]');
@@ -1058,12 +1644,14 @@ try {
     let appAnswers = 0;
     const appOutage = (route) => {
       appAnswers += 1;
-      return route.fulfill({
-        status: 503,
-        contentType: "application/json",
-        headers: { "X-Dagents-App": "healthcare-demo" },
-        body: JSON.stringify({ detail: "The hospital records cannot be reached right now. Try again in a minute." }),
-      });
+      return route.fulfill(
+        withCors({
+          status: 503,
+          contentType: "application/json",
+          headers: { "X-Dagents-App": "healthcare-demo" },
+          body: JSON.stringify({ detail: "The hospital records cannot be reached right now. Try again in a minute." }),
+        })
+      );
     };
     await coldPage.route("**/api/v1/overview", appOutage);
     const started = Date.now();
@@ -1129,7 +1717,7 @@ try {
     await firstPage.route(new RegExp(`/api/v1/hospitals/${firstSite.site_id}$`), async (route) => {
       const response = await route.fetch();
       const body = await response.json();
-      await route.fulfill({ response, json: { ...body, framework_calls: [...registration, ...(body.framework_calls ?? [])] } });
+      await route.fulfill(withCors({ response, json: { ...body, framework_calls: [...registration, ...(body.framework_calls ?? [])] } }));
     });
     await firstPage.goto(`${baseUrl}#/hospitals/${firstSite.site_id}`, { timeout: 60000 });
     await firstPage.locator('[data-group="lma"] > .group-head [data-api-calls]').first().waitFor({ timeout: 30000 });
@@ -1178,19 +1766,21 @@ try {
         });
         return response.ok ? (await response.json()).record.encounter_id : `HTTP ${response.status}`;
       },
-      { path: `/api/v1/hospitals/${firstSite.site_id}/encounters`, body: entry }
+      { path: inPage(`/api/v1/hospitals/${firstSite.site_id}/encounters`), body: entry }
     );
     await stalePage.reload({ timeout: 60000 });
     const staleRow = stalePage.locator(`[data-panel="entered"] tr[data-encounter="${created}"]`);
     await staleRow.waitFor({ timeout: 30000 });
     const totalBefore = ((await stalePage.locator('[data-panel="hospital-store"] [data-count="total"]').textContent()) ?? "").trim();
     await stalePage.route(new RegExp(`/api/v1/hospitals/${firstSite.site_id}$`), (route) =>
-      route.fulfill({
-        status: 503,
-        contentType: "application/json",
-        headers: { "X-Dagents-App": "healthcare-demo" },
-        body: JSON.stringify({ detail: "The hospital records cannot be reached right now. Try again in a minute." }),
-      })
+      route.fulfill(
+        withCors({
+          status: 503,
+          contentType: "application/json",
+          headers: { "X-Dagents-App": "healthcare-demo" },
+          body: JSON.stringify({ detail: "The hospital records cannot be reached right now. Try again in a minute." }),
+        })
+      )
     );
     await staleRow.getByRole("button", { name: "No" }).click();
     const stale = stalePage.locator("[data-stale]");
@@ -1219,7 +1809,7 @@ try {
     const rewriteReason = (pattern, change) =>
       reasonPage.route(pattern, async (route) => {
         const response = await route.fetch();
-        await route.fulfill({ response, json: change(await response.json()) });
+        await route.fulfill(withCors({ response, json: change(await response.json()) }));
       });
     await rewriteReason("**/api/v1/overview", (body) => ({
       ...body,
@@ -1279,7 +1869,7 @@ try {
         .map((call) => (call.site_id in changed ? { ...call, outcome: "failed", status_code: changed[call.site_id] } : call));
     }
     await reasonPage.route("**/api/v1/pilot:run", (route) =>
-      route.fulfill({ status: 200, contentType: "application/json", headers: { "X-Dagents-App": "healthcare-demo" }, json: leftOut })
+      route.fulfill(withCors({ status: 200, contentType: "application/json", headers: { "X-Dagents-App": "healthcare-demo" }, json: leftOut }))
     );
 
     //    The status reports agents in their own processes, and one LMA that
@@ -1404,7 +1994,7 @@ try {
       deployments: [],
       framework_calls: [],
     };
-    const appJson = (json) => ({ status: 200, contentType: "application/json", headers: { "X-Dagents-App": "healthcare-demo" }, json });
+    const appJson = (json) => withCors({ status: 200, contentType: "application/json", headers: { "X-Dagents-App": "healthcare-demo" }, json });
     const joining = offeredView.hospitals[0];
     /** An attempt in the shape the backend returns, for the rewritten answers. */
     const attempt = (id, failedStep, detail, nextRound = null) => {
@@ -1544,7 +2134,7 @@ try {
     const stopped = stoppedView.hospitals[0];
     await restartPage.route("**/api/v1/deployments", (route) =>
       route.request().method() === "GET"
-        ? route.fulfill({ status: 200, contentType: "application/json", headers: { "X-Dagents-App": "healthcare-demo" }, json: stoppedView })
+        ? route.fulfill(withCors({ status: 200, contentType: "application/json", headers: { "X-Dagents-App": "healthcare-demo" }, json: stoppedView }))
         : route.abort()
     );
     const restartButton = restartPage.locator(`[data-panel="deploy"] [data-action="deploy"][data-site="${stopped.site_id}"]`);
@@ -1556,12 +2146,14 @@ try {
     await restartPage.goto(baseUrl, { timeout: 60000 });
     const withOverview = await buttonText();
     await restartPage.route("**/api/v1/overview", (route) =>
-      route.fulfill({
-        status: 503,
-        contentType: "application/json",
-        headers: { "X-Dagents-App": "healthcare-demo" },
-        body: JSON.stringify({ detail: `${stopped.display_name} cannot be reached right now. Try again in a minute.` }),
-      })
+      route.fulfill(
+        withCors({
+          status: 503,
+          contentType: "application/json",
+          headers: { "X-Dagents-App": "healthcare-demo" },
+          body: JSON.stringify({ detail: `${stopped.display_name} cannot be reached right now. Try again in a minute.` }),
+        })
+      )
     );
     await restartPage.reload({ timeout: 60000 });
     const withoutOverview = await buttonText();
@@ -1587,7 +2179,7 @@ try {
       emptyPage.route(pattern, async (route) => {
         const response = await route.fetch();
         const body = await response.json();
-        await route.fulfill({ response, json: change(body) });
+        await route.fulfill(withCors({ response, json: change(body) }));
       });
     const zero = { total: 0, entered: 0, labelled: 0 };
     await rewrite("**/api/v1/framework/status", (body) => ({
@@ -1837,6 +2429,26 @@ try {
       `deploy: the pilot includes ${expectJoin}`,
       rounds.length > 0 && without.length === 0 && chainShown === 1,
       `${rounds.length - without.length} of ${rounds.length} rounds include it; audit chain row ${chainShown ? "shown" : "missing"}`
+    );
+
+    //     The records entered since the first pilot reach this one. The
+    //     analytics round counts every record a hospital holds, and the
+    //     evaluation only those with an outcome, so each count rises by what
+    //     the hospital reports it gained since the first pilot.
+    const examples = (report, phase) =>
+      report.rounds?.[phase]?.results?.find((result) => result.site_id === firstSite.site_id)?.contributed_examples;
+    const atStart = overview.hospitals.find((item) => item.site_id === firstSite.site_id);
+    const atJoin = (await api("/api/v1/overview")).hospitals.find((item) => item.site_id === firstSite.site_id);
+    const addedRecords = atJoin.record_count - atStart.record_count;
+    const addedLabelled = atJoin.labelled_count - atStart.labelled_count;
+    const analyticsAdded = examples(joinedPilot, "analytics") - examples(pilot, "analytics");
+    const evaluationAdded = examples(joinedPilot, "evaluation") - examples(pilot, "evaluation");
+    check(
+      `deploy: the pilot after the join counts the records entered at ${firstSite.site_id}`,
+      addedRecords > 0 && addedLabelled > 0 && analyticsAdded === addedRecords && evaluationAdded === addedLabelled,
+      `analytics ${examples(pilot, "analytics")} -> ${examples(joinedPilot, "analytics")}, ` +
+        `evaluation ${examples(pilot, "evaluation")} -> ${examples(joinedPilot, "evaluation")}; ` +
+        `the hospital gained ${addedRecords} records, ${addedLabelled} with an outcome`
     );
   }
 
