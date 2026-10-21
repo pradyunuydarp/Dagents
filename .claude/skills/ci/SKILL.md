@@ -482,8 +482,11 @@ PYTHONPATH=.:services/model-service .venv/bin/python -m unittest discover \
   -s services/model-service/tests -t services/model-service/tests -v
 ```
 
-The pipeline class takes about 2 seconds and the model class about 45 on a
-4-CPU machine, most of it the model job and the checks.
+On an idle 4-CPU machine the pipeline class takes about 2 seconds and the model
+class about 9, about 5 of them to start the service, which imports torch. With
+three other model suites running on the same machine, the model class took
+about 27 seconds, most of it in the forecasting checks, and each whole model
+suite about 60.
 
 ## 3. The test loop
 

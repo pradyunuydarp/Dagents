@@ -89,5 +89,7 @@ The test creates a scratch database and a login role, and drops both
 afterwards. Without the variable the class skips with a message that starts
 with `database test skipped`. The `framework-services` CI job runs it against a
 PostgreSQL 16 service container and fails on that skip. The service imports
-torch when it starts, so the test waits up to 120 seconds for its health check;
-the class takes about 45 seconds on a 4-CPU machine.
+torch when it starts, which takes about 5 seconds, so the test waits up to 120
+seconds for its health check. The class takes about 9 seconds on an idle 4-CPU
+machine. With three other model suites running on the same machine, it took
+about 27 seconds, most of it in the forecasting checks.
