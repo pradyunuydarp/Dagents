@@ -19,15 +19,16 @@ Each layer of Dagents has its own job and its own test loop:
 | **OCaml planners**: pure validate, compile, route, render | `bindings/ocaml/` | opam + OCaml 5.1 | `dune test` |
 | **Python agents**: LMA, GMA, control plane, governance, federation | `dagents/` | Python 3.11 + `dagentsc` | `dagents/tests` |
 | **Framework services**: core, pipeline, model | `services/` | Python 3.11 (+ torch for model) | `services/<name>/tests` |
-| **Spring services**: JVM control and core APIs | `services/spring-services/` | JDK 21 + Maven | `mvn verify` |
+| **Spring services**: JVM control and core APIs | `services/spring-services/` | JDK 21 + Maven + `dagentsc` | `mvn verify` |
 | **Demo apps**: healthcare, NL2SQL | `apps/`, `services/nl2sql-demo/` | Python 3.11 + `dagentsc` + a PostgreSQL 16 service | their own suites |
 | **Frontends**: the site and the two demo UIs | `site/`, `*/frontend/` | Node 22 + a browser | `npm run build`, `npm run check`, `npm run smoke` |
-| **Cross-service contracts**: the endpoint inventory and API conventions | `tests/` | every Python service's dependencies | `tests/` |
+| **Cross-service contracts**: the endpoint inventory and API conventions | `tests/` | every Python service's dependencies + `dagentsc` + JDK 21 + Maven + Node 22 | `tests/` |
 | **Python package**: the `dagents` sdist and wheels | `pyproject.toml`, `hatch_build.py`, `dagents/` | Python 3.11 to 3.13 + a static `dagentsc` | `packaging` job: build, `scripts/check_dist.py`, clean-venv smoke, `dagents/tests` on the newest versions the extras allow |
 
 Python calls the planners through `dagentsc`, so the planner binary is a **build
 artifact that most jobs need**. The `planners` job builds it once and uploads
-it; `agents`, `framework-services`, `demo-apps` and `frontends` download it.
+it as `dagentsc`; `agents`, `framework-services`, `contracts`, `spring`,
+`demo-apps`, `frontends` and `deploy-smoke` download it.
 It also builds the planner with `--profile static` and uploads it as
 `dagentsc-static`, which the `packaging` job puts into a Linux wheel.
 
