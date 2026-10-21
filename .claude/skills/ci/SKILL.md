@@ -374,18 +374,73 @@ runs `scripts/smoke_installed_package.py --expect-planner bundled`: the
 runner must find the bundled planner, the installed package must read no
 `env/` file, the Guard must get real decisions, the getting-started example
 must print the guide's outputs, and the LMA and GMA must answer `/health`
-without a planner warning. The smoke test's first check reads the `dagents`
-distribution's `RECORD`: it may list only `dagents/`, its `.dist-info`, its
-two commands and the bytecode pip compiled. With `PYTHONPYCACHEPREFIX` set,
-pip writes that bytecode outside site-packages, so the check allows `.pyc`
-files there and in `__pycache__` folders. Python never imports such a file as
-a module of its own. A wheel built from the sdist without a planner must
-make the Guard deny and each agent log that it has no planner
-(`--expect-planner none`). Last, the job installs the wheel with all its
-extras on Python 3.13, removes the package, and runs
-`dagents/tests` from the checkout on those newest versions, with the planner
-and chart skips forbidden. The release workflow runs the build and smoke
-checks on each platform before it publishes.
+without a planner warning. Then the smoke test runs the installed commands
+the way the guide does:
+
+- **Exit statuses.** With `DAGENTSC_TIMEOUT_SECONDS=0`, `dagents-lma` and
+  `dagents-gma` must exit with status 1 and print one line that names the
+  variable, as `docs/guide/08-deploy.md` states. With `GMA_ENGINE=bogus`,
+  `dagents-gma` must exit with status 1 and name `GMA_ENGINE`. That case
+  prints uvicorn's traceback, because the GMA reads its settings when uvicorn
+  imports the app, so the check allows one there.
+- **The guide's section 5 command.** The script reads the command that
+  starts `dagents-lma` with the example's extension from
+  `docs/guide/00-install.md` and runs it in the repository's root. Before it
+  starts the LMA, it runs the environment's Python with the guide's settings
+  and a command's import path (`-P`, then the commands' folder first), and
+  `import dagents` must load the installed package, not the clone's. Then
+  `GET /api/v1/extensions` must list the extension, and the LMA must log no
+  planner warning. The processes the script starts get no folder on `PATH`
+  that holds a `dagentsc`. Without that, an LMA that imported `dagents` from
+  the clone would still find a planner on `PATH`, log no warning, and pass.
+- **A federated study over HTTP.** `dagents-gma` with `GMA_ENGINE=http` and
+  two `dagents-lma` processes start from their environment variables, require
+  tokens and load the toy extension (`dagents/tests/fixtures/toy_extension.py`,
+  copied out of the repository because the wheel has no tests) from
+  `PYTHONPATH`. Through the installed `AgentNetwork.over_http`, the script
+  runs an evaluation round, a training round whose updates go to the GMA, a
+  validation round, the release evaluation and the approval. Each LMA must
+  then use the released version, each site's job log must hold its three
+  jobs, every audit chain must verify, a call without a token must answer
+  401, and no agent may log that it has no planner. The commands bind their
+  own ports, so the script chooses free ports first. When another process
+  takes one of them, the script starts all three agents again, up to three
+  times. Before this check, a study between agent processes ran only from the
+  checkout (`OverHttpStudyTests`), with `dagents` imported from the source
+  tree.
+
+These checks add about 7 seconds to each environment. The smoke test's first
+check reads the `dagents` distribution's `RECORD`: it may list only
+`dagents/`, its `.dist-info`, its two commands and the bytecode pip compiled.
+With `PYTHONPYCACHEPREFIX` set, pip writes that bytecode outside
+site-packages, so the check allows `.pyc` files there and in `__pycache__`
+folders. Python never imports such a file as a module of its own. A wheel
+built from the sdist without a planner must make the Guard deny and each
+agent log that it has no planner (`--expect-planner none`). In its study, a
+round dispatch must answer `503` with the code `planner_unavailable`, and
+each site's Guard probe over HTTP must be denied. One more environment
+installs the wheel without extras, as `pip install dagents` does
+(`--no-extras`): steps 1 to 4 of the example must print the guide's outputs
+with pydantic alone, and each command must exit with status 2 and print the
+`pip install` command for its extra.
+`tests/test_packaging.py` (`SmokeChecksTests`) runs these checks against
+stand-in commands. It shows that a check fails on a wrong exit status, a
+traceback, an agent that cannot start, a port that stays taken, or a guide
+command that imports the clone's `dagents` while a `dagentsc` is on `PATH`,
+and that the three agents get matching tokens and addresses. It also checks
+that the toy extension imports only the standard library and
+`dagents.common`, and that the `packaging` job keeps the step without
+extras. Last, the job installs the wheel with all its extras on Python 3.13,
+removes the package, and runs `dagents/tests` from the checkout on those
+newest versions, with the planner and chart skips forbidden. The release
+workflow runs the build and the smoke checks with the extras, the study
+included, on each platform and on Python 3.11 and 3.13 before it publishes.
+
+What these checks leave out: the study keeps every store in memory, and no
+check starts the installed agents with the `postgres` extra or a database.
+So the Postgres stores are tested only from the checkout (`dagents/tests`).
+The study without a planner and the environment without extras run on Linux
+x86_64 only.
 
 The same step caught a missing extra. `compose_apply.py` imports PyYAML only
 when it parses a Compose file, and the agents job installs PyYAML by hand, so

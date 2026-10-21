@@ -895,7 +895,10 @@ jobs:
       - name: Install the wheel into clean environments and run the smoke test
         # Outside the checkout, with no PYTHONPATH and no DAGENTSC_BIN, so the
         # runner must find the planner inside the wheel. The wheel built
-        # without a planner must make the Guard deny.
+        # without a planner must make the Guard deny. In each environment the
+        # smoke test also starts the installed dagents-gma and two dagents-lma
+        # processes and runs a federated study between them over HTTP. Without
+        # a planner, the GMA must refuse the round and each Guard must deny.
         run: |
           wheel=$(ls "${GITHUB_WORKSPACE}"/dist/*.whl)
           for version in 3.11 3.12 3.13; do
@@ -912,6 +915,19 @@ jobs:
           (cd "${RUNNER_TEMP}" && env -u PYTHONPATH -u DAGENTSC_BIN "${venv}/bin/python" -I \
             "${GITHUB_WORKSPACE}/scripts/smoke_installed_package.py" \
             --repo "${GITHUB_WORKSPACE}" --expect-planner none)
+
+      - name: Install the wheel without extras and run the smoke test
+        # pip install dagents installs pydantic only. The Guard and steps 1 to
+        # 4 of the getting-started example must work with it, and
+        # dagents-lma and dagents-gma must exit with status 2 and print the
+        # pip install command for their extra.
+        run: |
+          venv="${RUNNER_TEMP}/smoke-no-extras"
+          python -m venv "${venv}"
+          "${venv}/bin/python" -m pip install --quiet "$(ls "${GITHUB_WORKSPACE}"/dist/*.whl)"
+          (cd "${RUNNER_TEMP}" && env -u PYTHONPATH -u DAGENTSC_BIN "${venv}/bin/python" -I \
+            "${GITHUB_WORKSPACE}/scripts/smoke_installed_package.py" \
+            --repo "${GITHUB_WORKSPACE}" --expect-planner bundled --no-extras)
 
       - name: Install the wheel next to openai-agents and run the smoke test
         # openai-agents installs a top-level module named agents, the old name
