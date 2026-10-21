@@ -391,6 +391,11 @@ The tests never enter records, record outcomes or approve models, so they change
 no hospital's records. Their probes and pilot add audit records and model
 versions, as a visitor's do.
 
+The workflow also runs every day at 06:41 UTC. That run sets
+`HEALTHCARE_DEPLOYED_API_READ_ONLY=1`, which skips the five tests that send a
+probe or run a pilot, so it adds no audit record and no model version. A manual
+run runs every test.
+
 To run it yourself against any deployment:
 
 ```bash
