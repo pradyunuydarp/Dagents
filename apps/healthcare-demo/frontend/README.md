@@ -38,9 +38,12 @@ In Chromium, the check then:
    recorded overview and status;
 3. asks the Guard every combination the page offers: each hospital, both
    values of "Requester verified", each granularity in the list and each
-   cohort size the recording holds. Each answer must show the recorded
-   decision, `systolic_bp` strategy and count of released records, and none
-   may say "Not recorded";
+   cohort size the recording holds. It changes one control between two asks,
+   so a page that sends an old value of a control fails. Each answer must come
+   from the chosen hospital's Guard, as the note under the decision and the
+   "Dagents API calls" table name it. It must show the recorded decision,
+   `systolic_bp` strategy and count of released records, and none may say
+   "Not recorded";
 4. asks for a cohort size the recording lacks and checks the "Not recorded"
    note, which lists the sizes it holds;
 5. checks each hospital page and the consortium charts before the pilot, runs
@@ -61,7 +64,7 @@ In Chromium, the check then:
 When a check stops the run, the drive prints the first console errors and
 requests it collected until then.
 
-A run took 18 to 31 seconds on a machine with 4 CPUs that other jobs shared.
+A run took 13 to 31 seconds on a machine with 4 CPUs that other jobs shared.
 
 ### Run it locally
 
@@ -107,6 +110,12 @@ server with Ctrl-C, it lists every API request the page sent.
   with `src/components/GuardProbe.tsx`, then record again.
   `tests/test_replay_wiring.py` compares the two bodies, and the pilot's,
   without a browser.
+- **The Guard answers from another hospital, or with another request's
+  answer.** The page sent an old value of a control, or picked the wrong
+  recorded answer. Two causes are a control missing from the dependency list
+  of the `useCallback` in `src/components/GuardProbe.tsx`, and a change to how
+  `keyFor` in `src/api.ts` matches a body. The failure line names the control
+  the drive changed before that ask.
 - **A page shows an error banner.** The UI sends a GET the recording does not
   hold, for example after a change to a query string. The hospital-page paths
   are defined once, in `capture_demo_recordings.hospital_view_paths`.

@@ -16,10 +16,14 @@
  *   2. the Guard answers every combination the page offers: each hospital,
  *      both values of "Requester verified", each granularity in the list and
  *      each cohort size the recording holds (read from the recording, as the
- *      page does). Each answer shows the recorded decision, the recorded
- *      systolic_bp strategy and the recorded count of released records, and
- *      none says "Not recorded". The page matches a probe by its exact body,
- *      so a key added to or removed from the body the page sends fails here;
+ *      page does). Each answer comes from the chosen hospital's Guard, as the
+ *      note under the decision and the "Dagents API calls" table name it, and
+ *      shows the recorded decision, the recorded systolic_bp strategy and the
+ *      recorded count of released records. None says "Not recorded". The
+ *      drive changes one control between two asks, so a page that sends an
+ *      old value of a control fails. The page matches a probe by its exact
+ *      body, so a key added to or removed from the body the page sends fails
+ *      here;
  *   3. a cohort size the recording lacks shows the "Not recorded" note with
  *      the sizes it holds;
  *   4. before the pilot, each hospital page and the consortium charts show
@@ -419,20 +423,33 @@ try {
     hospitalOptions.join(", "),
   );
 
+  // The three hospitals' answers often hold the same decision, strategy and
+  // count, so these alone cannot show which Guard answered. The page names it
+  // twice: in the note under the decision ("Answer from <name>'s Guard") and
+  // in the LMA rows of its "Dagents API calls" table.
   const readOutcome = () =>
     guard.evaluate((panel) => {
       const outcome = panel.querySelector(".outcome");
       const row = [...outcome.querySelectorAll("table.restrictions tbody tr")].find(
         (tr) => tr.querySelector("td")?.textContent.trim() === "systolic_bp",
       );
+      const note = [...outcome.querySelectorAll("p")]
+        .map((p) => p.textContent.replace(/\s+/g, " ").trim())
+        .find((text) => text.startsWith("Answer from "));
       return {
         decision: outcome.querySelector(".verdict strong")?.textContent.trim() ?? null,
         strategy: row ? (row.querySelector("td.strategy")?.textContent.trim() ?? null) : null,
         released: outcome.querySelector('[data-released="records"]')?.textContent.trim() ?? null,
+        answeredBy: note?.match(/^Answer from (.+?)['’]s Guard\./)?.[1] ?? null,
+        lmaSites: [...outcome.querySelectorAll('[data-api-calls] tr[data-call-service="lma"]')].map((tr) =>
+          tr.getAttribute("data-call-site"),
+        ),
         notRecorded: outcome.querySelector(".banner.recorded")?.textContent.trim() ?? null,
         error: outcome.querySelector(".banner.error")?.textContent.trim() ?? null,
       };
     });
+  /** The site id of a hospital the page names. The page shows the id itself for a hospital it does not list. */
+  const siteNamed = (name) => overview.hospitals.find((hospital) => hospital.display_name === name)?.site_id ?? name;
 
   const probeFor = (site, verified, granularity, cohort) =>
     probes.find(
@@ -443,58 +460,98 @@ try {
         e.request.cohort_size === cohort,
     );
 
+  /**
+   * Every combination of the controls, in an order where each combination
+   * differs from the one before it in exactly one control. `lists` runs from
+   * the control that changes least often to the one that changes most often.
+   *
+   * The panel builds its request in a React callback. If a control were
+   * missing from that callback's list of dependencies, the page would send
+   * the control's old value, but only when it is the one control changed
+   * since the last ask. Changing one control at a time shows that mistake.
+   */
+  const oneChangeAtATime = (lists) => {
+    if (lists.length === 0) return [[]];
+    const [first, ...rest] = lists;
+    const tail = oneChangeAtATime(rest);
+    return first.flatMap((value, i) => (i % 2 === 0 ? tail : [...tail].reverse()).map((combo) => [value, ...combo]));
+  };
+
   let asked = 0;
   const wrong = [];
-  let current = { site: null, verified: null, granularity: null };
-  answers: for (const site of hospitalOptions) {
-    for (const verified of [true, false]) {
-      for (const granularity of granularities) {
-        for (const cohort of cohorts) {
-          if (current.site !== site) await hospitalSelect.selectOption(site);
-          if (current.verified !== verified) await (verified ? verifiedBox.check() : verifiedBox.uncheck());
-          if (current.granularity !== granularity) await granularitySelect.selectOption(granularity);
-          current = { site, verified, granularity };
-          await cohortInput.fill(String(cohort));
-          const label = `${site} verified=${verified} ${granularity} cohort=${cohort}`;
-          try {
-            await clickAndSettle(askButton);
-          } catch (error) {
-            wrong.push(`${label}: ${error.message}`);
-            if (wrong.length >= MAX_WRONG_ANSWERS) break answers;
-            continue;
-          }
-          asked += 1;
-          const shown = await readOutcome();
-          const answer = probeFor(site, verified, granularity, cohort)?.response;
-          if (!answer) {
-            wrong.push(`${label}: the recording has no answer for a combination the page offers`);
-            if (wrong.length >= MAX_WRONG_ANSWERS) break answers;
-            continue;
-          }
-          const decision = String(answer.plan?.decision ?? "").toUpperCase();
-          const strategy =
-            answer.plan?.field_restrictions?.find((item) => item.field === "systolic_bp")?.strategy ?? null;
-          const released = String(answer.released_count);
-          if (shown.notRecorded) wrong.push(`${label}: the page says "Not recorded"`);
-          else if (shown.error) wrong.push(`${label}: ${shown.error}`);
-          else if (shown.decision !== decision)
-            wrong.push(`${label}: decision ${shown.decision}, recorded ${decision}`);
-          else if (shown.strategy !== strategy)
-            wrong.push(`${label}: systolic_bp ${shown.strategy}, recorded ${strategy}`);
-          else if (shown.released !== released)
-            wrong.push(`${label}: released ${shown.released}, recorded ${released}`);
-          if (wrong.length >= MAX_WRONG_ANSWERS) break answers;
-        }
-      }
+  let current = { site: null, verified: null, granularity: null, cohort: null };
+  // How often each control was the only one changed before an ask.
+  const alone = { hospital: 0, verified: 0, granularity: 0, cohort: 0 };
+  for (const [granularity, cohort, verified, site] of oneChangeAtATime([
+    granularities,
+    cohorts,
+    [true, false],
+    hospitalOptions,
+  ])) {
+    const changed = [];
+    if (current.site !== site) {
+      await hospitalSelect.selectOption(site);
+      changed.push("hospital");
     }
+    if (current.verified !== verified) {
+      await (verified ? verifiedBox.check() : verifiedBox.uncheck());
+      changed.push("verified");
+    }
+    if (current.granularity !== granularity) {
+      await granularitySelect.selectOption(granularity);
+      changed.push("granularity");
+    }
+    if (current.cohort !== cohort) {
+      await cohortInput.fill(String(cohort));
+      changed.push("cohort");
+    }
+    if (changed.length === 1) alone[changed[0]] += 1;
+    current = { site, verified, granularity, cohort };
+    const label = `${site} verified=${verified} ${granularity} cohort=${cohort} (changed: ${changed.join(", ") || "nothing"})`;
+    try {
+      await clickAndSettle(askButton);
+    } catch (error) {
+      wrong.push(`${label}: ${error.message}`);
+      if (wrong.length >= MAX_WRONG_ANSWERS) break;
+      continue;
+    }
+    asked += 1;
+    const shown = await readOutcome();
+    const answer = probeFor(site, verified, granularity, cohort)?.response;
+    if (!answer) {
+      wrong.push(`${label}: the recording has no answer for a combination the page offers`);
+      if (wrong.length >= MAX_WRONG_ANSWERS) break;
+      continue;
+    }
+    const decision = String(answer.plan?.decision ?? "").toUpperCase();
+    const strategy = answer.plan?.field_restrictions?.find((item) => item.field === "systolic_bp")?.strategy ?? null;
+    const released = String(answer.released_count);
+    const answeredBy = shown.answeredBy === null ? null : siteNamed(shown.answeredBy);
+    if (shown.notRecorded) wrong.push(`${label}: the page says "Not recorded"`);
+    else if (shown.error) wrong.push(`${label}: ${shown.error}`);
+    else if (
+      answeredBy !== site ||
+      answer.site_id !== site ||
+      shown.lmaSites.length === 0 ||
+      shown.lmaSites.some((called) => called !== site)
+    )
+      wrong.push(
+        `${label}: answer from ${answeredBy ?? "no hospital"}, ` +
+          `LMA calls to ${shown.lmaSites.join(", ") || "none"}, recorded answer from ${answer.site_id}`,
+      );
+    else if (shown.decision !== decision) wrong.push(`${label}: decision ${shown.decision}, recorded ${decision}`);
+    else if (shown.strategy !== strategy) wrong.push(`${label}: systolic_bp ${shown.strategy}, recorded ${strategy}`);
+    else if (shown.released !== released) wrong.push(`${label}: released ${shown.released}, recorded ${released}`);
+    if (wrong.length >= MAX_WRONG_ANSWERS) break;
   }
   const combinations = hospitalOptions.length * 2 * granularities.length * cohorts.length;
   check(
-    `the Guard answers all ${combinations} combinations with the recorded decision and systolic_bp strategy`,
+    `the chosen hospital's Guard answers all ${combinations} combinations, with the recorded decision, systolic_bp strategy and released count`,
     wrong.length === 0 && asked === combinations && combinations > 0,
     wrong.length
       ? `${wrong.length} wrong, first: ${wrong.slice(0, 3).join(" | ")}`
-      : `${asked} answers, cohort sizes ${cohorts.join(", ")}`,
+      : `${asked} answers, cohort sizes ${cohorts.join(", ")}; asks after a change of one control only: ` +
+          `hospital ${alone.hospital}, "Requester verified" ${alone.verified}, cohort size ${alone.cohort}, granularity ${alone.granularity}`,
   );
 
   // 3. A cohort size the recording lacks.

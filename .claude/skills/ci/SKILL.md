@@ -424,15 +424,18 @@ Defence:
 - `apps/healthcare-demo/frontend/replay-smoke.mjs` serves a replay build with
   `serve-dist.mjs` under the base path, where a missing file answers 404, as
   on Pages. It asks the Guard every combination the page offers, with the
-  cohort sizes read from the recording, runs the pilot, opens every hospital
-  page before and after it, and compares each chart with the recorded SVG in
-  both themes. It checks that the entry form and the panel to add a hospital
-  are turned off and say why, and that each hospital page lists the entered
-  records the recording holds and says the replay cannot store an outcome. It
-  fails on any API request, any request to another origin except the web
-  fonts, and any console error. When a check stops the run, it prints the
-  console errors and requests collected so far, which usually name the cause.
-  Without a browser it prints `SKIP` and exits 2, like the smoke test.
+  cohort sizes read from the recording. It changes one control between two
+  asks and checks that the chosen hospital's Guard answered, so a page that
+  sends an old value of a control, or picks another hospital's answer, fails.
+  It runs the pilot, opens every hospital page before and after it, and
+  compares each chart with the recorded SVG in both themes. It checks that
+  the entry form and the panel to add a hospital are turned off and say why,
+  and that each hospital page lists the entered records the recording holds
+  and says the replay cannot store an outcome. It fails on any API request,
+  any request to another origin except the web fonts, and any console error.
+  When a check stops the run, it prints the console errors and requests
+  collected so far, which usually name the cause. Without a browser it
+  prints `SKIP` and exits 2, like the smoke test.
   `apps/healthcare-demo/frontend/README.md` lists every check.
 - The `frontends` job captures a recording on a port the system picks, checks
   it, builds a replay copy into `$RUNNER_TEMP`, and runs the drive in a step
