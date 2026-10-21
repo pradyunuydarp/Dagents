@@ -7,6 +7,38 @@
   such a number now ends as a `failed` result whose reason names the
   `ValidationError`, and `jobs:execute` and `jobs:run` answer 200. Before, the
   job log refused the result and the call answered 500.
+- Each planner call has limits: `DAGENTSC_TIMEOUT_SECONDS` (default 10),
+  `DAGENTSC_MAX_INPUT_BYTES` and `DAGENTSC_MAX_OUTPUT_BYTES` (default 16 MiB
+  each). The runner stops a planner that runs past the timeout or prints too
+  much, with every process it started, and refuses an input over its limit
+  before the planner starts. Each is a planner failure: the Guard denies the
+  request and records the denial. Before, a planner that hung blocked the
+  caller with no limit.
+- Every audit record names the planner: `planner_version` (the `dagents`
+  version) and `planner_sha256` (the SHA-256 of the planner binary), denials
+  included. Records stored before have neither field, and their chains still
+  verify, in memory and in Postgres.
+- `DAGENTSC_SHA256` pins the planner binary's SHA-256. With another hash the
+  runner starts no planner, the Guard denies every request, and the LMA logs
+  its "has no planner" warning with both hashes when it is built.
+- The LMA refuses to start when a planner limit is zero, negative or not a
+  number, or when `DAGENTSC_SHA256` is not 64 hexadecimal digits.
+- The Guard denies a request whose plan names a strategy it cannot apply (an
+  unknown name, a missing or extra parameter, or a `generalize` level above
+  308), and records the denial. Before, it withheld that field and applied the
+  rest of the plan. For the same reason, `GET /site/summary` reports such a
+  plan's label rate as `withheld`.
+- The Guard denies a request, and records the denial, when applying the plan to
+  the records fails, for example on an integer too large for a float. Before,
+  `enforce` raised and wrote no audit record.
+- A planner answer that nests more than 200 levels deep is a planner failure,
+  on every supported Python version: a planner route answers `503`
+  `planner_unavailable`. So does `restrictions:plan` when the planner's answer
+  is not a restriction plan. Before, both answered `500`.
+- The runner hashes only a regular file. A `DAGENTSC_BIN` that names a device
+  or a FIFO has no hash, and the Guard denies at once. The hash is kept per
+  path, size, modification time and change time, so a binary rewritten in place
+  with its old modification time is hashed again.
 - The Postgres job log and audit sink check their table names with one shared
   helper, `table_identifier` in `dagents/common/infrastructure/postgres_roles.py`.
   They accept and refuse the same names as before. The audit sink's error now

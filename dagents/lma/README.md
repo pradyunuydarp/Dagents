@@ -66,9 +66,10 @@ settings are closed when it shuts down under uvicorn.
 `examples/getting-started/shop/agents.py` builds two LMAs and a GMA this way.
 
 The Docker image (`dagents/lma/Dockerfile`) builds `dagentsc` in a first stage
-and copies it onto `PATH`. Without the planner the Guard denies every request
-and every federated job is refused, and the LMA logs a warning when it is
-built.
+and copies it onto `PATH`. Without the planner, or with a planner file whose
+SHA-256 is not the one `DAGENTSC_SHA256` requires, the Guard denies every
+request and every federated job is refused, and the LMA logs a warning when it
+is built.
 
 ## Settings
 
@@ -96,9 +97,21 @@ environment.
 | `LMA_REQUIRE_TOKENS` | `0` | `1` refuses to start without a token |
 | `LMA_SOURCE_MAX_STALENESS_MS` | `30000` | How long the LMA keeps the records it read before it asks the source for its version again |
 | `LMA_STATEMENT_TIMEOUT_MS` | `15000` | The statement timeout of each database operation |
+| `DAGENTSC_BIN` | none | The planner to start. Without it, the planner in the package, then `dagentsc` on `PATH` |
+| `DAGENTSC_SHA256` | none | The SHA-256 the planner file must have, as 64 hexadecimal digits. With another hash the runner starts no planner, so the Guard denies every request |
+| `DAGENTSC_TIMEOUT_SECONDS` | `10` | How long one planner call may run, in seconds. The runner stops a call past it, and the Guard denies the request |
+| `DAGENTSC_MAX_INPUT_BYTES`, `DAGENTSC_MAX_OUTPUT_BYTES` | `16777216` each | The most bytes one planner call may send the planner, and the most the planner may print. Past either, the Guard denies the request |
 
 `env/.env.lma` sets only the names, the port and the GMA address. Set the rest
 in the environment; never commit a token or a database address.
+
+The `DAGENTSC_*` settings are read by the planner runner, so they apply to
+every Dagents process that calls the planner. The LMA refuses to start when a
+limit is zero, negative or not a number, or when `DAGENTSC_SHA256` is not 64
+hexadecimal digits: `create_app` raises `ValueError` with the variable's name,
+and `dagents-lma` prints it and exits with status 1. The guide's
+[Planner settings](../../docs/guide/08-deploy.md#planner-settings) section
+explains the defaults and how to pin the hash.
 
 ## Postgres tables
 

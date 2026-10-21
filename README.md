@@ -140,8 +140,9 @@ These are the two parts an application would otherwise build itself:
   requester is trusted, and how much data is requested. The Ethical Guard
   applies the decision and writes it to an audit log. The planner is OCaml, so
   adding a sensitivity level or a strategy does not compile until every
-  combination is handled. If the planner cannot be reached, the Guard denies the
-  request.
+  combination is handled. If the planner cannot be reached or does not answer
+  within its time limit, the Guard denies the request and records the denial.
+  Each audit record names the planner that decided.
 - **Federated rounds.** Round manifests with a digest, site eligibility, quorum,
   aggregation readiness and release gates. Dagents decides who may take part and
   whether a result may be released. The training protocol itself belongs to a

@@ -631,6 +631,8 @@
         "/records/*/recorded_at",
         "/records/*/digest",
         "/records/*/previous_digest",
+        "/records/*/planner_version",
+        "/records/*/planner_sha256",
         "/records/*/request_id",
         "/records/*/obligations/0",
         "/framework_calls/*/ms"

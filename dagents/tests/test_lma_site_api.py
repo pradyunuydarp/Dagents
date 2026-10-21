@@ -28,6 +28,7 @@ from fastapi import Depends, FastAPI, Request
 from fastapi.responses import JSONResponse, Response
 from fastapi.testclient import TestClient
 
+from dagents.common.application import ethical_guard
 from dagents.common.domain.federation import ModelReleaseDecision, ModelVersion, UpdateUpload
 from dagents.common.domain.governance import KyuAttribute, Requester
 from dagents.common.extensions import ExtensionRegistry
@@ -542,6 +543,28 @@ class SiteRoutesTests(unittest.TestCase):
         self.assertEqual("withheld", summary["label_rate_status"])
         self.assertIsNone(summary["label_rate"])
         # A withheld status is not kept: the next call asks the planner again.
+        self.assertEqual("released", lma.get("/api/v1/site/summary").json()["label_rate_status"])
+
+    def test_summary_withholds_the_rate_when_the_plan_names_a_strategy_the_guard_cannot_apply(self) -> None:
+        """The Guard denies such a plan, so the label rate must not leave on it either."""
+        lma = self.harness()
+        real = ethical_guard.plan_restrictions
+        changed: list[str] = []
+
+        def with_an_unknown_strategy(request: dict[str, Any]) -> dict[str, Any]:
+            plan = real(request)
+            for restriction in plan["field_restrictions"]:
+                restriction["strategy"] = "blur:2"
+                changed.append(restriction["field"])
+            return plan
+
+        with patch.object(ethical_guard, "plan_restrictions", with_an_unknown_strategy):
+            summary = lma.get("/api/v1/site/summary").json()
+        self.assertEqual([TOY_LABEL_FIELD], changed, "the plan must restrict the label field for this test to mean anything")
+        self.assertEqual("withheld", summary["label_rate_status"])
+        self.assertIsNone(summary["label_rate"])
+        self.assertIsNone(summary["planner_reason"])
+        # Not kept either: the next call asks the planner again.
         self.assertEqual("released", lma.get("/api/v1/site/summary").json()["label_rate_status"])
 
     def test_summary_and_info_write_no_audit_record(self) -> None:

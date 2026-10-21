@@ -98,13 +98,20 @@ Check what you installed:
 .venv/bin/python -m dagents
 ```
 
-When the wheel has the planner, the command prints the installed version and
-the planner's path (shortened here):
+When the wheel has the planner, the command prints the installed version, the
+planner's path, the SHA-256 of the planner file and the limits of each planner
+call (the path and the hash are shortened here):
 
 ```text
 dagents 0.1.0a1
 planner: .../site-packages/dagents/_bin/dagentsc (the planner bundled with this package)
+planner sha256: ...
+planner limits: 10 seconds per call, 16777216 bytes of input, 16777216 bytes of output
 ```
+
+The hash is the one the release's `SHA256SUMS` file lists for your platform's
+planner, because the wheel holds that same file. 0.1.0a1 prints only the first
+two lines; the hash and the limits come with the next release.
 
 Without a planner it prints:
 
@@ -115,7 +122,9 @@ Without a planner the Ethical Guard denies every request.
 ```
 
 The command exits with status 0 when it finds a planner it can run, and 1 when
-it does not. It starts nothing and reads no data, so you can run it in a
+it does not. It also exits with status 1 when a planner setting is wrong
+([Step 8, Planner settings](08-deploy.md#planner-settings)). It starts nothing
+and reads no data except the planner file, which it hashes, so you can run it in a
 container build or a CI job to stop when the planner is missing.
 
 ### Use a planner from somewhere else

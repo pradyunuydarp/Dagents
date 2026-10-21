@@ -8,8 +8,10 @@ answers the caller.
 Because the two are separate, a policy change is a change to a classification
 or a knowledge base. The code paths that read records do not change.
 
-The Guard **fails closed**. If the planner cannot be reached, the Guard denies
-the request and records the failure.
+The Guard **fails closed**. If the planner cannot be reached, runs past its
+limits, answers with something that is not a plan, or sends a plan with a
+strategy the Guard cannot apply, or if applying the plan to the records fails,
+the Guard denies the request and records the denial.
 """
 
 from __future__ import annotations
@@ -22,7 +24,11 @@ import random
 import threading
 import time
 import uuid
+from collections.abc import Mapping
+from types import MappingProxyType
 from typing import Any, NamedTuple, Protocol
+
+from pydantic import ValidationError
 
 from dagents.common.domain.governance import (
     AuditRecord,
@@ -30,7 +36,12 @@ from dagents.common.domain.governance import (
     RestrictionPlan,
     RestrictionRequest,
 )
-from dagents.common.infrastructure.dagents_runner import plan_restrictions
+from dagents.common.infrastructure.dagents_runner import (
+    PlannerIdentity,
+    PlannerUnavailableError,
+    plan_restrictions,
+    planner_identity,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -64,7 +75,13 @@ class AuditSink(Protocol):
 
 
 class RestrictionPlanner(Protocol):
-    """The Rails, as the Guard sees them."""
+    """The Rails, as the Guard sees them.
+
+    A planner may also have an ``identity()`` method that returns a
+    :class:`~dagents.common.infrastructure.dagents_runner.PlannerIdentity`.
+    The Guard asks for it before each plan and writes it into the audit
+    record, so the record names the planner that decided, or failed to.
+    """
 
     def plan(self, request: RestrictionRequest) -> RestrictionPlan:
         """Return the restriction plan for one request."""
@@ -79,8 +96,47 @@ class DagentscRestrictionPlanner:
     """
 
     def plan(self, request: RestrictionRequest) -> RestrictionPlan:
+        """Ask the planner for the plan.
+
+        Raises :class:`PlannerUnavailableError` when the planner cannot be run
+        or its answer is not a restriction plan. The message names the fields
+        that are wrong, never a value from the answer, which can repeat the
+        request.
+        """
         payload = plan_restrictions(request.model_dump(mode="json"))
-        return RestrictionPlan.model_validate(payload)
+        try:
+            return RestrictionPlan.model_validate(payload)
+        except ValidationError as error:
+            raise PlannerUnavailableError(_not_a_plan(error)) from None
+
+    def identity(self) -> PlannerIdentity:
+        """The planner the next call starts: this package's version and the binary's SHA-256."""
+        return planner_identity()
+
+
+#: How many wrong fields a "not a plan" message names.
+_FIELDS_NAMED = 10
+
+
+def _not_a_plan(error: ValidationError) -> str:
+    """Why the planner's answer is not a plan: the number of errors and the fields they are at.
+
+    The locations are the plan's own field names and list positions;
+    ``RestrictionPlan`` has no map, so none of them comes from the answer.
+    """
+    places = sorted({".".join(str(part) for part in item["loc"]) or "the answer" for item in error.errors()})
+    named = ", ".join(places[:_FIELDS_NAMED]) + (", ..." if len(places) > _FIELDS_NAMED else "")
+    count = error.error_count()
+    return f"dagentsc's answer is not a restriction plan: {count} validation error{'' if count == 1 else 's'} at {named}"
+
+
+#: Audit record fields added after audit chains were first stored. The digest
+#: leaves out each one whose value is None (null in JSON), so a record written
+#: before the field existed, which has no such key, still hashes to the digest
+#: it was stored with. A record that has a value is hashed with it, so removing
+#: or changing the value breaks the chain like any other edit. A field added to
+#: ``AuditRecord`` later belongs here too, or every stored chain stops verifying.
+DIGEST_FIELDS_LEFT_OUT_WHEN_NULL = ("planner_version", "planner_sha256")
 
 
 def audit_digest(record: AuditRecord) -> str:
@@ -91,7 +147,9 @@ def audit_digest(record: AuditRecord) -> str:
 
     The hash covers the model's own dump, not a hand-written field list. A
     hand-written list once left out ``obligations``, so the Guard's duties could
-    be changed without breaking the chain.
+    be changed without breaking the chain. The fields in
+    :data:`DIGEST_FIELDS_LEFT_OUT_WHEN_NULL` are left out when they are None,
+    so chains stored before those fields existed still verify.
 
     The material is JSON with sorted keys. Joining lists on a comma would make
     ``["a,b"]`` and ``["a", "b"]`` hash the same.
@@ -104,6 +162,9 @@ def audit_digest(record: AuditRecord) -> str:
     - the SHA-256 hex digest.
     """
     material = record.model_dump(mode="json", exclude={"digest"})
+    for name in DIGEST_FIELDS_LEFT_OUT_WHEN_NULL:
+        if material.get(name) is None:
+            material.pop(name, None)
     return hashlib.sha256(
         json.dumps(material, sort_keys=True, separators=(",", ":")).encode("utf-8")
     ).hexdigest()
@@ -176,6 +237,74 @@ class InMemoryAuditLog:
             previous = record.digest
         self._verified = records
         return True
+
+
+#: Each strategy the Guard can apply, and whether it takes a parameter
+#: (``"generalize:1"``) or none (``"redact"``). The names are the planner's own,
+#: from ``string_of_restriction_strategy`` in ``bindings/ocaml/lib/common_ir``;
+#: a test reads that function and compares the two.
+STRATEGY_PARAMETERS: Mapping[str, bool] = MappingProxyType(
+    {
+        "allow_full": False,
+        "generalize": True,
+        "clip_contribution": True,
+        "add_noise": True,
+        "aggregate_only": True,
+        "redact": False,
+        "refuse": False,
+    }
+)
+
+#: The reason a denial gives when the planner cannot be reached or its answer cannot be read.
+PLANNER_UNREACHABLE = "The planner could not be reached, so the Guard denied the request."
+
+#: The reason a denial gives when the plan names a strategy the Guard cannot apply.
+PLAN_NOT_APPLICABLE = "The planner's plan names a strategy the Guard cannot apply, so the Guard denied the request."
+
+#: The reason a denial gives when applying a usable plan to the records fails,
+#: for example on an integer too large to convert to a float.
+PLAN_FAILED_ON_RECORDS = "The Guard could not apply the planner's plan to these records, so the Guard denied the request."
+
+#: The highest ``generalize`` level the Guard applies. A numeric value is
+#: rounded to a multiple of 10 to the power of the level, as a float, and 10**308
+#: is the largest power of ten a float holds. The planner sends level 1.
+MAX_GENERALIZE_LEVEL = 308
+
+
+def unusable_restrictions(plan: RestrictionPlan) -> list[str]:
+    """The ``field: strategy`` pairs of a plan that the Guard cannot apply.
+
+    A strategy is unusable when its name is not in :data:`STRATEGY_PARAMETERS`,
+    when it needs a parameter and has none that reads as a finite number, when
+    it takes no parameter and has one, or when it is a ``generalize`` level
+    above :data:`MAX_GENERALIZE_LEVEL`. A planner newer or older than this
+    package can send such a plan; applying the rest of it would enforce only
+    part of what was decided. The Guard denies a request whose plan has any,
+    and code that acts on a plan without the Guard, such as an LMA deciding
+    whether its label rate may leave the site, treats such a plan as no
+    answer.
+    """
+    unusable = []
+    for restriction in plan.field_restrictions:
+        name, separator, parameter = restriction.strategy.partition(":")
+        takes_parameter = STRATEGY_PARAMETERS.get(name)
+        if takes_parameter is None:
+            usable = False
+        elif takes_parameter:
+            try:
+                value = float(parameter)
+            except ValueError:
+                value = math.nan
+            usable = math.isfinite(value)
+            if usable and name == "generalize":
+                # Checked before any arithmetic: computing 10 ** level for a
+                # level such as 1e18 would never finish.
+                usable = int(value) <= MAX_GENERALIZE_LEVEL
+        else:
+            usable = not separator
+        if not usable:
+            unusable.append(f"{restriction.field}: {restriction.strategy}")
+    return unusable
 
 
 def _parse_strategy(strategy: str) -> tuple[str, float]:
@@ -331,14 +460,31 @@ class EthicalGuard:
 
         Output: a :class:`GuardDecision` carrying the surviving payload, what
         was withheld, and the audit id of the record written.
+
+        The audit record names the planner (see :meth:`_planner_identity`),
+        including when the planner failed and the decision is a denial.
         """
         records = payload or []
+        # Before the plan, so a denial for a planner that failed still names it.
+        identity = self._planner_identity()
         try:
             plan = self._planner.plan(request)
         except Exception as exc:  # noqa: BLE001 - the failure mode matters more than the type
             # Fail closed. A planner that cannot be reached is not permission to
             # proceed, and the denial is recorded like any other decision.
-            return self._deny_without_plan(request, exc, correlation_id)
+            logger.error("restriction planner failed for %s: %s", request.request_id, exc)
+            return self._deny_without_plan(request, correlation_id, identity=identity)
+
+        unusable = unusable_restrictions(plan)
+        if unusable:
+            # Fail closed here too: a plan the Guard can apply only in part is
+            # not the plan the planner decided.
+            logger.error(
+                "the restriction plan for %s names strategies the Guard cannot apply: %s",
+                request.request_id,
+                "; ".join(unusable),
+            )
+            return self._deny_without_plan(request, correlation_id, PLAN_NOT_APPLICABLE, identity=identity)
 
         if plan.decision == "deny":
             decision = GuardDecision(
@@ -352,9 +498,16 @@ class EthicalGuard:
                 audit_id="",
                 message="; ".join(plan.violations) or "the restriction planner denied this request",
             )
-            return self._record(decision, plan, request, correlation_id)
+            return self._record(decision, plan, request, correlation_id, identity=identity)
 
-        applied, withheld, transformed, accounting = self._apply(request, plan, records)
+        try:
+            applied, withheld, transformed, accounting = self._apply(request, plan, records)
+        except Exception as exc:  # noqa: BLE001 - any failure to apply the plan is a denial
+            # Fail closed: the Guard cannot say what it returned, so it returns
+            # nothing. Only the error's type is logged, because its message can
+            # quote a record value.
+            logger.error("the Guard could not apply the plan for %s: %s", request.request_id, type(exc).__name__)
+            return self._deny_without_plan(request, correlation_id, PLAN_FAILED_ON_RECORDS, identity=identity)
         decision = GuardDecision(
             request_id=request.request_id,
             boundary=request.boundary,
@@ -366,19 +519,43 @@ class EthicalGuard:
             audit_id="",
             message="permitted without modification" if plan.decision == "permit" else "permitted with restrictions",
         )
-        return self._record(decision, plan, request, correlation_id, accounting)
+        return self._record(decision, plan, request, correlation_id, accounting, identity=identity)
+
+    def _planner_identity(self) -> PlannerIdentity | None:
+        """Which planner this decision runs, or None for a planner that cannot say.
+
+        A planner without an ``identity()`` method, such as a test double,
+        gives None, and its records name no planner. A failure to read the
+        identity is logged and gives None too; it never stops the decision.
+        """
+        identify = getattr(self._planner, "identity", None)
+        if not callable(identify):
+            return None
+        try:
+            return identify()
+        except Exception as exc:  # noqa: BLE001 - naming the planner must not block a decision
+            logger.error("could not read which planner the Guard runs: %s", exc)
+            return None
 
     def _deny_without_plan(
-        self, request: RestrictionRequest, error: Exception, correlation_id: str | None
+        self,
+        request: RestrictionRequest,
+        correlation_id: str | None,
+        message: str = PLANNER_UNREACHABLE,
+        *,
+        identity: PlannerIdentity | None = None,
     ) -> GuardDecision:
-        """Build and record a denial for an unreachable or failing planner.
+        """Build and record a denial when the planner fails or its plan cannot be applied.
 
         The reason shown to callers and written to the audit chain is a plain
-        sentence. The error itself can name server paths, so it goes to the
-        log only.
+        sentence, ``message``. The error behind it can name server paths or
+        quote the request, so the caller logs it and it goes nowhere else.
         """
-        logger.error("restriction planner failed for %s: %s", request.request_id, error)
-        message = "The planner could not be reached, so the Guard denied the request."
+        rationale = (
+            "planner unavailable; trust could not be assessed"
+            if message == PLANNER_UNREACHABLE
+            else "the planner's plan could not be applied, so its assessment was not used"
+        )
         plan = RestrictionPlan(
             request_id=request.request_id,
             boundary=request.boundary,
@@ -386,7 +563,7 @@ class EthicalGuard:
                 "requester_id": request.requester.requester_id,
                 "kyu_score": 0.0,
                 "trust": "low",
-                "rationale": ["planner unavailable; trust could not be assessed"],
+                "rationale": [rationale],
             },
             granularity=request.granularity,
             field_restrictions=[],
@@ -406,7 +583,7 @@ class EthicalGuard:
             audit_id="",
             message=message,
         )
-        return self._record(decision, plan, request, correlation_id)
+        return self._record(decision, plan, request, correlation_id, identity=identity)
 
     def _record(
         self,
@@ -415,8 +592,14 @@ class EthicalGuard:
         request: RestrictionRequest,
         correlation_id: str | None,
         accounting: _Accounting | None = None,
+        *,
+        identity: PlannerIdentity | None = None,
     ) -> GuardDecision:
-        """Write the audit entry and stamp its id onto the decision."""
+        """Write the audit entry and stamp its id onto the decision.
+
+        ``identity`` names the planner in the record. It holds a version and
+        a hash, never a path, because the audit chain is shown to callers.
+        """
         record = self._audit.append(
             AuditRecord(
                 audit_id=uuid.uuid4().hex,
@@ -435,6 +618,8 @@ class EthicalGuard:
                 contribution_norm_before=accounting.norm_before if accounting else None,
                 contribution_norm_after=accounting.norm_after if accounting else None,
                 contribution_strategies=list(accounting.strategies) if accounting else [],
+                planner_version=identity.version if identity else None,
+                planner_sha256=identity.sha256 if identity else None,
             )
         )
         return decision.model_copy(update={"audit_id": record.audit_id})

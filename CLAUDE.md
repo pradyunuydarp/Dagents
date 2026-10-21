@@ -748,6 +748,22 @@ When nothing is found the runner raises `PlannerUnavailableError` and the Guard
 denies. `python -m dagents` prints which planner it found, and an LMA or GMA
 that cannot start one logs a warning when it is built (`warn_if_no_planner`).
 
+Each call has limits, read from the process environment like `DAGENTSC_BIN`:
+`DAGENTSC_TIMEOUT_SECONDS` (default 10), `DAGENTSC_MAX_INPUT_BYTES` and
+`DAGENTSC_MAX_OUTPUT_BYTES` (default 16 MiB each). The runner kills a planner
+that runs or prints past them, with its process group, refuses an input over
+its limit before the planner starts, and raises `PlannerUnavailableError` for
+each. `DAGENTSC_SHA256` pins the binary's SHA-256: with another hash the runner
+starts nothing, and `warn_if_no_planner` and `python -m dagents` say so. A
+value that is not valid stops an LMA or GMA from starting. Every audit record
+names its planner in `planner_version` (the package version) and
+`planner_sha256`. The digest leaves out either field when it is null, so
+chains stored before the fields existed still verify; a field added to
+`AuditRecord` later needs the same treatment
+(`DIGEST_FIELDS_LEFT_OUT_WHEN_NULL` in `ethical_guard.py`). The hash differs
+between builds, so no committed file or test pins one: the captured API
+examples list both fields as volatile.
+
 An image whose service calls the planner builds it in an `ocaml/opam` stage and
 copies it to `/usr/local/bin/dagentsc`. Copy that stage from
 `services/core-service/Dockerfile`. `tests/test_planner_in_images.py` fails if
