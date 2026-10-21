@@ -127,7 +127,7 @@
       "bundle_version": "1.4.0",
       "bundle_uri": "oci://registry.example.com/dagents/order-checks:1.4.0",
       "signature": "sha256:5f1c0e",
-      "deployed_at": 1792123890,
+      "deployed_at": 1792418688,
       "config_digest": "4e34d7cfe08d9bd3e286804e474a171396a525691f427ac27477c21d0730ab5e"
      }
     ],
@@ -177,8 +177,8 @@
        "store": "north"
       },
       "status": "COMPLETED",
-      "started_at": 1792123890,
-      "completed_at": 1792123890,
+      "started_at": 1792418688,
+      "completed_at": 1792418688,
       "metrics_emitted": 2,
       "pointers": {
        "scope": "{'table': 'orders', 'store': 'north'}",
@@ -201,7 +201,7 @@
          "bundle_id": "order-checks",
          "bundle_version": "1.4.0"
         },
-        "observed_at": 1792123890
+        "observed_at": 1792418688
        },
        {
         "key": "metadata_fields_total",
@@ -209,7 +209,7 @@
         "labels": {
          "correlation_id": "nightly-2026-10-14"
         },
-        "observed_at": 1792123890
+        "observed_at": 1792418688
        }
       ],
       "pointers": {
@@ -291,8 +291,8 @@
        "store": "north"
       },
       "status": "COMPLETED",
-      "started_at": 1792123890,
-      "completed_at": 1792123890,
+      "started_at": 1792418688,
+      "completed_at": 1792418688,
       "metrics_emitted": 2,
       "pointers": {
        "scope": "{'table': 'orders', 'store': 'north'}",
@@ -373,7 +373,7 @@
          "bundle_id": "order-checks",
          "bundle_version": "1.4.0"
         },
-        "observed_at": 1792123890
+        "observed_at": 1792418688
        },
        {
         "key": "metadata_fields_total",
@@ -381,7 +381,7 @@
         "labels": {
          "correlation_id": "nightly-2026-10-14"
         },
-        "observed_at": 1792123890
+        "observed_at": 1792418688
        }
       ],
       "pointers": {
@@ -1243,7 +1243,7 @@
       ]
      },
      "run": {
-      "run_id": "lma-store-north-1792123890",
+      "run_id": "lma-store-north-1792418688",
       "agent_role": "LMA",
       "scope_id": "store-north",
       "scope_kind": "source",
@@ -1259,8 +1259,8 @@
        "feature_coverage": 0.625
       },
       "artifact_uri": "artifacts/lma/store-north/random_forest-v2.json",
-      "started_at": 1792123890,
-      "completed_at": 1792123890
+      "started_at": 1792418688,
+      "completed_at": 1792418688
      }
     },
     "trimmed": []
@@ -1343,7 +1343,7 @@
       ]
      },
      "run": {
-      "run_id": "lma-store-north-1792123890",
+      "run_id": "lma-store-north-1792418688",
       "agent_role": "LMA",
       "scope_id": "store-north",
       "scope_kind": "source",
@@ -1359,8 +1359,8 @@
        "feature_coverage": 1.0
       },
       "artifact_uri": "artifacts/lma/store-north/autoencoder-v1.json",
-      "started_at": 1792123890,
-      "completed_at": 1792123890
+      "started_at": 1792418688,
+      "completed_at": 1792418688
      }
     },
     "trimmed": []
@@ -1438,7 +1438,7 @@
     },
     "body": [
      {
-      "run_id": "lma-store-north-1792123890",
+      "run_id": "lma-store-north-1792418688",
       "agent_role": "LMA",
       "scope_id": "store-north",
       "scope_kind": "source",
@@ -1454,11 +1454,11 @@
        "feature_coverage": 1.0
       },
       "artifact_uri": "artifacts/lma/store-north/autoencoder-v1.json",
-      "started_at": 1792123890,
-      "completed_at": 1792123890
+      "started_at": 1792418688,
+      "completed_at": 1792418688
      },
      {
-      "run_id": "lma-store-north-1792123890",
+      "run_id": "lma-store-north-1792418688",
       "agent_role": "LMA",
       "scope_id": "store-north",
       "scope_kind": "source",
@@ -1474,8 +1474,8 @@
        "feature_coverage": 0.625
       },
       "artifact_uri": "artifacts/lma/store-north/random_forest-v2.json",
-      "started_at": 1792123890,
-      "completed_at": 1792123890
+      "started_at": 1792418688,
+      "completed_at": 1792418688
      }
     ],
     "trimmed": []
@@ -2132,7 +2132,7 @@
      "transformed_fields": [
       "customer_age_band"
      ],
-     "audit_id": "bf8d1cb6d47b4ff6b1608d49f8ba9b81",
+     "audit_id": "837efd73b6944ecbb873419606cc7ccf",
      "message": "permitted with restrictions"
     },
     "trimmed": []
@@ -2274,7 +2274,7 @@
      "transformed_fields": [
       "model_update"
      ],
-     "audit_id": "e861d5f475bf4e5094ab166ae3c7e870",
+     "audit_id": "17bb80272f2b4a718eff4b60afee0ee8",
      "message": "permitted with restrictions"
     },
     "trimmed": []
@@ -2391,7 +2391,7 @@
       "category"
      ],
      "transformed_fields": [],
-     "audit_id": "6b4bd1475457418e94d283d9220b9769",
+     "audit_id": "e4d474b5415b4bb0a9e96b5f826d43f4",
      "message": "the restriction planner denied this request"
     },
     "trimmed": []
@@ -2452,6 +2452,8 @@
     "/records/*/audit_id",
     "/records/*/recorded_at",
     "/records/*/previous_digest",
+    "/records/*/planner_version",
+    "/records/*/planner_sha256",
     "/records/*/digest"
    ],
    "request": {
@@ -2470,8 +2472,8 @@
      "chain_intact": true,
      "records": [
       {
-       "audit_id": "6b4bd1475457418e94d283d9220b9769",
-       "recorded_at": 1792123890,
+       "audit_id": "e4d474b5415b4bb0a9e96b5f826d43f4",
+       "recorded_at": 1792418688,
        "boundary": "before_read",
        "request_id": "read-rows-006",
        "requester_id": "unknown-caller",
@@ -2493,12 +2495,14 @@
        "contribution_norm_before": null,
        "contribution_norm_after": null,
        "contribution_strategies": [],
-       "previous_digest": "b235207ae088ecd7ed8fe366a413696284066c8e08dbd5ffcd985203e55bc4b7",
-       "digest": "88c0d39de03ec5f10ad5e82c13087a343f740c95ea071b77e05fcbd4c88a0a68"
+       "planner_version": "0.1.0a1",
+       "planner_sha256": "afce4e7b129e422117194b5749dbdd3b5f6368235c14fc2c707734a64181ea80",
+       "previous_digest": "4a1d14c583363e57806f0a6d3b95c1b52704bc23a79bee4d81984c7b8549b7b3",
+       "digest": "a717f7f424d429c4114810a8c20c41c2321a6372fc3a40b02fd000b644a888aa"
       },
       {
-       "audit_id": "e861d5f475bf4e5094ab166ae3c7e870",
-       "recorded_at": 1792123890,
+       "audit_id": "17bb80272f2b4a718eff4b60afee0ee8",
+       "recorded_at": 1792418688,
        "boundary": "before_send",
        "request_id": "send-update-005",
        "requester_id": "returns-coordinator",
@@ -2521,12 +2525,14 @@
        "contribution_strategies": [
         "clip_contribution:1"
        ],
-       "previous_digest": "9349508ada735eedd35802529967a9d0dcd7cfb7b2b6eecb7f5223852eb00df4",
-       "digest": "b235207ae088ecd7ed8fe366a413696284066c8e08dbd5ffcd985203e55bc4b7"
+       "planner_version": "0.1.0a1",
+       "planner_sha256": "afce4e7b129e422117194b5749dbdd3b5f6368235c14fc2c707734a64181ea80",
+       "previous_digest": "aaead9ed8ac57975ff723a23cc4eba9a1640aa78d432d8956fa22d68e65a8b07",
+       "digest": "4a1d14c583363e57806f0a6d3b95c1b52704bc23a79bee4d81984c7b8549b7b3"
       },
       {
-       "audit_id": "bf8d1cb6d47b4ff6b1608d49f8ba9b81",
-       "recorded_at": 1792123890,
+       "audit_id": "837efd73b6944ecbb873419606cc7ccf",
+       "recorded_at": 1792418688,
        "boundary": "before_read",
        "request_id": "read-rows-004",
        "requester_id": "store-north-dashboard",
@@ -2547,8 +2553,10 @@
        "contribution_norm_before": null,
        "contribution_norm_after": null,
        "contribution_strategies": [],
+       "planner_version": "0.1.0a1",
+       "planner_sha256": "afce4e7b129e422117194b5749dbdd3b5f6368235c14fc2c707734a64181ea80",
        "previous_digest": "",
-       "digest": "9349508ada735eedd35802529967a9d0dcd7cfb7b2b6eecb7f5223852eb00df4"
+       "digest": "aaead9ed8ac57975ff723a23cc4eba9a1640aa78d432d8956fa22d68e65a8b07"
       }
      ]
     },
@@ -2909,7 +2917,7 @@
       "high_value": 150
      },
      "parent_version": null,
-     "created_at": "2026-10-16T04:11:31.210393+00:00",
+     "created_at": "2026-10-19T14:04:48.865156+00:00",
      "release_decision": null
     },
     "trimmed": []
@@ -2999,11 +3007,11 @@
      "content-type": "application/json"
     },
     "body": {
-     "request_id": "probe:store-north:4d61a826f8064bafa2126e25fe5e67b8",
+     "request_id": "probe:store-north:8d6c58952c8d4e628b7b7057b6c7b4fc",
      "boundary": "before_read",
      "permitted": true,
      "plan": {
-      "request_id": "probe:store-north:4d61a826f8064bafa2126e25fe5e67b8",
+      "request_id": "probe:store-north:8d6c58952c8d4e628b7b7057b6c7b4fc",
       "boundary": "before_read",
       "assessment": {
        "requester_id": "store-north-returns-desk",
@@ -3048,7 +3056,7 @@
       "decision": "narrow",
       "filtering_score": 0.175,
       "obligations": [
-       "record the decision, reason, and request id probe:store-north:4d61a826f8064bafa2126e25fe5e67b8 in the audit log",
+       "record the decision, reason, and request id probe:store-north:8d6c58952c8d4e628b7b7057b6c7b4fc in the audit log",
        "enforce at boundary before_read",
        "apply controls required by GDPR"
       ],
@@ -3066,7 +3074,7 @@
       "order_value",
       "customer_postcode"
      ],
-     "audit_id": "39bc6098f44b4db1a1122385eb1710f2",
+     "audit_id": "7089b9e79c1c489d95d320cc869c8eb9",
      "message": "permitted with restrictions"
     },
     "trimmed": []
@@ -3124,11 +3132,11 @@
      "content-type": "application/json"
     },
     "body": {
-     "request_id": "probe:store-north:6b663a86ada04f129b7d1d4485ddf4ec",
+     "request_id": "probe:store-north:7ab1ae55122841858de7d63a5afd244b",
      "boundary": "before_read",
      "permitted": false,
      "plan": {
-      "request_id": "probe:store-north:6b663a86ada04f129b7d1d4485ddf4ec",
+      "request_id": "probe:store-north:7ab1ae55122841858de7d63a5afd244b",
       "boundary": "before_read",
       "assessment": {
        "requester_id": "store-north-returns-desk",
@@ -3161,7 +3169,7 @@
       "decision": "deny",
       "filtering_score": 1.0,
       "obligations": [
-       "record the decision, reason, and request id probe:store-north:6b663a86ada04f129b7d1d4485ddf4ec in the audit log",
+       "record the decision, reason, and request id probe:store-north:7ab1ae55122841858de7d63a5afd244b in the audit log",
        "enforce at boundary before_read",
        "apply controls required by GDPR"
       ],
@@ -3176,7 +3184,7 @@
       "category"
      ],
      "transformed_fields": [],
-     "audit_id": "38f50108767c4c218b0b8b9bc43deb6f",
+     "audit_id": "ccf709fe9a134b00a37033a18fd225aa",
      "message": "declared_purpose marketing is not an approved purpose"
     },
     "trimmed": []
@@ -3795,7 +3803,7 @@
       "job_digest": "fnv1a:0000000000000000",
       "metrics": {},
       "reason": "return-check-rule-v2 is a return_check_rule, which cannot be trained",
-      "submitted_at": "2026-10-16T04:11:31.431199+00:00"
+      "submitted_at": "2026-10-19T14:04:48.967457+00:00"
      },
      {
       "round_id": "returns-eval-2",
@@ -3811,7 +3819,7 @@
        "flag_rate": 0.4
       },
       "reason": null,
-      "submitted_at": "2026-10-16T04:11:31.427311+00:00"
+      "submitted_at": "2026-10-19T14:04:48.964101+00:00"
      },
      {
       "round_id": "returns-eval-1",
@@ -3827,7 +3835,7 @@
        "flag_rate": 0.4
       },
       "reason": null,
-      "submitted_at": "2026-10-16T04:11:31.400620+00:00"
+      "submitted_at": "2026-10-19T14:04:48.941816+00:00"
      }
     ],
     "trimmed": []

@@ -1,0 +1,83 @@
+{
+  "written_by": "dagents 0.1.0a1 at commit 905ed28, before audit records named their planner",
+  "records": [
+    {
+      "audit_id": "231d7ae4d89149ce808616b3e8cd1161",
+      "recorded_at": 1792417989,
+      "boundary": "before_read",
+      "request_id": "old-read",
+      "requester_id": "stroke-consortium-gma",
+      "decision": "narrow",
+      "permitted": true,
+      "granularity": "row",
+      "filtering_score": 0.11666666666666665,
+      "withheld_fields": [],
+      "obligations": [
+        "record the decision, reason, and request id old-read in the audit log",
+        "enforce at boundary before_read",
+        "apply controls required by HIPAA"
+      ],
+      "violations": [],
+      "correlation_id": "round-1",
+      "contribution_norm_before": null,
+      "contribution_norm_after": null,
+      "contribution_strategies": [],
+      "previous_digest": "",
+      "digest": "ec96c4451627819039db35e8111bbcaf25cd1fd0b38938d899546cf52e888864"
+    },
+    {
+      "audit_id": "1aa51e83487d477fafbe64bceec5f52d",
+      "recorded_at": 1792417989,
+      "boundary": "before_read",
+      "request_id": "old-denied",
+      "requester_id": "stroke-consortium-gma",
+      "decision": "deny",
+      "permitted": false,
+      "granularity": "row",
+      "filtering_score": 1.0,
+      "withheld_fields": [
+        "nihss_total",
+        "age_band",
+        "arrival_mode"
+      ],
+      "obligations": [
+        "record the decision, reason, and request id old-denied in the audit log",
+        "enforce at boundary before_read",
+        "apply controls required by HIPAA"
+      ],
+      "violations": [
+        "declared_purpose marketing is not an approved purpose"
+      ],
+      "correlation_id": null,
+      "contribution_norm_before": null,
+      "contribution_norm_after": null,
+      "contribution_strategies": [],
+      "previous_digest": "ec96c4451627819039db35e8111bbcaf25cd1fd0b38938d899546cf52e888864",
+      "digest": "14929e03bc0ad3d0698fa9a69fcd9a01904074f3f6672409a99bf2069b7abeb7"
+    },
+    {
+      "audit_id": "00000000000000000000000000000003",
+      "recorded_at": 1760000000,
+      "boundary": "before_send",
+      "request_id": "old-update",
+      "requester_id": "coordinator",
+      "decision": "narrow",
+      "permitted": true,
+      "granularity": "model_update",
+      "filtering_score": 0.5,
+      "withheld_fields": [],
+      "obligations": [
+        "record privacy accounting"
+      ],
+      "violations": [],
+      "correlation_id": "round-1",
+      "contribution_norm_before": 5.0,
+      "contribution_norm_after": 1.0,
+      "contribution_strategies": [
+        "clip_contribution:1"
+      ],
+      "previous_digest": "14929e03bc0ad3d0698fa9a69fcd9a01904074f3f6672409a99bf2069b7abeb7",
+      "digest": "316df280c70538de66b30607c4eb085cab86ce01b1f57479d40edaecee50e073"
+    }
+  ]
+}

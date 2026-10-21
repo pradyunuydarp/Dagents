@@ -109,10 +109,13 @@ every combination of sensitivity, trust and granularity has a strategy.
 The **Guard** applies the plan to the data and writes an audit record. Each record
 includes the digest of the one before it, so editing or deleting a record breaks
 every digest after it. This detects tampering in tests; a production system would
-also need signed records and append-only storage.
+also need signed records and append-only storage. Each record also names the
+planner that decided: the version of the `dagents` package and the SHA-256 of
+the planner binary.
 
-If the planner cannot be reached, the Guard **denies** the request and records the
-denial.
+If the planner cannot be reached, does not answer within its time limit, prints
+an answer that cannot be read, or sends a plan with a strategy the Guard cannot
+apply, the Guard **denies** the request and records the denial.
 
 ## Example
 

@@ -67,7 +67,9 @@ each app.
 The Docker image (`dagents/gma/Dockerfile`) builds `dagentsc` in a first stage
 and copies it onto `PATH`. Round plans, readiness, release gates and the model
 lifecycle rule come from the planner, and the release Guard fails closed
-without it. A GMA built without a planner logs a warning that says so.
+without it. A GMA built without a planner, or with a planner file whose
+SHA-256 is not the one `DAGENTSC_SHA256` requires, logs a warning that says
+so.
 
 ## Settings
 
@@ -101,6 +103,10 @@ environment.
 | `GMA_UPDATE_MAX_AGE_SECONDS` | `86400` with a durable update store; none in memory | How old, in seconds, a round's oldest stored update may be. The 24-hour default applies when the updates are kept in a store that survives a restart (`GMA_UPDATE_TABLE`). A GMA that keeps them in memory runs no age check unless this is set. See [Recovery after a restart](#recovery-after-a-restart) |
 | `GMA_ALLOW_SOURCE_READS` | `1` | `0` makes the source, dataset profile and model job routes answer `403` |
 | `GMA_REQUIRE_TOKENS` | `0` | `1` refuses to start without a token |
+| `DAGENTSC_BIN` | none | The planner to start. Without it, the planner in the package, then `dagentsc` on `PATH` |
+| `DAGENTSC_SHA256` | none | The SHA-256 the planner file must have, as 64 hexadecimal digits. With another hash the runner starts no planner, so rounds stop and the release Guard denies every request |
+| `DAGENTSC_TIMEOUT_SECONDS` | `10` | How long one planner call may run, in seconds. The runner stops a call past it, and the call fails like a missing planner |
+| `DAGENTSC_MAX_INPUT_BYTES`, `DAGENTSC_MAX_OUTPUT_BYTES` | `16777216` each | The most bytes one planner call may send the planner, and the most the planner may print. Past either, the call fails like a missing planner |
 
 `env/.env.gma` sets the names, the port and an empty
 `GMA_JOINABLE_SITE_ENDPOINTS`. Set the rest in the
@@ -130,6 +136,14 @@ refuses to start (`ValueError`, naming the settings and never a value) when:
   `GMA_UPDATE_MAX_AGE_SECONDS` without `GMA_UPDATE_TABLE` or an update store
   in `GmaDeps`;
 - `GMA_UPDATE_MAX_AGE_SECONDS` is not a finite number above 0.
+
+The `DAGENTSC_*` settings are read by the planner runner, so they apply to
+every Dagents process that calls the planner. The GMA refuses to start when a
+limit is zero, negative or not a number, or when `DAGENTSC_SHA256` is not 64
+hexadecimal digits: `create_app` raises `ValueError` with the variable's name,
+and `dagents-gma` prints it and exits with status 1. The guide's
+[Planner settings](../../docs/guide/08-deploy.md#planner-settings) section
+explains the defaults and how to pin the hash.
 
 ## Postgres tables
 

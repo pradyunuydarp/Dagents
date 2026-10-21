@@ -46,6 +46,8 @@ package can ask the framework instead. `planner_problem()` in
 start a planner, or `None` when it can. It looks in the order the Guard uses,
 so a test class can skip with
 `@unittest.skipIf(planner_problem(), "dagentsc binary is not available")`.
+When `DAGENTSC_SHA256` is set, it also reports a planner file whose hash
+differs, because the runner then starts nothing.
 
 To report which planner a run used, call `find_planner()` from the same module.
 It returns a `(path, source)` pair, where `source` is `DAGENTSC_BIN`,
@@ -76,6 +78,27 @@ Also test, for your application:
 - a source on another contract version is excluded from a round;
 - a release gate whose metric is missing gives `reject`;
 - one source's store cannot read another source's records (Step 3).
+
+Every planner failure is a denial with an audit record: a missing binary, a
+non-zero exit, a call past `DAGENTSC_TIMEOUT_SECONDS`, output over
+`DAGENTSC_MAX_OUTPUT_BYTES`, cut-off output, output that is not JSON, is
+nested more than 200 levels deep or is not a plan, an input over
+`DAGENTSC_MAX_INPUT_BYTES`, a
+`DAGENTSC_BIN` that names a device or a FIFO, a plan that names a strategy the
+Guard cannot apply, and a plan the Guard fails to apply to the records
+([Step 8](08-deploy.md#planner-settings) lists the settings).
+The framework tests each case in
+[`dagents/tests/test_planner_failures.py`](../../dagents/tests/test_planner_failures.py)
+with small shell scripts set as `DAGENTSC_BIN` in place of the planner, for
+example one that sleeps longer than the timeout. A real process is the only way
+to test a timeout. Use the same approach when your code handles a denial in its
+own way.
+
+Each audit record the Guard writes with `dagentsc` names the planner that
+decided, in `planner_version` and `planner_sha256`. The hash differs between
+machines and between builds, so a test that compares stored audit records
+should leave out these two fields, as it leaves out `digest`,
+`previous_digest`, `audit_id` and `recorded_at`.
 
 ## 3. Count the skips
 
@@ -157,6 +180,7 @@ code that no test checks goes out of date.
 | What you see | Why | What to do |
 |---|---|---|
 | `OK (skipped=7)` in CI | The job has no planner | Download or build `dagentsc` in the job and set `DAGENTSC_BIN`; run the guard script so a skip fails |
+| A test that compares audit records passes on your machine and fails in CI | It compares `planner_sha256`, which differs between builds of the planner | Leave `planner_version` and `planner_sha256` out of the comparison, as you leave out the digests |
 | `this block differs from its source file` | The example changed and the guide did not | Copy the block again from the file |
 | `run the script and paste its output` | The script's output changed | Run the script and replace the output block |
 | A Postgres test class shows no tests run | It skipped in `setUpClass` | Add it to `--require-ran` in your CI |

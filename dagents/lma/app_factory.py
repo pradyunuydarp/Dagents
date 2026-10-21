@@ -35,7 +35,11 @@ from fastapi.responses import JSONResponse
 
 from dagents.common.domain.errors import DagentsError
 from dagents.common.infrastructure.agent_auth import agent_error_response, install_agent_access
-from dagents.common.infrastructure.dagents_runner import PlannerUnavailableError, warn_if_no_planner
+from dagents.common.infrastructure.dagents_runner import (
+    PlannerUnavailableError,
+    check_planner_settings,
+    warn_if_no_planner,
+)
 from dagents.common.infrastructure.postgres_roles import RoleScopeError
 from dagents.lma.config import Settings
 from dagents.lma.di import LmaDeps, LmaRuntime, build_runtime
@@ -84,10 +88,13 @@ def create_app(settings: Settings | None = None, deps: LmaDeps | None = None) ->
       sink, job log or agent network (see :class:`LmaDeps`).
 
     Raises ``ValueError`` or ``ExtensionError`` for settings that do not fit
-    together, and ``AccessConfigurationError`` when tokens are required and
-    none is set. Nothing it built is left open when it raises.
+    together or a planner setting that makes no sense (``DAGENTSC_TIMEOUT_SECONDS``,
+    ``DAGENTSC_MAX_INPUT_BYTES``, ``DAGENTSC_MAX_OUTPUT_BYTES``, ``DAGENTSC_SHA256``), and
+    ``AccessConfigurationError`` when tokens are required and none is set.
+    Nothing it built is left open when it raises.
     """
     settings = settings or Settings()
+    check_planner_settings()
     runtime = build_runtime(settings, deps)
     try:
         app = FastAPI(title=settings.app_name, version="0.1.0", lifespan=_lifespan)

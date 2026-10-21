@@ -7760,6 +7760,30 @@
        "title": "Contribution Strategies",
        "description": "The bounding strategies applied, with their parameters, such as `clip_contribution:1`."
       },
+      "planner_version": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Planner Version",
+       "description": "The version of the `dagents` package whose runner started the planner for this decision. The planner a platform wheel bundles, and the one an image or a checkout builds, come from the same source as the package. A planner that `DAGENTSC_BIN` names can come from elsewhere; `planner_sha256` names it exactly. Empty in records written before audit records named their planner, and when the Guard's planner is not `dagentsc`."
+      },
+      "planner_sha256": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Planner Sha256",
+       "description": "The SHA-256, in hex, of the planner binary the runner started, or tried to start, for this decision. It names the binary exactly; each GitHub Release lists its planners' hashes in `SHA256SUMS`. Empty when there was no binary to read, in records written before audit records named their planner, and when the Guard's planner is not `dagentsc`."
+      },
       "previous_digest": {
        "type": "string",
        "title": "Previous Digest",
@@ -7769,7 +7793,7 @@
       "digest": {
        "type": "string",
        "title": "Digest",
-       "description": "SHA-256, in hex, of every other field of this record as JSON with sorted keys. Editing or removing a record breaks the chain from that record on.",
+       "description": "SHA-256, in hex, of every other field of this record as JSON with sorted keys, leaving out `planner_version` and `planner_sha256` when they are null. Editing or removing a record breaks the chain from that record on.",
        "default": ""
       }
      },
@@ -7786,7 +7810,7 @@
       "filtering_score"
      ],
      "title": "AuditRecord",
-     "description": "One entry in the Guard's audit log, linked to the entry before it by a digest.\n\n``previous_digest`` and ``digest`` chain entries together, so removing or\nediting an entry breaks every digest after it. This is a deterministic\ncontent chain for local integrity checking, not a cryptographic signature;\nsigning and immutable storage are separate production controls.\n\nThe ``contribution_*`` fields are the privacy accounting the planner asks\nfor when it bounds a contribution with ``clip_contribution`` or\n``add_noise``. ``contribution_norm_before`` and ``contribution_norm_after``\nare L2 norms (the absolute value for a single number). When a payload holds\nseveral contributions, they record the largest norm before and the largest\nnorm after. ``contribution_strategies`` lists the strategies applied, with\ntheir parameters. All three stay empty for a decision that bounded nothing."
+     "description": "One entry in the Guard's audit log, linked to the entry before it by a digest.\n\n``previous_digest`` and ``digest`` chain entries together, so removing or\nediting an entry breaks every digest after it. This is a deterministic\ncontent chain for local integrity checking, not a cryptographic signature;\nsigning and immutable storage are separate production controls.\n\nThe ``contribution_*`` fields are the privacy accounting the planner asks\nfor when it bounds a contribution with ``clip_contribution`` or\n``add_noise``. ``contribution_norm_before`` and ``contribution_norm_after``\nare L2 norms (the absolute value for a single number). When a payload holds\nseveral contributions, they record the largest norm before and the largest\nnorm after. ``contribution_strategies`` lists the strategies applied, with\ntheir parameters. All three stay empty for a decision that bounded nothing.\n\n``planner_version`` and ``planner_sha256`` name the planner that decided,\nor that the Guard tried to run when the decision is a denial because the\nplanner failed. Records written before these fields existed have neither,\nand the digest leaves out each one that is null, so those records still\nhash to the digests they were stored with."
     },
     "AuditSummary": {
      "properties": {
@@ -8895,11 +8919,11 @@
       "permitted": {
        "type": "boolean",
        "title": "Permitted",
-       "description": "Whether the request may go ahead. False for a `deny` plan, and when the planner cannot be reached."
+       "description": "Whether the request may go ahead. False for a `deny` plan, when the planner cannot be run or its answer cannot be read, when its plan names a strategy the Guard cannot apply, and when applying the plan to the records fails."
       },
       "plan": {
        "$ref": "#/components/schemas/RestrictionPlan",
-       "description": "The plan the Guard applied. When the planner cannot be reached, a deny plan the Guard builds itself."
+       "description": "The plan the Guard applied. When the planner cannot be run, its answer cannot be read, its plan names a strategy the Guard cannot apply, or applying the plan to the records fails, a deny plan the Guard builds itself."
       },
       "payload": {
        "items": {
@@ -11551,7 +11575,7 @@
         "withheld"
        ],
        "title": "Label Rate Status",
-       "description": "`released`, `no_labels`, `below_minimum_cohort`, `denied`, or `withheld` when the planner could not be asked."
+       "description": "`released`, `no_labels`, `below_minimum_cohort`, `denied`, or `withheld` when the planner could not be asked or its plan names a strategy the Guard cannot apply."
       },
       "minimum_cohort": {
        "type": "integer",
@@ -19395,6 +19419,30 @@
        "title": "Contribution Strategies",
        "description": "The bounding strategies applied, with their parameters, such as `clip_contribution:1`."
       },
+      "planner_version": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Planner Version",
+       "description": "The version of the `dagents` package whose runner started the planner for this decision. The planner a platform wheel bundles, and the one an image or a checkout builds, come from the same source as the package. A planner that `DAGENTSC_BIN` names can come from elsewhere; `planner_sha256` names it exactly. Empty in records written before audit records named their planner, and when the Guard's planner is not `dagentsc`."
+      },
+      "planner_sha256": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Planner Sha256",
+       "description": "The SHA-256, in hex, of the planner binary the runner started, or tried to start, for this decision. It names the binary exactly; each GitHub Release lists its planners' hashes in `SHA256SUMS`. Empty when there was no binary to read, in records written before audit records named their planner, and when the Guard's planner is not `dagentsc`."
+      },
       "previous_digest": {
        "type": "string",
        "title": "Previous Digest",
@@ -19404,7 +19452,7 @@
       "digest": {
        "type": "string",
        "title": "Digest",
-       "description": "SHA-256, in hex, of every other field of this record as JSON with sorted keys. Editing or removing a record breaks the chain from that record on.",
+       "description": "SHA-256, in hex, of every other field of this record as JSON with sorted keys, leaving out `planner_version` and `planner_sha256` when they are null. Editing or removing a record breaks the chain from that record on.",
        "default": ""
       }
      },
@@ -19421,7 +19469,7 @@
       "filtering_score"
      ],
      "title": "AuditRecord",
-     "description": "One entry in the Guard's audit log, linked to the entry before it by a digest.\n\n``previous_digest`` and ``digest`` chain entries together, so removing or\nediting an entry breaks every digest after it. This is a deterministic\ncontent chain for local integrity checking, not a cryptographic signature;\nsigning and immutable storage are separate production controls.\n\nThe ``contribution_*`` fields are the privacy accounting the planner asks\nfor when it bounds a contribution with ``clip_contribution`` or\n``add_noise``. ``contribution_norm_before`` and ``contribution_norm_after``\nare L2 norms (the absolute value for a single number). When a payload holds\nseveral contributions, they record the largest norm before and the largest\nnorm after. ``contribution_strategies`` lists the strategies applied, with\ntheir parameters. All three stay empty for a decision that bounded nothing."
+     "description": "One entry in the Guard's audit log, linked to the entry before it by a digest.\n\n``previous_digest`` and ``digest`` chain entries together, so removing or\nediting an entry breaks every digest after it. This is a deterministic\ncontent chain for local integrity checking, not a cryptographic signature;\nsigning and immutable storage are separate production controls.\n\nThe ``contribution_*`` fields are the privacy accounting the planner asks\nfor when it bounds a contribution with ``clip_contribution`` or\n``add_noise``. ``contribution_norm_before`` and ``contribution_norm_after``\nare L2 norms (the absolute value for a single number). When a payload holds\nseveral contributions, they record the largest norm before and the largest\nnorm after. ``contribution_strategies`` lists the strategies applied, with\ntheir parameters. All three stay empty for a decision that bounded nothing.\n\n``planner_version`` and ``planner_sha256`` name the planner that decided,\nor that the Guard tried to run when the decision is a denial because the\nplanner failed. Records written before these fields existed have neither,\nand the digest leaves out each one that is null, so those records still\nhash to the digests they were stored with."
     },
     "AuditSummary": {
      "properties": {
@@ -20140,11 +20188,11 @@
       "permitted": {
        "type": "boolean",
        "title": "Permitted",
-       "description": "Whether the request may go ahead. False for a `deny` plan, and when the planner cannot be reached."
+       "description": "Whether the request may go ahead. False for a `deny` plan, when the planner cannot be run or its answer cannot be read, when its plan names a strategy the Guard cannot apply, and when applying the plan to the records fails."
       },
       "plan": {
        "$ref": "#/components/schemas/RestrictionPlan",
-       "description": "The plan the Guard applied. When the planner cannot be reached, a deny plan the Guard builds itself."
+       "description": "The plan the Guard applied. When the planner cannot be run, its answer cannot be read, its plan names a strategy the Guard cannot apply, or applying the plan to the records fails, a deny plan the Guard builds itself."
       },
       "payload": {
        "items": {
@@ -22476,7 +22524,7 @@
         "withheld"
        ],
        "title": "Label Rate Status",
-       "description": "`released`, `no_labels`, `below_minimum_cohort`, `denied`, or `withheld` when the planner could not be asked."
+       "description": "`released`, `no_labels`, `below_minimum_cohort`, `denied`, or `withheld` when the planner could not be asked or its plan names a strategy the Guard cannot apply."
       },
       "minimum_cohort": {
        "type": "integer",
@@ -31617,9 +31665,9 @@
    "module": "dagents.common.domain.governance",
    "file": "dagents/common/domain/governance.py",
    "summary": "One entry in the Guard's audit log, linked to the entry before it by a digest.",
-   "description": "``previous_digest`` and ``digest`` chain entries together, so removing or\nediting an entry breaks every digest after it. This is a deterministic\ncontent chain for local integrity checking, not a cryptographic signature;\nsigning and immutable storage are separate production controls.\n\nThe ``contribution_*`` fields are the privacy accounting the planner asks\nfor when it bounds a contribution with ``clip_contribution`` or\n``add_noise``. ``contribution_norm_before`` and ``contribution_norm_after``\nare L2 norms (the absolute value for a single number). When a payload holds\nseveral contributions, they record the largest norm before and the largest\nnorm after. ``contribution_strategies`` lists the strategies applied, with\ntheir parameters. All three stay empty for a decision that bounded nothing.",
+   "description": "``previous_digest`` and ``digest`` chain entries together, so removing or\nediting an entry breaks every digest after it. This is a deterministic\ncontent chain for local integrity checking, not a cryptographic signature;\nsigning and immutable storage are separate production controls.\n\nThe ``contribution_*`` fields are the privacy accounting the planner asks\nfor when it bounds a contribution with ``clip_contribution`` or\n``add_noise``. ``contribution_norm_before`` and ``contribution_norm_after``\nare L2 norms (the absolute value for a single number). When a payload holds\nseveral contributions, they record the largest norm before and the largest\nnorm after. ``contribution_strategies`` lists the strategies applied, with\ntheir parameters. All three stay empty for a decision that bounded nothing.\n\n``planner_version`` and ``planner_sha256`` name the planner that decided,\nor that the Guard tried to run when the decision is a denial because the\nplanner failed. Records written before these fields existed have neither,\nand the digest leaves out each one that is null, so those records still\nhash to the digests they were stored with.",
    "schema": {
-    "description": "One entry in the Guard's audit log, linked to the entry before it by a digest.\n\n``previous_digest`` and ``digest`` chain entries together, so removing or\nediting an entry breaks every digest after it. This is a deterministic\ncontent chain for local integrity checking, not a cryptographic signature;\nsigning and immutable storage are separate production controls.\n\nThe ``contribution_*`` fields are the privacy accounting the planner asks\nfor when it bounds a contribution with ``clip_contribution`` or\n``add_noise``. ``contribution_norm_before`` and ``contribution_norm_after``\nare L2 norms (the absolute value for a single number). When a payload holds\nseveral contributions, they record the largest norm before and the largest\nnorm after. ``contribution_strategies`` lists the strategies applied, with\ntheir parameters. All three stay empty for a decision that bounded nothing.",
+    "description": "One entry in the Guard's audit log, linked to the entry before it by a digest.\n\n``previous_digest`` and ``digest`` chain entries together, so removing or\nediting an entry breaks every digest after it. This is a deterministic\ncontent chain for local integrity checking, not a cryptographic signature;\nsigning and immutable storage are separate production controls.\n\nThe ``contribution_*`` fields are the privacy accounting the planner asks\nfor when it bounds a contribution with ``clip_contribution`` or\n``add_noise``. ``contribution_norm_before`` and ``contribution_norm_after``\nare L2 norms (the absolute value for a single number). When a payload holds\nseveral contributions, they record the largest norm before and the largest\nnorm after. ``contribution_strategies`` lists the strategies applied, with\ntheir parameters. All three stay empty for a decision that bounded nothing.\n\n``planner_version`` and ``planner_sha256`` name the planner that decided,\nor that the Guard tried to run when the decision is a denial because the\nplanner failed. Records written before these fields existed have neither,\nand the digest leaves out each one that is null, so those records still\nhash to the digests they were stored with.",
     "properties": {
      "audit_id": {
       "description": "A random id for the record: a UUID4 in hex, without hyphens.",
@@ -31755,6 +31803,32 @@
       "title": "Contribution Strategies",
       "type": "array"
      },
+     "planner_version": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "The version of the `dagents` package whose runner started the planner for this decision. The planner a platform wheel bundles, and the one an image or a checkout builds, come from the same source as the package. A planner that `DAGENTSC_BIN` names can come from elsewhere; `planner_sha256` names it exactly. Empty in records written before audit records named their planner, and when the Guard's planner is not `dagentsc`.",
+      "title": "Planner Version"
+     },
+     "planner_sha256": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "The SHA-256, in hex, of the planner binary the runner started, or tried to start, for this decision. It names the binary exactly; each GitHub Release lists its planners' hashes in `SHA256SUMS`. Empty when there was no binary to read, in records written before audit records named their planner, and when the Guard's planner is not `dagentsc`.",
+      "title": "Planner Sha256"
+     },
      "previous_digest": {
       "default": "",
       "description": "The `digest` of the record before this one. Empty for the first record.",
@@ -31763,7 +31837,7 @@
      },
      "digest": {
       "default": "",
-      "description": "SHA-256, in hex, of every other field of this record as JSON with sorted keys. Editing or removing a record breaks the chain from that record on.",
+      "description": "SHA-256, in hex, of every other field of this record as JSON with sorted keys, leaving out `planner_version` and `planner_sha256` when they are null. Editing or removing a record breaks the chain from that record on.",
       "title": "Digest",
       "type": "string"
      }
@@ -35011,13 +35085,13 @@
       "type": "string"
      },
      "permitted": {
-      "description": "Whether the request may go ahead. False for a `deny` plan, and when the planner cannot be reached.",
+      "description": "Whether the request may go ahead. False for a `deny` plan, when the planner cannot be run or its answer cannot be read, when its plan names a strategy the Guard cannot apply, and when applying the plan to the records fails.",
       "title": "Permitted",
       "type": "boolean"
      },
      "plan": {
       "$ref": "#/$defs/RestrictionPlan",
-      "description": "The plan the Guard applied. When the planner cannot be reached, a deny plan the Guard builds itself."
+      "description": "The plan the Guard applied. When the planner cannot be run, its answer cannot be read, its plan names a strategy the Guard cannot apply, or applying the plan to the records fails, a deny plan the Guard builds itself."
      },
      "payload": {
       "description": "The records after enforcement: only the requested fields, each changed by its strategy, or one summary row when a field is `aggregate_only`. Empty when the request is denied, when every requested field is withheld, and when an aggregate group is smaller than its minimum.",
@@ -44939,7 +45013,7 @@
        "title": "Label Rate"
       },
       "label_rate_status": {
-       "description": "`released`, `no_labels`, `below_minimum_cohort`, `denied`, or `withheld` when the planner could not be asked.",
+       "description": "`released`, `no_labels`, `below_minimum_cohort`, `denied`, or `withheld` when the planner could not be asked or its plan names a strategy the Guard cannot apply.",
        "enum": [
         "released",
         "no_labels",
@@ -45351,7 +45425,7 @@
       "title": "Label Rate"
      },
      "label_rate_status": {
-      "description": "`released`, `no_labels`, `below_minimum_cohort`, `denied`, or `withheld` when the planner could not be asked.",
+      "description": "`released`, `no_labels`, `below_minimum_cohort`, `denied`, or `withheld` when the planner could not be asked or its plan names a strategy the Guard cannot apply.",
       "enum": [
        "released",
        "no_labels",

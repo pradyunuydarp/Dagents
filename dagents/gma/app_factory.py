@@ -82,7 +82,11 @@ from dagents.common.infrastructure.agent_client import (
     lma_agent,
     normalize_base_url,
 )
-from dagents.common.infrastructure.dagents_runner import PlannerUnavailableError, warn_if_no_planner
+from dagents.common.infrastructure.dagents_runner import (
+    PlannerUnavailableError,
+    check_planner_settings,
+    warn_if_no_planner,
+)
 from dagents.common.infrastructure.postgres_roles import RoleScopeError
 from dagents.gma.adapters.http_federation_engine import HttpFederationEngine
 from dagents.gma.application.aggregation_service import AggregationService
@@ -559,9 +563,12 @@ def create_app(settings: Settings | None = None, deps: GmaDeps | None = None) ->
     an update age limit without an update table or the HTTP engine, an update
     store that survives a restart without the HTTP engine, a table name that
     is not ``schema.table``,
-    required tokens that are not set, a token that is too short, or a joinable
+    required tokens that are not set, a token that is too short, a joinable
     site that is also configured, has a bad address, lacks its tokens, or has
-    no HTTP network to join. A role name the stores cannot act as raises
+    no HTTP network to join, or a planner setting that makes no sense
+    (``DAGENTSC_TIMEOUT_SECONDS``, ``DAGENTSC_MAX_INPUT_BYTES``,
+    ``DAGENTSC_MAX_OUTPUT_BYTES``, ``DAGENTSC_SHA256``). A role name the
+    stores cannot act as raises
     :class:`~dagents.common.infrastructure.postgres_roles.RoleScopeError`.
 
     Building the app opens no database connection: each Postgres store
@@ -570,6 +577,7 @@ def create_app(settings: Settings | None = None, deps: GmaDeps | None = None) ->
     settings = settings or Settings()
     deps = deps or GmaDeps()
     _check(settings, deps)
+    check_planner_settings()
     access = _access(settings)
     extensions, configured = _extensions(settings, deps)
     closers: list[Callable[[], None]] = []
