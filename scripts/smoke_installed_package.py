@@ -68,7 +68,7 @@ Guard denies the request, each agent of steps 6 and 9 logs a warning that it
 has no planner, and in the study a round dispatch answers ``503`` with the
 code ``planner_unavailable`` and a site's Guard probe over HTTP is denied.
 Step 7 runs as above. Step 8 checks the import source and the extensions as
-above and does not read the LMA's log, so it checks neither that the warning
+above. It does not read the LMA's log, so it checks neither that the warning
 appears nor that it is absent. Step 5 is left out.
 
 With ``--no-extras`` the wheel was installed without the ``lma`` and ``gma``
