@@ -47,6 +47,10 @@ jobs:
   build:
     name: Build the published tree
     runs-on: ubuntu-latest
+    outputs:
+      # live or replay: how the healthcare demo was built. The deploy job's
+      # browser check opens the published page expecting that mode.
+      healthcare_mode: ${{ steps.healthcare_mode.outputs.mode }}
     steps:
       - uses: actions/checkout@v4
 
@@ -358,6 +362,19 @@ jobs:
             } >> "$GITHUB_STEP_SUMMARY"
           fi
 
+      - name: Record how the healthcare demo is built
+        # The probe above clears HEALTHCARE_API_BASE when the API fails a
+        # check. The build below calls the API when the address is set and
+        # replays the recording when it is empty, and this step reports which,
+        # from the same value, as the job's healthcare_mode output.
+        id: healthcare_mode
+        env:
+          API: ${{ env.HEALTHCARE_API_BASE }}
+        run: |
+          if [ -n "${API}" ]; then mode=live; else mode=replay; fi
+          echo "healthcare demo build: ${mode}"
+          echo "mode=${mode}" >> "$GITHUB_OUTPUT"
+
       - name: Build the healthcare demo
         env:
           DEMO_BASE_PATH: ${{ env.BASE_PATH }}/healthcare-demo/
@@ -529,3 +546,44 @@ jobs:
         # tests/test_social_previews.py runs this check against a local
         # stand-in that answers 404 or text/html.
         run: python3 scripts/check_link_previews.py published
+
+      # The browser check below needs playwright-core, which the site's
+      # lockfile pins. The browser is the runner's own Chrome.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: site/package-lock.json
+
+      - name: Install the browser driver
+        working-directory: site
+        run: npm ci
+
+      - name: The published pages work in a browser
+        # A page can answer 200 and show nothing: a script file that 404s, a
+        # recording from an older commit, or a demo that cannot reach its API.
+        # scripts/check_published_pages.mjs opens each page in Chrome on the
+        # published origin:
+        #
+        # - the framework site renders, draws a Learn page's diagrams, and its
+        #   demo cards open the demos;
+        # - the NL2SQL replay names this commit and shows SQL and a trace;
+        # - the healthcare demo works in the mode the build job reports. A
+        #   replay names this commit and draws a hospital's charts. A live
+        #   build must load without a recorded banner; what the deployed API
+        #   then serves (Postgres, 3 or more hospitals, charts, agents in
+        #   process) gives a warning and a note in the summary, never a
+        #   failure, because the external API must not fail a Pages run. The
+        #   Healthcare API check workflow fails on it instead.
+        #
+        # Any request other than GET, HEAD or OPTIONS is stopped in the
+        # browser and fails this step, so the check never writes to the API.
+        # Pages can serve the old files for a few minutes after a deploy, so
+        # a failing page is checked again, in a new browser, for up to six
+        # minutes. Exit 2 (no browser) fails this step like any other exit.
+        # tests/test_published_pages_wiring.py checks this step and the
+        # script's request rule.
+        env:
+          HEALTHCARE_MODE: ${{ needs.build.outputs.healthcare_mode }}
+          CHROMIUM_PATH: /usr/bin/google-chrome
+        run: node scripts/check_published_pages.mjs

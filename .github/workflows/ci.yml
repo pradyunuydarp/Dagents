@@ -370,13 +370,18 @@ jobs:
           set -o pipefail
           python -m unittest discover -s tests -t . -v 2>&1 | tee contracts-suite.log
 
-      - name: Fail if the API example replay or the link preview plugin tests skipped
-        # The plugin tests skip without Node, so the class must have run.
+      - name: Fail if a required contracts test class skipped
+        # The API example replay skips without the planner. The link preview
+        # plugin tests and the browser check's request rule skip without Node,
+        # and the read-only switch tests of the deployed-API suite without
+        # httpx. So each class must have run.
         run: |
           python scripts/ci_no_skipped_tests.py \
             --forbid planner \
             --require-ran tests.test_api_examples.ApiExampleReplayTests \
             --require-ran tests.test_social_previews.SocialMetaPluginTests \
+            --require-ran tests.test_published_pages_wiring.RequestRuleTests \
+            --require-ran tests.test_published_pages_wiring.ReadOnlySwitchTests \
             contracts-suite.log
 
   # ---------------------------------------------------------------------------
@@ -689,6 +694,26 @@ jobs:
             echo "The smoke test produced no passing assertions." >&2
             exit 1
           }
+
+      - name: The published-pages browser check fails on a broken page
+        # scripts/check_published_pages.mjs opens the published origin only
+        # after a Pages deploy, so a break in it would show there as a green
+        # run. tests/test_published_pages_wiring.py runs it here in Chromium
+        # against a stand-in Pages tree and a stand-in API on free ports: a
+        # working page passes, a page that sends a POST or misses a script
+        # file fails, and the stand-in API receives no POST. playwright-core
+        # comes from site/node_modules, installed by the site build above.
+        run: |
+          set -o pipefail
+          python -m unittest tests.test_published_pages_wiring.StandInBrowserTests -v 2>&1 \
+            | tee published-pages.log
+
+      - name: Fail if the published-pages browser check skipped
+        # The class skips without playwright-core or a browser, so it must have run.
+        run: |
+          python scripts/ci_no_skipped_tests.py \
+            --require-ran tests.test_published_pages_wiring.StandInBrowserTests \
+            published-pages.log
 
   # ---------------------------------------------------------------------------
   # Adding a hospital while the stroke demo runs. The frontends job drives the
