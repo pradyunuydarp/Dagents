@@ -406,6 +406,72 @@ the smoke test with `--agents-from openai-agents`. That option fails unless
 `tests/test_packaging.py` runs the file check and the option on synthetic
 distributions.
 
+### q. A site that works at / and breaks under /Dagents/
+
+Pages serves the framework site under `/Dagents/` and each demo in a folder
+below it. The `frontends` job built and checked the site for the root path
+only, and `site/check.mjs` answered a missing file with `index.html` and
+status 200. So a demo card that lost its base path (`/healthcare-demo/`
+instead of `/Dagents/healthcare-demo/`), or a demo built for `/`, passed CI
+and answered 404 on Pages. The check could not run under the base path at
+all: it sent `index.html` for `/Dagents/assets/*.js`, so the home page never
+drew and the check stopped at `main h1`.
+
+Defence: `site/check.mjs --tree DIR --base PATH`. It serves the assembled tree
+as Pages does: only under the base path, with a 404 for a missing file, and a
+folder answers only with its own `index.html`. It runs every check of the site
+there, and resolves the link preview and icon addresses against the base path.
+Then it opens each link from the home page into the tree in a page of its own.
+The demo's page, scripts, styles and icons must answer 200 from under the base
+path, and the app must draw its masthead within 30 seconds. It does not check
+the demos' data requests, because the CI build has no recording and no API.
+It blocks requests to other hosts on demo pages, so a demo built to call the
+deployed API never calls it.
+
+It was shown failing on three broken trees. Without the `nl2sql-demo/` folder,
+the NL2SQL card's link answers 404. With the healthcare demo built for `/`, its
+page asks for `/assets/index-….js` and the CSS, and both answer 404. With
+`demoHref()` returning `/${slug}/` instead of a path under the base, the root
+check passes and this check fails on both cards.
+
+- The `frontends` job reads the base path and the three addresses from
+  `env/.env.published` and builds the site once, as `pages.yml` builds it.
+  It copies the site to the root of `_site`, builds the two demos into the
+  folders `pages.yml` copies them to, and runs the check there in place of
+  the root `npm run check`. The tree check runs every check of the root
+  check, so running both checked the site twice and added about four minutes
+  for three new checks. With one build and one check, the changed steps took
+  236 and 239 seconds on a shared 4-CPU machine, against 203 seconds for the
+  old root build and root check. The root check stays for local runs. Exit 2
+  fails the step, and a 15-minute limit stops a hung browser.
+- `pages.yml` installs the browser build of the locked playwright-core
+  (`npx --no playwright-core install`), so a deploy does not depend on the
+  newest playwright on the registry. It runs the same check on `_site` after
+  **Assemble the published tree** and before the upload, under the
+  `BASE_PATH` that **Resolve the base path** wrote. On a custom domain that
+  is the root. A failure stops the deploy. The 15-minute limit stops a hung
+  browser from holding the deploys queued behind it, which the `pages`
+  concurrency group never cancels.
+- `tests/test_site_check_wiring.py`, in the `contracts` job, checks both
+  steps: their order, the folders, the base path, one site build and one
+  check in `frontends`, a browser located first and installed from the lock
+  file in `pages.yml`, the time limits, no `continue-on-error` and no `${{ }}`
+  inside `run:`. Its `CheckScriptOptionTests` run `check.mjs` with Node, so
+  the job's guard step requires that class to run.
+
+Run it locally; the addresses are the ones in `env/.env.published`:
+
+```bash
+TREE=$(mktemp -d) URL=https://pradyunuydarp.github.io/Dagents/
+(cd site && npm ci && SITE_BASE_PATH=/Dagents/ PUBLIC_SITE_URL=$URL \
+  npx vite build --outDir "$TREE" --emptyOutDir)
+for demo in apps/healthcare-demo/frontend:healthcare-demo services/nl2sql-demo/frontend:nl2sql-demo; do
+  (cd "${demo%%:*}" && npm ci && DEMO_BASE_PATH="/Dagents/${demo##*:}/" VITE_DAGENTS_STATIC=1 \
+    PUBLIC_SITE_URL="$URL${demo##*:}/" npx vite build --outDir "$TREE/${demo##*:}" --emptyOutDir)
+done
+cd site && PUBLIC_SITE_URL=$URL node check.mjs --tree "$TREE" --base /Dagents/
+```
+
 ## 3. The test loop
 
 CI runs the same commands a contributor runs. Write the failing test first,
