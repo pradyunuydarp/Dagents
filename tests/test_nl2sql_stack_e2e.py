@@ -226,6 +226,11 @@ class Nl2SqlStackTests(unittest.TestCase):
                 env = dict(base, PYTHONPATH=os.pathsep.join(str(REPO_ROOT / p) for p in (".", *paths)))
                 if name == "core-service":
                     env["DAGENTSC_BIN"] = str(recorder)
+                    # The recorder is a script, not the planner binary, so its
+                    # SHA-256 never matches a DAGENTSC_SHA256 pin. With a pin,
+                    # the runner would refuse it and core-service would use its
+                    # Python fallback. The recorder still runs the real planner.
+                    env.pop("DAGENTSC_SHA256", None)
                 with log.open("wb") as handle:
                     cls.processes[name] = subprocess.Popen(
                         [sys.executable, "-m", "uvicorn", target, "--fd", str(bound.fileno()), "--log-level", "warning"],
