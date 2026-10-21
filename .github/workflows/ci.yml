@@ -454,11 +454,12 @@ jobs:
         # The demo calls the LMAs and the GMA only through their HTTP APIs.
         # Most tests build the agents inside the API process.
         # tests/test_network_mode.py starts the GMA, one LMA per hospital and
-        # the API as separate uvicorn processes on loopback ports the system
-        # picks, against the service container, and checks that their pilot
-        # equals the in-process pilot. tests/test_network_deploy.py also starts
-        # core-service from services/core-service and adds Hospital 290 to the
-        # running processes.
+        # the API as separate uvicorn processes on free loopback ports,
+        # against the service container, and checks that their pilot equals
+        # the in-process pilot. It also kills one LMA process and starts it
+        # again on its port. tests/test_network_deploy.py also starts
+        # core-service from services/core-service, adds Hospital 290 to the
+        # running processes, and kills and starts again its LMA and the GMA.
         working-directory: apps/healthcare-demo
         env:
           DAGENTSC_BIN: ${{ env.PLANNER_DIR }}/dagentsc.exe
@@ -547,6 +548,7 @@ jobs:
             --require-ran tests.test_network_mode.NetworkModeTests \
             --require-ran tests.test_network_mode.NetworkApprovalTests \
             --require-ran tests.test_network_deploy.NetworkDeployTests \
+            --require-ran tests.test_network_mode.NetworkOutageTests \
             apps/healthcare-demo/healthcare-suite.log || status=1
           python scripts/ci_no_skipped_tests.py \
             --forbid database \

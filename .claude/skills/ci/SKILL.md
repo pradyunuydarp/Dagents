@@ -93,9 +93,28 @@ compose). The `demo-apps` job runs the suite in process, and
 `apps/healthcare-demo/tests/test_network_mode.py` starts the GMA, three LMAs
 and the API as uvicorn processes against the job's PostgreSQL 16 service and
 checks that their pilot equals an in-process pilot on the same database, and
-that an approval reaches every LMA process.
-`tests.test_network_mode.NetworkModeTests` and
-`tests.test_network_mode.NetworkApprovalTests` are in the `--require-ran` lists
+that an approval reaches every LMA process. It also checks that an entry and
+its outcome reach the overview's counts through the GMA at once, and that the
+next pilot uses the record in every round. That holds only while the GMA keeps
+no site summary (`GMA_SUMMARY_TTL_SECONDS=0`), so the test checks that setting
+too.
+
+`tests.test_network_mode.NetworkOutageTests` kills one LMA process with
+SIGKILL while the demo runs, then starts it again on the same port. While the
+LMA is down, its hospital page and the overview answer the app's 503, with
+`X-Dagents-App` and the app's words. The other hospital pages answer, the
+status report says the LMA does not answer, and the pilot answers 200 and says
+in words why no round met its quorum. After the restart, every page and the
+status report answer again, and the next pilot includes the hospital and
+equals the recorded pilot. A process that a test starts again gets a port
+below the range Linux gives outgoing connections
+(`/proc/sys/net/ipv4/ip_local_port_range`). A port in that range can be taken
+by any outgoing connection while the process is stopped, and the restart then
+cannot bind it.
+
+`tests.test_network_mode.NetworkModeTests`,
+`tests.test_network_mode.NetworkApprovalTests` and
+`tests.test_network_mode.NetworkOutageTests` are in the `--require-ran` lists
 of both `ci.yml` and `healthcare-data.yml`, with
 `tests.test_agents_wiring.PostgresWiringTests` and
 `tests.test_concurrency.PostgresPilotWhileWritingTests`.
@@ -104,8 +123,27 @@ with a fixture recorded before the demo used the agents.
 
 Adding a hospital while the demo runs starts real processes, so its tests do
 too. `tests.test_network_deploy.NetworkDeployTests` starts core-service, the
-GMA, three LMAs and the API with the deployer on, adds Hospital 290 and runs a
-pilot with it; both workflows require it to run. `tests/test_ci_guards.py`
+GMA, three LMAs and the API with the deployer on, then takes these steps in
+order:
+
+1. It adds Hospital 290 and runs a pilot with it.
+2. It kills the new LMA. `GET /api/v1/deployments` reports it `stopped`, and
+   the same `POST /api/v1/deployments` starts it again.
+3. It kills the GMA and starts it again on its port. The GMA has forgotten the
+   new LMA's address. The next pilot sends the address again, includes the
+   hospital and keeps the model in use.
+4. It kills and starts the GMA a second time. This time the overview sends the
+   address.
+
+`NetworkOutageTests` and `NetworkDeployTests` stop a process between two
+requests, never during a round. The GMA starts again with no round in
+progress, and the demo keeps its rounds in memory, so these tests do not check
+round recovery. They post no entry while an LMA is down. The overview's 503
+gives the app's general message and does not name the hospital. The deploy
+panel's restart button is driven in a browser only against a stopped LMA that
+`smoke.mjs` simulates.
+
+Both workflows require `NetworkDeployTests` to run. `tests/test_ci_guards.py`
 finds it although its database fixture is a base class imported from
 `test_network_mode`. Three classes skip when something the runner has is
 missing, so the demo-apps job's planner step requires them to run:
