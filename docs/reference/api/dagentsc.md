@@ -96,14 +96,13 @@ Which services run which commands:
 | `governance restrict` | the Ethical Guard in the LMA, the GMA and each healthcare hospital, and every planning endpoint of the agents |
 | `federation round digest`, `round plan`, `aggregate readiness`, `release evaluate` | the round controller in the GMA and in the healthcare demo |
 | `federation model lifecycle` | the GMA's model registry, for every change of a model version's status |
+| `federation round recover` | the GMA's round controller, once after a restart for each unfinished round, and before each dispatch for each round whose stored updates are older than the age limit |
 
 The remaining commands (`dataset profile`, `source metadata`, `transform
-compile`, `transform apply`, `governance assess`, `federation round recover`)
-are not called by any service in this version. The demo scripts in
-`docs/demo/` call `transform compile` and `transform apply`. `federation round
-recover` is called by `FederatedRoundController.recover`, for a round store
-that outlives the process. The GMA does not call `recover` yet. Each endpoint
-card on the other pages lists the commands its example ran.
+compile`, `transform apply`, `governance assess`) are not called by any
+service in this version. The demo scripts in `docs/demo/` call `transform
+compile` and `transform apply`. Each endpoint card on the other pages lists
+the commands its example ran.
 
 The planners' design is in `bindings/ocaml/README.md`.
 
@@ -781,9 +780,11 @@ whether the round stays open or is closed. A closed round is run again under a
 new round id. The command reads no clock: the caller measures the age of the
 oldest stored update and passes it in. `FederatedRoundController.recover`
 (`dagents/common/application/federation.py`) calls it once for each unfinished
-round, oldest first. The GMA does not call `recover` yet, and it keeps its
-rounds in memory unless the application that builds it passes its own round
-store.
+round, oldest first. A GMA whose rounds are in a table (`GMA_ROUND_TABLE`)
+runs `recover` once after a restart, before it takes a round write. Before
+each dispatch, `FederatedRoundController.expire_updates` calls the command for
+each unfinished round whose oldest stored update is older than
+`GMA_UPDATE_MAX_AGE_SECONDS`, with `updatesKept` true.
 
 Every key is required:
 

@@ -59,6 +59,7 @@ def build_round_controller(
     *,
     sites: SiteRegistry | None = None,
     rounds: RoundRepository | None = None,
+    update_max_age_seconds: float | None = None,
 ) -> FederatedRoundController:
     """Build the federated round controller.
 
@@ -74,5 +75,13 @@ def build_round_controller(
       ``None``.
     - `rounds`: where round records are kept; a new in-memory repository when
       ``None``.
+    - `update_max_age_seconds`: the age limit for stored updates. Before each
+      dispatch the controller asks the planner about every round whose oldest
+      stored update is older than it. ``None`` runs no age check.
     """
-    return FederatedRoundController(engine=engine or InProcessFederationEngine(), sites=sites, rounds=rounds)
+    return FederatedRoundController(
+        engine=engine or InProcessFederationEngine(),
+        sites=sites,
+        rounds=rounds,
+        update_max_age_seconds=update_max_age_seconds,
+    )

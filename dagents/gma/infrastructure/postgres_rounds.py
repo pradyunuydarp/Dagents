@@ -7,9 +7,11 @@
 | ``PostgresUpdateStore`` | :class:`dagents.gma.infrastructure.update_store.UpdateStore` | the update role |
 
 Each passes the same test suite as its memory twin
-(``dagents/tests/test_round_store.py``). An application hands them to its GMA
-through ``GmaDeps(rounds=..., enrolments=..., updates=...)``; no setting
-builds them.
+(``dagents/tests/test_round_store.py``). A GMA builds them from
+``GMA_ROUND_TABLE``, ``GMA_ENROLMENT_TABLE`` and ``GMA_UPDATE_TABLE`` (with
+``GMA_UPDATE_ROLE``), on its one coordinator connection, or an application
+hands them to its GMA through ``GmaDeps(rounds=..., enrolments=...,
+updates=...)``.
 
 Each store takes a kept connection, a role and a table, and runs every
 method in one transaction on that connection, acting as the role
@@ -611,6 +613,8 @@ class PostgresUpdateStore:
     """
 
     kind = "postgres"
+    #: The updates stay in the table after the process stops.
+    survives_restart = True
 
     def __init__(
         self,

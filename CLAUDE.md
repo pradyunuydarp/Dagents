@@ -177,7 +177,7 @@ admin login:
 
 ```bash
 export HEALTHCARE_DEMO_TEST_DATABASE_URL=postgresql://admin:pw@127.0.0.1:5432/postgres  # healthcare suite
-export DAGENTS_TEST_DATABASE_URL=postgresql://admin:pw@127.0.0.1:5432/postgres          # dagents/tests: role scoping, the lease, the model store, the round stores, the job log, the GMA's Postgres wiring
+export DAGENTS_TEST_DATABASE_URL=postgresql://admin:pw@127.0.0.1:5432/postgres          # dagents/tests: role scoping, the lease, the model store, the round stores, the job log, the GMA's Postgres wiring, the GMA restart tests
 ```
 
 Without them these tests skip with a message that starts `database test
@@ -990,7 +990,24 @@ same round, the planner allows the same decision without a status change and
 refuses a different one as `decision_differs`. So a retry after a failed round
 write saves the decision on the round.
 `FederatedRoundController.recover` asks `round recover` about each unfinished
-round and closes what it says to close. The GMA does not call `recover` yet.
+round and closes what it says to close. A GMA runs it once after a restart
+(`GmaState.ensure_recovered`): under uvicorn in its lifespan, which waits for
+it at most 10 seconds and logs a failure instead of raising it, otherwise at
+the first round write. The round write routes wait for it through an async
+dependency, on the GMA's own handler threads, and answer `503`
+`recovery_failed` while it fails. Once the GMA serves, reads, `/health` and
+approval do not wait. Before each dispatch, the controller asks the same rule
+about rounds whose oldest stored update is older than
+`GMA_UPDATE_MAX_AGE_SECONDS` (`expire_updates`). That age limit applies when
+the update store survives a restart (24 hours by default) or when the setting
+is set, and `GMA_UPDATE_TABLE` needs `GMA_ENGINE=http`, because the simulator
+neither reads nor deletes stored updates. Python only picks which rounds to
+ask about; every keep or close comes from the planner.
+`dagents/tests/test_gma_restart.py` restarts a GMA built from its settings at
+five points of a study and in crash windows, and
+`dagents/tests/test_gma_process_restart.py` kills a GMA process with SIGKILL
+and starts it again on its port; both compare the study with an uninterrupted
+run. Recovery assumes one GMA process with one uvicorn worker.
 
 The federated protocol belongs to a dedicated runtime behind `FederationEngine`.
 The in-process engine is a simulator for tests and the getting-started example;
@@ -1078,13 +1095,15 @@ versions and handle approvals. They call each other through
 `dagents/common/infrastructure/agent_client.py`, in one process through
 `httpx.ASGITransport` or over HTTP, with bearer tokens of fixed scopes
 (`agent_auth.py`). With a database, an LMA keeps its audit chain and job log in
-Postgres and the GMA keeps its model registry and audit chain there. The GMA's
-enrolments, rounds and pending updates stay in memory, unless the application
-that builds it passes its own stores in `GmaDeps` (`rounds`, `enrolments`,
-`updates`), such as the Postgres stores in
-`dagents/gma/infrastructure/postgres_rounds.py`. No setting builds those
-stores yet, and the GMA does not call `FederatedRoundController.recover` when
-it starts. The getting-started example's `step5_agents_over_http.py` runs a
+Postgres, and the GMA keeps its model registry and audit chain there and,
+with `GMA_ROUND_TABLE`, `GMA_ENROLMENT_TABLE` and the opt-in
+`GMA_UPDATE_TABLE`, its rounds, enrolments and pending updates
+(`dagents/gma/infrastructure/postgres_rounds.py`), all on one kept connection.
+Such a GMA recovers once after a restart, as the planner decides, and the
+study goes on. A round cut during its dispatch is closed and runs again under
+a new id. Without those settings, the round state stays in memory. The
+rendered Kubernetes manifest still uses a rolling update for the GMA, and the
+healthcare demo sets none of the round table settings. The getting-started example's `step5_agents_over_http.py` runs a
 round through `agent_client`, and so does the healthcare demo: it calls one
 LMA per hospital and a GMA only
 through their APIs, in its own process on the published demo and as separate

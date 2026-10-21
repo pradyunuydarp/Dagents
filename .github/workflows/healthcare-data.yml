@@ -178,7 +178,9 @@ jobs:
         # The framework's PostgreSQL code. The model store and job log tests
         # build tables shaped like the demo's coordinator tables; the round,
         # enrolment and update store tests build theirs from the package's DDL
-        # constants and run the controller tests on them. Each test
+        # constants and run the controller tests on them, and a GMA builds
+        # those stores from its table settings, is restarted, and as a process
+        # is killed with SIGKILL and started again on its port. Each test
         # creates its own scratch database in the service container and drops
         # it afterwards. The job installs only the demo's requirements, as the
         # deployed image does.
@@ -195,6 +197,9 @@ jobs:
             dagents.tests.test_job_log \
             dagents.tests.test_gma_release \
             dagents.tests.test_round_store \
+            dagents.tests.test_gma_settings \
+            dagents.tests.test_gma_restart \
+            dagents.tests.test_gma_process_restart \
             2>&1 | tee framework-database.log
 
       - name: Fail if the database tests skipped
@@ -250,6 +255,13 @@ jobs:
             --require-ran dagents.tests.test_round_store.PostgresRoundStateTests \
             --require-ran dagents.tests.test_round_store.PostgresSiteRefusalTests \
             --require-ran dagents.tests.test_round_store.PostgresNonFiniteRequestTests \
+            --require-ran dagents.tests.test_gma_settings.PostgresSettingsWiringTests \
+            --require-ran dagents.tests.test_gma_restart.StudyRestartTests \
+            --require-ran dagents.tests.test_gma_restart.CrashWindowRestartTests \
+            --require-ran dagents.tests.test_gma_restart.InMemoryStateRestartTests \
+            --require-ran dagents.tests.test_gma_restart.RecoveryRestartTests \
+            --require-ran dagents.tests.test_gma_restart.PostgresUploadThreadTests \
+            --require-ran dagents.tests.test_gma_process_restart.GmaProcessRestartTests \
             framework-database.log || status=1
           exit "${status}"
 

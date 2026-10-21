@@ -17,10 +17,12 @@ one process can run several agents, such as one LMA per site.
 
 The agents keep their state in memory unless their settings name a database:
 an LMA can keep its audit chain and its job log in Postgres, and a GMA its
-model registry and its audit chain. No setting moves a GMA's rounds, site
-enrolments or stored updates out of memory. An application that builds the
-GMA in its own process can pass its own stores for them in `GmaDeps`, such as
-the Postgres stores in `dagents/gma/infrastructure/postgres_rounds.py`.
+model registry, its audit chain, its rounds, its site enrolments and, opt-in,
+the stored updates of running training rounds. With those tables, a GMA that
+restarts closes what it cannot finish, as its planner decides, and the study
+goes on ([Recovery after a restart](#recovery-after-a-restart)). An
+application that builds the GMA in its own process can also pass its own
+stores in `GmaDeps`.
 
 The governance and federation code is shared, in `dagents/common/`:
 `GovernanceService` and the `EthicalGuard` behind the governance endpoints of
@@ -122,6 +124,7 @@ connection string.
 | `invalid_request` | 422 | A release evaluation the GMA cannot run as asked, a model version whose name or parameters are not valid, or a round record that holds NaN or an infinite number |
 | `planner_unavailable` | 503 | `dagentsc` could not be run, ran past `DAGENTSC_TIMEOUT_SECONDS`, printed more than `DAGENTSC_MAX_OUTPUT_BYTES`, or its answer could not be used (not JSON, nested more than 200 levels deep, or not the plan the route asked for); or the input was over `DAGENTSC_MAX_INPUT_BYTES`, or the binary's SHA-256 is not the one `DAGENTSC_SHA256` requires, so it was not started |
 | `store_unavailable`, `store_not_set_up` | 503 | The agent's database could not be reached, or is not set up for the agent's role |
+| `recovery_failed` (GMA) | 503 | A round write reached a GMA whose rounds are in a table (`GMA_ROUND_TABLE`), and the GMA could not yet [recover](#recovery-after-a-restart) the rounds a restart left unfinished. The `detail` names the cause's code, such as `planner_unavailable` or `store_unavailable`, and the next round write tries again |
 | `agent_unavailable` | 503 | The other agent did not answer, or no address is configured for it |
 | `bad_gateway` (LMA), `agent_error` (GMA) | 502 | The other agent answered with an error |
 
@@ -1499,7 +1502,7 @@ Terms used in this part of the page:
 | Shared code it serves | `dagents/common/`: federated rounds (`application/federation.py`, `domain/federation.py`), governance (`application/governance_service.py`, `application/ethical_guard.py`), sources (`infrastructure/sources.py`), profiles and model runs (`application/ml_orchestration.py`), the agent client and tokens (`infrastructure/agent_client.py`, `infrastructure/agent_auth.py`) and extensions (`extensions/registry.py`) |
 | Port | 8020 (`GMA_API_PORT` in `env/.env.gma`, read by uvicorn) |
 | Settings | `env/.env.shared`, then `env/.env.gma`, read by `Settings.from_env()` in `dagents/gma/config.py`. A variable already set in the environment wins. |
-| Planner | `dagentsc governance restrict` for governance and the release Guard; `dagentsc federation round plan`, `federation aggregate readiness`, `federation release evaluate` and `federation model lifecycle` for rounds and model versions |
+| Planner | `dagentsc governance restrict` for governance and the release Guard; `dagentsc federation round plan`, `federation aggregate readiness`, `federation release evaluate` and `federation model lifecycle` for rounds and model versions; `federation round recover` after a restart and before each dispatch |
 | Start it | `PYTHONPATH=. .venv/bin/uvicorn dagents.gma.main:app --port 8020`, from the repository root, with `DAGENTSC_BIN` set ([how](overview.md#run-a-service-to-try-the-examples)). The container image builds `dagentsc` and puts it on its `PATH`. |
 | Its own docs | `http://127.0.0.1:8020/docs` and `/openapi.json` |
 
@@ -1521,16 +1524,28 @@ process-wide extension registry, everything in memory and source reads on.
 | `GMA_DATABASE_URL`, `GMA_DATABASE_ROLE` | none | The coordinator's database, and the role every coordinator query acts as |
 | `GMA_MODEL_TABLE` | none | `schema.table` for the model registry. In memory without it. |
 | `GMA_AUDIT_TABLE`, `GMA_AUDIT_ANCHOR_TABLE` | none | `schema.table` for the release Guard's audit chain and its anchor. In memory without them. |
+| `GMA_ROUND_TABLE` | none | `schema.table` for the round records. In memory without it. Needs `GMA_MODEL_TABLE` and `GMA_AUDIT_TABLE`, so a round kept across a restart keeps its candidate and the release Guard's chain too. |
+| `GMA_ENROLMENT_TABLE` | none | `schema.table` for the site enrolments. In memory without it. |
+| `GMA_UPDATE_TABLE`, `GMA_UPDATE_ROLE` | none | `schema.table` for the clipped updates of running training rounds, and the role that owns it and that every update read and write acts as. Opt-in. In memory without them. Needs `GMA_ENGINE=http` and `GMA_ROUND_TABLE`, and the role must differ from `GMA_DATABASE_ROLE`. The simulator neither reads nor deletes stored updates. |
+| `GMA_UPDATE_MAX_AGE_SECONDS` | `86400` with `GMA_UPDATE_TABLE`; no limit for updates in memory | How old a round's oldest stored update may be. After a restart and before each dispatch, the planner closes a `collecting` training round with an older one, unless its candidate is registered, and its updates are deleted. A GMA that keeps its updates in memory runs this check only when the setting is set. Needs `GMA_ENGINE=http` and `GMA_UPDATE_TABLE`, or an update store in `GmaDeps`. |
 | `GMA_ALLOW_SOURCE_READS` | `1` | `0` makes the source, dataset profile and model job routes answer `403`, for a coordinator that must never read records |
 | `DAGENTSC_BIN`, `DAGENTSC_SHA256` | none | The planner to start, and the SHA-256 its file must have. With another hash the runner starts no planner: rounds stop, the release Guard denies every request, and the GMA logs a warning when it is built. |
 | `DAGENTSC_TIMEOUT_SECONDS`, `DAGENTSC_MAX_INPUT_BYTES`, `DAGENTSC_MAX_OUTPUT_BYTES` | `10`, `16777216`, `16777216` | The limits of one planner call. A call past a limit is a planner failure. The GMA refuses to start when a limit is zero, negative or not a number, or `DAGENTSC_SHA256` is not 64 hexadecimal digits. |
+
+Every table setting shares one kept connection to `GMA_DATABASE_URL`, and
+building the app opens none. A setting that cannot work stops the GMA at start
+with a message that names the settings, never a value: a table without the
+database or the role, or a broken rule from the table above. The tables'
+SQL is in the [GMA README](../../../dagents/gma/README.md#postgres-tables).
 
 An application that runs the GMA in its own process passes the same settings
 to `create_app(settings, GmaDeps(...))`, together with objects it owns: its
 extension registry, agent network, model store, coordinator database
 connection, audit sink, round store (`rounds`, a `RoundRepository`), enrolment
 store (`enrolments`, a `SiteRegistry`) or update store (`updates`, an
-`UpdateStore`). The GMA builds what is left out, the last three in memory.
+`UpdateStore`). A store handed in takes the place of its table setting. The
+GMA builds what is left out from its settings: Postgres when a table is set,
+memory otherwise.
 
 How the GMA relates to the other modules:
 
@@ -1576,13 +1591,14 @@ flowchart TB
     Routes --> Rounds["FederatedRoundController"]
     Routes --> Directory["SiteDirectory"]
     Routes --> Models["ModelRegistry"]
-    Routes --> Updates["Update store: memory, or GmaDeps.updates"]
+    Routes --> Updates["Update store: memory or Postgres"]
     Routes --> Releases["ReleaseService"]
     Routes --> Addresses["SiteAddressBook"]
     Addresses --> Network["Agent network: configured and joined LMA addresses"]
     Aggregation --> Stores["In-memory stores: agents, telemetry, deployments, dispatches, model runs"]
     Governance --> Guard["EthicalGuard"]
     Guard --> Audit["Audit chain: memory or Postgres"]
+    Rounds --> RoundStores["Rounds and enrolments: memory or Postgres"]
     Rounds --> Engine["HttpFederationEngine, or the in-process simulator"]
     Engine --> LMAs["Each site's LMA"]
     Engine --> Updates
@@ -1598,12 +1614,12 @@ flowchart TB
 
 ### What the GMA stores
 
-The GMA keeps its state in memory, so a restart clears it. The two exceptions
-are the model registry and the release Guard's audit chain of a GMA whose
-settings name a database table for them. An application that builds the GMA
-can also pass its own stores for site enrolments, rounds and updates in
-`GmaDeps`. The framework has a Postgres store for each; the
-[GMA README](../../../dagents/gma/README.md#round-state-tables) has their
+The GMA keeps its state in memory, so a restart clears it, except for what
+its settings put in a database table: the model registry, the release Guard's
+audit chain, the rounds, the site enrolments and the stored updates. An
+application that builds the GMA can also pass its own stores for site
+enrolments, rounds and updates in `GmaDeps`. The
+[GMA README](../../../dagents/gma/README.md#round-state-tables) has the
 tables. Nothing is removed while it runs, except the stored updates.
 
 | What | Class | Written by | Read by |
@@ -1616,28 +1632,83 @@ tables. Nothing is removed while it runs, except the stored updates.
 | Source definitions | `InMemorySourceCatalog`, inside `DefaultSourceResolver` | `POST /api/v1/sources` | The source endpoints, and profiles and model runs that name a `source_id` |
 | Data classifications added at runtime | `GovernanceService` | `PUT /api/v1/governance/classifications/{classification_id}` | `GET /api/v1/governance/classifications` |
 | Guard decisions | `InMemoryAuditLog`, or `PostgresAuditSink` with `GMA_AUDIT_TABLE` | Enforce, and the release Guard of each release evaluation | `GET /api/v1/governance/audit`, `GET /api/v1/governance/audit:summary` |
-| Site enrolments, one per site id | `InMemorySiteRegistry`, or the `SiteRegistry` in `GmaDeps.enrolments`, such as `PostgresEnrolmentStore` | `PUT /api/v1/federation/sites/{site_id}`, `POST /api/v1/federation/sites:refresh` | The site list, round planning and dispatch |
+| Site enrolments, one per site id | `InMemorySiteRegistry`, `PostgresEnrolmentStore` with `GMA_ENROLMENT_TABLE`, or the `SiteRegistry` in `GmaDeps.enrolments` | `PUT /api/v1/federation/sites/{site_id}`, `POST /api/v1/federation/sites:refresh` | The site list, round planning and dispatch |
 | Site summaries, for `GMA_SUMMARY_TTL_SECONDS` | `SiteDirectory` | `GET /api/v1/federation/sites/summaries` | The same endpoint |
 | Addresses of sites that joined while the GMA runs | `SiteAddressBook`, in the agent network | `PUT /api/v1/federation/sites/{site_id}/address`, `DELETE` of the same path | The site address list, the site refresh, the summaries and round dispatch |
-| Rounds, one per round id, with their plan, acceptances, results, dispatch calls, readiness, candidate and decision | `InMemoryRoundRepository`, or the `RoundRepository` in `GmaDeps.rounds`, such as `PostgresRoundRepository` | Dispatch, results, aggregation, discard and release evaluation | The round list and lookup, and every round endpoint |
-| The sites' clipped updates, until the round is stored as aggregated, the HTTP engine refuses its aggregation, or the round is discarded or closed | `InMemoryUpdateStore`, or the `UpdateStore` in `GmaDeps.updates`, such as `PostgresUpdateStore`, whose table belongs to an update role separate from the coordinator role | `PUT /api/v1/federation/rounds/{round_id}/updates/{site_id}` | The HTTP engine's aggregation only; no route reads an update |
+| Rounds, one per round id, with their plan, acceptances, results, dispatch calls, readiness, candidate and decision | `InMemoryRoundRepository`, `PostgresRoundRepository` with `GMA_ROUND_TABLE`, or the `RoundRepository` in `GmaDeps.rounds` | Dispatch, results, aggregation, discard, release evaluation and recovery | The round list and lookup, every round endpoint, and recovery |
+| The sites' clipped updates, until the round is stored as aggregated, the HTTP engine refuses its aggregation, or the round is discarded or closed. The age check closes a round whose oldest update is older than `GMA_UPDATE_MAX_AGE_SECONDS`, after a restart and before each dispatch, and that deletes its updates. A `collecting` training round whose candidate is registered keeps its updates until its aggregate is retried or it is discarded | `InMemoryUpdateStore`, `PostgresUpdateStore` with `GMA_UPDATE_TABLE`, whose table belongs to an update role separate from the coordinator role, or the `UpdateStore` in `GmaDeps.updates` | `PUT /api/v1/federation/rounds/{round_id}/updates/{site_id}` | The HTTP engine's aggregation, recovery and the age check; no route reads an update |
 | Model versions, with their parameters, status and latest release decision | `InMemoryModelStore`, or `PostgresModelStore` with `GMA_MODEL_TABLE` | Registration, aggregation, release evaluation and approval | The model version endpoints, dispatch and aggregation |
+
+### Recovery after a restart
+
+A GMA whose rounds are in a table (`GMA_ROUND_TABLE`) finds the rounds that a
+stopped process left unfinished, and recovers them once:
+
+- Under uvicorn, its lifespan starts the recovery and waits for it up to 10
+  seconds before the GMA serves. A longer recovery goes on while the GMA
+  serves, and round writes wait for it. A failure is logged, so the GMA still
+  starts and `/health` answers.
+- In process, where no lifespan runs, the first round write recovers.
+- The round writes wait for it: [dispatch](#gma-post-api-v1-federation-rounds),
+  [posted results](#gma-post-api-v1-federation-rounds-round-id-results),
+  [aggregate](#gma-post-api-v1-federation-rounds-round-id-aggregate),
+  [discard](#gma-post-api-v1-federation-rounds-round-id-discard),
+  [evaluate the release](#gma-post-api-v1-federation-rounds-round-id-evaluate-release)
+  and the [update upload](#gma-put-api-v1-federation-rounds-round-id-updates-site-id).
+  While the recovery fails they answer `503` (`recovery_failed`), and the next
+  round write tries again. Once the GMA serves, reads, `/health` and
+  [approval](#gma-post-api-v1-model-versions-version-approve) do not wait for
+  it. At start, `/health` answers after the lifespan's wait of at most 10
+  seconds.
+  The recovery runs on the GMA's own threads, so a waiting upload holds no
+  server thread.
+
+For each unfinished round, oldest first, the GMA runs
+[`dagentsc federation round recover`](dagentsc.md#dagentsc-federation-round-recover)
+with the round's status and phase, whether its record can be read, whether
+the update store survives a restart, whether its candidate is registered and
+the age of its oldest stored update, and keeps or closes the round as the
+planner says. A closed round gets the planner's sentence as its
+`abandoned_reason`, and its updates are deleted. Then the GMA deletes the
+stored updates of rounds that are finished or not stored. Before each
+dispatch it asks the same rule about every unfinished round whose oldest
+stored update is older than `GMA_UPDATE_MAX_AGE_SECONDS`, leaving out a round
+it is dispatching now. The age limit applies when the update store survives a
+restart, with a default of 24 hours, or when the setting is set. A GMA that
+keeps its updates in memory and sets no limit runs no age check.
+
+With every table set, a study resumes at any point between two calls.
+Without `GMA_UPDATE_TABLE`, a training round that was `collecting` is closed
+(`updates_not_kept`) unless its candidate is already registered. Without
+`GMA_ENROLMENT_TABLE`, the next round closes for lack of quorum until the
+sites are refreshed. A round cut during its dispatch is closed
+(`dispatch_interrupted`), and an LMA's late upload for it gets `409`.
+The [GMA README](../../../dagents/gma/README.md#recovery-after-a-restart) lists
+what resumes at each point of a study.
 
 ### Limits of the GMA in this version
 
-- Rounds, site enrolments and stored updates are in memory, unless the
-  application that builds the GMA passes its own stores in `GmaDeps`. In
-  memory, a restart loses a round in progress and its updates, so an
-  aggregation that needs them is refused: the round fails closed.
+- Rounds, site enrolments and stored updates are in memory unless their
+  table settings are set. In memory, a restart loses a round in progress and
+  its updates, so an aggregation that needs them is refused: the round fails
+  closed.
 - With rounds in memory, a restart frees every round id, while a model store
   in Postgres (`GMA_MODEL_TABLE`) keeps the candidates of the rounds before
   it. A new training round that uses such an id again gets `409` (`conflict`)
   when it is aggregated, and its updates are deleted. Use a new round id for
   every round.
-- The GMA does not call `FederatedRoundController.recover` when it starts.
-  With stores that outlive the process, nothing closes a round that a restart
-  cut during its dispatch until someone
-  [discards](#gma-post-api-v1-federation-rounds-round-id-discard) it.
+- Recovery after a restart assumes one GMA process with one uvicorn worker. A
+  second GMA on the same tables closes the first one's dispatch. Stop the old
+  process before you start the new one; the Kubernetes manifest the framework
+  renders today uses a rolling update, which starts the new pod first.
+- A database that stops answering holds the coordinator connection. The GMA
+  serves after its wait at start, but reads and writes that use the
+  connection wait until the database answers. The statement timeout is
+  enforced by the server, so it does not end this wait.
+- A round that a restart cut during its dispatch cannot resume under its id.
+  The operator dispatches it again under a new id, and its results can differ,
+  because the candidate name and the Guard's noise seeds contain the round
+  id.
 - A run dispatch is recorded only. Nothing sends it to an LMA or runs it.
 - Model runs train no model, and the simulator engine combines no model
   parameters. Their metrics are estimates or weighted means of what the sites
@@ -2426,6 +2497,7 @@ code: dagents/gma/routes.py
 classes:
 - FederatedRoundController (dagents/common/application/federation.py)
 - InMemorySiteRegistry (dagents/common/application/federation.py)
+- PostgresEnrolmentStore (dagents/gma/infrastructure/postgres_rounds.py)
 - SiteDirectory (dagents/gma/application/site_directory.py)
 - SiteAddressBook (dagents/gma/application/site_addresses.py)
 endpoints:
@@ -2448,9 +2520,10 @@ endpoints:
 A **site enrolment** says that a site takes part in studies and what it offers:
 its capabilities, the feature contract it has signed, the conditions (study
 topics) it has approved and its cohort size, the number of subjects it holds.
-The GMA stores one enrolment per site id in `InMemorySiteRegistry`, or in the
-enrolment store an application passed in `GmaDeps`, and the planner reads all
-of them each time it plans a round.
+The GMA stores one enrolment per site id in `InMemorySiteRegistry`, in the
+table `GMA_ENROLMENT_TABLE` names, or in the enrolment store an application
+passed in `GmaDeps`, and the planner reads all of them each time it plans a
+round.
 
 An enrolment comes from one of two places:
 
@@ -2639,6 +2712,7 @@ classes:
 - HttpFederationEngine (dagents/gma/adapters/http_federation_engine.py)
 - InProcessFederationEngine (dagents/common/application/federation.py)
 - InMemoryRoundRepository (dagents/common/application/federation.py)
+- PostgresRoundRepository (dagents/gma/infrastructure/postgres_rounds.py)
 - InMemorySiteRegistry (dagents/common/application/federation.py)
 - ReleaseService (dagents/gma/application/release_service.py)
 endpoints:
@@ -2851,8 +2925,15 @@ a `failed` result with the evidence pointer
 these. An application that runs the controller in its own process attaches a
 worker per site with `InProcessFederationEngine.register_worker`.
 
+Before it plans, when the age limit applies, the GMA looks for stored updates
+older than `GMA_UPDATE_MAX_AGE_SECONDS`. It asks `dagentsc federation round recover` about
+each unfinished round that holds one, closes the rounds the planner says to
+close and deletes their updates, and deletes the old updates of finished
+rounds ([recovery](#recovery-after-a-restart) says when the limit applies).
+
 A round id can be used once: dispatching a manifest whose `round_id` is already
-stored is refused with `409`, so the first round's results and decision stay.
+stored, or that this GMA is dispatching now, is refused with `409`, so the
+first round's results and decision stay.
 When the engine fails, or the round store refuses the results it returned, the
 round is closed with `the engine failed while it dispatched the round` as
 `abandoned_reason`, and the engine deletes its updates. A store refuses a result
@@ -2860,12 +2941,13 @@ that holds NaN or an infinite number, because it keeps rounds as JSON. The
 versioned path answers `202` and the short path `200`. Both finish before they
 answer.
 
-**Errors.** `409` (`conflict`) when the round id is already stored, or when the
-HTTP engine finds that the round's model is not registered or does not match
-`model_artifact_digest`. `422` when a field fails validation, for example a
-stop condition that is not in the list or a `mu` that is NaN or infinite.
-`422` (`invalid_request`) when the engine returned a result that holds NaN or
-an infinite number; the round is closed. `503` as for planning.
+**Errors.** `409` (`conflict`) when the round id is already stored or being
+dispatched, or when the HTTP engine finds that the round's model is not
+registered or does not match `model_artifact_digest`. `422` when a field fails
+validation, for example a stop condition that is not in the list or a `mu`
+that is NaN or infinite. `422` (`invalid_request`) when the engine returned a
+result that holds NaN or an infinite number; the round is closed. `503` as for
+planning. `503` (`recovery_failed`) while the GMA has not recovered after a restart ([recovery](#recovery-after-a-restart)).
 
 **Related.** [Plan without dispatching](#gma-post-api-v1-federation-rounds-plan),
 [record a result](#gma-post-api-v1-federation-rounds-round-id-results),
@@ -2899,7 +2981,8 @@ the offer, the results, the engine's calls, the readiness the aggregation
 acted on, the candidate, the release decision, the reason a discard gave, the
 times and the status. The record holds enough to trace a release back to the
 round and the sites that took part, without any site's records or updates. It
-reads memory only.
+reads the round store only, and does not wait for the recovery after a
+restart.
 
 **Errors.** `404` with `unknown round: <round_id>` when no round has the id.
 
@@ -2940,7 +3023,7 @@ for every round when the HTTP engine collects the results, as the examples "A
 result for a round that was aggregated" and "A result posted to a round the
 HTTP engine collects" show. `422` when a
 field fails validation, for example a `participation` value that is not in the
-list, or a metric or `update_norm` that is NaN or infinite.
+list, or a metric or `update_norm` that is NaN or infinite. `503` (`recovery_failed`) while the GMA has not recovered after a restart ([recovery](#recovery-after-a-restart)).
 
 **Related.** [The SiteResult object](#the-siteresult-object),
 [check readiness](#gma-get-api-v1-federation-rounds-round-id-readiness).
@@ -3006,7 +3089,8 @@ only some sites reported.
   `<version_prefix>+<round_id>` if the registry holds it with the round's
   starting version as its parent. It loads that version and checks its
   digest. It does this only when the GMA's round store keeps round ids across
-  a restart (`survives_restart`). With the default round store in memory, a
+  a restart (`survives_restart`), as the table `GMA_ROUND_TABLE` names does.
+  With the default round store in memory, a
   restart frees every round id while a model store in Postgres keeps the
   versions, so a new round with an old id could otherwise get the old round's
   candidate.
@@ -3031,7 +3115,7 @@ still uses; the engine deletes the round's updates.
 `503` (`planner_unavailable`) when the planner cannot be run or its answer
 cannot be read. `503` (`store_unavailable` or `store_not_set_up`) when the
 model store or the round store does not answer; the round's updates are kept
-for a retry.
+for a retry. `503` (`recovery_failed`) while the GMA has not recovered after a restart ([recovery](#recovery-after-a-restart)).
 
 **Related.** [The CandidateModel object](#the-candidatemodel-object),
 [ask the Guard about the release](#gma-post-api-v1-governance-restrictions-enforce),
@@ -3054,7 +3138,7 @@ store. No planner command runs.
 
 **Errors.** `404` with `unknown round: <round_id>` when no round has the id.
 `422` when `reason` is missing, empty, only spaces or longer than 500
-characters.
+characters. `503` (`recovery_failed`) while the GMA has not recovered after a restart ([recovery](#recovery-after-a-restart)).
 
 **Related.** [The DiscardRequest object](#the-discardrequest-object),
 [store an update](#gma-put-api-v1-federation-rounds-round-id-updates-site-id).
@@ -3160,7 +3244,7 @@ flow with gates or metrics in the body or without `release_requester`. `503`
 (`planner_unavailable`) when the planner cannot be run or its answer cannot be
 read. `503` (`store_unavailable` or `store_not_set_up`) when the model store
 or the round store does not answer; retry the same request, as described
-above.
+above. `503` (`recovery_failed`) while the GMA has not recovered after a restart ([recovery](#recovery-after-a-restart)).
 
 **Related.** [The ReleaseEvaluationRequest object](#the-releaseevaluationrequest-object),
 [the ReleaseEvaluation object](#the-releaseevaluation-object),
@@ -3178,6 +3262,7 @@ code: dagents/gma/routes.py
 classes:
 - UpdateStore (dagents/gma/infrastructure/update_store.py)
 - InMemoryUpdateStore (dagents/gma/infrastructure/update_store.py)
+- PostgresUpdateStore (dagents/gma/infrastructure/postgres_rounds.py)
 - ModelRegistry (dagents/gma/application/model_registry.py)
 endpoints:
 - PUT /federation/rounds/{round_id}/updates/{site_id}
@@ -3191,10 +3276,19 @@ the updates when it [aggregates](#gma-post-api-v1-federation-rounds-round-id-agg
 the round. They are deleted once the round is stored as `aggregated` or the
 HTTP engine refuses the aggregation. [Discarding](#gma-post-api-v1-federation-rounds-round-id-discard)
 the round deletes them too, and so does closing it after a restart. When the
-planner refuses aggregation, they are kept. The GMA keeps them in memory (`InMemoryUpdateStore`),
-unless the application that builds it passes its own `UpdateStore` in
-`GmaDeps`. In memory, they are gone after a restart, and an aggregation that
-needs them is refused.
+planner refuses aggregation, they are kept. After a restart and before each
+dispatch, the GMA asks the planner about each round whose oldest update is
+older than `GMA_UPDATE_MAX_AGE_SECONDS`: a `collecting` training round whose
+candidate is not registered is closed and loses its updates, and the old
+updates of a finished round are deleted. This age check runs when the update
+store survives a restart (24 hours by default) or when the setting is set.
+The GMA keeps the updates in
+memory (`InMemoryUpdateStore`), in the table `GMA_UPDATE_TABLE` names
+(`PostgresUpdateStore`, acting as `GMA_UPDATE_ROLE`), or in the `UpdateStore`
+an application passes in `GmaDeps`. In memory, they are gone after a restart.
+With `GMA_ROUND_TABLE`, the GMA's recovery then closes the training rounds
+that were collecting them, and a later aggregate gets `409`. With the round
+store in memory too, the rounds are gone, and an aggregate gets `404`.
 
 ### Store a site's update
 
@@ -3224,7 +3318,7 @@ In the example "Store an update, as a store's LMA does during its job", store
 east's job failed during the dispatch, so the example stores its update by hand.
 
 **Errors.** As in the table. `422` when the body is not valid: a key the body
-does not define, or an update value that is not a finite number.
+does not define, or an update value that is not a finite number. `503` (`recovery_failed`) while the GMA has not recovered after a restart ([recovery](#recovery-after-a-restart)).
 
 **Related.** [The UpdateUpload object](#the-updateupload-object),
 [the UpdateReceipt object](#the-updatereceipt-object),

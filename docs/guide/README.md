@@ -126,13 +126,14 @@ services, the demos and the tests. The worked example runs either way.
   settings, routes and package layout. This guide follows the repository's
   `main` branch, which can be newer than the newest release
   ([Install the package](00-install.md#versions)).
-- The LMA and GMA keep site enrolments, rounds and pending model updates in
-  memory, so a restart loses them. Their audit chains, the LMA's job log and
-  the GMA's model registry can be kept in Postgres
-  ([Step 8, section 9](08-deploy.md#9-state-that-survives-a-restart)). The Python building blocks accept your
-  own stores and audit sinks (Step 3 and Step 4), and so does a GMA your
-  application builds with `create_app`, which can take the framework's
-  Postgres stores for rounds, enrolments and updates (Step 8, section 9).
+- By default the LMA and GMA keep their state in memory, so a restart loses
+  it. Their settings can keep the audit chains, the LMA's job log, and the
+  GMA's model registry, rounds, site enrolments and pending model updates in
+  Postgres. A GMA with those tables recovers after a restart, and the study
+  goes on ([Step 8, section 9](08-deploy.md#9-state-that-survives-a-restart)).
+  Recovery assumes one GMA process with one uvicorn worker. The
+  Python building blocks accept your own stores and audit sinks (Step 3 and
+  Step 4), and so does a GMA your application builds with `create_app`.
 - The in-process federation engine is a simulator for tests and examples. The
   GMA's HTTP engine sends each round's jobs to the LMAs over their APIs; a
   deployment can connect another federated learning runtime through the

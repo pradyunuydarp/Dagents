@@ -521,40 +521,50 @@ def database_test_classes(test_dir: Path, module_prefix: str) -> set[str]:
     """Every test class in `test_dir` that needs a database, as `module.Class`.
 
     A class needs a database when one of its methods calls an entry point in
-    `DATABASE_ENTRY_POINTS`, or a module-level function that does, or when it
-    inherits from a class that does. The base class can be in the same module
-    or imported from another test module in `test_dir`
-    (`from tests.test_network_mode import _AgentProcesses`). Only classes with
-    at least one test method count, so a shared base or mixin is not listed.
+    `DATABASE_ENTRY_POINTS`, or a function that does, or when it inherits from
+    a class that does. The function can be a module-level function of the same
+    module or one imported from another test module in `test_dir`, at the top
+    or inside a method (`from dagents.tests.test_round_store import
+    started_scratch_database`). The base class can be in the same module or
+    imported from another test module (`from tests.test_network_mode import
+    _AgentProcesses`). Only classes with at least one test method count, so a
+    shared base or mixin is not listed.
     """
     modules: dict[str, dict[str, ast.ClassDef]] = {}
+    functions_in: dict[str, dict[str, ast.FunctionDef]] = {}
     opens_in: dict[str, set[str]] = {}
     imported: dict[str, dict[str, tuple[str, str]]] = {}
     for path in sorted(test_dir.glob("test_*.py")):
         tree = ast.parse(path.read_text(encoding="utf-8"))
-        functions = {node.name: node for node in tree.body if isinstance(node, ast.FunctionDef)}
+        functions_in[path.stem] = {node.name: node for node in tree.body if isinstance(node, ast.FunctionDef)}
         modules[path.stem] = {node.name: node for node in tree.body if isinstance(node, ast.ClassDef)}
+        opens_in[path.stem] = set(DATABASE_ENTRY_POINTS)
 
-        opens: set[str] = set(DATABASE_ENTRY_POINTS)
-        changed = True
-        while changed:  # helpers that call helpers that open a database
-            changed = False
-            for name, function in functions.items():
-                if name not in opens and _called_names(function) & opens:
-                    opens.add(name)
-                    changed = True
-        opens_in[path.stem] = opens
-
-        # Names imported from a sibling test module: `from tests.test_x import Base`.
+        # Names imported from a sibling test module, at the top or inside a
+        # function or method: `from tests.test_x import Base`.
         imported[path.stem] = {
             alias.asname or alias.name: (node.module.removeprefix(module_prefix), alias.name)
-            for node in tree.body
+            for node in ast.walk(tree)
             if isinstance(node, ast.ImportFrom)
             and node.module
             and node.module.startswith(module_prefix)
             and node.module.removeprefix(module_prefix).startswith("test_")
             for alias in node.names
         }
+
+    changed = True
+    while changed:  # helpers that call helpers that open a database, here or in another test module
+        changed = False
+        for module, functions in functions_in.items():
+            opens = opens_in[module]
+            for name, (other, original) in imported[module].items():
+                if name not in opens and original in opens_in.get(other, set()):
+                    opens.add(name)
+                    changed = True
+            for name, function in functions.items():
+                if name not in opens and _called_names(function) & opens:
+                    opens.add(name)
+                    changed = True
 
     def bases(module: str, node: ast.ClassDef) -> list[tuple[str, ast.ClassDef]]:
         found_bases = []
@@ -793,6 +803,45 @@ class WorkflowGuardTests(unittest.TestCase):
             (Path(directory) / "test_fixture.py").write_text(fixture, encoding="utf-8")
             (Path(directory) / "test_user.py").write_text(user, encoding="utf-8")
             self.assertEqual({"tests.test_user.DeployTests"}, database_test_classes(Path(directory), "tests."))
+
+    def test_the_finder_follows_a_helper_imported_from_another_test_module(self) -> None:
+        """test_gma_restart's tables fixture opens the database through test_round_store's helper.
+
+        The helper is imported inside a method, and a third module reuses the
+        fixture as a base class, as test_gma_process_restart does.
+        """
+        stores = (
+            "def started_database():\n"
+            "    return ScratchDatabase(admin_dsn_or_skip())\n"
+            "def unrelated():\n"
+            "    return 1\n"
+        )
+        fixture = (
+            "class Tables:\n"
+            "    @classmethod\n"
+            "    def setUpClass(cls):\n"
+            "        from tests.test_stores import started_database\n"
+            "        cls.db = started_database()\n"
+            "class RestartTests(Tables, unittest.TestCase):\n"
+            "    def test_restart(self): pass\n"
+            "class Other(unittest.TestCase):\n"
+            "    def setUp(self):\n"
+            "        from tests.test_stores import unrelated\n"
+            "        unrelated()\n"
+            "    def test_other(self): pass\n"
+        )
+        user = (
+            "from tests.test_fixture import Tables\n"
+            "class ProcessTests(Tables, unittest.TestCase):\n"
+            "    def test_kill(self): pass\n"
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            for name, text in (("test_stores", stores), ("test_fixture", fixture), ("test_user", user)):
+                (Path(directory) / f"{name}.py").write_text(text, encoding="utf-8")
+            self.assertEqual(
+                {"tests.test_fixture.RestartTests", "tests.test_user.ProcessTests"},
+                database_test_classes(Path(directory), "tests."),
+            )
 
     def test_each_required_module_runs_in_the_step_that_writes_the_log(self) -> None:
         """A class can only run if the command that writes the log runs its module."""

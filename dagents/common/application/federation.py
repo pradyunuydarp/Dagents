@@ -31,7 +31,9 @@ overwrite each other.
 
 After a restart, :meth:`FederatedRoundController.recover` asks the planner
 about each round the restart left unfinished and closes the rounds that
-cannot finish.
+cannot finish. A controller built with an age limit for stored updates asks
+the same planner rule, before each dispatch, about each round whose oldest
+stored update is older than the limit (:meth:`FederatedRoundController.expire_updates`).
 """
 
 from __future__ import annotations
@@ -39,6 +41,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import json
 import logging
+import math
 import threading
 import time
 import uuid
@@ -194,6 +197,8 @@ class FederationEngine(Protocol):
       with stored updates, the age in seconds of its oldest update.
       :meth:`FederatedRoundController.recover` tells the planner the age, and
       deletes the updates of rounds that are no longer unfinished.
+      :meth:`FederatedRoundController.expire_updates` finds with it the
+      rounds whose updates are older than the age limit.
     """
 
     name: str
@@ -329,6 +334,11 @@ class RecoveryReport:
 
     rounds: tuple[RoundRecovery, ...]
     deleted_updates: tuple[str, ...]
+
+
+def _positive_seconds(value: object) -> bool:
+    """Whether ``value`` is a finite number of seconds above 0, and not a bool."""
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value) and value > 0
 
 
 def _require_reason(reason: str, action: str) -> None:
@@ -590,10 +600,30 @@ class FederatedRoundController:
         engine: FederationEngine,
         sites: SiteRegistry | None = None,
         rounds: RoundRepository | None = None,
+        *,
+        update_max_age_seconds: float | None = None,
     ) -> None:
+        """Params:
+
+        - `engine`: the federated runtime.
+        - `sites`, `rounds`: where enrolments and rounds are kept; new memory
+          stores when ``None``.
+        - `update_max_age_seconds`: when set, :meth:`dispatch_round` first runs
+          :meth:`expire_updates` with this limit. ``None`` runs no age check.
+
+        Raises ``ValueError`` for a limit that is not a finite number of
+        seconds above 0.
+        """
+        if update_max_age_seconds is not None and not _positive_seconds(update_max_age_seconds):
+            raise ValueError("update_max_age_seconds must be a finite number of seconds, more than 0")
         self._engine = engine
         self._sites = sites if sites is not None else InMemorySiteRegistry()
         self._rounds = rounds if rounds is not None else InMemoryRoundRepository()
+        self._update_max_age_seconds = None if update_max_age_seconds is None else float(update_max_age_seconds)
+        # The rounds this controller is dispatching now. Their jobs still run,
+        # so the age check leaves them alone.
+        self._dispatching: set[str] = set()
+        self._dispatching_lock = threading.Lock()
 
     @property
     def engine_name(self) -> str:
@@ -643,6 +673,9 @@ class FederatedRoundController:
 
         The steps, each stored as it happens:
 
+        0. With an age limit (``update_max_age_seconds``), :meth:`expire_updates`
+           runs first, so stored updates older than the limit do not wait for
+           the next restart.
         1. The round is stored as ``dispatched``, with its plan, before the
            engine offers any job, so the update store can check uploads
            against the plan while the jobs run.
@@ -654,18 +687,34 @@ class FederatedRoundController:
            round and returned with it: the caller needs no readiness call.
            ``aggregate`` still asks the planner again.
 
-        Raises :class:`RoundConflict` when the round id is already stored: a
-        second dispatch would replace the first round's evidence and decision.
-        When the engine raises, or the round store refuses the results it
-        returned (:class:`InvalidRoundRecord` for a result that holds NaN or
-        an infinite number), the round is discarded with
+        Raises :class:`RoundConflict` when the round id is already stored, or
+        when this controller is dispatching it: a second dispatch would
+        replace the first round's evidence and decision. When the engine
+        raises, or the round store refuses the results it returned
+        (:class:`InvalidRoundRecord` for a result that holds NaN or an
+        infinite number), the round is discarded with
         :data:`ENGINE_FAILED_REASON`, and when the readiness check raises, with
         :data:`READINESS_FAILED_REASON`; the error is raised again.
         """
         round_id = manifest.round_id
+        if self._update_max_age_seconds is not None:
+            self.expire_updates(now=time.time(), update_max_age_seconds=self._update_max_age_seconds)
         if self._rounds.get(round_id) is not None:
             raise RoundConflict(f"round {round_id} already exists; a new round needs a new round id")
         plan = self.plan_round(manifest)
+        with self._dispatching_lock:
+            if round_id in self._dispatching:
+                raise RoundConflict(f"round {round_id} is being dispatched; a new round needs a new round id")
+            self._dispatching.add(round_id)
+        try:
+            return self._dispatch(manifest, plan)
+        finally:
+            with self._dispatching_lock:
+                self._dispatching.discard(round_id)
+
+    def _dispatch(self, manifest: RoundManifest, plan: RoundPlan) -> RoundRecord:
+        """Steps 1 to 4 of :meth:`dispatch_round`, for a round this controller has marked as being dispatched."""
+        round_id = manifest.round_id
         now = int(time.time())
         record = self._rounds.create(
             RoundRecord(
@@ -948,43 +997,121 @@ class FederatedRoundController:
         if not isinstance(updates_kept, bool):
             raise TypeError("updates_kept must be True or False")
         ages = self._pending_update_ages(now)
-        candidate_registered = getattr(self._engine, "candidate_registered", None)
-        outcomes: list[RoundRecovery] = []
-        for summary in self._rounds.unfinished():
-            registered = False
-            if summary.readable and callable(candidate_registered):
-                registered = bool(candidate_registered(self._require(summary.round_id).manifest))
-            verdict = _recovery_verdict(
-                round_recovery(
-                    status=summary.status,
-                    phase=summary.phase,
-                    readable=summary.readable,
-                    updates_kept=updates_kept,
-                    candidate_registered=registered,
-                    oldest_update_age_seconds=ages.get(summary.round_id),
-                    update_max_age_seconds=update_max_age_seconds,
-                )
+        outcomes = tuple(
+            self._recover_round(
+                summary,
+                updates_kept=updates_kept,
+                oldest_update_age_seconds=ages.get(summary.round_id),
+                update_max_age_seconds=update_max_age_seconds,
+                closed_by="recovery",
             )
-            if verdict.verdict == "close":
-                self._close_after_restart(summary, verdict.message)
-            outcomes.append(
-                RoundRecovery(
-                    round_id=summary.round_id,
-                    status=summary.status,
-                    phase=summary.phase,
-                    readable=summary.readable,
-                    verdict=verdict.verdict,
-                    reason=verdict.reason,
-                    message=verdict.message,
-                )
-            )
+            for summary in self._rounds.unfinished()
+        )
         still_unfinished = {summary.round_id for summary in self._rounds.unfinished()}
         leftovers = tuple(
             round_id for round_id in self._pending_update_ages(now) if round_id not in still_unfinished
         )
         for round_id in leftovers:
             self._discard_in_engine(round_id)
-        return RecoveryReport(rounds=tuple(outcomes), deleted_updates=leftovers)
+        return RecoveryReport(rounds=outcomes, deleted_updates=leftovers)
+
+    def expire_updates(self, *, now: float, update_max_age_seconds: float) -> RecoveryReport:
+        """Ask the planner about each round whose oldest stored update is older than the limit, and apply its answer.
+
+        :meth:`dispatch_round` calls it first when the controller has an age
+        limit, so updates older than the limit do not wait for the next
+        restart. It looks only at the rounds whose oldest stored update, by
+        the engine's ``pending_update_ages``, is older than
+        ``update_max_age_seconds``, and it leaves out a round this controller
+        is dispatching, because its jobs still run.
+
+        - An unfinished round goes to the planner's recovery rule
+          (``dagentsc federation round recover``), as :meth:`recover` sends
+          it, with ``updates_kept`` true: its updates are in the store. The
+          planner closes a collecting training round with
+          ``updates_expired``, unless its candidate is registered. A round
+          that the planner closes is discarded, or quarantined when its record
+          cannot be read, as :meth:`recover` does.
+        - The updates of a round that is aggregated, closed or not stored are
+          deleted, because nothing can use them.
+
+        Params:
+        - `now`: the Unix time the ages are measured from. The caller reads
+          the clock.
+        - `update_max_age_seconds`: the age limit.
+
+        Returns what it did: an entry for each round the planner was asked
+        about, and the rounds whose updates were deleted without asking.
+        Raises :class:`PlannerUnavailableError` when the planner cannot be run
+        or refuses an input.
+        """
+        ages = self._pending_update_ages(now)
+        with self._dispatching_lock:
+            dispatching = set(self._dispatching)
+        expired = [
+            round_id for round_id, age in ages.items() if age > update_max_age_seconds and round_id not in dispatching
+        ]
+        if not expired:
+            return RecoveryReport(rounds=(), deleted_updates=())
+        unfinished = {summary.round_id: summary for summary in self._rounds.unfinished()}
+        outcomes: list[RoundRecovery] = []
+        leftovers: list[str] = []
+        for round_id in sorted(expired):
+            summary = unfinished.get(round_id)
+            if summary is None:
+                self._discard_in_engine(round_id)
+                leftovers.append(round_id)
+                logger.warning(
+                    "the age check deleted the stored updates of round %s, which is not unfinished", round_id
+                )
+                continue
+            outcomes.append(
+                self._recover_round(
+                    summary,
+                    updates_kept=True,
+                    oldest_update_age_seconds=ages[round_id],
+                    update_max_age_seconds=update_max_age_seconds,
+                    closed_by="the age check",
+                )
+            )
+        return RecoveryReport(rounds=tuple(outcomes), deleted_updates=tuple(leftovers))
+
+    def _recover_round(
+        self,
+        summary: UnfinishedRound,
+        *,
+        updates_kept: bool,
+        oldest_update_age_seconds: float | None,
+        update_max_age_seconds: float | None,
+        closed_by: str,
+    ) -> RoundRecovery:
+        """Ask the planner's recovery rule about one unfinished round, and close the round if it says so."""
+        registered = False
+        candidate_registered = getattr(self._engine, "candidate_registered", None)
+        if summary.readable and callable(candidate_registered):
+            registered = bool(candidate_registered(self._require(summary.round_id).manifest))
+        verdict = _recovery_verdict(
+            round_recovery(
+                status=summary.status,
+                phase=summary.phase,
+                readable=summary.readable,
+                updates_kept=updates_kept,
+                candidate_registered=registered,
+                oldest_update_age_seconds=oldest_update_age_seconds,
+                update_max_age_seconds=update_max_age_seconds,
+            )
+        )
+        if verdict.verdict == "close":
+            self._close_unfinished(summary, verdict.message, closed_by)
+        return RoundRecovery(
+            round_id=summary.round_id,
+            status=summary.status,
+            phase=summary.phase,
+            readable=summary.readable,
+            verdict=verdict.verdict,
+            reason=verdict.reason,
+            message=verdict.message,
+        )
 
     def _pending_update_ages(self, now: float) -> dict[str, float]:
         pending = getattr(self._engine, "pending_update_ages", None)
@@ -992,7 +1119,7 @@ class FederatedRoundController:
             return {}
         return dict(pending(now))
 
-    def _close_after_restart(self, summary: UnfinishedRound, message: str) -> None:
+    def _close_unfinished(self, summary: UnfinishedRound, message: str, closed_by: str) -> None:
         """Close a round the planner's recovery rule closed, with its sentence as the reason."""
         if summary.readable:
             self.discard(summary.round_id, message)
@@ -1000,7 +1127,7 @@ class FederatedRoundController:
             # Its record cannot be read, so it is closed from the store's columns.
             self._rounds.quarantine(summary.round_id, message)
             self._discard_in_engine(summary.round_id)
-        logger.warning("recovery closed round %s: %s", summary.round_id, message)
+        logger.warning("%s closed round %s: %s", closed_by, summary.round_id, message)
 
     def evaluate_release(
         self,

@@ -881,6 +881,10 @@ class InMemoryUpdateStoreTests(UpdateStoreContract, unittest.TestCase):
     def test_the_kind_names_memory(self) -> None:
         self.assertEqual("in-memory", self.store.kind)
 
+    def test_its_updates_do_not_survive_a_restart(self) -> None:
+        # Recovery tells the planner the updates were not kept.
+        self.assertIs(False, self.store.survives_restart)
+
 
 # --------------------------------------------------------------------------- #
 # The Postgres twins
@@ -1394,6 +1398,12 @@ class PostgresUpdateStoreTests(PostgresTables, UpdateStoreContract, unittest.Tes
 
     def reloaded(self) -> PostgresUpdateStore:
         return self.new_store(lease=self.second_lease())
+
+    def test_its_updates_survive_a_restart(self) -> None:
+        # Recovery tells the planner the updates were kept.
+        self.assertIs(True, self.store.survives_restart)
+        self.store.put(self.record, "hospital-a", self.upload(), self.kind)
+        self.assertEqual(["hospital-a"], list(self.reloaded().updates(self.record.manifest.round_id)))
 
     def raw_rows(self, round_id: str) -> list[dict[str, Any]]:
         """The round's rows as stored, gate row first, with the update as text."""

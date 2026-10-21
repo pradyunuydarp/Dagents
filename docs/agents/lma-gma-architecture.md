@@ -175,13 +175,21 @@ string. The full table is in the API reference, under
 | Agent | In Postgres, when configured | In memory |
 |---|---|---|
 | LMA | The audit chain and the job log, written as the site's role | The records it read and the running profile |
-| GMA | The model registry and the release Guard's audit chain, written as the coordinator's role | Enrolments, rounds and pending training updates, unless the application that builds the GMA passes its own stores in `GmaDeps` |
+| GMA | The model registry, the release Guard's audit chain, the rounds and the site enrolments, written as the coordinator's role; with `GMA_UPDATE_TABLE`, the pending training updates, written as a separate update role | What its settings put in no table: by default enrolments, rounds and pending training updates. Joined site addresses and runtime classifications always |
 
 With the default stores, a GMA restart during a round loses the round and its
 updates, so the round cannot be aggregated. Model versions, release decisions
-and audit chains survive. `FederatedRoundController.recover` closes the rounds
-a restart left unfinished, as the planner decides, for a store that outlives
-the process. The GMA does not call it yet.
+and audit chains survive. With `GMA_ROUND_TABLE`, `GMA_ENROLMENT_TABLE` and
+`GMA_UPDATE_TABLE`, a restarted GMA recovers before it takes a round write:
+the planner's `federation round recover` rule keeps each unfinished round or
+closes it, and the study goes on. A round cut during its dispatch is closed,
+and the operator runs it again under a new id. Before each dispatch the GMA
+asks the same rule about rounds whose stored updates are older than
+`GMA_UPDATE_MAX_AGE_SECONDS` (24 hours by default with `GMA_UPDATE_TABLE`,
+which needs `GMA_ENGINE=http`). The
+[GMA README](../../dagents/gma/README.md#recovery-after-a-restart) lists what
+resumes at each point of a study. Recovery assumes one GMA process: stop the
+old one before you start the new one.
 
 ## Repository shape
 
@@ -196,7 +204,7 @@ dagents/
 │   ├── adapters/          http_federation_engine.py
 │   ├── application/       model_registry.py, release_service.py, site_directory.py
 │   ├── domain/
-│   ├── infrastructure/    update_store.py, postgres_models.py
+│   ├── infrastructure/    update_store.py, postgres_models.py, postgres_rounds.py
 │   └── app_factory.py, routes.py, config.py, di.py, main.py
 └── lma/
     ├── adapters/          gma_link.py, http_update_channel.py
@@ -222,8 +230,9 @@ every endpoint is in the [API reference](../reference/api/agents.md).
 ## Current limits
 
 - Messaging is in memory, and broker-backed delivery is later work.
-- The GMA's enrolments and rounds are in memory, unless the application that
-  builds it passes its own stores.
+- The GMA's enrolments, rounds and updates are in memory unless their table
+  settings are set. A GMA keeps its round state across a restart only as one
+  process with one uvicorn worker.
 - The in-process engine is a simulator. The HTTP engine moves jobs and
   updates; it is not a secure-aggregation protocol, and the GMA sees each
   site's clipped update.

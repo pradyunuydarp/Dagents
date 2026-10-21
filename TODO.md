@@ -77,15 +77,16 @@ effort and a check for each item, in
   makes it meaningful; the protocol itself is absent.
 - Add differential-privacy accounting with a tracked budget across rounds. The Guard's noise
   strategy marks where the mechanism belongs and is not one.
-- Durable round state. The GMA keeps site enrolments, rounds and pending training updates in
-  memory, so a coordinator restart loses a round in progress. These parts exist: the planner's
-  recovery rule (`dagentsc federation round recover`), its rule for a retried release
-  evaluation, the store interfaces an application can pass in `GmaDeps`, aggregate and release
-  retries that give the same candidate and decision, `FederatedRoundController.recover`, and
-  Postgres stores for rounds, enrolments and updates that an application can pass
-  (`dagents/gma/infrastructure/postgres_rounds.py`). Still to do: settings that build those
-  stores, and a GMA that calls `recover` when it starts (review item B2 in
-  `docs/review/third-party-evaluation-todo.md`).
+- Durable round state (review item B2 in `docs/review/third-party-evaluation-todo.md`). Done:
+  the planner's recovery rule and its rule for a retried release evaluation, Postgres stores for
+  rounds, enrolments and updates, the settings that build them (`GMA_ROUND_TABLE`,
+  `GMA_ENROLMENT_TABLE`, `GMA_UPDATE_TABLE`), a GMA that recovers once after a restart and
+  checks the age of stored updates before each dispatch, and the restart tests B2's Done-when
+  asks for (`dagents/tests/test_gma_restart.py`, `dagents/tests/test_gma_process_restart.py`).
+  Still to do: render `strategy: Recreate` for the GMA in the Kubernetes manifests, so a rollout
+  stops the old pod first (phase 5), and keep the healthcare demo's rounds and enrolments in its
+  coordinator schema in network mode and Compose (phase 6). Later: resuming a round cut during
+  its dispatch, and two GMA replicas.
 
 ### Supply chain and evidence
 

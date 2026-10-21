@@ -5,8 +5,14 @@ A site's LMA sends its clipped update here while it runs a training job
 HTTP engine reads the updates when it aggregates the round. They are deleted
 once the round is stored as aggregated, when the HTTP engine refuses the
 aggregation (a missing or changed update, for example), or when the round is
-discarded or closed. When the planner refuses aggregation, they are kept. No
-route reads an update back, and a ``SiteResult`` never carries one.
+discarded or closed. When the planner refuses aggregation, they are kept.
+When a round's oldest update is older than the GMA's age limit
+(``GMA_UPDATE_MAX_AGE_SECONDS``; 24 hours by default for a store that survives
+a restart, and no limit for the memory store unless the setting is set), the
+GMA asks the planner about the round after a restart and before each
+dispatch: a round the planner closes loses its updates, and the old updates
+of a finished round are deleted. No route reads an update back, and a ``SiteResult`` never carries
+one.
 
 ``put`` checks each upload against the round as the controller stored it:
 
@@ -29,11 +35,17 @@ leave its update behind after the deletion.
 :class:`UpdateStore` is what the GMA's routes and its HTTP engine need from a
 store; an application can hand its GMA its own through
 ``GmaDeps(updates=...)``. :class:`InMemoryUpdateStore` keeps the updates in
-this process only. After a restart its pending updates are gone, so an
-aggregation that needs them is refused: the round fails closed.
-``PostgresUpdateStore`` (``dagents/gma/infrastructure/postgres_rounds.py``)
-keeps them in a table, which a restarted GMA reads again. Both stores make
-the same checks, with :func:`checked_update`, and pass the same tests.
+this process only (``survives_restart = False``). After a restart its pending
+updates are gone. When the round store survives the restart
+(``GMA_ROUND_TABLE``, or a round store in ``GmaDeps`` that says so), the GMA's
+recovery closes each training round that was collecting them (the planner's
+``updates_not_kept``), and a later aggregate of that round gets 409: the round
+fails closed. With the default round store in memory, the round itself is
+gone, and an aggregate of it gets 404. ``PostgresUpdateStore``
+(``dagents/gma/infrastructure/postgres_rounds.py``, ``GMA_UPDATE_TABLE``)
+keeps them in a table, which a restarted GMA reads again
+(``survives_restart = True``). Both stores make the same checks, with
+:func:`checked_update`, and pass the same tests.
 """
 
 from __future__ import annotations
@@ -84,6 +96,11 @@ class UpdateStore(Protocol):
     makes the checks in the module docstring in ``put``, and refuses a
     ``put`` for a round after a ``discard`` of that round, even when the
     discard found no update to delete.
+
+    One member is optional: ``survives_restart: bool``, true when the store
+    keeps its updates after the process stops. A store without it counts as
+    false. The GMA tells the planner's recovery rule whether the updates were
+    kept across the restart from it.
     """
 
     kind: str
@@ -155,6 +172,8 @@ class InMemoryUpdateStore:
     """
 
     kind = "in-memory"
+    #: A restart loses every update this store holds.
+    survives_restart = False
 
     def __init__(self, clock: Callable[[], float] = time.time) -> None:
         self._updates: dict[tuple[str, str], StoredUpdate] = {}

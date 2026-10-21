@@ -182,7 +182,9 @@ audit.
   collecting training round is closed when its updates were not kept (`updates_not_kept`) or are
   older than the limit (`updates_expired`), unless its candidate is already registered.
   `FederatedRoundController.recover` in `dagents/common/application/federation.py` calls it
-  once per unfinished round. The GMA does not call `recover` yet.
+  once per unfinished round, and a GMA whose rounds are in a table runs `recover` once after a
+  restart. Before each dispatch, `expire_updates` calls it for each unfinished round whose oldest
+  stored update is older than the GMA's age limit.
 
 Two behaviours matter most. A secure aggregation threshold raises the minimum number of
 participants above the manifest's stated minimum, because the threshold is what stops the

@@ -251,7 +251,8 @@ audit chain. Implement it for PostgreSQL, reusing the role-scoped access in
 finishes the round. The release decision matches an uninterrupted run, and the
 audit chain verifies.
 
-**Status.** Partly done. The GMA's model registry, with each version's release
+**Status.** The "done when" test exists and passes; two follow-ups remain,
+listed at the end. The GMA's model registry, with each version's release
 decision, and the release Guard's audit chain were already kept in Postgres
 (`GMA_MODEL_TABLE`, `GMA_AUDIT_TABLE`). Pull request #22 added two planner
 rules. `dagentsc federation round recover` decides whether a round that a
@@ -276,10 +277,30 @@ the GMA README now creates it, a version with `-0.0` or `1e16` in its
 parameters loads after a restart. A `jsonb` column keeps the old limit until
 the README's `ALTER` runs, and rows stored before then keep the values `jsonb`
 gave them. The healthcare demo's models table is still `jsonb`.
-Still to come: settings that build these stores, and a GMA that calls
-`recover` when it starts. Until then the GMA keeps rounds, enrolments and
-updates in memory unless the application passes its own stores in
-`GmaDeps`, and the "done when" test does not exist yet.
+The GMA now builds these stores from `GMA_ROUND_TABLE`,
+`GMA_ENROLMENT_TABLE` and the opt-in `GMA_UPDATE_TABLE` (with
+`GMA_UPDATE_ROLE` and `GMA_UPDATE_MAX_AGE_SECONDS`), on one kept connection,
+and refuses settings that would decide a kept round differently, such as a
+round table without the model and audit tables. It recovers once after a
+restart, before it takes a round write: in its lifespan under uvicorn, or at
+the first round write in process. Before each dispatch it asks the planner
+about rounds whose stored updates are older than the limit.
+
+The "done when" test exists. `dagents/tests/test_gma_restart.py` restarts a
+GMA built from its settings on PostgreSQL 16 at five points of a study and in
+the aggregate and release crash windows; each run equals an uninterrupted
+run through `comparable()`, and the audit chain verifies with the same record
+count (one more record after a retried release evaluation).
+`dagents/tests/test_gma_process_restart.py` kills a GMA process with SIGKILL
+while a training round is collecting and during a dispatch, starts it again
+on the same port from its environment settings, and finishes the study with
+the same results and an intact chain. Both run in CI's database step.
+
+Still to come: the Kubernetes manifest the framework renders gives the GMA a
+rolling update, which starts the new pod before the old one stops (phase 5
+renders `strategy: Recreate`), and the healthcare demo keeps its GMA's rounds
+and enrolments in memory (phase 6 moves them to its coordinator schema in
+network mode and Compose).
 
 ### B3. Add privacy accounting and secure aggregation (P1, L)
 

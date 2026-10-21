@@ -2,6 +2,56 @@
 
 ## Unreleased
 
+- New settings build the round state stores on the coordinator's one kept
+  connection: `GMA_ROUND_TABLE` (`PostgresRoundRepository`),
+  `GMA_ENROLMENT_TABLE` (`PostgresEnrolmentStore`), and the opt-in
+  `GMA_UPDATE_TABLE` with `GMA_UPDATE_ROLE` (`PostgresUpdateStore`, acting as
+  that role). `GMA_UPDATE_MAX_AGE_SECONDS` limits how old a stored update may
+  be. Its default of 86400 applies when the update store survives a restart.
+  A GMA that keeps its updates in memory and sets no limit runs no age check
+  (new `update_age_limit()` and `GmaState.update_age_limit_seconds`). A store
+  in `GmaDeps` takes the place of its setting,
+  and building the app still opens no connection. `create_app` refuses: a
+  table without `GMA_DATABASE_URL` or `GMA_DATABASE_ROLE`; `GMA_ROUND_TABLE`
+  without `GMA_MODEL_TABLE` and `GMA_AUDIT_TABLE` (or their stores in
+  `GmaDeps`); `GMA_UPDATE_TABLE` without `GMA_ROUND_TABLE` or
+  `GMA_UPDATE_ROLE`; `GMA_UPDATE_ROLE` equal to `GMA_DATABASE_ROLE`;
+  `GMA_UPDATE_ROLE` without `GMA_UPDATE_TABLE`; `GMA_UPDATE_MAX_AGE_SECONDS`
+  without `GMA_UPDATE_TABLE` or an update store in `GmaDeps`; and
+  `GMA_UPDATE_TABLE`, `GMA_UPDATE_MAX_AGE_SECONDS` or an update store in
+  `GmaDeps` that survives a restart without `GMA_ENGINE=http`, because the
+  simulator neither reads nor deletes stored updates.
+  The messages name settings, never values. `GmaState` gains `round_store`,
+  `enrolments` and `coordinator_lease`.
+- The GMA recovers the rounds a restart left unfinished, once, with
+  `FederatedRoundController.recover` (new `GmaState.ensure_recovered()`).
+  Under uvicorn the lifespan runs it and waits up to 10 seconds
+  (`START_RECOVERY_WAIT_SECONDS`, `GmaState.start_recovery_wait_seconds`)
+  before the GMA serves. A longer recovery goes on while the GMA serves. The
+  lifespan logs a failure instead of raising it, so `/health` still answers.
+  In process the first
+  round write runs it. The round writes (dispatch, posted results,
+  `:aggregate`, `:discard`, `:evaluate-release` and the update upload) wait
+  for it through an async dependency; it runs on the GMA's own handler
+  threads, so a waiting request holds no server thread. While it fails they
+  answer `503` with the new code `recovery_failed` (`RecoveryFailed`, which
+  names the cause's code only), and the next round write tries again. Once
+  the GMA serves, reads, `/health` and approval do not wait. Recovery is told
+  whether the update store
+  survives a restart: both update stores now have `survives_restart`
+  (`False` in memory, `True` in Postgres), an optional member of the
+  `UpdateStore` protocol.
+- Before each dispatch, the controller asks the planner's recovery rule about
+  every unfinished round whose oldest stored update is older than the age
+  limit, and applies its answer (new `FederatedRoundController.expire_updates`
+  and the controller's `update_max_age_seconds=`; `build_round_controller`
+  takes it too). It deletes the old updates of rounds that are finished or not
+  stored, and leaves out a round the controller is dispatching now. A second
+  dispatch of a round id that is being dispatched gets `409`. Every keep or
+  close decision still comes from the planner.
+- The GMA's own thread pool (`HandlerThreads`) runs the recovery as well as
+  the update uploads, and its threads are named `gma-handler`
+  (`HANDLER_THREAD_NAME`) instead of `gma-upload`.
 - New module `infrastructure/postgres_rounds.py` with a Postgres store for
   each of the three stores that `GmaDeps` takes: `PostgresRoundRepository`
   (`rounds`), `PostgresEnrolmentStore` (`enrolments`) and
@@ -11,9 +61,8 @@
   each table's SQL as a constant (`ROUND_TABLE_DDL`, `ENROLMENT_TABLE_DDL`,
   `UPDATE_TABLE_DDL`); the README's "Round state tables" section has the same
   SQL, and a test checks that the two match. The GMA creates no table.
-  - No setting builds these stores, and the GMA does not call
-    `FederatedRoundController.recover` when it starts. An application builds
-    the stores and passes them in `GmaDeps`.
+  - The settings above build them, or an application builds them and passes
+    them in `GmaDeps`.
   - `PostgresRoundRepository` has `survives_restart = True`.
   - The stores read each JSON column as text and decode it row by row. A row
     whose JSON Python cannot decode (nested too deep, or a whole number of
@@ -94,7 +143,7 @@
   (`RoundRepository`), enrolment store (`SiteRegistry`) and update store
   (`UpdateStore`). Each one left out is built in memory, new for each app, as
   before. `build_round_controller(engine, sites=, rounds=)` in `di.py` takes
-  the same stores. No setting changes.
+  the same stores.
 - New `UpdateStore` protocol (`infrastructure/update_store.py`) with `kind`,
   `put`, `get`, `updates`, `discard`, `pending_rounds` and `pending_ages(now)`,
   the age in seconds of each round's oldest stored update. The routes and the
@@ -109,8 +158,8 @@
   update_max_age_seconds=)`. For each unfinished round, oldest first, it asks
   the planner (`dagentsc federation round recover`) whether to keep or close
   it, closes each round the planner says to close, and then deletes the stored
-  updates of rounds that are no longer unfinished. The GMA does not call it
-  yet.
+  updates of rounds that are no longer unfinished. The GMA calls it once
+  after a restart (see the first entries).
 - Aggregation with the HTTP engine deletes a round's updates once the round is
   stored as `aggregated`, or when the engine refuses the aggregation: a
   missing or changed update (`409` `aggregation_refused`), or a candidate name

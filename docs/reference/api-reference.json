@@ -2005,7 +2005,7 @@
       },
       {
        "status": "409",
-       "description": "`conflict`: a round with this id is already stored, or (HTTP engine) the round's model is not registered or does not match `model_artifact_digest`.",
+       "description": "`conflict`: a round with this id is already stored or is being dispatched by this GMA, or (HTTP engine) the round's model is not registered or does not match `model_artifact_digest`.",
        "content_type": "application/json",
        "schema": {
         "$ref": "#/components/schemas/AgentErrorDetail"
@@ -2013,7 +2013,7 @@
       },
       {
        "status": "503",
-       "description": "`planner_unavailable`: the planner could not be run, or its answer could not be used.",
+       "description": "`planner_unavailable`: the planner could not be run, or its answer could not be used. `recovery_failed`: the GMA has not yet recovered the rounds a restart left unfinished, so it takes no round write. The next round write tries the recovery again.",
        "content_type": "application/json",
        "schema": {
         "$ref": "#/components/schemas/AgentErrorDetail"
@@ -2265,6 +2265,14 @@
        }
       },
       {
+       "status": "503",
+       "description": "`recovery_failed`: the GMA has not yet recovered the rounds a restart left unfinished, so it takes no round write. The next round write tries the recovery again.",
+       "content_type": "application/json",
+       "schema": {
+        "$ref": "#/components/schemas/AgentErrorDetail"
+       }
+      },
+      {
        "status": "422",
        "description": "Validation Error",
        "content_type": "application/json",
@@ -2367,6 +2375,14 @@
        }
       },
       {
+       "status": "503",
+       "description": "`recovery_failed`: the GMA has not yet recovered the rounds a restart left unfinished, so it takes no round write. The next round write tries the recovery again.",
+       "content_type": "application/json",
+       "schema": {
+        "$ref": "#/components/schemas/AgentErrorDetail"
+       }
+      },
+      {
        "status": "422",
        "description": "Validation Error",
        "content_type": "application/json",
@@ -2445,7 +2461,7 @@
       },
       {
        "status": "503",
-       "description": "`planner_unavailable`: the planner could not be run, or its answer could not be used.",
+       "description": "`planner_unavailable`: the planner could not be run, or its answer could not be used. `recovery_failed`: the GMA has not yet recovered the rounds a restart left unfinished, so it takes no round write. The next round write tries the recovery again.",
        "content_type": "application/json",
        "schema": {
         "$ref": "#/components/schemas/AgentErrorDetail"
@@ -2522,6 +2538,14 @@
        "content_type": "application/json",
        "schema": {
         "$ref": "#/components/schemas/ErrorDetail"
+       }
+      },
+      {
+       "status": "503",
+       "description": "`recovery_failed`: the GMA has not yet recovered the rounds a restart left unfinished, so it takes no round write. The next round write tries the recovery again.",
+       "content_type": "application/json",
+       "schema": {
+        "$ref": "#/components/schemas/AgentErrorDetail"
        }
       },
       {
@@ -2624,7 +2648,7 @@
       },
       {
        "status": "503",
-       "description": "`planner_unavailable`: the planner could not be run, or its answer could not be used.",
+       "description": "`planner_unavailable`: the planner could not be run, or its answer could not be used. `recovery_failed`: the GMA has not yet recovered the rounds a restart left unfinished, so it takes no round write. The next round write tries the recovery again.",
        "content_type": "application/json",
        "schema": {
         "$ref": "#/components/schemas/AgentErrorDetail"
@@ -4793,7 +4817,7 @@
      "method": "POST",
      "path": "/federation/rounds",
      "summary": "Plan a round and, if quorum allows, dispatch its jobs to the selected sites.",
-     "description": "A round id can be used once: a stored id is refused with 409. Without\nquorum the round is stored as `closed` and offered to no site. With the\nHTTP engine (`GMA_ENGINE=http`) each selected site's LMA is offered the\njob, then runs it, up to `GMA_DISPATCH_CONCURRENCY` sites at a time; the\nround holds the sites' answers (`acceptances`), their results, every call\nmade (`dispatch`) and the planner's `readiness`, since every result is in.",
+     "description": "A round id can be used once: a stored id is refused with 409. Without\nquorum the round is stored as `closed` and offered to no site. With the\nHTTP engine (`GMA_ENGINE=http`) each selected site's LMA is offered the\njob, then runs it, up to `GMA_DISPATCH_CONCURRENCY` sites at a time; the\nround holds the sites' answers (`acceptances`), their results, every call\nmade (`dispatch`) and the planner's `readiness`, since every result is in.\n\nBefore it plans, the GMA looks for stored updates older than\n`GMA_UPDATE_MAX_AGE_SECONDS`, 24 hours by default when the update store\nsurvives a restart. It asks the planner about each unfinished round that\nholds one, closes the rounds the planner says to close and deletes their\nupdates, and deletes the old updates of rounds that are finished. A GMA\nthat keeps its updates in memory runs this check only when the setting is\nset. A round whose dispatch a restart cut cannot\nresume: the GMA closes it when it recovers, and the operator dispatches\nit again under a new round id.",
      "status_code": 200,
      "deprecated": false,
      "handler": {
@@ -4829,7 +4853,7 @@
       },
       {
        "status": "409",
-       "description": "`conflict`: a round with this id is already stored, or (HTTP engine) the round's model is not registered or does not match `model_artifact_digest`.",
+       "description": "`conflict`: a round with this id is already stored or is being dispatched by this GMA, or (HTTP engine) the round's model is not registered or does not match `model_artifact_digest`.",
        "content_type": "application/json",
        "schema": {
         "$ref": "#/components/schemas/AgentErrorDetail"
@@ -4837,7 +4861,7 @@
       },
       {
        "status": "503",
-       "description": "`planner_unavailable`: the planner could not be run, or its answer could not be used.",
+       "description": "`planner_unavailable`: the planner could not be run, or its answer could not be used. `recovery_failed`: the GMA has not yet recovered the rounds a restart left unfinished, so it takes no round write. The next round write tries the recovery again.",
        "content_type": "application/json",
        "schema": {
         "$ref": "#/components/schemas/AgentErrorDetail"
@@ -5074,6 +5098,14 @@
        }
       },
       {
+       "status": "503",
+       "description": "`recovery_failed`: the GMA has not yet recovered the rounds a restart left unfinished, so it takes no round write. The next round write tries the recovery again.",
+       "content_type": "application/json",
+       "schema": {
+        "$ref": "#/components/schemas/AgentErrorDetail"
+       }
+      },
+      {
        "status": "422",
        "description": "Validation Error",
        "content_type": "application/json",
@@ -5089,7 +5121,7 @@
      "method": "PUT",
      "path": "/federation/rounds/{round_id}/updates/{site_id}",
      "summary": "Store one site's clipped model update for a training round.",
-     "description": "The site's LMA calls it while it runs its job. The update store checks the\nupload against the round as the GMA stored it, and the model kind of the\nround's starting model checks the update's names and values and computes\nits digest, which the answer returns. The site compares it with its own.\nNo route reads an update back. Aggregation reads the updates. They are\ndeleted once the round is stored as aggregated, when the HTTP engine\nrefuses the aggregation (for example because an update is missing or\nchanged), or when the round is discarded or closed. A planner refusal of\nthe aggregation keeps them. The work runs on the GMA's own upload threads,\nnever on the server's, so an upload does not wait for the dispatch that\ncaused it.",
+     "description": "The site's LMA calls it while it runs its job. The update store checks the\nupload against the round as the GMA stored it, and the model kind of the\nround's starting model checks the update's names and values and computes\nits digest, which the answer returns. The site compares it with its own.\nNo route reads an update back. Aggregation reads the updates. They are\ndeleted once the round is stored as aggregated, when the HTTP engine\nrefuses the aggregation (for example because an update is missing or\nchanged), or when the round is discarded or closed. A planner refusal of\nthe aggregation keeps them. The work runs on the GMA's own handler\nthreads, never on the server's, so an upload does not wait for the\ndispatch that caused it. So does the recovery after a restart, which the\nupload waits for, as every round write does.",
      "status_code": 200,
      "deprecated": false,
      "handler": {
@@ -5199,6 +5231,14 @@
        }
       },
       {
+       "status": "503",
+       "description": "`recovery_failed`: the GMA has not yet recovered the rounds a restart left unfinished, so it takes no round write. The next round write tries the recovery again.",
+       "content_type": "application/json",
+       "schema": {
+        "$ref": "#/components/schemas/AgentErrorDetail"
+       }
+      },
+      {
        "status": "422",
        "description": "Validation Error",
        "content_type": "application/json",
@@ -5214,7 +5254,7 @@
      "method": "POST",
      "path": "/federation/rounds/{round_id}:aggregate",
      "summary": "Produce a candidate model, if and only if aggregation is permitted.",
-     "description": "A candidate is not a release. It becomes one only after the release gates\npass and a person approves it. With the HTTP engine, a training round's\nstored updates are combined by the model kind with the planner's weights,\nthe candidate is registered as `<version_prefix>+<round_id>`, and the\nround's updates are deleted once the round is stored as `aggregated`. If\nan attempt fails after it registered the candidate, for example on a\nstore error, the updates are kept: a retry combines them again and gets\nthe same candidate. When the updates are gone after a restart, a retry\nreturns the registered candidate, but only if the GMA's round store keeps\nround ids across restarts. The default store in memory does not.",
+     "description": "A candidate is not a release. It becomes one only after the release gates\npass and a person approves it. With the HTTP engine, a training round's\nstored updates are combined by the model kind with the planner's weights,\nthe candidate is registered as `<version_prefix>+<round_id>`, and the\nround's updates are deleted once the round is stored as `aggregated`. If\nan attempt fails after it registered the candidate, for example on a\nstore error, the updates are kept: a retry combines them again and gets\nthe same candidate. When the updates are gone after a restart, a retry\nreturns the registered candidate, but only if the GMA's round store keeps\nround ids across restarts, as the table `GMA_ROUND_TABLE` names does. The\ndefault store in memory does not.",
      "status_code": 200,
      "deprecated": false,
      "handler": {
@@ -5272,7 +5312,7 @@
       },
       {
        "status": "503",
-       "description": "`planner_unavailable`: the planner could not be run, or its answer could not be used.",
+       "description": "`planner_unavailable`: the planner could not be run, or its answer could not be used. `recovery_failed`: the GMA has not yet recovered the rounds a restart left unfinished, so it takes no round write. The next round write tries the recovery again.",
        "content_type": "application/json",
        "schema": {
         "$ref": "#/components/schemas/AgentErrorDetail"
@@ -5344,6 +5384,14 @@
        "content_type": "application/json",
        "schema": {
         "$ref": "#/components/schemas/ErrorDetail"
+       }
+      },
+      {
+       "status": "503",
+       "description": "`recovery_failed`: the GMA has not yet recovered the rounds a restart left unfinished, so it takes no round write. The next round write tries the recovery again.",
+       "content_type": "application/json",
+       "schema": {
+        "$ref": "#/components/schemas/AgentErrorDetail"
        }
       },
       {
@@ -5441,7 +5489,7 @@
       },
       {
        "status": "503",
-       "description": "`planner_unavailable`: the planner could not be run, or its answer could not be used.",
+       "description": "`planner_unavailable`: the planner could not be run, or its answer could not be used. `recovery_failed`: the GMA has not yet recovered the rounds a restart left unfinished, so it takes no round write. The next round write tries the recovery again.",
        "content_type": "application/json",
        "schema": {
         "$ref": "#/components/schemas/AgentErrorDetail"
@@ -5657,7 +5705,7 @@
      "method": "PUT",
      "path": "/federation/sites/{site_id}",
      "summary": "Enrol or update one site in the consortium.",
-     "description": "The enrolment is stored under `site_id`; sending the same id again\nreplaces it. The GMA keeps enrolments in memory, unless the application\nthat built it passed its own enrolment store. Round planning reads every\nstored enrolment.",
+     "description": "The enrolment is stored under `site_id`; sending the same id again\nreplaces it. The GMA keeps enrolments in the table `GMA_ENROLMENT_TABLE`\nnames, in the enrolment store the application that built it passed, or\nelse in memory, where a restart loses them. Round planning reads every\nstored enrolment.",
      "status_code": 200,
      "deprecated": false,
      "handler": {
@@ -7257,7 +7305,7 @@
       "code": {
        "type": "string",
        "title": "Code",
-       "description": "What kind of error: `conflict`, `forbidden`, `not_found`, `unauthorized`, `invalid_request`, `aggregation_refused`, `planner_unavailable`, `store_unavailable`, `store_not_set_up` and so on."
+       "description": "What kind of error: `conflict`, `forbidden`, `not_found`, `unauthorized`, `invalid_request`, `aggregation_refused`, `planner_unavailable`, `store_unavailable`, `store_not_set_up`, `recovery_failed` and so on."
       }
      },
      "type": "object",
@@ -9230,7 +9278,7 @@
       "code": {
        "type": "string",
        "title": "Code",
-       "description": "What kind of error: `conflict`, `forbidden`, `not_found`, `unauthorized`, `invalid_request`, `aggregation_refused`, `planner_unavailable`, `store_unavailable`, `store_not_set_up` and so on."
+       "description": "What kind of error: `conflict`, `forbidden`, `not_found`, `unauthorized`, `invalid_request`, `aggregation_refused`, `planner_unavailable`, `store_unavailable`, `store_not_set_up`, `recovery_failed` and so on."
       },
       "refusal": {
        "anyOf": [
@@ -11788,7 +11836,7 @@
       "update"
      ],
      "title": "UpdateUpload",
-     "description": "One site's clipped model update, as its LMA sends it to the GMA's update store.\n\nThe store keeps it until the round is aggregated or discarded. No route\nreads an update back."
+     "description": "One site's clipped model update, as its LMA sends it to the GMA's update store.\n\nThe store keeps it until the round is aggregated, discarded or closed.\nWhen a round's oldest stored update is older than the GMA's age limit\n(`GMA_UPDATE_MAX_AGE_SECONDS`; 24 hours by default when the store keeps\nits updates across a restart), the GMA asks the planner about the round\nafter a restart and before each dispatch. The planner closes a collecting\ntraining round whose candidate is not registered, and the round's updates\nare deleted. A GMA that keeps its updates in memory and sets no limit\nruns no age check. No route reads an update back."
     },
     "ValidationError": {
      "properties": {
@@ -46813,10 +46861,10 @@
    "module": "dagents.common.domain.federation",
    "file": "dagents/common/domain/federation.py",
    "summary": "One site's clipped model update, as its LMA sends it to the GMA's update store.",
-   "description": "The store keeps it until the round is aggregated or discarded. No route\nreads an update back.",
+   "description": "The store keeps it until the round is aggregated, discarded or closed.\nWhen a round's oldest stored update is older than the GMA's age limit\n(`GMA_UPDATE_MAX_AGE_SECONDS`; 24 hours by default when the store keeps\nits updates across a restart), the GMA asks the planner about the round\nafter a restart and before each dispatch. The planner closes a collecting\ntraining round whose candidate is not registered, and the round's updates\nare deleted. A GMA that keeps its updates in memory and sets no limit\nruns no age check. No route reads an update back.",
    "schema": {
     "additionalProperties": false,
-    "description": "One site's clipped model update, as its LMA sends it to the GMA's update store.\n\nThe store keeps it until the round is aggregated or discarded. No route\nreads an update back.",
+    "description": "One site's clipped model update, as its LMA sends it to the GMA's update store.\n\nThe store keeps it until the round is aggregated, discarded or closed.\nWhen a round's oldest stored update is older than the GMA's age limit\n(`GMA_UPDATE_MAX_AGE_SECONDS`; 24 hours by default when the store keeps\nits updates across a restart), the GMA asks the planner about the round\nafter a restart and before each dispatch. The planner closes a collecting\ntraining round whose candidate is not registered, and the round's updates\nare deleted. A GMA that keeps its updates in memory and sets no limit\nruns no age check. No route reads an update back.",
     "properties": {
      "job_digest": {
       "description": "The round digest from the site's job. It must equal the plan's `round_digest`, or the store answers 409.",

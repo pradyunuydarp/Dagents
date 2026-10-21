@@ -24,8 +24,19 @@ application runs in its own process.
 | `GMA_DATABASE_ROLE` | none | The role every coordinator query runs as. Needed with `GMA_DATABASE_URL` |
 | `GMA_MODEL_TABLE` | none | `schema.table` for the model registry; in memory without it |
 | `GMA_AUDIT_TABLE`, `GMA_AUDIT_ANCHOR_TABLE` | none | `schema.table` for the release Guard's audit chain and its anchor; in memory without them |
+| `GMA_ROUND_TABLE` | none | `schema.table` for the round records; in memory without it. Needs `GMA_MODEL_TABLE` and `GMA_AUDIT_TABLE`, or their stores in `GmaDeps` |
+| `GMA_ENROLMENT_TABLE` | none | `schema.table` for the site enrolments; in memory without it |
+| `GMA_UPDATE_TABLE` | none | `schema.table` for the clipped updates of running training rounds; in memory without it. Needs `GMA_ENGINE=http`, `GMA_UPDATE_ROLE`, and `GMA_ROUND_TABLE` or a round store in `GmaDeps` that survives a restart |
+| `GMA_UPDATE_ROLE` | none | The role that owns the updates table and that every read and write of an update runs as. It must differ from `GMA_DATABASE_ROLE`, so nothing acting as the coordinator role can read an update. Needs `GMA_UPDATE_TABLE` |
+| `GMA_UPDATE_MAX_AGE_SECONDS` | `86400` when the update store survives a restart; otherwise no limit | How old, in seconds, a round's oldest stored update may be. After a restart and before each dispatch, the planner's recovery rule closes a `collecting` training round with an older update, unless its candidate is registered, and its updates are deleted. A GMA that keeps its updates in memory runs this check only when the setting is set. Needs `GMA_ENGINE=http`, and `GMA_UPDATE_TABLE` or an update store in `GmaDeps` |
 | `GMA_ALLOW_SOURCE_READS` | `1` | `0` makes the source, dataset profile and model job routes answer 403 |
 | `GMA_REQUIRE_TOKENS` | `0` | `1` refuses to start without a token |
+
+Every table is created by the operator from the SQL in the GMA's README; the
+GMA creates none. All the tables share one kept connection to
+`GMA_DATABASE_URL`. :func:`dagents.gma.app_factory.create_app` refuses
+settings that cannot work, and a table whose store an application hands the
+GMA in ``GmaDeps`` is not used.
 
 A GMA with none of these set behaves as it did before they existed: the
 simulator engine, no tokens, the default extension registry, everything in
@@ -35,6 +46,7 @@ memory and source reads on.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import math
 import os
 from typing import Mapping
 
@@ -43,6 +55,10 @@ from dagents.common.infrastructure.agent_auth import parse_site_map
 
 #: The engines a GMA can run its rounds on.
 ENGINES = ("in-process", "http")
+
+#: The age limit for stored updates when ``GMA_UPDATE_MAX_AGE_SECONDS`` is
+#: not set: 24 hours.
+DEFAULT_UPDATE_MAX_AGE_SECONDS = 86400.0
 
 _TRUE = {"1", "true", "yes", "on"}
 _FALSE = {"0", "false", "no", "off", ""}
@@ -67,7 +83,7 @@ def _text(environ: Mapping[str, str], name: str) -> str | None:
     return raw.strip()
 
 
-def _number(environ: Mapping[str, str], name: str, default: float, cast: type) -> float:
+def _number(environ: Mapping[str, str], name: str, default: float | None, cast: type) -> float | None:
     raw = environ.get(name)
     if raw is None or not raw.strip():
         return default
@@ -104,6 +120,14 @@ class Settings:
     model_table: str | None = None
     audit_table: str | None = None
     audit_anchor_table: str | None = None
+    round_table: str | None = None
+    enrolment_table: str | None = None
+    update_table: str | None = None
+    update_role: str | None = None
+    #: ``None`` when ``GMA_UPDATE_MAX_AGE_SECONDS`` is not set; the limit is
+    #: then :data:`DEFAULT_UPDATE_MAX_AGE_SECONDS` (see
+    #: :attr:`update_age_limit_seconds`).
+    update_max_age_seconds: float | None = None
     allow_source_reads: bool = True
     require_tokens: bool = False
 
@@ -118,11 +142,29 @@ class Settings:
             raise ValueError("GMA_SUMMARY_TTL_SECONDS must be 0 or more")
         if not self.summary_timeout_seconds > 0:
             raise ValueError("GMA_SUMMARY_TIMEOUT_SECONDS must be more than 0")
+        age = self.update_max_age_seconds
+        if age is not None and (
+            isinstance(age, bool) or not isinstance(age, (int, float)) or not math.isfinite(age) or age <= 0
+        ):
+            raise ValueError("GMA_UPDATE_MAX_AGE_SECONDS must be a finite number of seconds, more than 0")
 
     @property
     def site_ids(self) -> list[str]:
         """The sites whose LMA addresses are configured, sorted."""
         return sorted(self.site_endpoints)
+
+    @property
+    def update_age_limit_seconds(self) -> float:
+        """How old, in seconds, a round's oldest stored update may be.
+
+        ``GMA_UPDATE_MAX_AGE_SECONDS`` when it is set, otherwise
+        :data:`DEFAULT_UPDATE_MAX_AGE_SECONDS` (24 hours). Whether the GMA
+        applies it depends on its update store:
+        :func:`dagents.gma.app_factory.update_age_limit`.
+        """
+        if self.update_max_age_seconds is None:
+            return DEFAULT_UPDATE_MAX_AGE_SECONDS
+        return float(self.update_max_age_seconds)
 
     @classmethod
     def from_env(cls, environ: Mapping[str, str] | None = None) -> Settings:
@@ -160,9 +202,14 @@ class Settings:
             model_table=_text(environ, "GMA_MODEL_TABLE"),
             audit_table=_text(environ, "GMA_AUDIT_TABLE"),
             audit_anchor_table=_text(environ, "GMA_AUDIT_ANCHOR_TABLE"),
+            round_table=_text(environ, "GMA_ROUND_TABLE"),
+            enrolment_table=_text(environ, "GMA_ENROLMENT_TABLE"),
+            update_table=_text(environ, "GMA_UPDATE_TABLE"),
+            update_role=_text(environ, "GMA_UPDATE_ROLE"),
+            update_max_age_seconds=_number(environ, "GMA_UPDATE_MAX_AGE_SECONDS", None, float),
             allow_source_reads=_flag(environ, "GMA_ALLOW_SOURCE_READS", True),
             require_tokens=_flag(environ, "GMA_REQUIRE_TOKENS", False),
         )
 
 
-__all__ = ["ENGINES", "Settings"]
+__all__ = ["DEFAULT_UPDATE_MAX_AGE_SECONDS", "ENGINES", "Settings"]

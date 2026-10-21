@@ -358,13 +358,15 @@ allow that origin by name. The stroke demo does this with FastAPI's
 
 ## 9. State that survives a restart
 
-The agents can keep some of their state in Postgres. Each one runs every query
-as one role, in a transaction that starts with `SET LOCAL ROLE`:
+The agents can keep some of their state in Postgres. Each query runs in a
+transaction that starts with `SET LOCAL ROLE`. The LMA runs every query as
+`LMA_SITE_ROLE`. The GMA runs every query as `GMA_DATABASE_ROLE`, except the
+queries on `GMA_UPDATE_TABLE`, which run as `GMA_UPDATE_ROLE`:
 
 | Agent | Kept in Postgres with | In memory |
 |---|---|---|
 | LMA | The audit chain (`LMA_AUDIT_TABLE`, `LMA_AUDIT_ANCHOR_TABLE`) and the job log (`LMA_JOB_LOG_TABLE`), with `LMA_DATABASE_URL` and `LMA_SITE_ROLE` | The records it read and the running profile, which it rebuilds from the site's source |
-| GMA | The model registry (`GMA_MODEL_TABLE`) and the release Guard's audit chain (`GMA_AUDIT_TABLE`, `GMA_AUDIT_ANCHOR_TABLE`), with `GMA_DATABASE_URL` and `GMA_DATABASE_ROLE` | Enrolments, rounds and the clipped updates of rounds still running, unless your application passes its own stores in `GmaDeps` (below) |
+| GMA | The model registry (`GMA_MODEL_TABLE`), the release Guard's audit chain (`GMA_AUDIT_TABLE`, `GMA_AUDIT_ANCHOR_TABLE`), the rounds (`GMA_ROUND_TABLE`) and the site enrolments (`GMA_ENROLMENT_TABLE`), with `GMA_DATABASE_URL` and `GMA_DATABASE_ROLE`; opt-in, the clipped updates of rounds still running (`GMA_UPDATE_TABLE`, owned by `GMA_UPDATE_ROLE`) | What no table setting names. The addresses of sites that joined at run time and runtime classifications always |
 
 The agents do not create these tables, and the `dagents` package has no
 migrations. Create each table before you start the agent, as the "Postgres
@@ -376,6 +378,52 @@ then, the routes that use a missing table answer `503` with the code
 With the GMA's default stores, a restart during a round loses the round and
 its stored updates, so the round cannot be aggregated. It fails closed. Model
 versions, release decisions and audit chains survive.
+
+With the round state in tables, a restarted GMA goes on with the study. These
+settings keep everything a study needs (the table names are examples; the
+[GMA README](../../dagents/gma/README.md#round-state-tables) has their SQL):
+
+```bash
+GMA_DATABASE_URL=postgresql://...        # one kept connection for every table
+GMA_DATABASE_ROLE=coord
+GMA_MODEL_TABLE=coord.models
+GMA_AUDIT_TABLE=coord.audit
+GMA_AUDIT_ANCHOR_TABLE=coord.audit_anchor
+GMA_ROUND_TABLE=coord.rounds              # needs GMA_MODEL_TABLE and GMA_AUDIT_TABLE
+GMA_ENROLMENT_TABLE=coord.site_enrolments
+GMA_UPDATE_TABLE=coord_updates.updates    # optional; needs GMA_ROUND_TABLE and GMA_ENGINE=http
+GMA_UPDATE_ROLE=coord_updates             # must differ from GMA_DATABASE_ROLE
+GMA_UPDATE_MAX_AGE_SECONDS=86400          # the default with GMA_UPDATE_TABLE: 24 hours
+GMA_ENGINE=http                           # the engine that reads and deletes stored updates
+GMA_SITE_ENDPOINTS=site-a=http://127.0.0.1:8082,site-b=http://127.0.0.1:8083
+```
+
+The GMA refuses to start when a rule in these comments is broken, with a
+message that names the settings. Before it takes a round write, it recovers
+the rounds the stopped process left unfinished: under uvicorn in its lifespan,
+which waits for the recovery up to 10 seconds before the GMA serves, and in
+process at the first round write. The planner keeps each round or closes it,
+as the table under **After a restart** below shows. While the recovery fails,
+the round writes answer `503` with the code `recovery_failed`, and reads and
+`/health` keep working. Before each dispatch, the GMA asks the same planner
+rule about rounds whose stored updates are older than
+`GMA_UPDATE_MAX_AGE_SECONDS`. The planner keeps a `collecting` training round
+whose candidate is registered, with its updates, until its aggregate is
+retried or the round is discarded. A GMA that keeps its updates in memory runs
+this age check only when `GMA_UPDATE_MAX_AGE_SECONDS` is set.
+
+Without `GMA_UPDATE_TABLE`, a training round that a restart cuts between its
+dispatch and its aggregate is closed, and you run it again under a new round
+id. With it, the clipped update vectors stay in a table until aggregation, so
+they are also in the database's write-ahead log and backups. Leave the
+table's data out of logical dumps. A round cut during its dispatch is always
+closed, and its re-run can decide differently, because the candidate name and
+the Guard's noise seeds contain the round id.
+
+Run one GMA process with one uvicorn worker, and stop it before you start the
+new one. A second GMA on the same tables closes the first one's dispatch. The
+Kubernetes manifest the framework renders today uses a rolling update, which
+starts the new pod first.
 
 Each audit record names the planner that decided: `planner_version` and
 `planner_sha256`. Records stored by 0.1.0a1 have neither field, and their
@@ -397,24 +445,25 @@ as in paths B and C, give them persistent stores:
 
 The three Postgres stores are in `dagents/gma/infrastructure/postgres_rounds.py`.
 Each takes a kept connection, a role and a table, and passes the same tests as
-its memory twin. `PostgresRoundRepository` has `survives_restart = True`.
-`PostgresUpdateStore` acts as an update role of its own, which must differ
-from the coordinator role, so nothing that acts as the coordinator role can
-read an update vector. Create their tables first, as the
+its memory twin. `PostgresRoundRepository` and `PostgresUpdateStore` have
+`survives_restart = True`. `PostgresUpdateStore` acts as an update role of its
+own, which must differ from the coordinator role, so nothing that acts as the
+coordinator role can read an update vector. Create their tables first, as the
 [GMA README](../../dagents/gma/README.md#round-state-tables) shows. The GMA
-reads no setting for these three stores yet: your application builds them
-and passes them in `GmaDeps`.
+builds them from the settings above, or your application builds them and
+passes them in `GmaDeps`.
 
 Pass them to `GovernanceService(audit=...)` and
 `FederatedRoundController(engine, sites=..., rounds=...)`, or to
 `build_round_controller(engine, sites=..., rounds=...)` in `dagents/gma/di.py`.
 An application that builds the GMA with `create_app` passes them in `GmaDeps`:
-`audit`, `enrolments`, `rounds` and `updates`. Each of `enrolments`, `rounds`
-and `updates` left out is built in memory, new for each app. A left-out
-`audit` is the Postgres audit chain in `GMA_AUDIT_TABLE` when that is set, and
-otherwise in memory.
+`audit`, `enrolments`, `rounds` and `updates`. A store handed in takes the
+place of its table setting. Each one left out comes from its table setting
+when that is set, and otherwise from memory, new for each app.
 
-**After a restart.** With a round store that outlives the process, call
+**After a restart.** A GMA built with `create_app` recovers by itself, as
+described above. If your application runs the controller in its own service
+(paths B and C) with a round store that outlives the process, call
 `recover(updates_kept=..., now=time.time())` on the `FederatedRoundController`
 once when the process starts, before any round write. A dispatch still running
 in the same process would be closed too. For each unfinished round, oldest
@@ -440,9 +489,13 @@ its reason. Then `recover` deletes the stored updates of every round that is
 no longer unfinished or that the round store does not hold. It returns a
 `RecoveryReport` with one entry per unfinished round and the rounds whose
 leftover updates it deleted. Pass `updates_kept=True` only when your update
-store keeps updates across a restart, as `PostgresUpdateStore` does. The GMA
-does not call `recover` when it starts, and its routes do not wait for it. In
-a GMA built with `create_app`, the controller is `app.state.gma.rounds`.
+store keeps updates across a restart, as `PostgresUpdateStore` does
+(`survives_restart = True`); the GMA reads that attribute.
+`FederatedRoundController(..., update_max_age_seconds=...)` asks the same
+rule, before each dispatch, about every round whose oldest stored update is
+older than the limit (`expire_updates`), and leaves out a round it is
+dispatching now. In a GMA built with `create_app`, the controller is
+`app.state.gma.rounds`.
 
 ## What can go wrong
 
@@ -454,7 +507,12 @@ a GMA built with `create_app`, the controller is `app.state.gma.rounds`.
 | Some Guard requests are denied, and the log says "dagentsc did not finish within 10 seconds (DAGENTSC_TIMEOUT_SECONDS), so it was stopped" | The planner hung, or the machine is too busy to run it in time | Check the machine's load first. Raise `DAGENTSC_TIMEOUT_SECONDS` only after you measure how long the planner takes there |
 | A service calls `http://127.0.0.1:8020` inside Compose and gets no answer | It used the public address inside the network | Use the `*_INTERNAL_URL` value |
 | The browser console shows a CORS error | The page calls an agent or service directly | Call your own backend, or allow the page's origin there |
-| Rounds and audit records are gone after a deploy | The agent keeps them in memory | Set the Postgres settings in section 9. Rounds stay in memory unless your application passes a round store, such as `PostgresRoundRepository` |
+| Rounds and audit records are gone after a deploy | The agent keeps them in memory | Set the Postgres settings in section 9, including `GMA_ROUND_TABLE` and `GMA_ENROLMENT_TABLE` |
+| The GMA does not start: `GMA_ROUND_TABLE needs GMA_MODEL_TABLE and GMA_AUDIT_TABLE`, or another message that names `GMA_*` settings | A table setting breaks a rule in section 9 | Set the settings the message names |
+| `503` with the code `recovery_failed` from a dispatch, an aggregate, a discard, a release evaluation, a posted result or an update upload | The GMA restarted and could not yet recover its unfinished rounds; the message names the cause, such as `planner_unavailable` or `store_unavailable` | Fix the cause. The next round write tries the recovery again |
+| The GMA logs "... started before its recovery finished" | The recovery after a restart took more than 10 seconds, often because the database is slow or does not answer | Check the database. Round writes wait for the recovery, and the next one tries again if it fails |
+| A round you dispatched is `closed` with "The round is dispatched, and a dispatch cannot resume after a restart, ..." | The GMA restarted while it dispatched the round | Dispatch it again under a new round id |
+| A training round is `closed` with "The round's training updates were not kept across the restart, ..." and its aggregate gets `409` | The GMA restarted while the round was collecting, and `GMA_UPDATE_TABLE` is not set | Run the round again under a new round id, or set `GMA_UPDATE_TABLE` |
 | `401` with the code `unauthorized` | The agent has tokens, and the call has no `Authorization: Bearer` header or a token the agent does not accept | Send the token for the route's scope (section 6) |
 | `403` with the code `forbidden` | The token's scope may not call the route, or a site's token was used for another site | Use the token of the right scope |
 | An agent logs "runs without tokens: every caller may call every route" | No token is configured | Set the tokens, and `LMA_REQUIRE_TOKENS=1` or `GMA_REQUIRE_TOKENS=1` |

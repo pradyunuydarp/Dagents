@@ -813,8 +813,14 @@ UpdateValue = Annotated[float, Field(strict=True, allow_inf_nan=False)]
 class UpdateUpload(DagentsModel):
     """One site's clipped model update, as its LMA sends it to the GMA's update store.
 
-    The store keeps it until the round is aggregated or discarded. No route
-    reads an update back.
+    The store keeps it until the round is aggregated, discarded or closed.
+    When a round's oldest stored update is older than the GMA's age limit
+    (`GMA_UPDATE_MAX_AGE_SECONDS`; 24 hours by default when the store keeps
+    its updates across a restart), the GMA asks the planner about the round
+    after a restart and before each dispatch. The planner closes a collecting
+    training round whose candidate is not registered, and the round's updates
+    are deleted. A GMA that keeps its updates in memory and sets no limit
+    runs no age check. No route reads an update back.
     """
 
     model_config = ConfigDict(extra="forbid")
