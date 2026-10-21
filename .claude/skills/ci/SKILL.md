@@ -417,6 +417,89 @@ the smoke test with `--agents-from openai-agents`. That option fails unless
 `tests/test_packaging.py` runs the file check and the option on synthetic
 distributions.
 
+### t. A deploy that answered 200 with no working page
+
+The deploy job's first checks use curl: each published page answers 200, and
+its link preview image loads (§2k). A page can pass both and still show
+nothing: a script file that 404s, a recording from an older commit that the
+Pages cache still serves, or a demo that cannot use its API. No check before
+the deploy can see the published origin.
+
+Defence: the last step of the deploy job, **The published pages work in a
+browser**, runs `scripts/check_published_pages.mjs` in the runner's Chrome on
+the published origin.
+
+- These fail the run: the NL2SQL replay must name the run's commit
+  (`GITHUB_SHA`) in its banner and in `recording.json`, and show SQL and a
+  trace for its first sample. The framework site must render, draw a Learn
+  page's Mermaid diagrams and open each demo from its card. A stroke-demo
+  replay must name the commit, list 3 or more hospitals and draw a hospital's
+  charts; a live build must load without the recorded banner.
+- The build job reports how it built the stroke demo as its `healthcare_mode`
+  output (`live` or `replay`). **Record how the healthcare demo is built**
+  sets it from the value the build reads, after the probe may have cleared it,
+  and the deploy step reads it through `env:`.
+- What a live demo shows from the deployed API gives a `::warning::` and a
+  note in the run summary. The external API never fails a Pages run (§2g).
+- The browser aborts every request other than GET, HEAD and OPTIONS, and such
+  a request fails the run, so the check cannot write to the API. It clicks
+  nothing that posts.
+- Pages serves files through a cache for up to 10 minutes. A failing page is
+  checked again in a new browser context, with a new query string on its
+  address and on `recording.json`, for up to 6 minutes.
+- The step has no `if:` and no `continue-on-error`, so it runs only after a
+  deploy succeeded, and any non-zero exit fails it, exit 2 (no browser)
+  included. A wrong option exits 1.
+- The script never prints the API's address. A request to the API appears as
+  `<the API>` and its path.
+
+`healthcare-api-check.yml` runs by hand and every day at 06:41 UTC, outside
+the `ci` gate. A service that sleeps past the page's cold-start budget, stores
+that are not ready or CORS drift turn either run red:
+
+- Only the request that wakes a sleeping service can time the wake. So the
+  probe job's first request, **Is it answering at all**, is timed against
+  `COLD_START_BUDGET_MS`, read from `apps/healthcare-demo/frontend/src/api.ts`.
+  A slower answer fails that step. It still records the status, and every
+  later step of the probe has `!cancelled()`, so the diagnosis still runs.
+- The browser job has `needs: probe`, so it never makes the first request. It
+  runs the same script in live mode with `--api-problems fail --warm-up`. The
+  warm-up GET asks the API named in `env/.env.published`, the one the
+  published page calls unless the `HEALTHCARE_API_BASE` repository variable
+  overrides it, and never the dispatch input.
+- The scheduled run sets `HEALTHCARE_DEPLOYED_API_READ_ONLY=1`, and
+  `test_deployed_api.py` then skips the five tests that send a probe or run a
+  pilot.
+
+GitHub turns off the schedule of a public repository after 60 days without
+activity.
+
+`tests/test_published_pages_wiring.py` holds the tests:
+
+- In the `contracts` job, it runs the script's request rule and its other pure
+  functions with Node, checks the order, conditions and `env:` of these steps
+  in all three workflows, and runs the mode step's script. It runs the probe's
+  first step with stand-in `curl` and `date` commands: a wake one second past
+  the budget fails it. It reads every curl call of the probe for a
+  `--max-time`, and the first one's must be longer than the budget, so a slow
+  wake is timed and a service that never answers cannot hold the job. It runs `test_deployed_api.py` against a local
+  stand-in, to show that the read-only run sends no probe and no pilot while a
+  manual run sends both. The job requires `RequestRuleTests` (it skips without
+  Node) and `ReadOnlySwitchTests` (it skips without httpx) to run.
+- In the `frontends` job, which has Chromium, `StandInBrowserTests` runs the
+  script against a stand-in Pages tree and a stand-in API on free ports. A
+  working live page and a page the API keeps waiting with 503 answers pass. A
+  page that sends a POST, when it loads or after the page checks passed, and a
+  page with a missing script file fail, and the stand-in API receives no POST.
+  A stand-in API in the wrong state, or one that answers an error, fails each
+  check of what the API serves with `--api-problems fail`, and gives one
+  warning per check without it, so a check that stops checking fails a test.
+  The class skips without playwright-core or a browser, so the job requires it
+  to run.
+
+Only a real deploy opens the published origin; to run the browser check against
+a local tree, see "The published sites" in `CLAUDE.md`.
+
 ## 3. The test loop
 
 CI runs the same commands a contributor runs. Write the failing test first,
@@ -616,11 +699,14 @@ are in the "Releasing" section of `CLAUDE.md`.
   only proves that it compiles.
 - **CI does not test the deployed healthcare API.** `tests/test_deployed_api.py`
   runs only when `HEALTHCARE_DEPLOYED_API` is set, so it skips in the
-  `demo-apps` job and runs in `healthcare-api-check.yml`. This keeps CI from
-  failing because a free-tier container is asleep. It also means a green CI run
-  says nothing about the deployed API. The deployed tests never write hospital
-  data: they enter no records, record no outcomes and approve no model. Their
-  probes and pilot add audit records and model versions, as a visitor's do. Every fault that deployment has had (an
+  `demo-apps` job and runs in `healthcare-api-check.yml`, by hand and every day
+  (§2t). This keeps CI from failing because a free-tier container is asleep. It
+  also means a green CI run says nothing about the deployed API; the daily run
+  does, and after each Pages deploy the browser check warns about it. The
+  deployed tests never write hospital data: they enter no records, record no
+  outcomes and approve no model. A manual run's probes and pilot add audit
+  records and model versions, as a visitor's do; the daily run sets
+  `HEALTHCARE_DEPLOYED_API_READ_ONLY=1` and skips them. Every fault that deployment has had (an
   image without the Postgres driver, a port nothing routed to, a CORS value with
   a stray parenthesis) passed every test here and showed up on the first request
   to the running service. Run the probe after changing what the image installs,

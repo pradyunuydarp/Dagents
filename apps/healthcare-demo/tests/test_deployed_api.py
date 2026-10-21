@@ -31,6 +31,12 @@ as they do when a visitor uses the page.
 
 Set ``HEALTHCARE_DEPLOYED_API`` to run it. Without it the tests skip with a
 warning, because they are the only check of the deployed service.
+
+Set ``HEALTHCARE_DEPLOYED_API_READ_ONLY=1`` to skip the five tests that send a
+probe or run a pilot. The daily run of ``healthcare-api-check.yml`` sets it, so
+that run adds no audit record and no model version. Its only POST requests are
+the two that ask to add a hospital, which the hosted API refuses with 403
+before it does anything. A manual run leaves it unset and runs every test.
 """
 
 from __future__ import annotations
@@ -51,6 +57,18 @@ API = os.environ.get("HEALTHCARE_DEPLOYED_API", "").rstrip("/")
 #: published demo shows an error to whoever arrived first, and this is where
 #: that gets caught.
 FRONTEND_COLD_START_BUDGET_SECONDS = 90
+
+#: Set by the scheduled run of healthcare-api-check.yml. See the module docstring.
+READ_ONLY = os.environ.get("HEALTHCARE_DEPLOYED_API_READ_ONLY", "").strip().lower() in {"1", "true", "yes"}
+
+#: Marks a test that sends a probe or runs a pilot. A probe adds an audit
+#: record, and a pilot adds audit records and a model version. The probe with
+#: a value outside its set is refused before it is recorded, and it skips too,
+#: so a read-only run sends no probe at all.
+writes_to_the_demo = unittest.skipIf(
+    READ_ONLY,
+    "HEALTHCARE_DEPLOYED_API_READ_ONLY is set, and this test sends a probe or runs a pilot",
+)
 
 if not API:
     warnings.warn(
@@ -186,30 +204,40 @@ class DeployedApiTests(unittest.TestCase):
             with self.subTest(site=lma["site_id"]):
                 self.assertTrue(lma["reachable"], f"the LMA of {lma['site_id']} did not answer the GMA")
 
-    def test_each_answer_lists_the_agent_calls_behind_it(self) -> None:
-        """The overview reads the hospitals through the GMA, and a probe is answered by the hospital's LMA."""
+    def assert_routes_only(self, calls: list[dict]) -> None:
+        """Each call names its agent and route, and no address."""
+        for call in calls:
+            with self.subTest(call=call):
+                self.assertEqual({"service", "site_id", "method", "path", "status", "ms", "via"}, set(call))
+                self.assertNotIn("://", json.dumps(call), "a call names an address")
+
+    def test_the_overview_lists_the_agent_calls_behind_it(self) -> None:
+        """The overview reads the hospitals through the GMA."""
+        overview = self.get_json("/api/v1/overview", "/api/v1/overview")
+        overview_calls = overview.get("framework_calls")
+        self.assertTrue(overview_calls, "the overview lists no agent call")
+        self.assertIn(
+            ("gma", None, "GET", "/api/v1/federation/sites/summaries"),
+            {(call["service"], call["site_id"], call["method"], call["path"]) for call in overview_calls},
+        )
+        self.assert_routes_only(overview_calls)
+
+    @writes_to_the_demo
+    def test_a_probe_lists_the_lma_call_behind_it(self) -> None:
+        """A probe is answered by the hospital's LMA."""
         overview = self.get_json("/api/v1/overview", "/api/v1/overview")
         site_id = overview["hospitals"][0]["site_id"]
         probe = self.json_of(
             self.client.post("/api/v1/governance:probe", json={"site_id": site_id}),
             "/api/v1/governance:probe",
         )
-        overview_calls = overview.get("framework_calls")
         probe_calls = probe.get("framework_calls")
-        self.assertTrue(overview_calls, "the overview lists no agent call")
         self.assertTrue(probe_calls, "the probe lists no agent call")
-        self.assertIn(
-            ("gma", None, "GET", "/api/v1/federation/sites/summaries"),
-            {(call["service"], call["site_id"], call["method"], call["path"]) for call in overview_calls},
-        )
         self.assertIn(
             ("lma", site_id, "POST", "/api/v1/governance/restrictions:probe"),
             {(call["service"], call["site_id"], call["method"], call["path"]) for call in probe_calls},
         )
-        for call in [*overview_calls, *probe_calls]:
-            with self.subTest(call=call):
-                self.assertEqual({"service", "site_id", "method", "path", "status", "ms", "via"}, set(call))
-                self.assertNotIn("://", json.dumps(call), "a call names an address")
+        self.assert_routes_only(probe_calls)
 
     def test_the_app_marks_its_own_responses(self) -> None:
         """The page retries a 503 without X-Dagents-App, and shows one with it at once."""
@@ -253,6 +281,7 @@ class DeployedApiTests(unittest.TestCase):
                 # The rows are records, not placeholders.
                 self.assertIn("encounter_id", worklist[0])
 
+    @writes_to_the_demo
     def test_the_guard_levers_change_the_strategy(self) -> None:
         """The planner is in the image, and it is deciding.
 
@@ -296,6 +325,7 @@ class DeployedApiTests(unittest.TestCase):
             f"every lever combination produced the same protection: {strategies}",
         )
 
+    @writes_to_the_demo
     def test_the_cohort_floor_applies_where_the_granularity_makes_it_matter(self) -> None:
         """The minimum cohort, and the condition on it.
 
@@ -336,6 +366,7 @@ class DeployedApiTests(unittest.TestCase):
             "a five-row request was refused; the floor is for cohort-sensitive granularities",
         )
 
+    @writes_to_the_demo
     def test_a_lever_outside_its_set_is_refused_at_the_boundary(self) -> None:
         """A wrong value is the client's mistake, and must be reported as one.
 
@@ -360,6 +391,7 @@ class DeployedApiTests(unittest.TestCase):
             f"an out-of-range granularity returned {response.status_code}: {response.text[:200]!r}",
         )
 
+    @writes_to_the_demo
     def test_a_pilot_reports_a_decision_that_matches_its_gates(self) -> None:
         """Aggregation yields a candidate, and the gates decide what happens to it.
 

@@ -295,6 +295,70 @@ artifact is kept for one day; after that, re-run the whole run. A new run of the
 same commit adds a green check beside the red one but does not replace it, so
 the commit still shows the failure.
 
+**The published pages in a browser.** After the deploy and its curl checks,
+`scripts/check_published_pages.mjs` opens each page in Chrome on the published
+origin. These checks fail the run:
+
+- the NL2SQL replay names the run's commit in its banner and in
+  `recording.json`, and its first sample shows SQL and a trace;
+- the framework site renders "Dagents", a Learn page draws its Mermaid
+  diagrams, and each demo card opens its demo;
+- the stroke demo is checked in the mode the build job reports
+  (`healthcare_mode`). A replay names the commit, lists 3 or more hospitals and
+  draws a hospital's charts; a live build loads without the recorded banner.
+
+What a live stroke demo shows from the deployed API (records in Postgres, 3 or
+more hospitals, a hospital's charts, the agents in process) gives a warning and
+a note in the run summary, never a failure, because the external API must not
+fail a Pages run. The browser stops every request other than GET, HEAD and
+OPTIONS, and such a request fails the run, so the check never writes to the
+API. Pages serves files through a cache for up to 10 minutes, so a failing page
+is checked again, in a new browser context, for up to 6 minutes. The script
+never prints the API's address. It reads the page addresses from
+`env/.env.published`; `--published FILE` names another file, such as one with
+the addresses of a local server that serves an assembled tree under
+`/Dagents/`:
+
+```bash
+cd site && npm ci && cd -                                   # playwright-core
+node scripts/check_published_pages.mjs --published local.env --healthcare-mode replay --wait 0
+```
+
+The `frontends` job runs the script in Chromium against a stand-in Pages tree
+and a stand-in API on free ports (`StandInBrowserTests` in
+`tests/test_published_pages_wiring.py`): a working live page passes, and a
+page that sends a POST or misses a script file fails while the stand-in API
+receives no POST. A stand-in API in the wrong state (two hospitals, records in
+memory, a store not ready, a chart that answers 404) or one that answers an
+error fails each check of what it serves with `--api-problems fail` and gives
+warnings without it. The class skips without playwright-core or a browser, and
+the job requires it to run:
+
+```bash
+CHROMIUM_PATH=/path/to/chrome .venv/bin/python -m unittest tests.test_published_pages_wiring -v
+```
+
+**The daily check of the deployed API.** `healthcare-api-check.yml` runs by
+hand and every day at 06:41 UTC, outside the `ci` gate. The scheduled run sets
+`HEALTHCARE_DEPLOYED_API_READ_ONLY=1`: `apps/healthcare-demo/tests/test_deployed_api.py`
+then skips the five tests that send a probe or run a pilot, so the run adds no
+audit record and no model version. It still sends GET requests and two POST
+requests that ask to add a hospital, which the hosted API refuses with 403. A
+manual run also sends the probes and a pilot. Besides a failing test, these faults turn either run red:
+
+- a wake longer than the page's cold-start budget (`COLD_START_BUDGET_MS` in
+  `apps/healthcare-demo/frontend/src/api.ts`, 90 seconds). The probe job's
+  first request wakes a sleeping service, so it is the one timed;
+- stores that are not ready;
+- a CORS setting that no longer matches the published page.
+
+A second job runs after the probe job and opens the published stroke demo with
+the same script, with `--api-problems fail --warm-up`. Its warm-up GET asks the
+API named in `env/.env.published`, whatever address a person gave the probe.
+GitHub turns off the schedule of a public repository after 60 days without
+activity; turn it back on with "Enable workflow" on the workflow's page in the
+Actions tab.
+
 **Link previews and icons.** A link to one of the sites, shared on LinkedIn,
 WhatsApp, Slack or X, shows that site's card: the 1200 x 630 PNG named by the
 page's `og:image` tag. The three cards and the logo mark are HTML and SVG files

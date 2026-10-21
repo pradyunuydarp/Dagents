@@ -11,17 +11,31 @@ name: Healthcare API check
 # keeps its records in memory instead of Postgres, its database cannot be
 # reached, or it will not accept browser requests from the published page.
 #
-# It writes nothing: the deployed-service tests enter no records, record no
-# outcomes and approve no model.
+# It writes no hospital data: the deployed-service tests enter no records,
+# record no outcomes and approve no model. A manual run also sends the probes
+# and a pilot, which add audit records and model versions as a visitor's do.
+#
+# It also runs every day at 06:41 UTC. The scheduled run is read-only: it sets
+# HEALTHCARE_DEPLOYED_API_READ_ONLY, so the tests skip the probes and the
+# pilot, and its browser job sends GET requests only. Every run goes red when
+# the service sleeps past the page's cold-start budget (the probe's first
+# request wakes it and is timed), when its stores are not ready, or when its
+# CORS setting stops matching the published page. GitHub turns off the
+# schedule of a public repository after 60 days without activity; turn it
+# back on with "Enable workflow" on this workflow's page in the Actions tab.
 #
 # It reads nothing secret and prints nothing secret. The address comes from
 # `env/.env.published`, which is committed because it is a published URL.
 
 on:
+  schedule:
+    # Minute 41, away from the start of the hour, when GitHub delays
+    # scheduled runs the most. Daily, in UTC.
+    - cron: "41 6 * * *"
   workflow_dispatch:
     inputs:
       api:
-        description: "API base to probe (default: the one in env/.env.published)"
+        description: "API base to probe (default: the one in env/.env.published). The browser job always opens the published page and warms up the API in env/.env.published."
         type: string
         default: ""
 
@@ -72,17 +86,32 @@ jobs:
           # the request that does the waking. A container that sleeps when idle
           # takes as long to start as its image takes to load, and if that
           # exceeds what the published page waits out, whoever arrives first
-          # sees an error. The number is reported as a notice so it can be read
-          # back from a finished run without opening the log.
+          # sees an error. So a wake longer than the page's budget fails this
+          # step. The steps below still run, because the service is up. The
+          # browser job runs after this job and finds the service awake, so it
+          # cannot time the wake. The number is also reported as an annotation
+          # so it can be read back from a finished run without opening the log.
+          #
+          # The budget is read from the page's transport, so the two cannot differ.
+          budget_ms=$(sed -n 's/.*COLD_START_BUDGET_MS *= *\([0-9_]*\).*/\1/p' \
+                        apps/healthcare-demo/frontend/src/api.ts | head -1 | tr -d _)
+          if [ -z "${budget_ms}" ]; then
+            echo "::error::apps/healthcare-demo/frontend/src/api.ts no longer defines COLD_START_BUDGET_MS."
+            exit 1
+          fi
+          budget=$(( budget_ms / 1000 ))
           started=$(date +%s)
-          code=$(curl -sS -o /tmp/body -D /tmp/headers -w '%{http_code}' --max-time 120 \
+          code=$(curl -sS -o /tmp/body -D /tmp/headers -w '%{http_code}' --max-time "$(( budget + 30 ))" \
                    "${API}/api/v1/health" 2>/tmp/curl-err) || true
           elapsed=$(( $(date +%s) - started ))
           echo "status: ${code:-<no response>}   after ${elapsed}s"
           if [ "${code}" = "200" ]; then
-            if [ "${elapsed}" -gt 5 ]; then
+            if [ "${elapsed}" -gt "${budget}" ]; then
+              echo "::error::Cold start: the first request took ${elapsed}s, and the published page" \
+                   "waits ${budget}s, so a visitor who arrives while the service sleeps sees an error."
+            elif [ "${elapsed}" -gt 5 ]; then
               echo "::notice::Cold start: the first request took ${elapsed}s. The published page" \
-                   "waits 90s, so a visitor arriving at a sleeping service recovers as long as" \
+                   "waits ${budget}s, so a visitor arriving at a sleeping service recovers as long as" \
                    "this stays under that."
             else
               echo "::notice::The service was already awake (first request ${elapsed}s)."
@@ -128,9 +157,14 @@ jobs:
             echo "::error::${API} is not serving. Everything below is skipped."
             exit 1
           }
+          # A slow wake fails the run, but the service answered, so the steps
+          # below still describe it.
+          [ "${elapsed}" -le "${budget}" ]
 
       - name: What it says about itself
-        if: ${{ env.HEALTH_CODE == '200' }}
+        # `!cancelled()`, so it also runs after a wake longer than the page's
+        # budget failed the step above.
+        if: ${{ !cancelled() && env.HEALTH_CODE == '200' }}
         env:
           API: ${{ env.API }}
         run: |
@@ -273,9 +307,14 @@ jobs:
         # gates, the audit chains and the charts. They enter no records and
         # approve nothing. Every fault this deployment has had passed the local
         # suite and showed up on the first request to the running service.
+        #
+        # The scheduled run sets HEALTHCARE_DEPLOYED_API_READ_ONLY, so the five
+        # tests that send a probe or run a pilot skip and the daily run adds
+        # nothing to the public demo. A manual run runs them all.
         if: ${{ !cancelled() && env.HEALTH_CODE == '200' }}
         env:
           HEALTHCARE_DEPLOYED_API: ${{ env.API }}
+          HEALTHCARE_DEPLOYED_API_READ_ONLY: ${{ github.event_name == 'schedule' && '1' || '' }}
         working-directory: apps/healthcare-demo
         run: |
           set -o pipefail
@@ -347,3 +386,44 @@ jobs:
               exit 1
               ;;
           esac
+
+  page:
+    name: Open the published stroke demo in a browser
+    runs-on: ubuntu-latest
+    # After the probe, so the probe's first request is the run's first request
+    # and the one that times a wake. After it even when it failed: the probe
+    # asks the API with curl, and this asks it as the published page does,
+    # from the Pages origin. They find different faults, so one should not
+    # hide the other.
+    needs: probe
+    if: ${{ !cancelled() }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: site/package-lock.json
+
+      - name: Install the browser driver
+        working-directory: site
+        run: npm ci
+
+      - name: The published stroke demo reads the API in a browser
+        # scripts/check_published_pages.mjs opens the published stroke demo in
+        # Chrome and fails unless it is a live build that loads the consortium
+        # within the page's cold-start budget, reports records in Postgres and
+        # every store ready, lists 3 or more hospitals, draws a hospital's
+        # charts and says the agents run in process. With --warm-up it first
+        # sends one GET to the health route of the API named in
+        # env/.env.published, so an API that does not answer is reported apart
+        # from a broken page. The probe job has woken the service by then; the
+        # probe's first request is the one timed against the budget. Any
+        # request other than GET, HEAD or OPTIONS is stopped in the browser and
+        # fails the step. If the published page is a replay, the last Pages
+        # build found the API unavailable, and this step fails and says so.
+        env:
+          HEALTHCARE_MODE: live
+          CHROMIUM_PATH: /usr/bin/google-chrome
+        run: node scripts/check_published_pages.mjs --only healthcare --api-problems fail --wait 60 --warm-up
