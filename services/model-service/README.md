@@ -88,8 +88,12 @@ export DAGENTS_TEST_DATABASE_URL=postgresql://admin:pw@127.0.0.1:5432/postgres
 The test creates a scratch database and a login role, and drops both
 afterwards. Without the variable the class skips with a message that starts
 with `database test skipped`. The `framework-services` CI job runs it against a
-PostgreSQL 16 service container and fails on that skip. The service imports
-torch when it starts, which takes about 5 seconds, so the test waits up to 120
-seconds for its health check. The class takes about 9 seconds on an idle 4-CPU
-machine. With three other model suites running on the same machine, it took
-about 27 seconds, most of it in the forecasting checks.
+PostgreSQL 16 service container and fails on that skip.
+
+On an idle 4-CPU machine the class takes 8 to 11 seconds. Starting the service
+takes 5 to 6 of them, mostly to import torch and scikit-learn. The test waits
+up to 120 seconds for the health check, which leaves a margin for a slow CI
+runner. The two forecasting checks train small torch models and take under a
+second on an idle machine, but they slow down the most when other processes
+use the CPUs. With four model suites started at the same time on that machine,
+the class took 54 to 56 seconds, 44 to 48 of them in the forecasting checks.

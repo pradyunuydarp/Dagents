@@ -483,10 +483,13 @@ PYTHONPATH=.:services/model-service .venv/bin/python -m unittest discover \
 ```
 
 On an idle 4-CPU machine the pipeline class takes about 2 seconds and the model
-class about 9, about 5 of them to start the service, which imports torch. With
-three other model suites running on the same machine, the model class took
-about 27 seconds, most of it in the forecasting checks, and each whole model
-suite about 60.
+class 8 to 11. Starting the model service takes 5 to 6 of those seconds,
+mostly to import torch and scikit-learn. The forecasting checks take under a
+second there, but they slow down the most when other processes use the CPUs.
+With four model suites started at the same time on that machine, the model
+class took 54 to 56 seconds, 44 to 48 of them in the forecasting checks, and
+each whole suite took 75 to 84 seconds. The `model-service` step in CI has a
+20-minute timeout.
 
 ## 3. The test loop
 
