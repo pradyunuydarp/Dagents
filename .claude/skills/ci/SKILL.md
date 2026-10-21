@@ -406,6 +406,69 @@ the smoke test with `--agents-from openai-agents`. That option fails unless
 `tests/test_packaging.py` runs the file check and the option on synthetic
 distributions.
 
+### r. A replay nobody had opened
+
+`pages.yml` publishes the stroke demo as a replay of `recording.json`
+whenever its probe of the deployed API fails (failure g).
+`check_demo_recordings.py` checks the recording's content (failure f), and the
+smoke test drives the live UI through the dev server. No job opened the replay
+build in a browser, so its code ran first for visitors: the transport that
+finds each answer by method, path and exact body, the switch to the answers
+recorded after the pilot, the charts in both themes, and the actions a replay
+turns off. The page matches a Guard probe by its exact body, and only a person
+kept the body in `GuardProbe.tsx` equal to the one the capture records. A key
+added on one side would have turned every Guard answer into "Not recorded".
+
+Defence:
+
+- `apps/healthcare-demo/frontend/replay-smoke.mjs` serves a replay build with
+  `serve-dist.mjs` under the base path, where a missing file answers 404, as
+  on Pages. It asks the Guard every combination the page offers, with the
+  cohort sizes read from the recording, runs the pilot, opens every hospital
+  page before and after it, and compares each chart with the recorded SVG in
+  both themes. It checks that the entry form and the panel to add a hospital
+  are turned off and say why, and that each hospital page lists the entered
+  records the recording holds and says the replay cannot store an outcome. It
+  fails on any API request, any request to another origin except the web
+  fonts, and any console error. When a check stops the run, it prints the
+  console errors and requests collected so far, which usually name the cause.
+  Without a browser it prints `SKIP` and exits 2, like the smoke test.
+  `apps/healthcare-demo/frontend/README.md` lists every check.
+- The `frontends` job captures a recording on a port the system picks, checks
+  it, builds a replay copy into `$RUNNER_TEMP`, and runs the drive in a step
+  that runs nothing else, so exit 2 fails the step. `pages.yml` builds a
+  replay copy after the published build in every run, whichever mode the probe
+  chose, and drives it before the upload. That copy goes to a scratch folder
+  and is never published. That job can deploy to Pages, so it installs the
+  browser with `npx --no playwright-core install --with-deps chromium`: the
+  playwright-core version the lockfile pins, with no download from npm.
+  `npx playwright` would fetch the newest playwright from the registry,
+  because no lockfile holds that package.
+- The capture posts through `capture_demo_recordings.probe_body` and
+  `PILOT_BODY`. `tests/test_replay_wiring.py` (in the `contracts` job)
+  compares them with the bodies in `GuardProbe.tsx` and `PilotPanel.tsx`,
+  checks that each granularity the panel offers is recorded and that the
+  controls start on recorded values, and checks the steps in both workflows:
+  their order, a drive step that runs only the drive, no `${{ }}` in their
+  `run:` scripts, and a Pages browser install, found by its command, that runs
+  the locked playwright-core.
+
+The approve button is checked only when the recorded gates allow a release:
+it must be turned off and say why. When they do not, the drive checks that no
+approve panel is shown. Outcome buttons are checked only when the recording
+holds an entered record without an outcome, and the capture enters none. To
+run the drive locally:
+
+```bash
+DAGENTSC_BIN=$PWD/bindings/ocaml/_build/default/bin/dagentsc.exe \
+  .venv/bin/python scripts/capture_demo_recordings.py --demo healthcare
+.venv/bin/python scripts/check_demo_recordings.py healthcare
+cd apps/healthcare-demo/frontend
+DEMO_BASE_PATH=/Dagents/healthcare-demo/ VITE_DAGENTS_STATIC=1 VITE_HEALTHCARE_API_BASE= \
+  npx vite build --outDir /tmp/healthcare-replay --emptyOutDir
+node replay-smoke.mjs /tmp/healthcare-replay --base /Dagents/healthcare-demo/
+```
+
 ## 3. The test loop
 
 CI runs the same commands a contributor runs. Write the failing test first,

@@ -57,7 +57,8 @@ import subprocess
 import sys
 import tempfile
 import time
-from typing import Any
+from types import MappingProxyType
+from typing import Any, Mapping
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -82,6 +83,30 @@ CHART_THEMES = ("light", "dark")
 
 #: What the panel to add a hospital reads.
 DEPLOYMENTS_PATH = "/api/v1/deployments"
+
+#: The two POSTs the healthcare UI sends, and their bodies. The replay finds a
+#: POST by its exact body (``keyFor`` in the frontend's ``api.ts``), so the
+#: capture must send the body the page sends: a key the page adds or drops
+#: makes every answer "not recorded". ``tests/test_replay_wiring.py`` compares
+#: these with the bodies in ``GuardProbe.tsx`` and ``PilotPanel.tsx``.
+PROBE_PATH = "/api/v1/governance:probe"
+PILOT_PATH = "/api/v1/pilot:run"
+#: The Guard boundary the guard panel always asks about.
+PROBE_BOUNDARY = "before_read"
+#: The body the pilot panel sends when someone selects "Run the pilot".
+PILOT_BODY: Mapping[str, Any] = MappingProxyType({"round_prefix": "ui"})
+
+
+def probe_body(site_id: str, verified: bool, granularity: str, cohort_size: int) -> dict[str, Any]:
+    """The body the guard panel sends for one setting of its controls."""
+    return {
+        "site_id": site_id,
+        "verified": verified,
+        "granularity": granularity,
+        "cohort_size": cohort_size,
+        "boundary": PROBE_BOUNDARY,
+    }
+
 
 #: Settings for the healthcare backend during a capture: the agents inside the
 #: demo server, as on the published demo (network mode would also need a
@@ -442,16 +467,7 @@ def capture_healthcare(recorder: Recorder) -> None:
         for verified in (True, False):
             for granularity in GRANULARITIES:
                 for cohort in COHORT_SIZES:
-                    answer = recorder.post(
-                        "/api/v1/governance:probe",
-                        {
-                            "site_id": site_id,
-                            "verified": verified,
-                            "granularity": granularity,
-                            "cohort_size": cohort,
-                            "boundary": "before_read",
-                        },
-                    )
+                    answer = recorder.post(PROBE_PATH, probe_body(site_id, verified, granularity, cohort))
                     # The published file must not carry patient rows: the
                     # consortium page is the coordinator's view.
                     if isinstance(answer, dict) and "payload" in answer:
@@ -463,7 +479,7 @@ def capture_healthcare(recorder: Recorder) -> None:
     print(f"  recorded {probes} combinations of the guard's controls across {len(site_ids)} hospitals")
 
     recorder.phase = "after_pilot"
-    pilot = recorder.post("/api/v1/pilot:run", {"round_prefix": "ui"})
+    pilot = recorder.post(PILOT_PATH, dict(PILOT_BODY))
     print(f"  recorded the pilot: {((pilot.get('release') or {}).get('gates') or {}).get('action', 'no decision')}")
     charts = capture_charts(recorder, "/api/v1/charts")
     recorder.get("/api/v1/models")
