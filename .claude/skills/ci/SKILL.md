@@ -417,6 +417,56 @@ the smoke test with `--agents-from openai-agents`. That option fails unless
 `tests/test_packaging.py` runs the file check and the option on synthetic
 distributions.
 
+### o. A planner failure inside a running agent
+
+Unit tests check that the Guard denies when its planner raises. They call the
+Guard in the test process. In a deployment the planner is a separate process
+that the runner must stop at `DAGENTSC_TIMEOUT_SECONDS`, and a GMA, an LMA and
+an HTTP call sit between the failure and the answer a caller sees.
+
+Defence: `dagents/tests/test_agent_failures_over_http.py`, class
+`PlannerFailureOverHttpTests`. It starts the GMA and three LMAs as uvicorn
+processes with `start_over_http` (`dagents/tests/test_agent_network_flow.py`)
+and gives one agent a stand-in planner, or kills one LMA:
+
+| Case | What fails | What must happen |
+|---|---|---|
+| (a) | Site A's planner hangs on every call; `DAGENTSC_TIMEOUT_SECONDS=1` | Site A refuses the round because it cannot compute the round digest. The round meets quorum with the other two sites and aggregates. Site A's job log records the refusal, its probe is denied with the fail-closed message within 5 seconds, `/health` answers within 1 second while no other request waits on the planner, and no stand-in process is left running |
+| (b) | Site A's planner hangs only on `governance restrict` | The digest check passes, the `before_train` Guard denies the job, and site A's audit chain holds the denial with the stand-in's SHA-256 |
+| (c) | The GMA registers its models while it has a planner; then its `DAGENTSC_BIN` names a missing file | `rounds:plan` and dispatch answer `503` `planner_unavailable`, no LMA logs a job, and `/health` answers `200` |
+| (e) | Site C's LMA process is killed with SIGKILL | Its dispatch row has no status code and the outcome `failed`, the round meets quorum with the other two sites, and the directory reports the site unreachable |
+
+The class needs the planner and skips without it, so the `agents` job and the
+`packaging` job's step on the newest versions require it to run
+(`--require-ran`). Two cases have no test. With many requests waiting on a
+hanging planner, `/health` slows down: it took 3.55 seconds with 60 probes
+waiting. And a site that refuses a job because its planner could not compute
+the round digest writes a job-log entry and no audit record, so the audit
+chain does not show that refusal. The test does not assert either way about
+that record.
+
+`AgentProcessStopTests` in the same file checks that stopping the agents
+signals only processes that still run, because the system can give the id of
+a reaped process to another process group. It needs neither the planner nor a
+database.
+
+`dagents/tests/test_lma_restart_postgres.py`, class `LmaCrashPostgresTests`,
+covers an LMA that keeps its job log and audit chain in Postgres. It creates
+the tables from the SQL in `dagents/lma/README.md` ("Postgres tables"), so a
+README that drifts from the code fails it. It kills site A's LMA with SIGKILL
+after a round and starts it again on the same port and tables. The job log and
+the audit chain must survive, and the next round must complete with both
+sites. It needs a database, so the `demo-apps` step "Framework database tests
+against PostgreSQL" and `healthcare-data.yml` run it and require it;
+`tests/test_ci_guards.py` checks both lists. The LMA is killed between rounds,
+not while it runs a job. The GMA keeps its state in memory, and both rounds
+are evaluation rounds, so an update upload after the restart is not tested.
+
+A restarted LMA binds its old port again. `_bind_loopback_ports` sets
+`SO_REUSEADDR` on every socket it binds when the agents start, because on
+Linux the killed process's connections block the port for up to 60 seconds
+unless they inherited that option from it.
+
 ## 3. The test loop
 
 CI runs the same commands a contributor runs. Write the failing test first,

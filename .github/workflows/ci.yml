@@ -166,9 +166,10 @@ jobs:
         # while every GMA thread token is held, the refused approval on the
         # simulator, a whole study through the GMA and three LMAs, in process
         # and as separate uvicorn processes, a site that joins the GMA while
-        # it runs (its job reaches an LMA served by uvicorn), and the appliers
+        # it runs (its job reaches an LMA served by uvicorn), the appliers
         # that start one rendered Compose service as a process or with docker
-        # compose.
+        # compose, and the agent processes while a planner hangs or is missing
+        # and while an LMA process is killed.
         run: |
           python scripts/ci_no_skipped_tests.py \
             --forbid planner \
@@ -192,6 +193,7 @@ jobs:
             --require-ran dagents.tests.test_compose_apply.LocalProcessApplierTests \
             --require-ran dagents.tests.test_compose_apply.LocalProcessEnvFileTests \
             --require-ran dagents.tests.test_compose_apply.DockerComposeApplierTests \
+            --require-ran dagents.tests.test_agent_failures_over_http.PlannerFailureOverHttpTests \
             agents-suite.log
 
       - name: Run the getting-started example and check the guide
@@ -491,12 +493,14 @@ jobs:
         # GMA's coordinator wiring, the GMA's round, enrolment and update
         # stores with the controller tests run on them, a GMA that builds
         # those stores from its table settings and is restarted inside the
-        # test process, and a GMA process killed with SIGKILL and started
+        # test process, a GMA process killed with SIGKILL and started
         # again on its port (it starts the GMA and three LMAs on loopback
-        # ports 9800-9899). The registry, the GMA
-        # and the controller tests also need the planner. The job installs
-        # only the healthcare demo's requirements, the set its image installs,
-        # so a framework dependency the demo lacks fails here.
+        # ports 9800-9899), and an LMA process killed with SIGKILL and
+        # started again on the tables its README creates. The registry, the
+        # GMA, the controller and the LMA restart tests also need the
+        # planner. The job installs only the healthcare demo's requirements,
+        # the set its image installs, so a framework dependency the demo
+        # lacks fails here.
         env:
           DAGENTSC_BIN: ${{ env.PLANNER_DIR }}/dagentsc.exe
           DAGENTS_TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
@@ -512,6 +516,7 @@ jobs:
             dagents.tests.test_gma_settings \
             dagents.tests.test_gma_restart \
             dagents.tests.test_gma_process_restart \
+            dagents.tests.test_lma_restart_postgres \
             2>&1 | tee framework-database.log
 
       - name: Fail if the database tests skipped
@@ -578,6 +583,7 @@ jobs:
             --require-ran dagents.tests.test_gma_restart.RecoveryRestartTests \
             --require-ran dagents.tests.test_gma_restart.PostgresUploadThreadTests \
             --require-ran dagents.tests.test_gma_process_restart.GmaProcessRestartTests \
+            --require-ran dagents.tests.test_lma_restart_postgres.LmaCrashPostgresTests \
             framework-database.log || status=1
           exit "${status}"
 
@@ -977,6 +983,7 @@ jobs:
             --require-ran dagents.tests.test_agent_api.RoutePairConventionTests \
             --require-ran dagents.tests.test_gma_http_engine.RouteTokenTests \
             --require-ran dagents.tests.test_agent_network_flow.OverHttpStudyTests \
+            --require-ran dagents.tests.test_agent_failures_over_http.PlannerFailureOverHttpTests \
             newest-suite.log
 
   # ---------------------------------------------------------------------------

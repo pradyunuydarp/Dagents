@@ -49,7 +49,7 @@ import time
 import unittest
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Mapping
+from typing import Any, Callable, Mapping, Sequence
 
 from dagents.common.domain.federation import (
     ApprovalResult,
@@ -728,7 +728,11 @@ def _bind_loopback_ports(count: int) -> list[socket.socket]:
     """Bind ``count`` listening sockets on free loopback ports in :data:`PORT_RANGE`.
 
     The sockets are handed to uvicorn with ``--fd``, so no other process can
-    take a port between choosing it and serving on it.
+    take a port between choosing it and serving on it. Each has
+    ``SO_REUSEADDR``, which the connections it accepts inherit: on Linux, an
+    agent restarted on the same port (:func:`_bind_port`) can bind it while
+    the killed agent's connections wait to close only when they have it too.
+    Two sockets still cannot listen on one port.
     """
     sockets: list[socket.socket] = []
     ports = list(PORT_RANGE)
@@ -737,6 +741,7 @@ def _bind_loopback_ports(count: int) -> list[socket.socket]:
         if len(sockets) == count:
             break
         candidate = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        candidate.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         try:
             candidate.bind(("127.0.0.1", port))
             candidate.listen(64)
@@ -751,12 +756,43 @@ def _bind_loopback_ports(count: int) -> list[socket.socket]:
     return sockets
 
 
+def _bind_port(port: int, timeout_s: float = 10.0) -> socket.socket:
+    """Bind a listening socket on loopback ``port`` again, retrying until ``timeout_s`` passes.
+
+    An LMA restarted after a kill must listen on the port it had, because the
+    GMA reaches an LMA only at the address its settings list.
+    ``SO_REUSEADDR`` lets the bind succeed while connections of the killed
+    process wait to close (see :func:`_bind_loopback_ports`).
+    """
+    deadline = time.monotonic() + timeout_s
+    while True:
+        candidate = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        candidate.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            candidate.bind(("127.0.0.1", port))
+            candidate.listen(64)
+            return candidate
+        except OSError:
+            candidate.close()
+            if time.monotonic() > deadline:
+                raise
+            time.sleep(0.2)
+
+
 def _site_map(values: dict[str, str]) -> str:
     return ",".join(f"{site}={value}" for site, value in values.items())
 
 
 def _signal_group(process: subprocess.Popen, number: int) -> None:
-    """Send a signal to the process group that ``process`` leads, if any member is left."""
+    """Send a signal to the process group that ``process`` leads, only while the process runs.
+
+    Once a process has exited and been reaped, the system can give its id to
+    a new process group that this test did not start. So the function first
+    calls ``poll``, which reaps a process that has exited, and then signals
+    only a process that still runs, as ``Popen.send_signal`` does.
+    """
+    if process.poll() is not None:
+        return
     try:
         os.killpg(process.pid, number)
     except ProcessLookupError:
@@ -764,48 +800,89 @@ def _signal_group(process: subprocess.Popen, number: int) -> None:
 
 
 @dataclass
-class GmaLaunch:
-    """How a GMA served on a port of its own was started, so a test can start it again on the same port."""
+class AgentLaunch:
+    """How one agent process was started, so a test can start it again on the same port.
 
+    With ``takes_socket``, the command is uvicorn, and each start binds the
+    port in this process and hands the socket to the new process with
+    ``--fd``. Without it, the agent binds the port itself, as the GMA does
+    with ``python -m dagents.gma``.
+    """
+
+    #: ``gma`` or ``lma``, for the log file's name.
+    name: str
     command: list[str]
     environment: dict[str, str]
     port: int
     log_dir: Path
-    #: Every GMA process started from this launch, the running one last.
+    takes_socket: bool = False
+    #: Every process started from this launch, the running one last.
     started: list[subprocess.Popen] = field(default_factory=list)
+
+
+def _launch(launch: AgentLaunch, bound: socket.socket | None = None) -> tuple[subprocess.Popen, Path]:
+    """Start one process from ``launch``, in a process group of its own, with a new log file.
+
+    ``bound`` is the socket to serve on, for a launch that ``takes_socket``.
+    """
+    command = list(launch.command)
+    pass_fds: tuple[int, ...] = ()
+    if launch.takes_socket:
+        if bound is None:
+            raise ValueError(f"the {launch.name} on port {launch.port} needs a bound socket")
+        command += ["--fd", str(bound.fileno())]
+        pass_fds = (bound.fileno(),)
+    log = launch.log_dir / f"{launch.name}-{launch.port}-{len(launch.started) + 1}.log"
+    with log.open("wb") as handle:
+        process = subprocess.Popen(
+            command,
+            cwd=REPO_ROOT,
+            env=launch.environment,
+            stdout=handle,
+            stderr=subprocess.STDOUT,
+            pass_fds=pass_fds,
+            start_new_session=True,
+        )
+    launch.started.append(process)
+    return process, log
 
 
 @dataclass
 class AgentProcesses:
-    """The four agent processes and the network that reaches them.
+    """The agent processes and the network that reaches them.
 
-    Each process leads a process group of its own, so stopping it also stops
-    what it started, such as a ``dagentsc`` call. The GMA is ``processes[0]``.
+    The GMA is ``processes[0]``; the LMAs follow in the order of ``sites``.
+    Each process leads a process group of its own, and stopping it signals
+    the whole group. The runner starts each ``dagentsc`` call in a session of
+    its own and stops it at its timeout, so stopping an agent does not stop
+    that call.
     """
 
     network: AgentNetwork
     processes: list[subprocess.Popen]
     logs: list[Path]
     #: Set when the GMA serves on a port of its own (``start_over_http(serve_gma=True)``).
-    gma_launch: GmaLaunch | None = None
+    gma_launch: AgentLaunch | None = None
+    #: The sites with an LMA process, in the order of ``processes[1:]``.
+    sites: tuple[str, ...] = SITES
+    #: How each LMA was started, by site.
+    launches: dict[str, AgentLaunch] = field(default_factory=dict)
 
     def stop(self) -> None:
         """Stop every process this object started, with its group: SIGTERM, then SIGKILL after 10 seconds."""
         self.network.close()
         everything = list(self.processes)
-        if self.gma_launch is not None:
-            everything += [process for process in self.gma_launch.started if process not in everything]
+        for launch in [self.gma_launch, *self.launches.values()]:
+            if launch is not None:
+                everything += [process for process in launch.started if process not in everything]
         for process in everything:
-            if process.poll() is None:
-                _signal_group(process, signal.SIGTERM)
+            _signal_group(process, signal.SIGTERM)
         for process in everything:
             try:
                 process.wait(timeout=10)
             except subprocess.TimeoutExpired:
-                pass
-            # Whatever is left in the group, such as a planner call the process started.
-            _signal_group(process, signal.SIGKILL)
-            process.wait(timeout=10)
+                _signal_group(process, signal.SIGKILL)
+                process.wait(timeout=10)
 
     def kill_gma(self) -> subprocess.Popen:
         """Stop the GMA's process group with SIGKILL, as a container runtime or the kernel stops it, and wait for it.
@@ -830,27 +907,49 @@ class AgentProcesses:
             raise RuntimeError("the GMA was not started on a port of its own, so it cannot be started again")
         if self.processes[0].poll() is None:
             raise RuntimeError("the GMA is still running")
-        process, log = _launch_gma(launch)
+        process, log = _launch(launch)
         self.processes[0] = process
         self.logs[0] = log
         contextvars.Context().run(_wait_until_healthy, self, timeout_s, [self.network.gma()])
         return process
 
+    def kill_lma(self, site: str) -> subprocess.Popen:
+        """Stop the LMA of ``site`` and its process group with SIGKILL, as the kernel stops it, and wait for it.
 
-def _launch_gma(launch: GmaLaunch) -> tuple[subprocess.Popen, Path]:
-    """Start one GMA process from ``launch``, in a process group of its own, with a new log file."""
-    log = launch.log_dir / f"gma-{launch.port}-{len(launch.started) + 1}.log"
-    with log.open("wb") as handle:
-        process = subprocess.Popen(
-            launch.command,
-            cwd=REPO_ROOT,
-            env=launch.environment,
-            stdout=handle,
-            stderr=subprocess.STDOUT,
-            start_new_session=True,
-        )
-    launch.started.append(process)
-    return process, log
+        Nothing in the LMA runs again: no ``finally`` block, no shutdown, no
+        last database write. Returns the stopped process.
+        """
+        process = self.processes[1 + self.sites.index(site)]
+        _signal_group(process, signal.SIGKILL)
+        process.wait(timeout=10)
+        return process
+
+    def start_lma(self, site: str, timeout_s: float = 60.0) -> subprocess.Popen:
+        """Start the LMA of ``site`` again with the same settings, on the same port, and wait until it is healthy.
+
+        Needs an LMA that has stopped. As in :meth:`start_gma`, the health
+        checks run outside any active :class:`CallLog`. Returns the new
+        process.
+        """
+        index = 1 + self.sites.index(site)
+        if self.processes[index].poll() is None:
+            raise RuntimeError(f"the LMA of {site} is still running")
+        launch = self.launches[site]
+        bound = _bind_port(launch.port)
+        try:
+            process, log = _launch(launch, bound)
+        finally:
+            # The new process holds its own copy of the socket.
+            bound.close()
+        self.processes[index] = process
+        self.logs[index] = log
+        contextvars.Context().run(_wait_until_healthy, self, timeout_s, [self.network.lma(site)])
+        return process
+
+
+def _uvicorn(target: str) -> list[str]:
+    """The command that serves the app ``target`` with uvicorn; :func:`_launch` adds ``--fd``."""
+    return [sys.executable, "-m", "uvicorn", target, "--log-level", "warning"]
 
 
 def start_over_http(
@@ -858,22 +957,32 @@ def start_over_http(
     *,
     gma_settings: Mapping[str, str] | None = None,
     lma_settings: Mapping[str, str] | None = None,
+    site_settings: Mapping[str, Mapping[str, str]] | None = None,
+    sites: Sequence[str] = SITES,
     serve_gma: bool = False,
 ) -> AgentProcesses:
     """Start the GMA and one LMA per site with uvicorn, each from its environment settings.
 
     - `gma_settings`, `lma_settings`: more variables for the GMA, or for each
-      LMA, such as the GMA's tables in a database.
+      LMA, such as the GMA's tables in a database or ``DAGENTSC_BIN``.
+    - `site_settings`: more variables for the LMA of one site, by site, on top
+      of `lma_settings`, such as a stand-in planner for that site only.
+    - `sites`: the sites that get an LMA; the GMA lists only these.
     - `serve_gma`: start the GMA as an operator does, with ``python -m
       dagents.gma`` and ``GMA_API_HOST`` and ``GMA_API_PORT``, instead of on a
       socket this process bound and hands to uvicorn. The GMA can then be
       stopped and started again on the same port
       (:meth:`AgentProcesses.kill_gma`, :meth:`AgentProcesses.start_gma`).
+
+    Every agent gets the real planner (``DAGENTSC_BIN``) unless its settings
+    replace it. An LMA can always be stopped and started again on the same
+    port (:meth:`AgentProcesses.kill_lma`, :meth:`AgentProcesses.start_lma`).
     """
-    sockets = _bind_loopback_ports(1 + len(SITES))
+    sites = tuple(sites)
+    sockets = _bind_loopback_ports(1 + len(sites))
     ports = [bound.getsockname()[1] for bound in sockets]
     gma_url = f"http://127.0.0.1:{ports[0]}"
-    lma_urls = {site: f"http://127.0.0.1:{port}" for site, port in zip(SITES, ports[1:])}
+    lma_urls = {site: f"http://127.0.0.1:{port}" for site, port in zip(sites, ports[1:])}
     base = {
         key: value
         for key, value in os.environ.items()
@@ -890,68 +999,66 @@ def start_over_http(
         "GMA_EXTENSIONS": EXTENSION,
         "GMA_SITE_ENDPOINTS": _site_map(lma_urls),
         "GMA_ADMIN_TOKEN": ADMIN_TOKEN,
-        "GMA_SITE_TOKENS": _site_map({site: SITE_TOKENS[site] for site in SITES}),
-        "GMA_LMA_TOKENS": _site_map({site: COORDINATOR_TOKENS[site] for site in SITES}),
+        "GMA_SITE_TOKENS": _site_map({site: SITE_TOKENS[site] for site in sites}),
+        "GMA_LMA_TOKENS": _site_map({site: COORDINATOR_TOKENS[site] for site in sites}),
         "GMA_ALLOW_SOURCE_READS": "0",
         "GMA_SUMMARY_TTL_SECONDS": "0",
         "GMA_REQUIRE_TOKENS": "1",
         **(gma_settings or {}),
     }
-    environments = []
-    for site in SITES:
-        environments.append(
-            (
-                "dagents.lma.main:app",
-                {
-                    "LMA_SITE_ID": site,
-                    "LMA_CONDITION_ID": TOY_CONDITION_ID,
-                    "LMA_STUDY_ID": STUDY_ID,
-                    "LMA_CAPABILITIES": ",".join(CAPABILITIES),
-                    "LMA_EXTENSIONS": EXTENSION,
-                    "LMA_SITE_SOURCE": "toy_static",
-                    "LMA_SITE_TOKEN": STAFF_TOKENS[site],
-                    "LMA_COORDINATOR_TOKEN": COORDINATOR_TOKENS[site],
-                    "LMA_GMA_ENDPOINT": gma_url,
-                    "LMA_GMA_TOKEN": SITE_TOKENS[site],
-                    "LMA_REQUIRE_TOKENS": "1",
-                    **(lma_settings or {}),
-                },
-            )
+    if serve_gma:
+        gma = AgentLaunch(
+            name="gma",
+            command=[sys.executable, "-m", "dagents.gma", "--log-level", "warning"],
+            environment={**base, **gma_environment, "GMA_API_HOST": "127.0.0.1", "GMA_API_PORT": str(ports[0])},
+            port=ports[0],
+            log_dir=log_dir,
         )
+    else:
+        gma = AgentLaunch(
+            name="gma",
+            command=_uvicorn("dagents.gma.main:app"),
+            environment={**base, **gma_environment},
+            port=ports[0],
+            log_dir=log_dir,
+            takes_socket=True,
+        )
+    launches = {
+        site: AgentLaunch(
+            name="lma",
+            command=_uvicorn("dagents.lma.main:app"),
+            environment={
+                **base,
+                "LMA_SITE_ID": site,
+                "LMA_CONDITION_ID": TOY_CONDITION_ID,
+                "LMA_STUDY_ID": STUDY_ID,
+                "LMA_CAPABILITIES": ",".join(CAPABILITIES),
+                "LMA_EXTENSIONS": EXTENSION,
+                "LMA_SITE_SOURCE": "toy_static",
+                "LMA_SITE_TOKEN": STAFF_TOKENS[site],
+                "LMA_COORDINATOR_TOKEN": COORDINATOR_TOKENS[site],
+                "LMA_GMA_ENDPOINT": gma_url,
+                "LMA_GMA_TOKEN": SITE_TOKENS[site],
+                "LMA_REQUIRE_TOKENS": "1",
+                **(lma_settings or {}),
+                **((site_settings or {}).get(site) or {}),
+            },
+            port=port,
+            log_dir=log_dir,
+            takes_socket=True,
+        )
+        for site, port in zip(sites, ports[1:])
+    }
     processes: list[subprocess.Popen] = []
     logs: list[Path] = []
-    launch: GmaLaunch | None = None
     try:
         if serve_gma:
             # The GMA binds its port itself, so this process lets go of it first.
-            port = ports[0]
             sockets[0].close()
-            launch = GmaLaunch(
-                command=[sys.executable, "-m", "dagents.gma", "--log-level", "warning"],
-                environment={**base, **gma_environment, "GMA_API_HOST": "127.0.0.1", "GMA_API_PORT": str(port)},
-                port=port,
-                log_dir=log_dir,
-            )
-            process, log = _launch_gma(launch)
+        for launch, bound in zip([gma, *launches.values()], sockets):
+            process, log = _launch(launch, bound if launch.takes_socket else None)
             processes.append(process)
             logs.append(log)
-        else:
-            environments.insert(0, ("dagents.gma.main:app", gma_environment))
-        for (target, settings), bound in zip(environments, sockets[len(processes):]):
-            log = log_dir / f"{target.split('.')[1]}-{bound.getsockname()[1]}.log"
-            logs.append(log)
-            with log.open("wb") as handle:
-                processes.append(
-                    subprocess.Popen(
-                        [sys.executable, "-m", "uvicorn", target, "--fd", str(bound.fileno()), "--log-level", "warning"],
-                        cwd=REPO_ROOT,
-                        env={**base, **settings},
-                        stdout=handle,
-                        stderr=subprocess.STDOUT,
-                        pass_fds=(bound.fileno(),),
-                        start_new_session=True,
-                    )
-                )
     except BaseException:
         for process in processes:
             _signal_group(process, signal.SIGKILL)
@@ -966,7 +1073,14 @@ def start_over_http(
         timeout_s=30.0,
         dispatch_timeout_s=60.0,
     )
-    agents = AgentProcesses(network=network, processes=processes, logs=logs, gma_launch=launch)
+    agents = AgentProcesses(
+        network=network,
+        processes=processes,
+        logs=logs,
+        gma_launch=gma if serve_gma else None,
+        sites=sites,
+        launches=launches,
+    )
     try:
         _wait_until_healthy(agents)
     except BaseException:
@@ -978,11 +1092,12 @@ def start_over_http(
 def _wait_until_healthy(agents: AgentProcesses, timeout_s: float = 60.0, clients: list[Any] | None = None) -> None:
     """Wait until each agent answers ``/health``, or raise with the log of a process that exited.
 
-    ``clients`` are the agents to wait for; every agent by default.
+    ``clients`` are the agents to wait for; the GMA and the LMA of each of
+    ``agents.sites`` by default.
     """
     deadline = time.monotonic() + timeout_s
     if clients is None:
-        clients = [agents.network.gma()] + [agents.network.lma(site) for site in SITES]
+        clients = [agents.network.gma()] + [agents.network.lma(site) for site in agents.sites]
     waiting = list(clients)
     while waiting:
         for process, log in zip(agents.processes, agents.logs):
