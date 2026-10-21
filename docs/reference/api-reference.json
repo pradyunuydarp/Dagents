@@ -2005,7 +2005,7 @@
       },
       {
        "status": "409",
-       "description": "`conflict`: a round with this id is already stored, or (HTTP engine) the round's model is not registered or does not match `model_artifact_digest`.",
+       "description": "`conflict`: a round with this id is already stored or is being dispatched by this GMA, or (HTTP engine) the round's model is not registered or does not match `model_artifact_digest`.",
        "content_type": "application/json",
        "schema": {
         "$ref": "#/components/schemas/AgentErrorDetail"
@@ -4853,7 +4853,7 @@
       },
       {
        "status": "409",
-       "description": "`conflict`: a round with this id is already stored, or (HTTP engine) the round's model is not registered or does not match `model_artifact_digest`.",
+       "description": "`conflict`: a round with this id is already stored or is being dispatched by this GMA, or (HTTP engine) the round's model is not registered or does not match `model_artifact_digest`.",
        "content_type": "application/json",
        "schema": {
         "$ref": "#/components/schemas/AgentErrorDetail"

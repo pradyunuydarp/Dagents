@@ -16,8 +16,9 @@
   without `GMA_MODEL_TABLE` and `GMA_AUDIT_TABLE` (or their stores in
   `GmaDeps`); `GMA_UPDATE_TABLE` without `GMA_ROUND_TABLE` or
   `GMA_UPDATE_ROLE`; `GMA_UPDATE_ROLE` equal to `GMA_DATABASE_ROLE`;
-  `GMA_UPDATE_ROLE` or `GMA_UPDATE_MAX_AGE_SECONDS` without an update table;
-  and `GMA_UPDATE_TABLE`, `GMA_UPDATE_MAX_AGE_SECONDS` or an update store in
+  `GMA_UPDATE_ROLE` without `GMA_UPDATE_TABLE`; `GMA_UPDATE_MAX_AGE_SECONDS`
+  without `GMA_UPDATE_TABLE` or an update store in `GmaDeps`; and
+  `GMA_UPDATE_TABLE`, `GMA_UPDATE_MAX_AGE_SECONDS` or an update store in
   `GmaDeps` that survives a restart without `GMA_ENGINE=http`, because the
   simulator neither reads nor deletes stored updates.
   The messages name settings, never values. `GmaState` gains `round_store`,

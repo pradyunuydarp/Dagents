@@ -1108,8 +1108,8 @@ def plan_round_v1(manifest: RoundManifest, rounds: RoundsDep):
 
 _DISPATCH_ERRORS = {
     409: _coded(
-        "`conflict`: a round with this id is already stored, or (HTTP engine) the round's model is not "
-        "registered or does not match `model_artifact_digest`."
+        "`conflict`: a round with this id is already stored or is being dispatched by this GMA, or "
+        "(HTTP engine) the round's model is not registered or does not match `model_artifact_digest`."
     ),
     503: _PLANNER_OR_RECOVERY_FAILED,
 }
