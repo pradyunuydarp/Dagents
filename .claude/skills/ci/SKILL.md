@@ -415,10 +415,13 @@ check reads the `dagents` distribution's `RECORD`: it may list only
 With `PYTHONPYCACHEPREFIX` set, pip writes that bytecode outside
 site-packages, so the check allows `.pyc` files there and in `__pycache__`
 folders. Python never imports such a file as a module of its own. A wheel
-built from the sdist without a planner must make the Guard deny and each
-agent log that it has no planner (`--expect-planner none`). In its study, a
-round dispatch must answer `503` with the code `planner_unavailable`, and
-each site's Guard probe over HTTP must be denied. One more environment
+built from the sdist without a planner must make the Guard deny, and the LMA
+and GMA that answer `/health` and each agent of the study must log that they
+have no planner (`--expect-planner none`). In that study, a round dispatch
+must answer `503` with the code `planner_unavailable`, and each site's Guard
+probe over HTTP must be denied. The guide check then reads the import source
+and the extensions only; it does not read the LMA's log for the warning.
+One more environment
 installs the wheel without extras, as `pip install dagents` does
 (`--no-extras`): steps 1 to 4 of the example must print the guide's outputs
 with pydantic alone, and each command must exit with status 2 and print the

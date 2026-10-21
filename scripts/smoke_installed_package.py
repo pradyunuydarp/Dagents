@@ -48,7 +48,8 @@ With ``--expect-planner bundled`` the script checks, in order:
    guide's settings and a command's import path, must import ``dagents``
    from the environment and not from the repository. Then ``GET
    /api/v1/extensions`` lists the extension, and the LMA logs no planner
-   warning.
+   warning. The script reads the LMA's log for that warning only with
+   ``--expect-planner bundled``.
 9. A federated study over HTTP, from the installed commands: ``dagents-gma``
    with ``GMA_ENGINE=http`` and one ``dagents-lma`` per site, each a process
    of its own that loads the toy extension from ``PYTHONPATH`` and requires
@@ -63,10 +64,12 @@ With ``--expect-planner bundled`` the script checks, in order:
 
 With ``--expect-planner none`` (a wheel built from the sdist, without a
 planner) steps 3, 4, 6 and 9 check the opposite: no planner is found, the
-Guard denies the request, each agent logs a warning that it has no planner,
-and in the study a round dispatch answers ``503`` with the code
-``planner_unavailable`` and a site's Guard probe over HTTP is denied. Step 5
-is left out.
+Guard denies the request, each agent of steps 6 and 9 logs a warning that it
+has no planner, and in the study a round dispatch answers ``503`` with the
+code ``planner_unavailable`` and a site's Guard probe over HTTP is denied.
+Step 7 runs as above. Step 8 checks the import source and the extensions as
+above and does not read the LMA's log, so it checks neither that the warning
+appears nor that it is absent. Step 5 is left out.
 
 With ``--no-extras`` the wheel was installed without the ``lma`` and ``gma``
 extras, as ``pip install dagents`` installs it. Checks 1 to 4 run as above.
