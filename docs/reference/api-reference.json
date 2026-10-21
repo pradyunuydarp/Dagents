@@ -30051,7 +30051,7 @@
      "method": "POST",
      "path": "/api/v1/workloads:compile",
      "summary": "Render Kubernetes YAML for a list of workloads and store the plan.",
-     "description": "The gateway runs `dagentsc manifest compile` when `DAGENTS_OCAML_MANIFEST_CLI` names the planner, and falls back to the Java renderer when that fails. At this commit it always falls back, so the YAML comes from the Java renderer.",
+     "description": "When `DAGENTS_OCAML_MANIFEST_CLI` names the planner, the gateway runs `dagentsc manifest compile` and returns the planner's plan. Without that setting, or when the planner fails, the Java renderer answers instead and the service logs why.",
      "status_code": 200,
      "deprecated": false,
      "handler": {
@@ -30285,7 +30285,7 @@
          "type": "null"
         }
        ],
-       "description": "The id to store the plan under. When it is empty, the planner uses `dagents-plan` and the Java renderer `spring-workload-plan-<milliseconds since 1970>`."
+       "description": "The id to store the plan under. When it is null or left out, the planner uses `dagents-plan`; an empty id stays empty. The Java renderer uses `spring-workload-plan-<milliseconds since 1970>` for a null, empty or blank id."
       },
       "namespace": {
        "anyOf": [
@@ -30296,7 +30296,7 @@
          "type": "null"
         }
        ],
-       "description": "The Kubernetes namespace; when it is empty the planner uses `dagents` and the Java renderer writes `null`."
+       "description": "The Kubernetes namespace. When it is null or left out, the planner uses `dagents` and the Java renderer writes `null`; an empty namespace stays empty."
       },
       "components": {
        "anyOf": [
@@ -46944,7 +46944,7 @@
         "type": "null"
        }
       ],
-      "description": "The id to store the plan under. When it is empty, the planner uses `dagents-plan` and the Java renderer `spring-workload-plan-<milliseconds since 1970>`."
+      "description": "The id to store the plan under. When it is null or left out, the planner uses `dagents-plan`; an empty id stays empty. The Java renderer uses `spring-workload-plan-<milliseconds since 1970>` for a null, empty or blank id."
      },
      "namespace": {
       "anyOf": [
@@ -46955,7 +46955,7 @@
         "type": "null"
        }
       ],
-      "description": "The Kubernetes namespace; when it is empty the planner uses `dagents` and the Java renderer writes `null`."
+      "description": "The Kubernetes namespace. When it is null or left out, the planner uses `dagents` and the Java renderer writes `null`; an empty namespace stays empty."
      },
      "components": {
       "anyOf": [

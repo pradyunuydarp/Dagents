@@ -152,6 +152,33 @@ planner fails the job instead of skipping the replay. The replay also starts
 spring-control-service from its jar (the `runner` in its request file), so the
 job sets up JDK 21 and builds that jar first.
 
+The same job builds the spring-core-service jar and starts it.
+`tests/test_spring_services_e2e.py` runs it as two JVM processes, one with
+`DAGENTS_OCAML_MANIFEST_CLI` naming a wrapper around the planner and one
+without, and compares their answers over HTTP with what `dagentsc manifest
+compile` prints for the same request. The class skips without Java, the jar or
+the planner, so the guard requires
+`tests.test_spring_services_e2e.SpringCoreProcessTests` to have run. Before
+this test existed, the jar did not start (Spring found two beans of one type),
+and the gateway threw the planner's answer away on every request. Every JUnit
+test passed, because none loaded the application context and none checked
+something only the planner produces. The test does not build or start the
+container image, so it does not check the image's `/usr/local/bin/dagentsc` or
+its Java 25 runtime (CI runs JDK 21). The timeout and the fallback for output
+that is not a plan are tested only in `ProcessManifestCompilerGatewayTest`,
+with stand-in planner scripts.
+
+The `spring` job runs `mvn verify` with the planner: it waits for `planners`,
+downloads `dagentsc` and sets `DAGENTSC_BIN`. `ProcessManifestCompilerGatewayTest`
+fails when `DAGENTSC_BIN` names a file it cannot run, and skips only when the
+variable is unset and the dune build is missing. Maven passes a build in which
+a test skipped, so the next step reads that test's Surefire report and fails on
+a skip. A `@SpringBootTest` class in each module starts the full application
+context, so a configuration that cannot start fails `mvn verify`.
+`SpringCiWiringTests` in the same Python file checks this wiring. It also runs
+the report step on reports in which the test passed, skipped or is missing, and
+with no report at all.
+
 ### d. A skipped browser test reported as a pass
 
 Both browser checks (`apps/healthcare-demo/frontend/smoke.mjs` and
