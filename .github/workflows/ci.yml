@@ -951,11 +951,11 @@ jobs:
         # as on Supabase. It builds the page for /Dagents/healthcare-demo/,
         # serves it on localhost and starts the API on 127.0.0.1, both on free
         # ports. It exits 2 when the smoke test could not start a browser,
-        # which fails this step.
+        # which fails this step. The checkout has no .venv, so the script runs
+        # python3 from PATH, the interpreter setup-python installed.
         env:
           HEALTHCARE_DEMO_TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
           DAGENTSC_BIN: ${{ env.PLANNER_DIR }}/dagentsc.exe
-          PYTHON: python
         run: |
           set -o pipefail
           apps/healthcare-demo/scripts/run_published_check.sh 2>&1 | tee published-layout.log
