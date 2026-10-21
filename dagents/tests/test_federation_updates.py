@@ -644,6 +644,29 @@ class DomainContractTests(unittest.TestCase):
         with self.assertRaises(ValidationError):
             UpdateUpload.model_validate({"job_digest": "fnv1a:1", "update": {"w": 0.1}, "site_id": "other"})
 
+    def test_numbers_a_round_record_takes_from_a_request_or_a_site_must_be_finite(self) -> None:
+        """A round store keeps records as JSON, which has no NaN or infinity, so these fields refuse both."""
+        from dagents.common.domain.federation import AggregationMethod, GateComparison, SiteResult
+
+        result = {"round_id": "r", "site_id": "s", "participation": "completed"}
+        builders = {
+            "SiteResult.metrics": lambda value: SiteResult(**result, metrics={"auc": value}),
+            "SiteResult.update_norm": lambda value: SiteResult(**result, update_norm=value),
+            "AggregationMethod.mu": lambda value: AggregationMethod(kind="fedprox", mu=value),
+            "GateComparison.value": lambda value: GateComparison(kind="at_least", value=value),
+            "GateComparison.margin": lambda value: GateComparison(kind="improves_on_baseline", margin=value),
+        }
+        for field, build in builders.items():
+            for bad in (math.nan, math.inf, -math.inf, "NaN", "inf"):
+                with self.subTest(field=field, value=bad), self.assertRaises(ValidationError) as raised:
+                    build(bad)
+                self.assertIn("finite", str(raised.exception))
+            for good in (-0.0, 0.5, 1e16, 5e-324):
+                with self.subTest(field=field, value=good):
+                    build(good)
+        self.assertIsNone(SiteResult(**result).update_norm)
+        self.assertIsNone(AggregationMethod(kind="fedprox").mu)
+
     def test_the_release_request_keeps_the_bare_flow_and_adds_the_round_flow(self) -> None:
         from dagents.common.domain.federation import ReleaseEvaluationRequest
 

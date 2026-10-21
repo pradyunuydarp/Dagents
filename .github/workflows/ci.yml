@@ -487,11 +487,12 @@ jobs:
       - name: Framework database tests against PostgreSQL
         # These modules also run in the agents job, which has no database, so
         # their database tests skip there. They run here: role scoping, the
-        # connection lease, the model store and registry, the LMA job log and
-        # the GMA's coordinator wiring. The registry and the GMA tests also
-        # need the planner. The job installs only the healthcare demo's
-        # requirements, the set its image installs, so a framework dependency
-        # the demo lacks fails here.
+        # connection lease, the model store and registry, the LMA job log, the
+        # GMA's coordinator wiring, and the GMA's round, enrolment and update
+        # stores with the controller tests run on them. The registry, the GMA
+        # and the controller tests also need the planner. The job installs
+        # only the healthcare demo's requirements, the set its image installs,
+        # so a framework dependency the demo lacks fails here.
         env:
           DAGENTSC_BIN: ${{ env.PLANNER_DIR }}/dagentsc.exe
           DAGENTS_TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
@@ -503,6 +504,7 @@ jobs:
             dagents.tests.test_model_registry \
             dagents.tests.test_job_log \
             dagents.tests.test_gma_release \
+            dagents.tests.test_round_store \
             2>&1 | tee framework-database.log
 
       - name: Fail if the database tests skipped
@@ -554,6 +556,14 @@ jobs:
             --require-ran dagents.tests.test_model_registry.PostgresModelRegistryTests \
             --require-ran dagents.tests.test_job_log.PostgresJobLogTests \
             --require-ran dagents.tests.test_gma_release.GmaPostgresWiringTests \
+            --require-ran dagents.tests.test_round_store.PostgresRoundRepositoryTests \
+            --require-ran dagents.tests.test_round_store.PostgresEnrolmentStoreTests \
+            --require-ran dagents.tests.test_round_store.PostgresUpdateStoreTests \
+            --require-ran dagents.tests.test_round_store.PostgresRoundRecoveryTests \
+            --require-ran dagents.tests.test_round_store.PostgresRoundLifecycleTests \
+            --require-ran dagents.tests.test_round_store.PostgresRoundStateTests \
+            --require-ran dagents.tests.test_round_store.PostgresSiteRefusalTests \
+            --require-ran dagents.tests.test_round_store.PostgresNonFiniteRequestTests \
             framework-database.log || status=1
           exit "${status}"
 

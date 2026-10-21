@@ -27,6 +27,11 @@ from pydantic import ConfigDict, Field, SerializerFunctionWrapHandler, model_ser
 from dagents.common.domain.base import DagentsModel
 from dagents.common.domain.governance import GuardBoundary, Requester, RestrictionPlan
 
+#: A number a round record takes from a request or a site: any float but NaN
+#: and infinity. Round stores keep records as JSON, which has neither, so a
+#: request that holds one is refused with 422 before anything is stored.
+FiniteNumber = Annotated[float, Field(allow_inf_nan=False)]
+
 #: What a round is for.
 #:
 #: The recommended pilot order is analytics, then evaluation, then training, so
@@ -71,9 +76,12 @@ class AggregationMethod(DagentsModel):
             "and requires each completed result to report an `update_norm` of at most 10."
         ),
     )
-    mu: float | None = Field(
+    mu: FiniteNumber | None = Field(
         default=None,
-        description="The FedProx proximal term. Part of the round digest. The planner uses 0.01 when it is missing.",
+        description=(
+            "The FedProx proximal term. Part of the round digest. The planner uses 0.01 when it is missing. "
+            "NaN and infinity are refused."
+        ),
     )
     optimizer: str | None = Field(
         default=None,
@@ -342,19 +350,20 @@ class SiteResult(DagentsModel):
             "`minimum_cohort_per_site`. It sets the site's weight. At least 0."
         ),
     )
-    update_norm: float | None = Field(
+    update_norm: FiniteNumber | None = Field(
         default=None,
         description=(
             "The L2 norm (length) of the site's clipped model update, when it sent one. Under "
-            "`secure_aggregation` it is required and must be at most 10."
+            "`secure_aggregation` it is required and must be at most 10. NaN and infinity are refused."
         ),
     )
     update_digest: str | None = Field(
         default=None,
         description="The digest the update channel returned for the site's update. Stored; no planner rule reads it.",
     )
-    metrics: dict[str, float] = Field(
-        default_factory=dict, description="Named measurements the site reports, such as `accuracy`."
+    metrics: dict[str, FiniteNumber] = Field(
+        default_factory=dict,
+        description="Named measurements the site reports, such as `accuracy`. NaN and infinity are refused.",
     )
     local_evidence_pointer: str | None = Field(
         default=None, description="Where the site keeps its detailed evidence. Stored; the GMA never follows it."
@@ -439,12 +448,19 @@ class GateComparison(DagentsModel):
             "`improves_on_baseline`: at least the baseline's value plus `margin`."
         )
     )
-    value: float | None = Field(
-        default=None, description="The limit for `at_least` and `at_most`. The planner uses 0 when it is missing."
-    )
-    margin: float | None = Field(
+    value: FiniteNumber | None = Field(
         default=None,
-        description="How much `improves_on_baseline` asks the candidate to gain over the baseline. The planner uses 0 when it is missing.",
+        description=(
+            "The limit for `at_least` and `at_most`. The planner uses 0 when it is missing. NaN and infinity "
+            "are refused."
+        ),
+    )
+    margin: FiniteNumber | None = Field(
+        default=None,
+        description=(
+            "How much `improves_on_baseline` asks the candidate to gain over the baseline. The planner uses 0 "
+            "when it is missing. NaN and infinity are refused."
+        ),
     )
 
 

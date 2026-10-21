@@ -2,6 +2,63 @@
 
 ## Unreleased
 
+- New module `infrastructure/postgres_rounds.py` with a Postgres store for
+  each of the three stores that `GmaDeps` takes: `PostgresRoundRepository`
+  (`rounds`), `PostgresEnrolmentStore` (`enrolments`) and
+  `PostgresUpdateStore` (`updates`). Each takes a kept connection, a role and
+  a table, has `kind = "postgres"`, runs each method in one transaction acting
+  as its role, and passes the same tests as its memory twin. The module holds
+  each table's SQL as a constant (`ROUND_TABLE_DDL`, `ENROLMENT_TABLE_DDL`,
+  `UPDATE_TABLE_DDL`); the README's "Round state tables" section has the same
+  SQL, and a test checks that the two match. The GMA creates no table.
+  - No setting builds these stores, and the GMA does not call
+    `FederatedRoundController.recover` when it starts. An application builds
+    the stores and passes them in `GmaDeps`.
+  - `PostgresRoundRepository` has `survives_restart = True`.
+  - The stores read each JSON column as text and decode it row by row. A row
+    whose JSON Python cannot decode (nested too deep, or a whole number of
+    more than 4,300 digits), or whose round record holds a number that is not
+    finite, such as `1e400`, counts as unreadable: `get` and `update` raise
+    `StoreNotSetUpError` naming the round or site, `list` leaves it out with a
+    warning, and `unfinished()` reports `readable=False`, so `recover()` can
+    close the round from its columns.
+  - `PostgresUpdateStore` takes `coordinator_role=` and raises
+    `RoleScopeError` when it equals its own role. The updates table belongs
+    to that separate update role, so nothing acting as the coordinator role
+    can read an update vector. A discard marks the round's gate row, which
+    refuses every later upload for the round, in any process and after a
+    restart.
+  - Every new table uses `json` columns, bound with psycopg's `Json`. A
+    `jsonb` column, or a `Jsonb` parameter, returns `-0.0` as `0.0`, and
+    `1e16` and larger floats as whole numbers.
+- `PostgresModelStore` binds `params` with `Json`, and the README's models
+  table has `params json`. With that column, a version with `-0.0` or `1e16`
+  in its parameters loads in a restarted GMA. Before, a model kind whose
+  digest tells these values apart refused it, because the stored parameters
+  no longer matched the stored digest. A table whose `params` column is still
+  `jsonb` works as before, with that limit, until you run the `ALTER` in the
+  README (also `PARAMS_TO_JSON_SQL`). Rows stored before the change keep the
+  values `jsonb` gave them. The `release_decision` column is unchanged.
+- Both round stores refuse a round record that holds NaN or an infinite
+  number, with the new `InvalidRoundRecord` (`invalid_request`, 422, a
+  `ValueError`), and store nothing. JSON has neither number. Before, the memory
+  store kept such a record: a NaN metric then read back as `null`, and a NaN
+  `mu` made answers that show the round fail with a 500. The shared check is
+  `round_record_json` in `dagents/common/application/federation.py`.
+- `SiteResult.metrics`, `SiteResult.update_norm`, `AggregationMethod.mu`, and
+  `GateComparison.value` and `margin` refuse NaN and infinity. A request that
+  holds one gets 422, and the answer leaves those inputs out, because a JSON
+  answer cannot hold them. Before, such a request got 202 or 500, depending on
+  the field and the round store; an update upload with a NaN value got 500.
+  With the HTTP engine, an LMA answer that holds one marks that site `failed`,
+  and the round goes on.
+- When the round store refuses the results the engine returned, the dispatch
+  ends as an engine failure does: the round is closed with
+  `the engine failed while it dispatched the round` and the engine deletes the
+  round's updates. Before, the round stayed `dispatched` and kept them.
+- New `checked_update(record, site_id, upload, kind)` in
+  `infrastructure/update_store.py`: the checks every update store makes
+  before it stores an upload. `InMemoryUpdateStore` behaves as before.
 - Each planner call has limits: `DAGENTSC_TIMEOUT_SECONDS` (default 10),
   `DAGENTSC_MAX_INPUT_BYTES` and `DAGENTSC_MAX_OUTPUT_BYTES` (default 16 MiB
   each). The runner stops a planner that runs past the timeout or prints too

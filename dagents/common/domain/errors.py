@@ -10,6 +10,7 @@ same way:
 | `StoreUnavailableError` | `store_unavailable` | 503 |
 | `StoreNotSetUpError` | `store_not_set_up` | 503 |
 | `RoundConflict` | `conflict` | 409 |
+| `InvalidRoundRecord` | `invalid_request` | 422 |
 | `NotSelected` | `forbidden` | 403 |
 | `AggregationRefused` | `aggregation_refused` | 409 |
 | `ClassificationConflict` | `conflict` | 409 |
@@ -78,6 +79,18 @@ class RoundConflict(DagentsError, RuntimeError):
 
     code: ClassVar[str] = "conflict"
     http_status: ClassVar[int] = 409
+
+
+class InvalidRoundRecord(DagentsError, ValueError):
+    """A round record holds a value no round store can keep, such as NaN or an infinite number.
+
+    Round stores keep records as JSON, which has no form for either, so every
+    round store refuses such a record before it writes anything. It is a
+    ``ValueError``, so a caller that catches bad input that way keeps working.
+    """
+
+    code: ClassVar[str] = "invalid_request"
+    http_status: ClassVar[int] = 422
 
 
 class NotSelected(DagentsError, PermissionError):

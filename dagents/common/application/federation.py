@@ -37,15 +37,16 @@ cannot finish.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 import logging
 import threading
 import time
 import uuid
-from typing import Callable, Literal, Protocol, TypeVar, runtime_checkable
+from typing import Any, Callable, Literal, Protocol, TypeVar, runtime_checkable
 
 from pydantic import ValidationError
 
-from dagents.common.domain.errors import AggregationRefused, NotSelected, RoundConflict
+from dagents.common.domain.errors import AggregationRefused, InvalidRoundRecord, NotSelected, RoundConflict
 from dagents.common.domain.federation import (
     PHASE_TASKS,
     AggregationReadiness,
@@ -335,6 +336,30 @@ def _require_reason(reason: str, action: str) -> None:
         raise ValueError(f"a {action} needs a reason")
 
 
+def round_record_json(record: RoundRecord) -> dict[str, Any]:
+    """The record as the JSON a round store keeps, or :class:`InvalidRoundRecord` when it would not read back equal.
+
+    Every round store calls it before it writes a record, so the memory and
+    Postgres stores refuse the same records. A record that holds NaN or an
+    infinite number is refused: JSON has no form for either, and pydantic
+    writes both as ``null``, which reads back as another value or not at
+    all. Fields filled from a request or a site already refuse them; this
+    check also covers values an engine or an extension computes.
+    """
+    try:
+        data = record.model_dump(mode="json")
+        json.dumps(data, allow_nan=False)
+        same = RoundRecord.model_validate(data) == record
+    except (ValueError, RecursionError):  # a pydantic ValidationError is a ValueError
+        same = False
+    if not same:
+        raise InvalidRoundRecord(
+            f"round {record.manifest.round_id} holds a value that would not read back as it is, "
+            "such as NaN or an infinite number"
+        )
+    return data
+
+
 class InMemorySiteRegistry:
     """In-memory site enrolments, matching the agent layer's current delivery."""
 
@@ -361,6 +386,10 @@ class InMemoryRoundRepository:
 
     One lock covers every read and write. Agent handlers run in a thread
     pool, so two requests can change the same round at the same time.
+
+    ``create``, ``save`` and ``update`` raise :class:`InvalidRoundRecord`
+    for a record that :func:`round_record_json` refuses, as the Postgres
+    store does, and store nothing.
     """
 
     #: A restart empties the store, so a round id can be used again after it.
@@ -379,10 +408,12 @@ class InMemoryRoundRepository:
         return record
 
     def save(self, record: RoundRecord) -> RoundRecord:
+        round_record_json(record)
         with self._lock:
             return self._store(record)
 
     def create(self, record: RoundRecord) -> RoundRecord:
+        round_record_json(record)
         with self._lock:
             round_id = record.manifest.round_id
             if round_id in self._rounds:
@@ -397,6 +428,7 @@ class InMemoryRoundRepository:
             changed = change(record)
             if changed.manifest.round_id != round_id:
                 raise ValueError(f"a change to round {round_id} returned round {changed.manifest.round_id}")
+            round_record_json(changed)
             return self._store(changed)
 
     def get(self, round_id: str) -> RoundRecord | None:
@@ -624,7 +656,9 @@ class FederatedRoundController:
 
         Raises :class:`RoundConflict` when the round id is already stored: a
         second dispatch would replace the first round's evidence and decision.
-        When the engine raises, the round is discarded with
+        When the engine raises, or the round store refuses the results it
+        returned (:class:`InvalidRoundRecord` for a result that holds NaN or
+        an infinite number), the round is discarded with
         :data:`ENGINE_FAILED_REASON`, and when the readiness check raises, with
         :data:`READINESS_FAILED_REASON`; the error is raised again.
         """
@@ -675,7 +709,13 @@ class FederatedRoundController:
                 }
             )
 
-        record = self._rounds.update(round_id, collected)
+        try:
+            record = self._rounds.update(round_id, collected)
+        except Exception:
+            # Results the store cannot keep, such as one holding NaN, end the
+            # dispatch as an engine failure does, so the engine's updates go too.
+            self._discard_after_failure(round_id)
+            raise
         if not self.engine_collects_results or record.status != "collecting":
             return record
         try:
@@ -1080,5 +1120,6 @@ __all__ = [
     "UNFINISHED_STATUSES",
     "UnfinishedRound",
     "new_round_id",
+    "round_record_json",
     "weighted_metrics",
 ]

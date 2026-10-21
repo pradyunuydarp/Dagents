@@ -61,12 +61,13 @@ class SpyLinearKind(ToyLinearKind):
     def __init__(self) -> None:
         self.seen: list[list[dict[str, Any]]] = []
         self.fail_with: Exception | None = None
+        self.extra_metrics: dict[str, float] = {}
 
     def evaluate(self, params, records, label_field):  # noqa: ANN001, ANN201 - same signature as the parent
         self.seen.append([dict(record) for record in records])
         if self.fail_with is not None:
             raise self.fail_with
-        return super().evaluate(params, records, label_field)
+        return {**super().evaluate(params, records, label_field), **self.extra_metrics}
 
     def train(self, params, records, label_field):  # noqa: ANN001, ANN201 - same signature as the parent
         self.seen.append([dict(record) for record in records])
@@ -577,6 +578,20 @@ class ExecuteTests(unittest.TestCase):
         self.assertEqual("failed", result["participation"])
         self.assertNotIn("secret value", result["refusal_reason"])
         self.assertEqual("failed", lma.jobs()[0]["participation"])
+
+    def test_a_metric_that_is_nan_or_infinite_ends_the_run_as_a_failed_result(self) -> None:
+        """A result keeps finite numbers only, because the GMA stores rounds as JSON; the call still answers 200."""
+        for name, value in (("nan", math.nan), ("infinity", math.inf)):
+            with self.subTest(name):
+                lma = self.harness()
+                lma.spy.extra_metrics = {"auc": value}
+                response = lma.execute(self.accepted(lma, job(manifest(f"toy-study-evaluation-{name}"))))
+                self.assertEqual(200, response.status_code, response.text)
+                result = response.json()
+                self.assertEqual("failed", result["participation"])
+                self.assertEqual({}, result["metrics"])
+                self.assertIn("ValidationError", result["refusal_reason"])
+                self.assertEqual("failed", lma.jobs()[0]["participation"])
 
     def test_the_job_log_lists_results_and_refusals_newest_first(self) -> None:
         lma = self.harness()

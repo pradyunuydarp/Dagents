@@ -106,7 +106,9 @@ Current implementation includes:
   HTTP API and training updates go to a write-only update store
 - site enrolments, rounds and the update store in memory, unless the
   application that builds the GMA passes its own stores in `GmaDeps`
-  (`enrolments`, `rounds`, `updates`)
+  (`enrolments`, `rounds`, `updates`), such as the Postgres stores in
+  `dagents/gma/infrastructure/postgres_rounds.py`; no setting builds those
+  stores yet
 - retries after a store error: a retried aggregate gives the candidate the
   first attempt registered, and a retried release evaluation saves on the
   round the decision the version already holds, through the planner's

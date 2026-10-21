@@ -27,7 +27,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable
 
 from fastapi import Depends, FastAPI
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 
 from dagents.common.application.federation_worker import LocalFederatedWorker, LocalRunOutcome
 from dagents.common.application.governance_service import GovernanceService
@@ -145,6 +145,10 @@ class FixtureLma:
     #: that cannot connect gives: its detail names a host, a password and a
     #: vendor. A ``jobs:run`` call fails at its offer or execute step too.
     store_error_on: str | None = None
+    #: Put these metrics into the result a ``jobs:run`` answer carries, written
+    #: by ``json.dumps``, so a NaN or an infinite value reaches the GMA as the
+    #: text ``NaN`` or ``Infinity``, as a faulty LMA would send it.
+    answer_metrics: dict[str, float] | None = None
     #: The jobs offered, the payloads the runner received, and the update
     #: uploads sent to the GMA (as JSON bodies).
     offers: list[FederatedJob] = field(default_factory=list)
@@ -297,6 +301,10 @@ def build_fixture_lma(
         result = execute_job(job)
         if isinstance(result, JSONResponse):
             return result
+        if lma.answer_metrics is not None:
+            body = JobRun(acceptance=acceptance, result=result).model_dump(mode="json")
+            body["result"]["metrics"].update(lma.answer_metrics)
+            return Response(json.dumps(body), media_type="application/json")
         return JobRun(acceptance=acceptance, result=result)
 
     @app.get("/api/v1/site", dependencies=coordinator)

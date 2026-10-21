@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- `SiteResult.metrics` and `SiteResult.update_norm` refuse NaN and infinity,
+  because the GMA stores rounds as JSON. A local run whose model kind reports
+  such a number now ends as a `failed` result whose reason names the
+  `ValidationError`, and `jobs:execute` and `jobs:run` answer 200. Before, the
+  job log refused the result and the call answered 500.
 - Each planner call has limits: `DAGENTSC_TIMEOUT_SECONDS` (default 10),
   `DAGENTSC_MAX_INPUT_BYTES` and `DAGENTSC_MAX_OUTPUT_BYTES` (default 16 MiB
   each). The runner stops a planner that runs past the timeout or prints too

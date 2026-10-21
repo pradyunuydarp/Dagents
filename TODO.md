@@ -81,9 +81,11 @@ effort and a check for each item, in
   memory, so a coordinator restart loses a round in progress. These parts exist: the planner's
   recovery rule (`dagentsc federation round recover`), its rule for a retried release
   evaluation, the store interfaces an application can pass in `GmaDeps`, aggregate and release
-  retries that give the same candidate and decision, and `FederatedRoundController.recover`.
-  Still to do: Postgres stores for rounds, enrolments and updates, and a GMA that calls
-  `recover` when it starts (review item B2 in `docs/review/third-party-evaluation-todo.md`).
+  retries that give the same candidate and decision, `FederatedRoundController.recover`, and
+  Postgres stores for rounds, enrolments and updates that an application can pass
+  (`dagents/gma/infrastructure/postgres_rounds.py`). Still to do: settings that build those
+  stores, and a GMA that calls `recover` when it starts (review item B2 in
+  `docs/review/third-party-evaluation-todo.md`).
 
 ### Supply chain and evidence
 

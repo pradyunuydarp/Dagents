@@ -27,6 +27,7 @@ What is checked:
 from __future__ import annotations
 
 import json
+import math
 import socket
 import threading
 import time
@@ -282,6 +283,21 @@ class HttpEngineTests(unittest.TestCase):
         self.assertNotIn("example.internal", record.model_dump_json())
         [call] = [call for call in record.dispatch if call.site_id == "site-b"]
         self.assertEqual((call.step, call.status_code, call.outcome), ("run", 500, "failed"))
+
+    def test_an_lma_answer_that_holds_nan_marks_that_site_failed_and_the_round_goes_on(self) -> None:
+        """A result keeps finite numbers only, so the GMA refuses the answer instead of storing what JSON cannot hold."""
+        for name, value in (("nan", math.nan), ("infinity", math.inf)):
+            with self.subTest(name):
+                self.study.lmas["site-b"].answer_metrics = {"accuracy": value}
+                record = self.gma.dispatch_round(self.evaluation_manifest(f"round-eval-{name}"))
+                self.assertEqual("collecting", record.status)
+                by_site = {result.site_id: result for result in record.results}
+                self.assertEqual("failed", by_site["site-b"].participation)
+                self.assertEqual({}, by_site["site-b"].metrics)
+                self.assertEqual(["completed", "completed"], [by_site[site].participation for site in ("site-a", "site-c")])
+                [call] = [call for call in record.dispatch if call.site_id == "site-b"]
+                self.assertEqual(("run", "failed"), (call.step, call.outcome))
+                self.assertEqual(record, self.gma.get_round(f"round-eval-{name}"))
 
     def test_an_lma_error_detail_never_reaches_the_round(self) -> None:
         # A site store that cannot connect answers 503 with a detail that names a
@@ -616,6 +632,24 @@ class HttpEngineTests(unittest.TestCase):
             headers={"Authorization": f"Bearer {SITE_TOKENS['site-b']}"},
         )
         self.assertEqual(accepted.status_code, 200, accepted.text)
+
+    def test_an_upload_that_holds_nan_or_infinity_answers_422_and_stores_nothing(self) -> None:
+        """Python reads NaN and Infinity in the body; the 422 answer leaves them out, since JSON cannot hold them."""
+        for lma in self.study.lmas.values():
+            lma.refuse_with = "uploads are tested by hand"
+        record = self.gma.dispatch_round(self.training_manifest())
+        client = TestClient(self.study.gma_app)
+        path = f"/api/v1/federation/rounds/{record.manifest.round_id}/updates/site-b"
+        headers = {"Authorization": f"Bearer {SITE_TOKENS['site-b']}", "content-type": "application/json"}
+        for name, value in (("NaN", math.nan), ("infinity", math.inf)):
+            with self.subTest(name):
+                body = {"job_digest": record.plan.round_digest, "update": {"bias": value, "w.x1": 0.2, "w.x2": 0.3}}
+                answer = client.put(path, content=json.dumps(body), headers=headers)
+                self.assertEqual(422, answer.status_code, answer.text)
+                self.assertTrue(any("finite number" in error["msg"] for error in answer.json()["detail"]), answer.text)
+                self.assertNotIn("NaN", answer.text)
+                self.assertNotIn("Infinity", answer.text)
+        self.assertIsNone(self.study.state.updates.get(record.manifest.round_id, "site-b"))
 
     def test_discard_deletes_the_updates_and_closes_the_round(self) -> None:
         record = self.gma.dispatch_round(self.training_manifest())

@@ -7451,7 +7451,7 @@
         }
        ],
        "title": "Mu",
-       "description": "The FedProx proximal term. Part of the round digest. The planner uses 0.01 when it is missing."
+       "description": "The FedProx proximal term. Part of the round digest. The planner uses 0.01 when it is missing. NaN and infinity are refused."
       },
       "optimizer": {
        "anyOf": [
@@ -8722,7 +8722,7 @@
         }
        ],
        "title": "Value",
-       "description": "The limit for `at_least` and `at_most`. The planner uses 0 when it is missing."
+       "description": "The limit for `at_least` and `at_most`. The planner uses 0 when it is missing. NaN and infinity are refused."
       },
       "margin": {
        "anyOf": [
@@ -8734,7 +8734,7 @@
         }
        ],
        "title": "Margin",
-       "description": "How much `improves_on_baseline` asks the candidate to gain over the baseline. The planner uses 0 when it is missing."
+       "description": "How much `improves_on_baseline` asks the candidate to gain over the baseline. The planner uses 0 when it is missing. NaN and infinity are refused."
       }
      },
      "type": "object",
@@ -11430,7 +11430,7 @@
         }
        ],
        "title": "Update Norm",
-       "description": "The L2 norm (length) of the site's clipped model update, when it sent one. Under `secure_aggregation` it is required and must be at most 10."
+       "description": "The L2 norm (length) of the site's clipped model update, when it sent one. Under `secure_aggregation` it is required and must be at most 10. NaN and infinity are refused."
       },
       "update_digest": {
        "anyOf": [
@@ -11450,7 +11450,7 @@
        },
        "type": "object",
        "title": "Metrics",
-       "description": "Named measurements the site reports, such as `accuracy`."
+       "description": "Named measurements the site reports, such as `accuracy`. NaN and infinity are refused."
       },
       "local_evidence_pointer": {
        "anyOf": [
@@ -19206,7 +19206,7 @@
         }
        ],
        "title": "Mu",
-       "description": "The FedProx proximal term. Part of the round digest. The planner uses 0.01 when it is missing."
+       "description": "The FedProx proximal term. Part of the round digest. The planner uses 0.01 when it is missing. NaN and infinity are refused."
       },
       "optimizer": {
        "anyOf": [
@@ -22344,7 +22344,7 @@
         }
        ],
        "title": "Update Norm",
-       "description": "The L2 norm (length) of the site's clipped model update, when it sent one. Under `secure_aggregation` it is required and must be at most 10."
+       "description": "The L2 norm (length) of the site's clipped model update, when it sent one. Under `secure_aggregation` it is required and must be at most 10. NaN and infinity are refused."
       },
       "update_digest": {
        "anyOf": [
@@ -22364,7 +22364,7 @@
        },
        "type": "object",
        "title": "Metrics",
-       "description": "Named measurements the site reports, such as `accuracy`."
+       "description": "Named measurements the site reports, such as `accuracy`. NaN and infinity are refused."
       },
       "local_evidence_pointer": {
        "anyOf": [
@@ -31143,7 +31143,7 @@
        }
       ],
       "default": null,
-      "description": "The FedProx proximal term. Part of the round digest. The planner uses 0.01 when it is missing.",
+      "description": "The FedProx proximal term. Part of the round digest. The planner uses 0.01 when it is missing. NaN and infinity are refused.",
       "title": "Mu"
      },
      "optimizer": {
@@ -34656,7 +34656,7 @@
         }
        ],
        "default": null,
-       "description": "The FedProx proximal term. Part of the round digest. The planner uses 0.01 when it is missing.",
+       "description": "The FedProx proximal term. Part of the round digest. The planner uses 0.01 when it is missing. NaN and infinity are refused.",
        "title": "Mu"
       },
       "optimizer": {
@@ -36520,7 +36520,7 @@
         }
        ],
        "default": null,
-       "description": "The L2 norm (length) of the site's clipped model update, when it sent one. Under `secure_aggregation` it is required and must be at most 10.",
+       "description": "The L2 norm (length) of the site's clipped model update, when it sent one. Under `secure_aggregation` it is required and must be at most 10. NaN and infinity are refused.",
        "title": "Update Norm"
       },
       "update_digest": {
@@ -36540,7 +36540,7 @@
        "additionalProperties": {
         "type": "number"
        },
-       "description": "Named measurements the site reports, such as `accuracy`.",
+       "description": "Named measurements the site reports, such as `accuracy`. NaN and infinity are refused.",
        "title": "Metrics",
        "type": "object"
       },
@@ -42329,7 +42329,7 @@
         }
        ],
        "default": null,
-       "description": "The limit for `at_least` and `at_most`. The planner uses 0 when it is missing.",
+       "description": "The limit for `at_least` and `at_most`. The planner uses 0 when it is missing. NaN and infinity are refused.",
        "title": "Value"
       },
       "margin": {
@@ -42342,7 +42342,7 @@
         }
        ],
        "default": null,
-       "description": "How much `improves_on_baseline` asks the candidate to gain over the baseline. The planner uses 0 when it is missing.",
+       "description": "How much `improves_on_baseline` asks the candidate to gain over the baseline. The planner uses 0 when it is missing. NaN and infinity are refused.",
        "title": "Margin"
       }
      },
@@ -42547,7 +42547,7 @@
         }
        ],
        "default": null,
-       "description": "The limit for `at_least` and `at_most`. The planner uses 0 when it is missing.",
+       "description": "The limit for `at_least` and `at_most`. The planner uses 0 when it is missing. NaN and infinity are refused.",
        "title": "Value"
       },
       "margin": {
@@ -42560,7 +42560,7 @@
         }
        ],
        "default": null,
-       "description": "How much `improves_on_baseline` asks the candidate to gain over the baseline. The planner uses 0 when it is missing.",
+       "description": "How much `improves_on_baseline` asks the candidate to gain over the baseline. The planner uses 0 when it is missing. NaN and infinity are refused.",
        "title": "Margin"
       }
      },
@@ -43403,7 +43403,7 @@
         }
        ],
        "default": null,
-       "description": "The FedProx proximal term. Part of the round digest. The planner uses 0.01 when it is missing.",
+       "description": "The FedProx proximal term. Part of the round digest. The planner uses 0.01 when it is missing. NaN and infinity are refused.",
        "title": "Mu"
       },
       "optimizer": {
@@ -43564,7 +43564,7 @@
         }
        ],
        "default": null,
-       "description": "The FedProx proximal term. Part of the round digest. The planner uses 0.01 when it is missing.",
+       "description": "The FedProx proximal term. Part of the round digest. The planner uses 0.01 when it is missing. NaN and infinity are refused.",
        "title": "Mu"
       },
       "optimizer": {
@@ -43772,7 +43772,7 @@
         }
        ],
        "default": null,
-       "description": "The FedProx proximal term. Part of the round digest. The planner uses 0.01 when it is missing.",
+       "description": "The FedProx proximal term. Part of the round digest. The planner uses 0.01 when it is missing. NaN and infinity are refused.",
        "title": "Mu"
       },
       "optimizer": {
@@ -44492,7 +44492,7 @@
         }
        ],
        "default": null,
-       "description": "The L2 norm (length) of the site's clipped model update, when it sent one. Under `secure_aggregation` it is required and must be at most 10.",
+       "description": "The L2 norm (length) of the site's clipped model update, when it sent one. Under `secure_aggregation` it is required and must be at most 10. NaN and infinity are refused.",
        "title": "Update Norm"
       },
       "update_digest": {
@@ -44512,7 +44512,7 @@
        "additionalProperties": {
         "type": "number"
        },
-       "description": "Named measurements the site reports, such as `accuracy`.",
+       "description": "Named measurements the site reports, such as `accuracy`. NaN and infinity are refused.",
        "title": "Metrics",
        "type": "object"
       },
@@ -45274,7 +45274,7 @@
        }
       ],
       "default": null,
-      "description": "The L2 norm (length) of the site's clipped model update, when it sent one. Under `secure_aggregation` it is required and must be at most 10.",
+      "description": "The L2 norm (length) of the site's clipped model update, when it sent one. Under `secure_aggregation` it is required and must be at most 10. NaN and infinity are refused.",
       "title": "Update Norm"
      },
      "update_digest": {
@@ -45294,7 +45294,7 @@
       "additionalProperties": {
        "type": "number"
       },
-      "description": "Named measurements the site reports, such as `accuracy`.",
+      "description": "Named measurements the site reports, such as `accuracy`. NaN and infinity are refused.",
       "title": "Metrics",
       "type": "object"
      },

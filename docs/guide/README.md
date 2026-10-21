@@ -131,7 +131,8 @@ services, the demos and the tests. The worked example runs either way.
   the GMA's model registry can be kept in Postgres
   ([Step 8, section 9](08-deploy.md#9-state-that-survives-a-restart)). The Python building blocks accept your
   own stores and audit sinks (Step 3 and Step 4), and so does a GMA your
-  application builds with `create_app` (Step 8, section 9).
+  application builds with `create_app`, which can take the framework's
+  Postgres stores for rounds, enrolments and updates (Step 8, section 9).
 - The in-process federation engine is a simulator for tests and examples. The
   GMA's HTTP engine sends each round's jobs to the LMAs over their APIs; a
   deployment can connect another federated learning runtime through the

@@ -7,11 +7,12 @@ and pass the same test suite (``dagents/tests/test_model_registry.py``).
 connection, acting as one role
 (:meth:`dagents.common.infrastructure.postgres_lease.KeptConnection.acting_as`).
 The table must have these columns, which are the generic columns of the
-healthcare demo's ``coordinator.models`` table (migration ``0002``)::
+healthcare demo's ``coordinator.models`` table (migration ``0002``), except
+that ``params`` is ``json``::
 
     version          text primary key check (length(version) between 1 and 200)
     kind             text not null check (length(kind) between 1 and 64)
-    params           jsonb not null
+    params           json not null
     digest           text not null check (length(digest) between 1 and 200)
     parent_version   text references <the same table> (version)
     created_at       timestamptz not null default now()
@@ -34,6 +35,18 @@ A stored release decision holds ``action``, ``guard_permitted``,
 ``gate_results``, ``round_id``, and ``baseline_version`` and
 ``metrics_source`` when they are known; ``decided_at`` is its own column.
 Decisions written before ``metrics_source`` existed read with it empty.
+
+**Parameters are stored as JSON text.** The store binds them with psycopg's
+``Json``, and a ``json`` column keeps the text it was sent, so a version's
+parameters come back as they were registered and its digest matches when a
+restarted GMA loads it. A ``jsonb`` column returns ``-0.0`` as ``0.0``, and
+``1e16`` and larger floats as whole numbers. A ``Jsonb`` parameter does the
+same even into a ``json`` column. A model kind whose digest tells these apart
+then refuses the version. A kind that writes ``-0.0`` into the text it hashes
+refuses it for ``-0.0``, and a kind that hashes the JSON text as stored
+refuses it for both. A table whose ``params`` column is still ``jsonb`` works
+as it did before, with that limit, until an operator runs
+:data:`PARAMS_TO_JSON_SQL` on it.
 """
 
 from __future__ import annotations
@@ -64,14 +77,20 @@ from dagents.gma.application.model_registry import (
 try:  # psycopg is optional for callers that keep the registry in memory
     from psycopg import errors, sql
     from psycopg.rows import dict_row
-    from psycopg.types.json import Jsonb
+    from psycopg.types.json import Json, Jsonb
 except ModuleNotFoundError:  # pragma: no cover - exercised only without the driver
     errors = None  # type: ignore[assignment]
     sql = None  # type: ignore[assignment]
     dict_row = None  # type: ignore[assignment]
+    Json = None  # type: ignore[assignment]
     Jsonb = None  # type: ignore[assignment]
 
 logger = logging.getLogger(__name__)
+
+#: Changes a ``params`` column from ``jsonb`` to ``json``. ``{table}`` is the
+#: models table, such as ``coord.models``. Rows stored before the change keep
+#: the values ``jsonb`` gave them; rows stored after it keep what was sent.
+PARAMS_TO_JSON_SQL = "alter table {table} alter column params type json using params::json;"
 
 COLUMNS = (
     "version",
@@ -326,7 +345,8 @@ class PostgresModelStore:
             "INSERT INTO {table} (version, kind, params, digest, parent_version, status) "
             "VALUES (%s, %s, %s, %s, %s, %s) ON CONFLICT (version) DO NOTHING RETURNING version"
         ).format(table=self._table)
-        values = (new.version, new.kind, Jsonb(json_copy(new.params)), new.digest, new.parent_version, new.status)
+        # Json, never Jsonb: a Jsonb parameter changes -0.0 and 1e16 even in a json column.
+        values = (new.version, new.kind, Json(json_copy(new.params)), new.digest, new.parent_version, new.status)
         try:
             row = cursor.execute(query, values).fetchone()
         except errors.ForeignKeyViolation as error:
@@ -343,6 +363,7 @@ class PostgresModelStore:
             "UPDATE {table} SET release_decision = %s, decided_at = now() WHERE version = %s RETURNING version"
         ).format(table=self._table)
         try:
+            # The decision column stays jsonb: the healthcare demo's migration checks it with jsonb functions.
             row = cursor.execute(query, (Jsonb(_stored_decision(decision)), version)).fetchone()
         except errors.CheckViolation as error:
             raise InvalidModelVersion(f"the release decision for {version} does not fit the table's checks") from error
@@ -350,4 +371,4 @@ class PostgresModelStore:
             raise UnknownModelVersion(f"model version {version} is not registered")
 
 
-__all__ = ["COLUMNS", "InMemoryModelStore", "PostgresModelStore"]
+__all__ = ["COLUMNS", "PARAMS_TO_JSON_SQL", "InMemoryModelStore", "PostgresModelStore"]

@@ -176,7 +176,9 @@ jobs:
 
       - name: Test the framework's database code on the scratch PostgreSQL 16
         # The framework's PostgreSQL code. The model store and job log tests
-        # build tables shaped like the demo's coordinator tables. Each test
+        # build tables shaped like the demo's coordinator tables; the round,
+        # enrolment and update store tests build theirs from the package's DDL
+        # constants and run the controller tests on them. Each test
         # creates its own scratch database in the service container and drops
         # it afterwards. The job installs only the demo's requirements, as the
         # deployed image does.
@@ -192,6 +194,7 @@ jobs:
             dagents.tests.test_model_registry \
             dagents.tests.test_job_log \
             dagents.tests.test_gma_release \
+            dagents.tests.test_round_store \
             2>&1 | tee framework-database.log
 
       - name: Fail if the database tests skipped
@@ -239,6 +242,14 @@ jobs:
             --require-ran dagents.tests.test_model_registry.PostgresModelRegistryTests \
             --require-ran dagents.tests.test_job_log.PostgresJobLogTests \
             --require-ran dagents.tests.test_gma_release.GmaPostgresWiringTests \
+            --require-ran dagents.tests.test_round_store.PostgresRoundRepositoryTests \
+            --require-ran dagents.tests.test_round_store.PostgresEnrolmentStoreTests \
+            --require-ran dagents.tests.test_round_store.PostgresUpdateStoreTests \
+            --require-ran dagents.tests.test_round_store.PostgresRoundRecoveryTests \
+            --require-ran dagents.tests.test_round_store.PostgresRoundLifecycleTests \
+            --require-ran dagents.tests.test_round_store.PostgresRoundStateTests \
+            --require-ran dagents.tests.test_round_store.PostgresSiteRefusalTests \
+            --require-ran dagents.tests.test_round_store.PostgresNonFiniteRequestTests \
             framework-database.log || status=1
           exit "${status}"
 

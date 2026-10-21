@@ -7,6 +7,7 @@ The deterministic decisions come from the real OCaml planner.
 
 from __future__ import annotations
 
+import math
 import os
 import stat
 import tempfile
@@ -17,6 +18,7 @@ import unittest
 from unittest.mock import patch
 
 from dagents.common.application.federation import (
+    ENGINE_FAILED_REASON,
     FederatedRoundController,
     InMemoryRoundRepository,
     InProcessFederationEngine,
@@ -27,7 +29,7 @@ from dagents.common.application.federation_worker import (
     LocalRunOutcome,
 )
 from dagents.common.application.governance_service import GovernanceService
-from dagents.common.domain.errors import AggregationRefused, NotSelected, RoundConflict
+from dagents.common.domain.errors import AggregationRefused, InvalidRoundRecord, NotSelected, RoundConflict
 from dagents.common.domain.federation import (
     PHASE_TASKS,
     AggregationMethod,
@@ -135,13 +137,27 @@ def build_worker(site_id: str, records: int = 5, auc: float = 0.9, norm: float =
     return LocalFederatedWorker(**payload)
 
 
+class ControllerFactory:
+    """How the controller tests below build each controller.
+
+    Each call gives a controller with an enrolment store and a round store of
+    its own. Here they are the memory stores; ``test_round_store.py``
+    subclasses the tests with a factory that gives Postgres stores, so the same
+    assertions run on both.
+    """
+
+    def new_controller(self, engine: typing.Any, *, slow_reads: bool = False) -> FederatedRoundController:
+        """A controller on ``engine``. ``slow_reads`` gives a round store whose reads take 50 ms."""
+        return FederatedRoundController(engine=engine, rounds=SlowReadRepository() if slow_reads else None)
+
+
 @unittest.skipUnless(dagentsc_available(), "dagentsc binary is not available")
-class RoundLifecycleTests(unittest.TestCase):
+class RoundLifecycleTests(ControllerFactory, unittest.TestCase):
     """The full path from an enrolled consortium to a release decision."""
 
     def setUp(self) -> None:
         self.engine = InProcessFederationEngine()
-        self.controller = FederatedRoundController(engine=self.engine)
+        self.controller = self.new_controller(self.engine)
         for site_id in ("hospital-a", "hospital-b", "hospital-c"):
             self.controller.register_site(build_registration(site_id))
         self.manifest = build_manifest()
@@ -162,7 +178,7 @@ class RoundLifecycleTests(unittest.TestCase):
         contribution exactly, which is what a participation threshold exists to
         prevent.
         """
-        controller = FederatedRoundController(engine=InProcessFederationEngine())
+        controller = self.new_controller(InProcessFederationEngine())
         controller.register_site(build_registration("hospital-a"))
         record = controller.dispatch_round(build_manifest(round_id="short"))
         self.assertEqual(record.status, "closed")
@@ -276,7 +292,7 @@ class RoundLifecycleTests(unittest.TestCase):
         between a short round and a silently broken one.
         """
         engine = InProcessFederationEngine()
-        controller = FederatedRoundController(engine=engine)
+        controller = self.new_controller(engine)
         for site_id in ("hospital-a", "hospital-b", "hospital-c"):
             controller.register_site(build_registration(site_id))
         manifest = build_manifest(round_id="missing-worker")
@@ -307,12 +323,12 @@ class RoundLifecycleTests(unittest.TestCase):
 
 
 @unittest.skipUnless(dagentsc_available(), "dagentsc binary is not available")
-class SiteRefusalTests(unittest.TestCase):
+class SiteRefusalTests(ControllerFactory, unittest.TestCase):
     """A site's right to refuse, exercised through the worker."""
 
     def _controller_with(self, workers) -> FederatedRoundController:
         engine = InProcessFederationEngine()
-        controller = FederatedRoundController(engine=engine)
+        controller = self.new_controller(engine)
         for site_id in ("hospital-a", "hospital-b", "hospital-c"):
             controller.register_site(build_registration(site_id))
         for worker in workers:
@@ -567,12 +583,12 @@ def completed_result(site_id: str, digest: str, round_id: str = "round-0042", ex
 
 
 @unittest.skipUnless(dagentsc_available(), "dagentsc binary is not available")
-class RoundStateTests(unittest.TestCase):
+class RoundStateTests(ControllerFactory, unittest.TestCase):
     """What the controller stores while a round moves from dispatch to a candidate."""
 
     def setUp(self) -> None:
         self.engine = ScriptedEngine()
-        self.controller = FederatedRoundController(engine=self.engine)
+        self.controller = self.new_controller(self.engine)
         for site_id in SITES:
             self.controller.register_site(build_registration(site_id))
         self.manifest = build_manifest()
@@ -613,7 +629,7 @@ class RoundStateTests(unittest.TestCase):
 
     def test_acceptances_and_results_are_stored_sorted_by_site(self) -> None:
         engine = ScriptedEngine()
-        controller = FederatedRoundController(engine=engine)
+        controller = self.new_controller(engine)
         for site_id in reversed(SITES):
             controller.register_site(build_registration(site_id))
             engine.register_worker(build_worker(site_id, expected_digest=self.digest))
@@ -667,7 +683,7 @@ class RoundStateTests(unittest.TestCase):
 
     def test_concurrent_results_keep_every_result(self) -> None:
         """Results posted at the same time must not overwrite each other."""
-        controller = FederatedRoundController(engine=InProcessFederationEngine(), rounds=SlowReadRepository())
+        controller = self.new_controller(InProcessFederationEngine(), slow_reads=True)
         for site_id in SITES:
             controller.register_site(build_registration(site_id))
         record = controller.dispatch_round(self.manifest)
@@ -767,7 +783,7 @@ class RoundStateTests(unittest.TestCase):
         self.assertEqual([], self.engine.discarded)
 
     def test_an_engine_without_discard_can_still_discard_a_round(self) -> None:
-        controller = FederatedRoundController(engine=InProcessFederationEngine())
+        controller = self.new_controller(InProcessFederationEngine())
         for site_id in SITES:
             controller.register_site(build_registration(site_id))
         controller.dispatch_round(self.manifest)
@@ -784,6 +800,45 @@ class RoundStateTests(unittest.TestCase):
         self.assertEqual([self.manifest.round_id], self.engine.discarded)
         with self.assertRaises(RoundConflict):
             self.controller.dispatch_round(self.manifest)
+
+    def test_a_result_no_store_can_keep_closes_the_round_and_the_engine_deletes_its_updates(self) -> None:
+        """A result that holds NaN or infinity, built without validation, ends the dispatch like an engine failure.
+
+        Neither round store can keep it, so both refuse the write with
+        ``InvalidRoundRecord``. The round is closed and the engine's updates
+        are deleted, with or without an engine that collects the results.
+        """
+        cases = (
+            ("a NaN metric", False, {"metrics": {"auc": math.nan}}),
+            ("an infinite norm from an engine that collects the results", True, {"update_norm": math.inf}),
+        )
+        for name, collects, bad in cases:
+            with self.subTest(name):
+                engine = ScriptedEngine()
+                engine.collects_results = collects
+                controller = self.new_controller(engine)
+                for site_id in SITES:
+                    controller.register_site(build_registration(site_id))
+                    engine.register_worker(build_worker(site_id, expected_digest=self.digest))
+                engine.extra_results = [completed_result("hospital-a", self.digest).model_copy(update=bad)]
+                with self.assertRaises(InvalidRoundRecord) as raised:
+                    controller.dispatch_round(self.manifest)
+                self.assertIn(self.manifest.round_id, str(raised.exception))
+                stored = controller.get_round(self.manifest.round_id)
+                self.assertEqual(("closed", ENGINE_FAILED_REASON), (stored.status, stored.abandoned_reason))
+                self.assertEqual([], stored.results)
+                self.assertEqual([self.manifest.round_id], engine.discarded)
+                self.assertEqual([], controller._rounds.unfinished())  # noqa: SLF001 - the store under test
+
+    def test_a_posted_result_no_store_can_keep_is_refused_and_the_round_is_unchanged(self) -> None:
+        self.controller.dispatch_round(self.manifest)
+        before = self.controller.get_round(self.manifest.round_id)
+        for name, bad in (("NaN metric", {"metrics": {"auc": math.nan}}), ("NaN norm", {"update_norm": math.nan})):
+            with self.subTest(name):
+                result = completed_result("hospital-a", self.digest).model_copy(update=bad)
+                with self.assertRaises(InvalidRoundRecord):
+                    self.controller.submit_result(result)
+        self.assertEqual(before, self.controller.get_round(self.manifest.round_id))
 
     def test_an_engine_that_collects_results_refuses_posted_results(self) -> None:
         """A posted result must not replace what a site returned through the engine."""
