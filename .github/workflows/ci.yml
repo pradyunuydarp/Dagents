@@ -318,17 +318,19 @@ jobs:
         run: chmod +x "${PLANNER_DIR}/dagentsc.exe"
 
       # The replay starts spring-control-service from its jar to make its API
-      # examples again (the `runner` in its examples request file).
+      # examples again (the `runner` in its examples request file), and
+      # tests/test_spring_services_e2e.py starts spring-core-service from its
+      # jar with the planner.
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "21"
           cache: maven
 
-      - name: Build the spring-control-service jar
+      - name: Build the Spring service jars
         run: >-
           mvn --batch-mode --no-transfer-progress -f services/spring-services/pom.xml
-          -pl spring-control-service -am package -DskipTests
+          -pl spring-control-service,spring-core-service -am package -DskipTests
 
       # tests/test_social_previews.py runs each frontend's link preview plugin
       # (social-meta.mjs) with Node. The plugin imports nothing, so no
@@ -370,13 +372,15 @@ jobs:
           set -o pipefail
           python -m unittest discover -s tests -t . -v 2>&1 | tee contracts-suite.log
 
-      - name: Fail if the API example replay or the link preview plugin tests skipped
-        # The plugin tests skip without Node, so the class must have run.
+      - name: Fail if the API example replay, the Spring process or the link preview plugin tests skipped
+        # The plugin tests skip without Node, and the Spring process tests
+        # without Java or the jar, so those classes must have run.
         run: |
           python scripts/ci_no_skipped_tests.py \
             --forbid planner \
             --require-ran tests.test_api_examples.ApiExampleReplayTests \
             --require-ran tests.test_social_previews.SocialMetaPluginTests \
+            --require-ran tests.test_spring_services_e2e.SpringCoreProcessTests \
             contracts-suite.log
 
   # ---------------------------------------------------------------------------
@@ -385,8 +389,19 @@ jobs:
   spring:
     name: Spring services
     runs-on: ubuntu-latest
+    # ProcessManifestCompilerGatewayTest runs the planner and compares the
+    # gateway's answer with the planner's.
+    needs: planners
     steps:
       - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: dagentsc
+          path: ${{ env.PLANNER_DIR }}
+
+      - name: Make the planner executable
+        run: chmod +x "${PLANNER_DIR}/dagentsc.exe"
 
       - uses: actions/setup-java@v4
         with:
@@ -395,7 +410,30 @@ jobs:
           cache: maven
 
       - name: Build and test
+        # The gateway test fails when DAGENTSC_BIN names no planner it can run.
+        # Without DAGENTSC_BIN it looks for the dune build, which this job does
+        # not have, and skips.
+        env:
+          DAGENTSC_BIN: ${{ env.PLANNER_DIR }}/dagentsc.exe
         run: mvn --batch-mode --no-transfer-progress -f services/spring-services/pom.xml verify
+
+      - name: Fail if the planner test skipped
+        # Maven passes the build when a test skips, so read the test's report.
+        run: |
+          report=services/spring-services/spring-core-service/target/surefire-reports/TEST-io.dagents.spring.core.compiler.ProcessManifestCompilerGatewayTest.xml
+          if [ ! -f "$report" ]; then
+            echo "::error::$report is missing, so ProcessManifestCompilerGatewayTest did not run."
+            exit 1
+          fi
+          if ! grep -q '<testcase name="consumesJsonFromOcamlCompilerProcess' "$report"; then
+            echo "::error::$report has no consumesJsonFromOcamlCompilerProcess test."
+            exit 1
+          fi
+          if ! grep -Eq '<testsuite [^>]*skipped="0"' "$report"; then
+            echo "::error::A test in ProcessManifestCompilerGatewayTest skipped. The job sets DAGENTSC_BIN, so check the planner steps."
+            exit 1
+          fi
+          echo "ProcessManifestCompilerGatewayTest ran with the planner and nothing skipped."
 
   # ---------------------------------------------------------------------------
   # The consumer apps. Both prove the framework is consumable; the healthcare

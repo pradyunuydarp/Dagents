@@ -49,10 +49,9 @@ public class CoreController {
   /**
    * Render Kubernetes YAML for a list of workloads and store the plan.
    *
-   * <p>The gateway runs {@code dagentsc manifest compile} when
-   * {@code DAGENTS_OCAML_MANIFEST_CLI} names the planner, and falls back to the Java renderer
-   * when that fails. At this commit it always falls back, so the YAML comes from the Java
-   * renderer.
+   * <p>When {@code DAGENTS_OCAML_MANIFEST_CLI} names the planner, the gateway runs
+   * {@code dagentsc manifest compile} and returns the planner's plan. Without that setting, or
+   * when the planner fails, the Java renderer answers instead and the service logs why.
    *
    * @param request the workloads
    */

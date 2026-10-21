@@ -15,14 +15,19 @@ The request and response records both services use are in
 describes its fields. Both services keep their state in memory, so a restart
 clears it, and neither checks who is calling. `tests/test_service_inventory.py`
 checks that every path they serve exists on the Python service they mirror.
-spring-core-service runs the planner, `dagentsc`, but in this version does not
-use its answer ([Core facade](#core-facade)); spring-control-service calls no
-other service.
+spring-core-service renders workload plans with the planner, `dagentsc`, when
+`DAGENTS_OCAML_MANIFEST_CLI` names it, and with a Java renderer otherwise
+([Core facade](#core-facade)). spring-control-service calls no other service.
 
-**spring-core-service builds and passes its tests, but it does not start.** Spring finds two `InMemoryWorkloadPlanRepository` beans: the class is
-a `@Repository`, and `CoreConfiguration` also declares one with `@Bean`. So the
-[Core facade](#core-facade) endpoints below are described from the code, and
-have no captured examples.
+Each service has a test that starts its full Spring application context, so a
+configuration that cannot start fails `mvn verify`.
+`tests/test_spring_services_e2e.py` starts spring-core-service from its jar,
+once with the planner and once without, and compares its answers over HTTP with
+what `dagentsc manifest compile` prints for the same request. That test runs
+the jar on JDK 21 and does not build or start the container image, so it does
+not check the image's `/usr/local/bin/dagentsc` or its Java 25 runtime. The
+timeout and the fallback for output that is not a plan are tested only in
+`ProcessManifestCompilerGatewayTest`, with stand-in planner scripts.
 
 ## How they differ from the Python services
 
@@ -51,7 +56,7 @@ flowchart LR
     CoreController --> Facade["CoreFacadeService"]
     Facade --> Gateway["ProcessManifestCompilerGateway"]
     Gateway -->|"manifest compile"| Planner["dagentsc"]
-    Gateway -->|"renders every plan"| JavaRenderer["JavaManifestCompiler"]
+    Gateway -->|"no planner setting, or the planner failed"| JavaRenderer["JavaManifestCompiler"]
     Facade --> Plans["InMemoryWorkloadPlanRepository"]
 ```
 
@@ -398,35 +403,47 @@ endpoints:
 The core service's catalog, topology and workload compiler, for the JVM. See
 the [workload compiler](framework-services.md#workload-compiler) for what the
 Python service does on the same paths. It has no Docker Compose route:
-`POST /api/v1/manifests/compose` is in the Python core service only. This service does not start at this
-commit (see the top of the page), so these sections describe the code, and no
-example could be captured.
+`POST /api/v1/manifests/compose` is in the Python core service only. These
+sections have no captured examples: the capture script cannot yet give a
+service it starts the planner's path.
 
 `CoreFacadeService` builds the catalog from `CoreServiceProperties` and stores
 compiled plans in `InMemoryWorkloadPlanRepository`, keyed by `planId`.
-`ProcessManifestCompilerGateway` is meant to render the YAML with the planner:
+`ProcessManifestCompilerGateway` renders the YAML:
 
 1. When `DAGENTS_OCAML_MANIFEST_CLI` is empty, it uses the Java renderer,
-   `JavaManifestCompiler`.
+   `JavaManifestCompiler`. The service logs this once when it starts.
 2. Otherwise it runs `<DAGENTS_OCAML_MANIFEST_CLI> manifest compile --input - --output json`
-   with the request as camelCase JSON, and reads the planner's answer.
-3. When that fails, it uses the Java renderer instead. The response does not
-   say which renderer answered.
+   with the request as camelCase JSON, and returns the planner's plan.
+3. When the planner cannot start, runs longer than 10 seconds, exits with a
+   status other than 0, or prints something that is not a plan, the Java
+   renderer answers instead. A plan is a JSON object with a text `planId`, a
+   text `combinedYaml` and a list of `manifests`, each with a text
+   `componentName` and `deploymentYaml`. The service logs a warning with the
+   reason, such as the planner's error message. The response does not say
+   which renderer answered.
 
-**In this version step 2 always ends in step 3.** The gateway writes the
-request with Jackson's `ObjectMapper.writeValue`, which closes the stream, and
-then calls `flush()` on the closed stream. That throws, the exception is
-caught, and the Java renderer answers, after the planner has already run and
-printed a valid plan. So every plan comes from `JavaManifestCompiler`.
-`ProcessManifestCompilerGatewayTest` does not catch it, because it checks only
-what both renderers produce.
+The 10 seconds match the default of `DAGENTSC_TIMEOUT_SECONDS` in the Python
+services. spring-core-service has no setting to change them. A planner that
+runs too long is stopped, together with the processes it started that still
+run under it. A process that the planner leaves running when it exits is not
+stopped. If that process keeps the planner's output open, the request waits the
+full 10 seconds before the Java renderer answers. `dagentsc` starts no other
+process, so this applies only to a wrapper script around it.
+
+The request is written with every field of the Java records, and a text or
+list field the client left out is written as `null`. The planner needs a list
+in `args` and a text in `image`, so a component without either makes it fail,
+for example with `Expected list field: args`, and that request gets the Java
+renderer's plan. Send `"args": []` for a component without arguments.
 
 What the Java renderer does differently from the planner:
 
 | | Java renderer | Planner, as in the Python core service |
 |---|---|---|
-| No `planId` | `spring-workload-plan-<milliseconds since 1970>` | `dagents-plan` |
-| No `namespace` | the YAML says `namespace: null` | `dagents` |
+| No `planId`, or `null` | `spring-workload-plan-<milliseconds since 1970>` | `dagents-plan` |
+| An empty `planId` | `spring-workload-plan-<milliseconds since 1970>` | stays empty |
+| No `namespace`, or `null` | the YAML says `namespace: null`, and the response's `namespace` is null | `dagents` |
 | Service | when `includeServices` is true and the component has ports; no `type` line | the same, with `type: ClusterIP` |
 | ConfigMap | `<name>-config`, with `component-kind` and `image` | the same entries |
 | ServiceAccount | never | when the request asks for one; the Spring request cannot |
@@ -441,12 +458,21 @@ sequenceDiagram
     participant Plans as InMemoryWorkloadPlanRepository
     Client->>Facade: POST /api/v1/workloads:compile
     Facade->>Gateway: compile(request)
-    Gateway->>Planner: manifest compile, request as JSON
-    Gateway->>Gateway: flush() on the closed stream throws
-    Gateway->>Java: compile(request)
-    Java-->>Gateway: plan with YAML per component
+    alt DAGENTS_OCAML_MANIFEST_CLI is set
+        Gateway->>Planner: manifest compile, request as JSON
+        alt the planner prints a plan within 10 seconds
+            Planner-->>Gateway: plan as JSON
+        else it fails, prints no plan or runs longer
+            Gateway->>Gateway: stop the planner if it still runs, and log a warning with the reason
+            Gateway->>Java: compile(request)
+            Java-->>Gateway: plan with YAML per component
+        end
+    else not set
+        Gateway->>Java: compile(request)
+        Java-->>Gateway: plan with YAML per component
+    end
     Facade->>Plans: save under planId
-    Facade-->>Client: 200 with the Java renderer's plan
+    Facade-->>Client: 200 with the plan
 ```
 
 ### Check the core service's health
@@ -499,9 +525,10 @@ POST /api/v1/workloads:compile
 ```
 
 Renders the YAML for every component, stores the plan under its `planId` and
-returns it. In this version the YAML always comes from the Java renderer, as
-described above. A second compile with the same `planId`
-replaces the stored plan. The request has no `generatedResources`,
+returns it. The YAML comes from the planner when `DAGENTS_OCAML_MANIFEST_CLI`
+names it and the planner prints a plan within 10 seconds, and from the Java
+renderer otherwise, as described above. A second compile with the same `planId` replaces the stored
+plan. The request has no `generatedResources`,
 `serviceAccountName`, `serviceType` or `configMapData`, so it cannot ask for a
 ServiceAccount or for ConfigMap entries of its own, and the response has no
 `serviceAccountYaml`. `includeServices` and `includeConfigMaps` are `false`
