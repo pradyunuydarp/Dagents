@@ -43,9 +43,12 @@ class OrderStoreSource:
 def shop_orders(lease: Any, role: str | None, site_id: str) -> OrderStoreSource:
     """The ``shop_orders`` site source: the orders of ``site_id``, from its CSV file.
 
-    An LMA calls this once, when it starts. It passes a database lease and
-    the site's role when ``LMA_DATABASE_URL`` is set, and ``None`` for both
-    otherwise. This example keeps its orders in files, so it uses neither.
+    An LMA calls this once, when it starts. It passes a database lease when
+    ``LMA_DATABASE_URL`` is set, and ``None`` otherwise. It passes the value
+    of ``LMA_SITE_ROLE`` as ``role``, with or without a database, and
+    ``None`` when that is not set. An LMA with ``LMA_DATABASE_URL`` but no
+    ``LMA_SITE_ROLE`` stops before it calls this. This example keeps its
+    orders in files, so it uses neither.
     """
     if site_id not in SITE_IDS:
         raise ValueError(f"the example has no orders for {site_id!r}; LMA_SITE_ID must be one of {', '.join(SITE_IDS)}")
