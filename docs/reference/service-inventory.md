@@ -251,9 +251,9 @@ Ports come from `env/`; never hardcode them — each service has distinct
 | GET | `/api/v1/model-jobs` | `list_model_jobs` | List recent model jobs in reverse chronological order |
 | POST | `/api/v1/model-jobs` | `submit_model_job` | returns `202`; Submit a background training job and return the queued job record |
 | GET | `/api/v1/model-jobs/{job_id}` | `get_model_job` | Fetch one previously submitted model job by `job_id` |
-| GET | `/api/v1/sources` | `list_sources` | List all source definitions registered with the model service |
+| GET | `/api/v1/sources` | `list_sources` | List all source definitions registered with the model service, with their connection options redacted |
 | POST | `/api/v1/sources` | `register_source` | Validate and register a reusable source definition for model-service use |
-| GET | `/api/v1/sources/{source_id}` | `get_source` | Fetch one stored source definition by id |
+| GET | `/api/v1/sources/{source_id}` | `get_source` | Fetch one stored source definition by id, with its connection options redacted |
 | POST | `/api/v1/sources/{source_id}:validate` | `validate_source` | Run shared source validation for one registered source id |
 | POST | `/api/v1/train` | `train` | Execute synchronous anomaly-model training |
 
@@ -288,9 +288,9 @@ Ports come from `env/`; never hardcode them — each service has distinct
 | POST | `/api/v1/pipelines/{pipeline_id}/runs` | `run_pipeline` | Run a stored pipeline on a payload and wait for it to finish |
 | GET | `/api/v1/runs` | `list_runs` | List the stored runs, newest first |
 | GET | `/api/v1/runs/{run_id}` | `get_run` | Fetch one stored run by `run_id`, in its current state |
-| GET | `/api/v1/sources` | `list_sources` | List every stored source definition, sorted by `source_id` |
+| GET | `/api/v1/sources` | `list_sources` | List every stored source definition, sorted by `source_id`, with its connection options redacted |
 | POST | `/api/v1/sources` | `register_source` | Store a source definition in the pipeline service's catalog |
-| GET | `/api/v1/sources/{source_id}` | `get_source` | Fetch one stored source definition by `source_id` |
+| GET | `/api/v1/sources/{source_id}` | `get_source` | Fetch one stored source definition by `source_id`, with its connection options redacted |
 | POST | `/api/v1/sources/{source_id}:validate` | `validate_source` | Run the source adapter's checks on a stored source definition |
 
 ## spring-control-service

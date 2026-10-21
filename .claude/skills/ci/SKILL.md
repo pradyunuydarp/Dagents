@@ -52,13 +52,13 @@ treats a log without verbose output as a failure.
 | `--forbid` | Fails on | Where CI forbids it |
 |---|---|---|
 | `planner` | a skip because `dagentsc` is missing | `agents`, `demo-apps` |
-| `database` | a skip whose reason starts `database test skipped` | `demo-apps` (it has a Postgres 16 service) |
+| `database` | a skip whose reason starts `database test skipped` | `demo-apps` and `framework-services` (each has a Postgres 16 service) |
 | `charts` | a skip because matplotlib is not installed | `agents` |
 
 `--require-ran MODULE.CLASS` fails unless that test class finished at least one
 test. It catches a class that skipped in `setUpClass` or stopped running for a
 reason no pattern matches. On success the guard prints each allowed skip reason
-with a count (the pagila suites and the deployed-API tests).
+with a count (the agents' two pagila tests and the deployed-API tests).
 
 ```bash
 python -m unittest discover -s dagents/tests -t . -v 2>&1 | tee agents-suite.log
@@ -72,9 +72,12 @@ the test files and checks the guard against the four shapes unittest prints
 them in, so the guard cannot stop matching without a test failing. It also
 checks that every `--require-ran` class in a workflow exists, that every test
 class needing a database (found by reading the test files) is in the
-`demo-apps` `--require-ran` lists, and that each required module runs in the
-step that writes the log. **A new database test class goes in both
-`ci.yml` and `healthcare-data.yml`**, which must list the same classes.
+`demo-apps` `--require-ran` lists, or for a service suite in the
+`framework-services` lists (§2u), and that each required module runs in the
+step that writes the log. **A new database test class in `dagents/tests` or
+the healthcare suite goes in both `ci.yml` and `healthcare-data.yml`**, which
+must list the same classes. One in a service suite goes only in `ci.yml`
+(§2u).
 
 ### b. Two implementations of one behaviour, only one tested
 
@@ -417,6 +420,71 @@ the smoke test with `--agents-from openai-agents`. That option fails unless
 `tests/test_packaging.py` runs the file check and the option on synthetic
 distributions.
 
+### u. Source adapter tests that only ran on one laptop
+
+The pipeline and model services read Postgres sources through the shared
+adapter, and five tests in three files covered that path. They connected to a
+`pagila` database as one developer's login, so they skipped on every other
+machine and in every CI run. The guard allowed the skip. Nothing in CI read a Postgres
+source through a service, and nobody saw that the services' source answers
+returned the password from `connection_ref.options`. The LMA and the GMA
+already redacted it.
+
+Defence: `services/pipeline-service/tests/test_postgres_source_e2e.py` and
+`services/model-service/tests/test_postgres_source_e2e.py` replace them. Each
+creates a scratch database with `ScratchDatabase` from
+`dagents/tests/test_postgres_roles.py`, starts its service with uvicorn on a
+loopback port the system picks (`--fd`), registers a Postgres source with the
+scratch login and password, and calls the service over HTTP:
+
+- Every source answer (register, fetch, list) shows the options as
+  `[redacted]`, and no answer contains the password, the login or the
+  database name. The services now use `redact_source`, as the agents do.
+- The pipeline test runs an asynchronous `profile_dataset` and
+  `random_forest` pipeline to `completed` with 512 records, the source's
+  `max_records`, from a 600-row table. A second pipeline carries the source
+  in a step's `dataset_input.source`: none of the six pipeline answers shows
+  the login, and a run of it still reads the 512 records, so the answers are
+  redacted copies and the stored step keeps the password.
+- The model test runs an asynchronous `autoencoder` job and the three checks.
+  The table makes each result known: the class label is a threshold on
+  `amount` (accuracy at least 0.95), the regression label is linear in two
+  fields (R² above 0.99), and the forecast series is a sine wave (R² above 0.5
+  for `gru` and `lstm`). The requests set no `max_rows`, so their row counts
+  depend on the source's limit.
+
+The tests do not cover the Postgres `role` connection option, a source sent
+in a model service request (`dataset.source`), a request's own `max_rows`
+limit, the MongoDB and object storage adapters, or the Spring control
+service's source catalog, which returns `options` as sent and never connects.
+The pipeline's `run_model_job` step estimates its metrics and trains nothing,
+so the pipeline test checks only counts and names.
+
+The `framework-services` job runs a `postgres:16` service container, sets
+`DAGENTS_TEST_DATABASE_URL` on the two suites, runs them with `-v` into
+`pipeline-service.log` and `model-service.log`, and runs the guard with
+`--forbid database` and `--require-ran` for each class.
+`tests/test_ci_guards.py` finds the database classes in `services/*/tests`
+and fails unless each is required under the log of its own suite, because both
+suites have a module named `test_postgres_source_e2e`. It also fails if a
+service suite that no step checks, such as `services/nl2sql-demo/tests`, gains
+a database class. A database class in a service suite goes only in `ci.yml`'s
+`framework-services` step; `healthcare-data.yml` does not run the service
+suites.
+
+Run them locally with a superuser login on a PostgreSQL 16 server:
+
+```bash
+export DAGENTS_TEST_DATABASE_URL=postgresql://admin:pw@127.0.0.1:5432/postgres
+PYTHONPATH=.:services/pipeline-service .venv/bin/python -m unittest discover \
+  -s services/pipeline-service/tests -t services/pipeline-service/tests -v
+PYTHONPATH=.:services/model-service .venv/bin/python -m unittest discover \
+  -s services/model-service/tests -t services/model-service/tests -v
+```
+
+The pipeline class takes about 2 seconds and the model class about 45 on a
+4-CPU machine, most of it the model job and the checks.
+
 ## 3. The test loop
 
 CI runs the same commands a contributor runs. Write the failing test first,
@@ -606,11 +674,13 @@ are in the "Releasing" section of `CLAUDE.md`.
   the main item in `TODO.md`, blocked on local disk space (see `CHANGES.md`). CI
   tests the code and the contracts, not the deployment. The one check on the
   images is static: they contain the planner when their service calls it (§2l).
-- **The pagila suites skip in CI**, because CI has no Postgres with the pagila
-  dataset. These skips are expected, and the guard allows them. A change to
-  source adapters is not fully tested by CI. The healthcare stores, the site
-  isolation and the role scoping do run in CI: the `demo-apps` job has a
-  PostgreSQL 16 service container, emulates Supabase's roles with a
+- **The agents' pagila tests skip in CI**, because no job has the pagila
+  sample database (`dagents/tests/test_postgres_api.py`, one through the LMA
+  and one through the GMA). The guard allows that skip. The Postgres source
+  adapter itself is tested in CI: the `framework-services` job reads a scratch
+  table through the pipeline and model services (§2u). The healthcare stores,
+  the site isolation and the role scoping run in the `demo-apps` job, which
+  has a PostgreSQL 16 service container, emulates Supabase's roles with a
   non-superuser, and fails if any database test skipped.
 - **The NL2SQL frontend has no browser test.** Its job builds the bundle, which
   only proves that it compiles.

@@ -7,6 +7,7 @@ from pydantic import TypeAdapter
 
 from dagents.common.domain.models import SourceSpec
 from dagents.common.domain.sources import SourceValidationResult
+from dagents.common.infrastructure.sources import redact_source
 from app.core.config import Settings, settings
 from app.models import (
     ClassificationCheckResponse,
@@ -240,7 +241,10 @@ def list_model_jobs(
 @router.post(
     "/sources",
     responses={
-        200: {"model": SourceSpec, "description": "The stored source definition, with its defaults filled in."},
+        200: {
+            "model": SourceSpec,
+            "description": "The stored source definition, with its defaults filled in and its connection options redacted.",
+        },
         500: _server_error("The body is not a valid source definition. The handler validates it itself."),
     },
     # The handler takes a plain dict and validates it with TypeAdapter, so
@@ -250,34 +254,41 @@ def list_model_jobs(
 def register_source(payload: dict[str, Any], service: ModelTrainingService = Depends(get_training_service)):
     """Validate and register a reusable source definition for model-service use.
 
-    A source with the same `source_id` is replaced. No records are read.
+    A source with the same `source_id` is replaced. No records are read. The
+    answer shows each connection option's value as `[redacted]`, except
+    `role`, `sslmode` and `connect_timeout`, so a password is never sent back.
     """
     source = TypeAdapter(SourceSpec).validate_python(payload)
-    return service.register_source(source)
+    return redact_source(service.register_source(source))
 
 
 @router.get(
     "/sources",
-    responses={200: {"model": list[SourceSpec], "description": "Every stored source, sorted by `source_id`."}},
+    responses={
+        200: {
+            "model": list[SourceSpec],
+            "description": "Every stored source, sorted by `source_id`, with its connection options redacted.",
+        }
+    },
 )
 def list_sources(service: ModelTrainingService = Depends(get_training_service)):
-    """List all source definitions registered with the model service."""
-    return service.list_sources()
+    """List all source definitions registered with the model service, with their connection options redacted."""
+    return [redact_source(source) for source in service.list_sources()]
 
 
 @router.get(
     "/sources/{source_id}",
     responses={
-        200: {"model": SourceSpec, "description": "The stored source definition."},
+        200: {"model": SourceSpec, "description": "The stored source definition, with its connection options redacted."},
         404: _not_found("No source is stored under this id."),
     },
 )
 def get_source(source_id: Annotated[str, _SOURCE_ID], service: ModelTrainingService = Depends(get_training_service)):
-    """Fetch one stored source definition by id."""
+    """Fetch one stored source definition by id, with its connection options redacted."""
     source = service.get_source(source_id)
     if source is None:
         raise HTTPException(status_code=404, detail=f"Unknown source: {source_id}")
-    return source
+    return redact_source(source)
 
 
 @router.post(

@@ -23232,7 +23232,7 @@
      "id": "model-service-get-api-v1-sources",
      "method": "GET",
      "path": "/api/v1/sources",
-     "summary": "List all source definitions registered with the model service.",
+     "summary": "List all source definitions registered with the model service, with their connection options redacted.",
      "description": null,
      "status_code": 200,
      "deprecated": false,
@@ -23241,6 +23241,13 @@
       "module": "app.api.routes",
       "file": "services/model-service/app/api/routes.py",
       "calls": [
+       {
+        "kind": "function",
+        "class": null,
+        "module": "dagents.common.infrastructure.sources",
+        "file": "dagents/common/infrastructure/sources.py",
+        "name": "redact_source"
+       },
        {
         "kind": "method",
         "class": "ModelTrainingService",
@@ -23255,7 +23262,7 @@
      "responses": [
       {
        "status": "200",
-       "description": "Every stored source, sorted by `source_id`.",
+       "description": "Every stored source, sorted by `source_id`, with its connection options redacted.",
        "content_type": "application/json",
        "schema": {
         "items": {
@@ -23295,7 +23302,7 @@
      "method": "POST",
      "path": "/api/v1/sources",
      "summary": "Validate and register a reusable source definition for model-service use.",
-     "description": "A source with the same `source_id` is replaced. No records are read.",
+     "description": "A source with the same `source_id` is replaced. No records are read. The\nanswer shows each connection option's value as `[redacted]`, except\n`role`, `sslmode` and `connect_timeout`, so a password is never sent back.",
      "status_code": 200,
      "deprecated": false,
      "handler": {
@@ -23303,6 +23310,13 @@
       "module": "app.api.routes",
       "file": "services/model-service/app/api/routes.py",
       "calls": [
+       {
+        "kind": "function",
+        "class": null,
+        "module": "dagents.common.infrastructure.sources",
+        "file": "dagents/common/infrastructure/sources.py",
+        "name": "redact_source"
+       },
        {
         "kind": "method",
         "class": "ModelTrainingService",
@@ -23348,7 +23362,7 @@
      "responses": [
       {
        "status": "200",
-       "description": "The stored source definition, with its defaults filled in.",
+       "description": "The stored source definition, with its defaults filled in and its connection options redacted.",
        "content_type": "application/json",
        "schema": {
         "oneOf": [
@@ -23400,7 +23414,7 @@
      "id": "model-service-get-api-v1-sources-source-id",
      "method": "GET",
      "path": "/api/v1/sources/{source_id}",
-     "summary": "Fetch one stored source definition by id.",
+     "summary": "Fetch one stored source definition by id, with its connection options redacted.",
      "description": null,
      "status_code": 200,
      "deprecated": false,
@@ -23415,6 +23429,13 @@
         "module": "app.services.training_service",
         "file": "services/model-service/app/services/training_service.py",
         "name": "get_source"
+       },
+       {
+        "kind": "function",
+        "class": null,
+        "module": "dagents.common.infrastructure.sources",
+        "file": "dagents/common/infrastructure/sources.py",
+        "name": "redact_source"
        }
       ]
      },
@@ -23435,7 +23456,7 @@
      "responses": [
       {
        "status": "200",
-       "description": "The stored source definition.",
+       "description": "The stored source definition, with its connection options redacted.",
        "content_type": "application/json",
        "schema": {
         "oneOf": [
@@ -26180,7 +26201,7 @@
      "method": "GET",
      "path": "/api/v1/pipeline-definitions/{pipeline_id}",
      "summary": "Fetch one stored pipeline by `pipeline_id`.",
-     "description": null,
+     "description": "A step's inline source (`config.dataset_input.source`) is shown with its\nconnection options redacted.",
      "status_code": 200,
      "deprecated": false,
      "handler": {
@@ -26236,7 +26257,7 @@
      "method": "POST",
      "path": "/api/v1/pipeline-definitions/{pipeline_id}:validate",
      "summary": "Check a stored pipeline's graph again and return the pipeline.",
-     "description": "It runs the same checks as registering, including `dagentsc pipeline compile`,\nand stores nothing.",
+     "description": "It runs the same checks as registering, including `dagentsc pipeline compile`,\nand stores nothing. A step's inline source is shown with its connection\noptions redacted.",
      "status_code": 200,
      "deprecated": false,
      "handler": {
@@ -26481,7 +26502,7 @@
      "method": "GET",
      "path": "/api/v1/pipelines",
      "summary": "List every stored pipeline, sorted by `pipeline_id`.",
-     "description": null,
+     "description": "A step's inline source (`config.dataset_input.source`) is shown with its\nconnection options redacted.",
      "status_code": 200,
      "deprecated": false,
      "handler": {
@@ -26517,7 +26538,7 @@
      "method": "POST",
      "path": "/api/v1/pipelines",
      "summary": "Check a pipeline's graph and store it.",
-     "description": "The graph is sent to `dagentsc pipeline compile` and then ordered in Python.\nA pipeline with the same `pipeline_id` is replaced.",
+     "description": "The graph is sent to `dagentsc pipeline compile` and then ordered in Python.\nA pipeline with the same `pipeline_id` is replaced. The answer shows a\nstep's inline source (`config.dataset_input.source`) with its connection\noptions redacted; the stored pipeline keeps the real values.",
      "status_code": 200,
      "deprecated": false,
      "handler": {
@@ -26773,7 +26794,7 @@
      "id": "pipeline-service-get-api-v1-sources",
      "method": "GET",
      "path": "/api/v1/sources",
-     "summary": "List every stored source definition, sorted by `source_id`.",
+     "summary": "List every stored source definition, sorted by `source_id`, with its connection options redacted.",
      "description": null,
      "status_code": 200,
      "deprecated": false,
@@ -26781,14 +26802,22 @@
       "function": "list_sources",
       "module": "app.api.routes",
       "file": "services/pipeline-service/app/api/routes.py",
-      "calls": []
+      "calls": [
+       {
+        "kind": "function",
+        "class": null,
+        "module": "dagents.common.infrastructure.sources",
+        "file": "dagents/common/infrastructure/sources.py",
+        "name": "redact_source"
+       }
+      ]
      },
      "parameters": [],
      "request_body": null,
      "responses": [
       {
        "status": "200",
-       "description": "Every stored source, sorted by `source_id`.",
+       "description": "Every stored source, sorted by `source_id`, with its connection options redacted.",
        "content_type": "application/json",
        "schema": {
         "items": {
@@ -26828,14 +26857,22 @@
      "method": "POST",
      "path": "/api/v1/sources",
      "summary": "Store a source definition in the pipeline service's catalog.",
-     "description": "A source with the same `source_id` is replaced. No records are read.",
+     "description": "A source with the same `source_id` is replaced. No records are read. The\nanswer shows each connection option's value as `[redacted]`, except\n`role`, `sslmode` and `connect_timeout`, so a password is never sent back.",
      "status_code": 200,
      "deprecated": false,
      "handler": {
       "function": "register_source",
       "module": "app.api.routes",
       "file": "services/pipeline-service/app/api/routes.py",
-      "calls": []
+      "calls": [
+       {
+        "kind": "function",
+        "class": null,
+        "module": "dagents.common.infrastructure.sources",
+        "file": "dagents/common/infrastructure/sources.py",
+        "name": "redact_source"
+       }
+      ]
      },
      "parameters": [],
      "request_body": {
@@ -26873,7 +26910,7 @@
      "responses": [
       {
        "status": "200",
-       "description": "The stored source definition, with its defaults filled in.",
+       "description": "The stored source definition, with its defaults filled in and its connection options redacted.",
        "content_type": "application/json",
        "schema": {
         "oneOf": [
@@ -26925,7 +26962,7 @@
      "id": "pipeline-service-get-api-v1-sources-source-id",
      "method": "GET",
      "path": "/api/v1/sources/{source_id}",
-     "summary": "Fetch one stored source definition by `source_id`.",
+     "summary": "Fetch one stored source definition by `source_id`, with its connection options redacted.",
      "description": null,
      "status_code": 200,
      "deprecated": false,
@@ -26933,7 +26970,15 @@
       "function": "get_source",
       "module": "app.api.routes",
       "file": "services/pipeline-service/app/api/routes.py",
-      "calls": []
+      "calls": [
+       {
+        "kind": "function",
+        "class": null,
+        "module": "dagents.common.infrastructure.sources",
+        "file": "dagents/common/infrastructure/sources.py",
+        "name": "redact_source"
+       }
+      ]
      },
      "parameters": [
       {
@@ -26952,7 +26997,7 @@
      "responses": [
       {
        "status": "200",
-       "description": "The stored source definition.",
+       "description": "The stored source definition, with its connection options redacted.",
        "content_type": "application/json",
        "schema": {
         "oneOf": [
