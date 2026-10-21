@@ -406,6 +406,50 @@ the smoke test with `--agents-from openai-agents`. That option fails unless
 `tests/test_packaging.py` runs the file check and the option on synthetic
 distributions.
 
+### p. An approval button no run had ever enabled
+
+The stroke demo's pilot panel shows **Approve release** only when the release
+gates decide `release`. The demo's own gates decide whatever the records say,
+and the smoke test must not assume a decision, so no CI run had clicked the
+button. The approval route had API tests, but nothing checked that the page
+sends it, names the released model, disables the button, shows the new model
+in use on every page, or shows a refusal in words.
+
+Defence: the `frontends` job runs `apps/healthcare-demo/tests/run_approval_check.sh`
+after the smoke test, when Vite's dependency bundle and the chart font cache
+already exist. The script serves the API with one gate a trained candidate
+passes (`tests/lenient_gates_server.py`; no app setting chooses the gates) and
+runs `frontend/approve.mjs` against the Vite dev server. The check opens every
+hospital page, runs a pilot on two pages and approves on the first. Then it
+clicks **Approve release** on the second page, whose candidate was compared
+with the model the approval replaced, and reads the backend's 409 reason on
+the page. Last, it opens every hospital page again and checks the model panel
+and the worklist the page loaded. The first version opened the hospital pages
+only after the approval, and it passed with an LMA that never reads the model
+again. The script passes exit 2 (no browser) through, which fails the step,
+and the next step fails unless the log has an `ok  approve:` line and no skip.
+The release it approves passed only the test gate, so the script clears the
+shell's database settings, and the server refuses any database whose name does
+not start with `dagents_scratch_` (`LenientServerDatabaseTests`). A first
+version passed the shell's `HEALTHCARE_DEMO_DATABASE_URL` through and left the
+release in that database. Before each reload the check waits until the page
+has no request in flight. A reload cancels the chart fetches still loading,
+and on a busy machine one run failed on those cancelled requests.
+
+```bash
+DAGENTSC_BIN=$PWD/bindings/ocaml/_build/default/bin/dagentsc.exe \
+  apps/healthcare-demo/tests/run_approval_check.sh
+```
+
+The same server runs as a process in
+`tests.test_restart_processes.ApiRestartTests`, the published layout on
+PostgreSQL 16: it approves a candidate, stops the API process with SIGTERM,
+starts a new one on the same database, and checks the model in use, the last
+pilot's charts, a second approval's 409 and a new pilot. Both workflows
+require the class to run. It cannot see whether the lifespan closed the
+database connections, because the operating system closes them when the
+process exits; a lifespan that hangs or logs an error fails it.
+
 ## 3. The test loop
 
 CI runs the same commands a contributor runs. Write the failing test first,
