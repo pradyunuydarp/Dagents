@@ -429,9 +429,13 @@ jobs:
         run: python scripts/check_link_previews.py built --tree _site
 
       - name: Install a browser for the published-page checks
-        # The NL2SQL frontend's npm ci above installed playwright-core.
+        # This job can deploy, so it downloads no unpinned package. `npx --no`
+        # runs the playwright-core command that the NL2SQL frontend's npm ci
+        # installed from its lock file, and installs the browser build that
+        # this playwright-core expects. `npx playwright` would fetch the newest
+        # playwright from the registry and install that version's browser.
         working-directory: services/nl2sql-demo/frontend
-        run: npx playwright install --with-deps chromium
+        run: npx --no playwright-core install --with-deps chromium
 
       - name: Locate the browser
         # A browser check without a browser reports SKIP, which is not a pass.
