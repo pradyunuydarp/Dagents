@@ -65,7 +65,7 @@ database name, and runs an asynchronous pipeline on the source: a
 `profile_dataset` step and a `random_forest` `run_model_job` step. The run must
 finish with 512 records, the source's `max_records`, from a 600-row table. A
 second pipeline carries the same source in a step's `dataset_input.source`:
-none of the six pipeline answers (register, list and fetch by both paths, and
+none of the six pipeline answers (register and list by both paths, fetch, and
 check again) shows the login, and a run of it still reads the 512 records.
 
 It does not cover the Postgres `role` connection option, the MongoDB and
