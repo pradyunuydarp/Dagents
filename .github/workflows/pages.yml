@@ -428,6 +428,53 @@ jobs:
         # tests/test_social_previews.py runs this check on broken trees.
         run: python scripts/check_link_previews.py built --tree _site
 
+      - name: Install a browser for the check of the published tree
+        # This job can deploy, so it downloads no unpinned package. `npx --no`
+        # runs the playwright-core command that npm ci installed from the lock
+        # file, and installs the browser build that check.mjs's playwright-core
+        # expects. `npx playwright` would fetch the newest playwright from the
+        # registry and install that version's browser build instead.
+        working-directory: site
+        run: npx --no playwright-core install --with-deps chromium
+
+      - name: Locate the browser
+        # check.mjs searches CHROMIUM_PATH first, then paths that exist only in
+        # the image this repository is developed in. Without a browser it
+        # exits 2 (SKIP), so this step stops the build when it finds none.
+        working-directory: site
+        run: |
+          browser="$(node -e \
+            "console.log(require('playwright-core').chromium.executablePath())" \
+            2>/dev/null || true)"
+          if [ ! -x "${browser}" ]; then
+            browser="$(find "${HOME}/.cache/ms-playwright" -type f -name 'chrome' \
+              -perm -u+x 2>/dev/null | head -1)"
+          fi
+          if [ ! -x "${browser}" ]; then
+            echo "No browser found. The check of the published tree would report SKIP, which is not a pass." >&2
+            exit 1
+          fi
+          echo "Using ${browser}"
+          echo "CHROMIUM_PATH=${browser}" >> "$GITHUB_ENV"
+
+      - name: The published tree works in a browser under its base path
+        # Serves _site as Pages will, under the base path resolved above, with
+        # a 404 for a missing file, and runs every check of the framework site
+        # there: guide pages, diagrams, the API reference, the Resources
+        # downloads and the link preview. Then each link from the home page
+        # into the tree must open its demo: the demo's page, scripts, styles
+        # and icons load from under the base path, and the app draws its
+        # masthead. The demos' data requests are not checked, and requests to
+        # other hosts are blocked on demo pages, so the deployed API is never
+        # called and cannot fail this step. A failure here stops the deploy.
+        # The time limit stops a hung browser from holding this run, and the
+        # deploys queued behind it, which the `pages` group never cancels.
+        timeout-minutes: 15
+        working-directory: site
+        env:
+          PUBLIC_SITE_URL: ${{ env.DAGENTS_PUBLIC_SITE_URL }}
+        run: node check.mjs --tree ../_site --base "${BASE_PATH}/"
+
       - uses: actions/upload-pages-artifact@v3
         with:
           path: _site

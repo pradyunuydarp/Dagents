@@ -12,16 +12,72 @@
  * Usage:
  *   npm run build && npm run check
  *   node check.mjs [distDir]
+ *   node check.mjs --tree DIR [--base /Dagents/]
  *
- * Exits 0 on success, 1 on failure, and 2 when no browser is available, so a
- * machine without Chromium reports "skipped" rather than "passed".
+ * Without options, the site in dist/ is served at the root, and the server
+ * answers a path that names no file with index.html and status 200.
+ *
+ * --base PATH  Serve the site under PATH, as GitHub Pages serves it under
+ *              /<repository>/. Build the site with SITE_BASE_PATH set to the
+ *              same path. A build for the root fails under /Dagents/, and a
+ *              build for /Dagents/ fails at the root.
+ * --tree DIR   Check the tree that pages.yml assembles in DIR: the framework
+ *              site at its root and each demo in its own folder. Every check
+ *              below runs, and each link from the home page into the tree must
+ *              open its demo: the link stays under the base path, and the
+ *              demo's page, scripts, styles and icons answer 200 from under it.
+ *              Then the app must draw its masthead within 30 seconds. The
+ *              demos' data requests are not checked, because the CI build has
+ *              no recording and no API. Requests to other hosts are blocked on
+ *              demo pages, so a demo built to call the deployed API never calls
+ *              it from here.
+ *
+ * With --base or --tree, the server answers as GitHub Pages does: a path
+ * outside the base path or a missing file is a 404, and a folder answers only
+ * with its own index.html. So a script, a lazy chunk, a download or a demo
+ * link that lost the base path fails here, as it would on Pages. Link preview
+ * and icon addresses are resolved against the base path.
+ *
+ * Exits 0 on success, 1 on failure or wrong usage, and 2 when no browser is
+ * available, so a machine without Chromium reports "skipped" rather than
+ * "passed".
  */
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { createServer } from "node:http";
-import { extname, join, normalize, resolve } from "node:path";
+import { extname, join, normalize, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+import { parseArgs } from "node:util";
 
-const distDir = resolve(process.argv[2] ?? "dist");
+let options;
+try {
+  options = parseArgs({
+    options: { tree: { type: "string" }, base: { type: "string" } },
+    allowPositionals: true
+  });
+} catch (error) {
+  console.log(`FAIL: ${error.message}`);
+  process.exit(1);
+}
+const { tree } = options.values;
+if (tree && options.positionals.length) {
+  console.log("FAIL: give either a dist folder or --tree DIR, not both");
+  process.exit(1);
+}
+if (options.positionals.length > 1) {
+  console.log(`FAIL: one dist folder at most, got ${options.positionals.join(" ")}`);
+  process.exit(1);
+}
+const rawBase = options.values.base ?? "/";
+if (/[?#\\]|\.\.|:\/\//.test(rawBase)) {
+  console.log(`FAIL: --base must be a plain path such as /Dagents/, got ${JSON.stringify(rawBase)}`);
+  process.exit(1);
+}
+/** The path the site is served under, with a slash at each end ("/" or "/Dagents/"). */
+const basePath = `/${rawBase}/`.replace(/\/{2,}/g, "/");
+/** Pages semantics (404 for a missing file) whenever a base or a tree is given. */
+const pagesLike = Boolean(tree) || options.values.base !== undefined;
+
+const distDir = resolve(tree ?? options.positionals[0] ?? "dist");
 const repoRoot = fileURLToPath(new URL("..", import.meta.url));
 
 /** Locate a Chromium the driver can launch, preferring the preinstalled one. */
@@ -57,29 +113,75 @@ if (!existsSync(join(distDir, "index.html"))) {
 }
 
 // A small static server for the built site. Pages live in the URL hash, so
-// every path is either a file in dist/ or the index page.
+// the site itself needs only its files and its index page.
 const TYPES = {
   ".html": "text/html",
   ".js": "text/javascript",
   ".css": "text/css",
   ".svg": "image/svg+xml",
   ".png": "image/png",
+  ".ico": "image/x-icon",
   ".json": "application/json",
+  ".webmanifest": "application/manifest+json",
   ".webp": "image/webp",
+  ".woff2": "font/woff2",
   ".pdf": "application/pdf",
   ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation"
 };
-const server = createServer((request, response) => {
+const sendFile = (response, file) => {
+  response.writeHead(200, { "Content-Type": TYPES[extname(file)] ?? "application/octet-stream" });
+  response.end(readFileSync(file));
+};
+const isFile = (file) => existsSync(file) && statSync(file).isFile();
+
+/**
+ * The root server that `npm run check` uses: a path that names no file gets the
+ * index page with status 200. So each file check below reads the file's first
+ * bytes, not only its status.
+ */
+function serveRoot(request, response) {
   const path = normalize(decodeURIComponent(new URL(request.url, "http://localhost").pathname));
   let file = join(distDir, path);
   if (!file.startsWith(distDir) || !existsSync(file) || statSync(file).isDirectory()) {
     file = join(distDir, "index.html");
   }
-  response.writeHead(200, { "Content-Type": TYPES[extname(file)] ?? "application/octet-stream" });
-  response.end(readFileSync(file));
-});
+  sendFile(response, file);
+}
+
+/** As GitHub Pages serves the tree: under the base path only, a 404 for a missing file, no fallback page. */
+function servePages(request, response) {
+  const notFound = () => {
+    response.writeHead(404, { "Content-Type": "text/plain" });
+    response.end("404 Not Found");
+  };
+  const redirect = (location) => {
+    response.writeHead(301, { Location: encodeURI(location) });
+    response.end();
+  };
+  let path;
+  try {
+    path = decodeURIComponent(new URL(request.url, "http://localhost").pathname);
+  } catch {
+    return notFound();
+  }
+  if (`${path}/` === basePath) return redirect(basePath);
+  if (!path.startsWith(basePath)) return notFound();
+  let file = resolve(distDir, `.${sep}${path.slice(basePath.length)}`);
+  if (file !== distDir && !file.startsWith(distDir + sep)) return notFound();
+  if (existsSync(file) && statSync(file).isDirectory()) {
+    // Pages adds the slash to a folder's address, then serves its index.html.
+    if (!path.endsWith("/")) return redirect(`${path}/`);
+    file = join(file, "index.html");
+  }
+  return isFile(file) ? sendFile(response, file) : notFound();
+}
+
+const server = createServer(pagesLike ? servePages : serveRoot);
 await new Promise((done) => server.listen(0, "127.0.0.1", done));
+/** The server's root: an address on this server starts with it. */
 const base = `http://127.0.0.1:${server.address().port}/`;
+/** The site's home page, under the base path. */
+const site = new URL(basePath, base).href;
 
 const failures = [];
 const consoleErrors = [];
@@ -121,7 +223,7 @@ async function diagrams() {
 }
 
 async function open(hash) {
-  await page.goto(`${base}${hash}`);
+  await page.goto(`${site}${hash}`);
   await page.waitForSelector("main h1");
   // API pages load their data after the first paint; wait for it, so anchors exist.
   if (hash.startsWith("#/api")) await page.waitForSelector("[data-api-ready]", { timeout: 30000 });
@@ -185,10 +287,11 @@ const PREVIEW_TAGS = [
  *
  * The tags name the published address when the build had PUBLIC_SITE_URL (the
  * Pages build) and the base path otherwise. Either way the address maps to the
- * root of dist/, which this check serves, so each image is fetched from here.
+ * site's folder, which this check serves under the base path, so each image is
+ * fetched from here.
  */
 async function checkLinkPreview() {
-  const response = await page.request.get(base);
+  const response = await page.request.get(site);
   const html = await response.text();
   const head = await page.evaluate((source) => {
     const doc = new DOMParser().parseFromString(source, "text/html");
@@ -211,7 +314,7 @@ async function checkLinkPreview() {
   check("the home page has every link preview tag", missing.length === 0, missing.join(", ") || `${PREVIEW_TAGS.length} tags`);
   check("no link preview placeholder is left in the page", !html.includes("%PUBLIC_SITE_URL%"));
 
-  const prefix = process.env.PUBLIC_SITE_URL || "/";
+  const prefix = process.env.PUBLIC_SITE_URL || basePath;
   const image = `${prefix}social-preview.png`;
   const named = ["og:image", "og:image:secure_url", "twitter:image"].filter((key) => one(key) !== image);
   check(
@@ -227,9 +330,9 @@ async function checkLinkPreview() {
       one("twitter:card") === "summary_large_image"
   );
 
-  // The static server answers a missing file with index.html and status 200,
-  // so each file is checked by its first bytes and its size.
-  const local = (address) => new URL(address.startsWith(prefix) ? address.slice(prefix.length) : address, base).href;
+  // The root server answers a missing file with index.html and status 200,
+  // so each file is checked by its first bytes and its size, not its status alone.
+  const local = (address) => new URL(address.startsWith(prefix) ? address.slice(prefix.length) : address, site).href;
   const fetchBytes = async (address) => {
     const result = await page.request.get(address);
     return { status: result.status(), type: result.headers()["content-type"] ?? "", body: await result.body() };
@@ -244,7 +347,7 @@ async function checkLinkPreview() {
   const wrong = [];
   const expectIcon = async (rel, href, kind, size) => {
     if (!href) return wrong.push(`no ${rel} ${kind} link`);
-    const file = await fetchBytes(new URL(href, base).href);
+    const file = await fetchBytes(new URL(href, site).href);
     const ok =
       file.status === 200 &&
       (kind === "svg"
@@ -261,7 +364,7 @@ async function checkLinkPreview() {
   if (!manifestHref) {
     wrong.push("no manifest link");
   } else {
-    const manifestUrl = new URL(manifestHref, base).href;
+    const manifestUrl = new URL(manifestHref, site).href;
     const manifest = await fetchBytes(manifestUrl);
     let icons = [];
     try {
@@ -590,8 +693,107 @@ async function checkResources() {
   await page.setViewportSize({ width: 1280, height: 900 });
 }
 
+/** Request kinds that carry a demo's data. Without a recording or an API they fail, and that is not checked here. */
+const DATA_REQUESTS = new Set(["fetch", "xhr", "eventsource", "websocket"]);
+
+/**
+ * Open one demo from the tree in a page of its own, as a visitor who follows
+ * the home page's link does. Its page, scripts, styles and icons must answer
+ * 200 from under the demo's folder, and the app must draw its masthead.
+ * Requests to other hosts are blocked (fonts, a deployed API), and data
+ * requests, console errors and the page's later state are not checked: the
+ * CI build has no recording and no API.
+ */
+async function openDemo(url) {
+  const folder = new URL(url).pathname;
+  const problems = [];
+  const loaded = { script: 0, stylesheet: 0 };
+  const context = await browser.newContext();
+  const demo = await context.newPage();
+  try {
+    await demo.route("**/*", (route) => (route.request().url().startsWith(base) ? route.continue() : route.abort()));
+    demo.on("response", (response) => {
+      const request = response.request();
+      if (!response.url().startsWith(base) || DATA_REQUESTS.has(request.resourceType())) return;
+      const path = new URL(response.url()).pathname;
+      if (response.status() >= 400) problems.push(`${response.status()} ${path}`);
+      else if (request.resourceType() in loaded) {
+        if (path.startsWith(folder)) loaded[request.resourceType()] += 1;
+        else problems.push(`${path} is outside ${folder}`);
+      }
+    });
+    demo.on("requestfailed", (request) => {
+      if (request.url().startsWith(base) && !DATA_REQUESTS.has(request.resourceType())) {
+        problems.push(`request failed: ${new URL(request.url()).pathname}`);
+      }
+    });
+    const response = await demo.goto(url, { waitUntil: "domcontentloaded" });
+    if (response?.status() !== 200) problems.push(`the page answered ${response?.status()}`);
+    let mounted = true;
+    await demo.waitForSelector("#root header.masthead", { timeout: 30000 }).catch(() => {
+      mounted = false;
+      problems.push("the app drew no masthead within 30 seconds");
+    });
+    // The icons and the web manifest the page links, which a headless browser does not always request.
+    const icons = await demo.$$eval('link[rel~="icon"], link[rel="apple-touch-icon"], link[rel="manifest"]', (links) =>
+      links.map((link) => link.href)
+    );
+    for (const icon of icons) {
+      const { pathname } = new URL(icon);
+      if (!icon.startsWith(base) || !pathname.startsWith(folder)) problems.push(`${icon} is outside ${folder}`);
+      else if ((await demo.request.get(icon)).status() !== 200) problems.push(`${pathname} does not load`);
+    }
+    if (mounted && (!loaded.script || !loaded.stylesheet)) {
+      problems.push(`${loaded.script} scripts and ${loaded.stylesheet} stylesheets loaded from ${folder}`);
+    }
+    if (!icons.length) problems.push("the page links no icon");
+    return { problems, loaded, icons: icons.length };
+  } finally {
+    await context.close();
+  }
+}
+
+/**
+ * In the assembled tree, every link from the home page into the tree opens its
+ * demo. A card whose link lost the base path (`/healthcare-demo/` instead of
+ * `/Dagents/healthcare-demo/`) works at the root and 404s on Pages, so the
+ * link must stay under the base path and the demo must open from it.
+ */
+async function checkDemos() {
+  await open("#/");
+  const cards = await page.$$eval("#demos article", (nodes) =>
+    nodes.map((node) => ({
+      name: node.querySelector("h3")?.textContent?.trim() ?? "",
+      href: node.querySelector("a.ds-btn--primary")?.href ?? null
+    }))
+  );
+  const outside = cards.filter((card) => !card.href?.startsWith(site) || new URL(card.href).pathname === basePath);
+  check(
+    `each demo card links to a folder under ${basePath}`,
+    cards.length > 0 && outside.length === 0,
+    outside.map((card) => `${card.name}: ${card.href}`).join(" | ") || `${cards.length} cards`
+  );
+
+  // Every link from the home page into the tree, not only the cards: the hero links a demo too.
+  const hrefs = await page.$$eval("a[href]", (anchors) => anchors.map((anchor) => anchor.href));
+  const demos = [...new Set(hrefs.filter((href) => href.startsWith(base)).map((href) => href.split("#")[0]))].filter(
+    (href) => href !== site
+  );
+  for (const card of cards) if (card.href && !demos.includes(card.href.split("#")[0])) demos.push(card.href.split("#")[0]);
+  for (const url of demos) {
+    const { problems, loaded, icons } = await openDemo(url);
+    check(
+      `${new URL(url).pathname} opens from the home page and draws its masthead`,
+      problems.length === 0,
+      problems.slice(0, 6).join(" | ") || `${loaded.script} scripts, ${loaded.stylesheet} stylesheets, ${icons} icon links`
+    );
+  }
+}
+
 try {
-  console.log(`Dagents framework site — browser check against ${distDir}\n`);
+  console.log(
+    `Dagents framework site — browser check against ${distDir}${pagesLike ? `, served under ${basePath}` : ""}\n`
+  );
 
   // 1. The home page renders, with its diagram.
   const home = await open("#/");
@@ -708,13 +910,13 @@ try {
   await firstPaint.route("**/*", (route) =>
     route.request().resourceType() === "script" ? route.abort() : route.continue()
   );
-  await firstPaint.goto(base, { waitUntil: "domcontentloaded" });
+  await firstPaint.goto(site, { waitUntil: "domcontentloaded" });
   const stored = await firstPaint.evaluate(() => document.documentElement.getAttribute("data-theme"));
   check("a stored dark theme applies before the app's script runs", stored === "dark", `data-theme ${stored}`);
   await firstPaint.close();
 
   // 6b. The Resources page lists every item in docs/presentation/resources.json,
-  //     and every file it offers is in the built site. The static server above
+  //     and every file it offers is in the built site. The root server above
   //     answers a missing file with index.html and status 200, so each download
   //     is checked by its first bytes, not only its status.
   await checkResources();
@@ -723,6 +925,10 @@ try {
   //     card named by og:image. Every tag is there, and the card and the icons
   //     the page links load.
   await checkLinkPreview();
+
+  // 6d. In the assembled tree, each link from the home page into the tree
+  //     opens its demo under the base path.
+  if (tree) await checkDemos();
 
   // 7. Nothing failed quietly along the way.
   const unique = [...new Set(consoleErrors)];

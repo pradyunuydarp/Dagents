@@ -370,13 +370,16 @@ jobs:
           set -o pipefail
           python -m unittest discover -s tests -t . -v 2>&1 | tee contracts-suite.log
 
-      - name: Fail if the API example replay or the link preview plugin tests skipped
-        # The plugin tests skip without Node, so the class must have run.
+      - name: Fail if the API example replay, the link preview plugin or the site check option tests skipped
+        # The API example replay skips without the planner. The plugin tests
+        # and the option tests of site/check.mjs skip without Node. So those
+        # classes must have run.
         run: |
           python scripts/ci_no_skipped_tests.py \
             --forbid planner \
             --require-ran tests.test_api_examples.ApiExampleReplayTests \
             --require-ran tests.test_social_previews.SocialMetaPluginTests \
+            --require-ran tests.test_site_check_wiring.CheckScriptOptionTests \
             contracts-suite.log
 
   # ---------------------------------------------------------------------------
@@ -625,7 +628,32 @@ jobs:
         # the mistake this catches.
         run: python scripts/sync_design_system.py --check
 
+      - name: Resolve the published addresses and the base path
+        # pages.yml builds each frontend under the path Pages serves it from,
+        # with its published address in the link preview tags. Both come from
+        # env/.env.published: the base path is the framework site's address
+        # without its host and its last slash (/Dagents, or nothing on a custom
+        # domain). The site build and the published tree below use both.
+        run: |
+          python scripts/check_link_previews.py addresses --github-env "$GITHUB_ENV"
+          base_path="$(python - <<'PY'
+          import sys
+          from urllib.parse import urlsplit
+          sys.path.insert(0, "scripts")
+          from check_link_previews import PUBLISHED, read_published
+          print(urlsplit(read_published(PUBLISHED)["DAGENTS_PUBLIC_SITE_URL"]).path.rstrip("/"))
+          PY
+          )"
+          echo "BASE_PATH=${base_path}" >> "$GITHUB_ENV"
+          echo "The tree is served under ${base_path}/"
+
       - name: Build the framework site
+        # As pages.yml builds it: under the base path Pages serves it from,
+        # with its published address in the link preview tags. `npm run build`
+        # typechecks first.
+        env:
+          SITE_BASE_PATH: ${{ env.BASE_PATH }}/
+          PUBLIC_SITE_URL: ${{ env.DAGENTS_PUBLIC_SITE_URL }}
         working-directory: site
         run: |
           npm ci
@@ -675,18 +703,57 @@ jobs:
           echo "Using ${browser}"
           echo "CHROMIUM_PATH=${browser}" >> "$GITHUB_ENV"
 
+      # The demo builds above are for the root path, where a link or an asset
+      # path that lost the base path still works. The next three steps
+      # assemble the tree pages.yml publishes: the site at its root, and each
+      # demo built under its published path into the folder pages.yml copies
+      # it to. The first step empties the tree, so it goes first.
+      - name: Put the framework site at the root of the published tree
+        run: |
+          rm -rf _site
+          mkdir -p _site
+          cp -r site/dist/. _site/
+
+      - name: Build the healthcare demo into the published tree
+        # As a replay, as pages.yml builds it when the API fails its checks.
+        # This job has no recording, so the demo's data requests fail; the
+        # tree check does not check them.
+        env:
+          DEMO_BASE_PATH: ${{ env.BASE_PATH }}/healthcare-demo/
+          PUBLIC_SITE_URL: ${{ env.HEALTHCARE_DEMO_PUBLIC_SITE_URL }}
+          VITE_DAGENTS_STATIC: "1"
+        working-directory: apps/healthcare-demo/frontend
+        run: npx vite build --outDir ../../../_site/healthcare-demo --emptyOutDir
+
+      - name: Build the NL2SQL demo into the published tree
+        env:
+          DEMO_BASE_PATH: ${{ env.BASE_PATH }}/nl2sql-demo/
+          PUBLIC_SITE_URL: ${{ env.NL2SQL_DEMO_PUBLIC_SITE_URL }}
+          VITE_DAGENTS_STATIC: "1"
+        working-directory: services/nl2sql-demo/frontend
+        run: npx vite build --outDir ../../../_site/nl2sql-demo --emptyOutDir
+
       - name: Check the framework site in a browser
-        # Visits every guide page, draws every Mermaid diagram, loads every
-        # image, follows the links between pages, and checks that every API
-        # reference page shows each endpoint where docs/reference/api places
-        # it, that its anchors resolve, and that its code tabs switch. It
-        # also fetches every deck and PDF on the Resources page and checks each
-        # file's first bytes, and checks the home page's link preview tags and
-        # that its card and icons load. A diagram with a syntax error only fails in a
-        # browser, so the build above cannot catch it. Exit 2 (no browser)
-        # fails this step.
+        # Serves the tree assembled above as Pages serves it: under the base
+        # path, with a 404 for a missing file. There it visits every guide
+        # page, draws every Mermaid diagram, loads every image, follows the
+        # links between pages, and checks that every API reference page shows
+        # each endpoint where docs/reference/api places it, that its anchors
+        # resolve, and that its code tabs switch. It also fetches every deck
+        # and PDF on the Resources page and checks each file's first bytes, and
+        # checks the home page's link preview tags and that its card and icons
+        # load. Then each link from the home page into the tree must open its
+        # demo: the demo's page, scripts, styles and icons load from under the
+        # base path, and the app draws its masthead. A diagram with a syntax
+        # error, or a demo card or an asset path that lost the base path,
+        # builds without complaint and fails here. This run replaces
+        # `npm run check` at the root, which ran the same site checks a second
+        # time. Exit 2 (no browser) fails this step.
+        timeout-minutes: 15
         working-directory: site
-        run: npm run check
+        env:
+          PUBLIC_SITE_URL: ${{ env.DAGENTS_PUBLIC_SITE_URL }}
+        run: node check.mjs --tree ../_site --base "${BASE_PATH}/"
 
       - name: Smoke-test the real UI against a live backend
         # `run_frontend_demo.sh --check` starts the backend and the Vite dev
