@@ -308,6 +308,10 @@ apps/healthcare-demo/scripts/run_frontend_demo.sh --check
 # Or against a running stack:
 cd apps/healthcare-demo/frontend && npm install && npm run build && npm run smoke
 
+# Two people approve at once (frontend/approve.mjs). Starts its own API and UI,
+# because it changes the model in use.
+apps/healthcare-demo/tests/run_approval_check.sh
+
 # Framework site: every guide page, diagram, image and internal link.
 cd site && npm install && npm run build && npm run check
 ```

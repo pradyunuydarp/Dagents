@@ -391,7 +391,10 @@ one table with the log loss, the largest update, the records used and quorum
 for each round. Any excluded site is listed with the reason. Then come the
 training curve, the candidate's metrics next to the current model's, and the
 release gates. When every gate passes, a person must still approve the
-release.
+release. When the GMA refuses an approval with `409`, for example because
+another person approved a different candidate first, the page shows the GMA's
+reason and fetches the overview again, so "Model in use" names the model the
+hospitals use now.
 
 For each hospital's audit chain, and for its own release chain, the pilot
 report tells the coordinator only whether the chain verifies and how many
@@ -751,6 +754,26 @@ against agents in their own processes. `scripts/run_frontend_demo.sh --deploy
 its page, runs a pilot with it, and prints `ok  deploy: hospital pl-290
 joined`; CI's `deploy-smoke` job requires that line.
 
+A second browser check, `frontend/approve.mjs`, covers two people who approve
+at the same time:
+
+```bash
+tests/run_approval_check.sh   # starts its own API and UI, runs the check, stops
+```
+
+The script starts the API and the UI on free loopback ports, with the records
+in memory. The API's condition pack has one release gate that every candidate
+passes, because on the committed records the real gates decide `reject`. The
+planner still makes each decision. The check opens the consortium page in two
+browser contexts and runs a pilot in each, so the GMA holds two candidates
+checked against the same model. The first page approves its candidate, and the
+GMA refuses the second page's approval with `409`. The check requires the
+second page to show the GMA's reason and to name the released model as "Model
+in use", first without a reload and then after one. It changes the model in
+use, so it never runs against a demo someone else started. It needs the
+planner and a Chromium, and exits 2 with `SKIP` without a browser. CI does not
+run it.
+
 `tests/test_network_mode.py` starts the GMA, the three LMAs and the API as five
 uvicorn processes on free loopback ports against a scratch PostgreSQL 16
 database. It checks that a pilot over HTTP gives the same numbers as one in
@@ -822,12 +845,13 @@ frontend/
                          the recording capture also writes recording.json here
   social-meta.mjs        writes the published address (PUBLIC_SITE_URL) into the link preview tags
   smoke.mjs              drives the UI against a live backend
+  approve.mjs            two people approve at once; run by tests/run_approval_check.sh
 docs/screenshots/        screenshots of the UI
 scripts/                 run the demo, run the pilot, extract the data, seed a database, write the
                          agents' settings files, move into its own repository
 docker-compose.yml       the network layout in containers on a local PostgreSQL 16
 docker-compose.deploy.yml  opt-in override that lets Hospital 290 join as a container
-tests/                   the test suite
+tests/                   the test suite, and run_approval_check.sh with the API it starts
 ```
 
 ## Moving it into its own repository

@@ -23,7 +23,7 @@ export function ConsortiumPage({
   recording,
   pilot,
   onPilot,
-  onApproved,
+  onModelChange,
   onJoined
 }: {
   overview: Overview;
@@ -31,7 +31,8 @@ export function ConsortiumPage({
   recording: Recording | null;
   pilot: Pilot | null;
   onPilot: (pilot: Pilot) => void;
-  onApproved: () => void;
+  /** The model in use may have changed: after an approval, or after one refused with a 409. */
+  onModelChange: () => void;
   /** A hospital joined the consortium: the overview and the status change. */
   onJoined: () => void;
 }) {
@@ -75,8 +76,8 @@ export function ConsortiumPage({
           onPilot(next);
           reloadCharts();
         }}
-        onApproved={() => {
-          onApproved();
+        onModelChange={() => {
+          onModelChange();
           reloadCharts();
         }}
         trainingChart={trainingChart}

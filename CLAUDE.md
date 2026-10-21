@@ -620,6 +620,7 @@ The healthcare demo has its own scripts, which need no Docker and no database:
 ```bash
 apps/healthcare-demo/scripts/run_frontend_demo.sh          # API + UI + a guided tour
 apps/healthcare-demo/scripts/run_frontend_demo.sh --check  # start, smoke-test the UI, exit
+apps/healthcare-demo/tests/run_approval_check.sh           # two people approve at once, in a browser
 apps/healthcare-demo/scripts/run_pilot.sh                  # no UI: one pilot, printed
 apps/healthcare-demo/scripts/run_local_demo.sh             # the API alone on :8080
 ```
@@ -681,6 +682,15 @@ the page after its other checks and prints `ok  deploy: hospital pl-290
 joined`. A typecheck
 and a bundle only prove that the app compiles. The smoke test exits 2 and prints
 `SKIP` when no browser is available; report that as skipped, not passed.
+
+`apps/healthcare-demo/tests/run_approval_check.sh` runs a second browser check,
+`frontend/approve.mjs`, against an API and a UI it starts on free ports. Two
+pages each run a pilot, the first approves its candidate, and the GMA refuses
+the second with `409`. The check requires the refused page to name the released
+model as "Model in use" before and after a reload. The API it starts
+(`tests/approval_server.py`) keeps the records in memory and has one gate that
+every candidate passes, because the real gates reject the candidates from the
+committed records. It also exits 2 without a browser. CI does not run it.
 
 ### Service ports
 

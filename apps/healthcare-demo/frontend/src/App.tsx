@@ -107,7 +107,7 @@ export default function App() {
         recording={recording}
         pilot={pilot}
         onPilot={setPilot}
-        onApproved={refreshOverview}
+        onModelChange={refreshOverview}
         onJoined={refreshOverview}
       />
     ) : overviewError ? (

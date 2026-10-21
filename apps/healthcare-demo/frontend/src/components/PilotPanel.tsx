@@ -1,6 +1,6 @@
 import { useState } from "react";
 
-import { isRecorded, postJson } from "../api";
+import { ApiError, isRecorded, postJson } from "../api";
 import {
   count,
   fixed,
@@ -351,13 +351,14 @@ export function PilotPanel({
   overview,
   pilot,
   onPilot,
-  onApproved,
+  onModelChange,
   trainingChart
 }: {
   overview: Overview;
   pilot: Pilot | null;
   onPilot: (pilot: Pilot) => void;
-  onApproved: () => void;
+  /** The model in use may have changed: after an approval, and after an approval refused with a 409. */
+  onModelChange: () => void;
   trainingChart: ChartInfo | undefined;
 }) {
   const [busy, setBusy] = useState(false);
@@ -385,9 +386,13 @@ export function PilotPanel({
     setApproveError(null);
     try {
       setApproved(await postJson<ApproveResult>(`/api/v1/models/${encodeURIComponent(version)}:approve`, {}));
-      onApproved();
+      onModelChange();
     } catch (exc) {
       setApproveError(exc);
+      // The GMA answers 409 when the candidate cannot be approved, for
+      // example because another person approved a candidate first. Fetch the
+      // overview again, so "Model in use" names the model the hospitals use now.
+      if (exc instanceof ApiError && exc.status === 409) onModelChange();
     } finally {
       setApproving(false);
     }
