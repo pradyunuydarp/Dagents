@@ -21,7 +21,7 @@ Each layer of Dagents has its own job and its own test loop:
 | **Framework services**: core, pipeline, model | `services/` | Python 3.11 (+ torch for model) | `services/<name>/tests` |
 | **Spring services**: JVM control and core APIs | `services/spring-services/` | JDK 21 + Maven | `mvn verify` |
 | **Demo apps**: healthcare, NL2SQL | `apps/`, `services/nl2sql-demo/` | Python 3.11 + `dagentsc` + a PostgreSQL 16 service | their own suites |
-| **Frontends**: the site and the two demo UIs | `site/`, `*/frontend/` | Node 22 + a browser | `npm run build`, `npm run check`, `npm run smoke` |
+| **Frontends**: the site and the two demo UIs | `site/`, `*/frontend/` | Node 22 + a browser | `npm run build`, `node check.mjs --tree ../_site --base "${BASE_PATH}/"` (the site under `/Dagents/`, §2q), `npm run smoke` |
 | **Cross-service contracts**: the endpoint inventory and API conventions | `tests/` | every Python service's dependencies | `tests/` |
 | **Python package**: the `dagents` sdist and wheels | `pyproject.toml`, `hatch_build.py`, `dagents/` | Python 3.11 to 3.13 + a static `dagentsc` | `packaging` job: build, `scripts/check_dist.py`, clean-venv smoke, `dagents/tests` on the newest versions the extras allow |
 
@@ -149,8 +149,9 @@ demo script turns that into a friendly message and exits 0. That is right for a
 developer and wrong for CI.
 
 Defence: the `frontends` job installs a browser, sets `CHROMIUM_PATH`, and fails
-if the smoke log contains a skip or no passing assertions. `npm run check`
-returns exit 2 to the step directly, which fails it.
+if the smoke log contains a skip or no passing assertions. The site's check,
+`node check.mjs --tree ../_site --base "${BASE_PATH}/"` (§2q), returns exit 2
+to the step directly, which fails it.
 
 Never let a job accept exit 2, and never report a skipped browser test as a pass.
 

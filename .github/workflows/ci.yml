@@ -370,9 +370,10 @@ jobs:
           set -o pipefail
           python -m unittest discover -s tests -t . -v 2>&1 | tee contracts-suite.log
 
-      - name: Fail if the API example replay or the link preview plugin tests skipped
-        # The plugin tests and the option tests of site/check.mjs skip without
-        # Node, so those classes must have run.
+      - name: Fail if the API example replay, the link preview plugin or the site check option tests skipped
+        # The API example replay skips without the planner. The plugin tests
+        # and the option tests of site/check.mjs skip without Node. So those
+        # classes must have run.
         run: |
           python scripts/ci_no_skipped_tests.py \
             --forbid planner \
