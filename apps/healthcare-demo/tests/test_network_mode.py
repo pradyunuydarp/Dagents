@@ -11,7 +11,9 @@ real migrations, and checks through the public API:
 - the Guard probe, which the hospital's LMA answers;
 - a pilot, which gives the same numbers as a pilot with the agents in process
   on the same database, and as the recorded pilot (``test_pilot_parity.py``);
-- an entry and its outcome, which the hospital's LMA reads at once;
+- an entry and its outcome, which the hospital's LMA reads at once, which the
+  consortium overview counts through the GMA, and which the next pilot trains
+  and evaluates on;
 - the hospital page, and the refusal to approve a rejected candidate;
 - that each agent refuses a call without the right token, and that no response
   and no log holds a token or an agent's address.
@@ -21,10 +23,19 @@ gate a trained candidate passes, and approves the candidate: the GMA releases
 it, and each hospital's LMA process then reads it from the GMA and scores with
 it.
 
+:class:`NetworkOutageTests` starts the five processes again and kills one
+hospital's LMA process while the demo runs. While it is down, that hospital's
+page answers the app's 503 in words, the other pages answer, the status report
+says the LMA does not answer, and the pilot says in words what the planner
+decided about the hospital. The LMA then starts again on the same port, and
+the page, the status report and the next pilot include the hospital again.
+
 Each process gets a socket that this test bound to a free loopback port, so no
 port is fixed and no port can be taken between choosing it and serving on it.
-The tokens are new for each run and reach the processes only through their
-environment.
+A process that a test starts again binds the same port again, so its port is
+chosen below the range of ports the system gives outgoing connections
+(:func:`_restartable_socket`). The tokens are new for each run and reach the
+processes only through their environment.
 
 It needs ``HEALTHCARE_DEMO_TEST_DATABASE_URL`` (see ``test_site_isolation.py``)
 and the planner. Without the database it skips with a message that starts with
@@ -39,9 +50,11 @@ file.
 from __future__ import annotations
 
 import dataclasses
+import errno
 import json
 import os
 from pathlib import Path
+import random
 import re
 import secrets
 import signal
@@ -62,9 +75,11 @@ FRAMEWORK_ROOT = Path(os.environ.get("DAGENTS_HOME") or APP_ROOT.parents[1])
 sys.path.insert(0, str(APP_ROOT / "backend"))
 sys.path.insert(0, str(FRAMEWORK_ROOT))
 
+from app.api.app_header import APP_HEADER, APP_HEADER_VALUE  # noqa: E402
 from app.core.config import lma_token_variable, lma_url_variable, settings  # noqa: E402
 from app.domain.dataset import JOINING_SITES, SITES, load_site_records  # noqa: E402
 from app.services.agents import HealthcareDemo, gma_environment, lma_environment  # noqa: E402
+from app.services.overview import STATUS_CACHE_SECONDS  # noqa: E402
 from app.services.site_store import PostgresSiteStore  # noqa: E402
 from tests import test_pilot_parity as parity  # noqa: E402
 from tests.support import HIGH_RISK_ENTRY, dagentsc_available  # noqa: E402
@@ -76,6 +91,15 @@ START_SECONDS = 90
 REQUEST_SECONDS = 600
 #: Seconds a process may take to stop after SIGTERM before it is killed.
 STOP_SECONDS = 20
+#: Seconds a process that starts again may wait for its port to be free again.
+REBIND_SECONDS = 10
+#: Seconds between two tries to bind that port.
+REBIND_INTERVAL_SECONDS = 0.5
+#: The lowest port :func:`_restartable_socket` picks. Ports below it are left
+#: to other services; 1024 and below need privileges.
+RESTARTABLE_PORT_FLOOR = 20000
+#: Where Linux keeps the range of ports it gives outgoing connections.
+EPHEMERAL_RANGE_FILE = Path("/proc/sys/net/ipv4/ip_local_port_range")
 
 #: Runs one ASGI app with uvicorn on a socket the parent bound and passed down.
 #: ``socket.socket(fileno=...)`` reads the family and type from the descriptor.
@@ -94,13 +118,60 @@ def _site_map(values: dict[str, str]) -> str:
     return ",".join(f"{site_id}={value}" for site_id, value in sorted(values.items()))
 
 
-def _bound_socket() -> socket.socket:
-    """A listening TCP socket on a free loopback port."""
+def _bound_socket(port: int = 0) -> socket.socket:
+    """A listening TCP socket on ``port`` of loopback; port 0 lets the system pick a free one."""
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    sock.bind(("127.0.0.1", 0))
-    sock.listen(128)
+    try:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        sock.bind(("127.0.0.1", port))
+        sock.listen(128)
+    except BaseException:
+        sock.close()
+        raise
     return sock
+
+
+def _ephemeral_range_start() -> int | None:
+    """The first port of the range Linux gives outgoing connections, or ``None`` where it cannot be read."""
+    try:
+        return int(EPHEMERAL_RANGE_FILE.read_text(encoding="ascii").split()[0])
+    except (OSError, ValueError, IndexError):
+        return None
+
+
+def _restartable_socket() -> socket.socket:
+    """A listening loopback socket on a free port that a process stopped by a test can bind again.
+
+    A port the system picks is in the range it also gives outgoing
+    connections. While the process is stopped, any outgoing connection on this
+    machine can take that port as its source port, and then the restart cannot
+    bind it. So the port is a random free one between
+    :data:`RESTARTABLE_PORT_FLOOR` and the start of that range, which no
+    outgoing connection takes. Where the range cannot be read, the system
+    picks the port, and :func:`_bind_again` waits for it.
+    """
+    start = _ephemeral_range_start()
+    if start is not None and start - RESTARTABLE_PORT_FLOOR > 64:
+        for port in random.SystemRandom().sample(range(RESTARTABLE_PORT_FLOOR, start), 64):
+            try:
+                return _bound_socket(port)
+            except OSError:
+                continue
+    return _bound_socket(0)
+
+
+def _bind_again(port: int, name: str) -> socket.socket:
+    """Bind ``port`` again for ``name``, trying for :data:`REBIND_SECONDS` while it is still in use."""
+    deadline = time.monotonic() + REBIND_SECONDS
+    while True:
+        try:
+            return _bound_socket(port)
+        except OSError as error:
+            if error.errno != errno.EADDRINUSE or time.monotonic() > deadline:
+                raise AssertionError(
+                    f"{name} cannot start again: its port is still in use after {REBIND_SECONDS} s ({error})"
+                ) from error
+        time.sleep(REBIND_INTERVAL_SECONDS)
 
 
 class _Process:
@@ -108,7 +179,12 @@ class _Process:
 
     It runs from the framework's root with the framework and the app's backend
     on its ``PYTHONPATH``, unless ``cwd`` and ``pythonpath`` say otherwise
-    (core-service, whose package is also named ``app``).
+    (core-service, whose package is also named ``app``). It stays in this
+    test's process group, so Ctrl-C in a terminal stops it with the test, even
+    when ``tearDownClass`` does not run. uvicorn here starts no process of its
+    own, and the planner runs in a group of its own, so signalling this one
+    process is enough. With ``restartable``, its port is one :meth:`restart`
+    can bind again (:func:`_restartable_socket`).
     """
 
     def __init__(
@@ -121,18 +197,21 @@ class _Process:
         *,
         cwd: Path | None = None,
         pythonpath: tuple[Path, ...] | None = None,
+        restartable: bool = False,
     ) -> None:
         self.name = name
         self.paths = paths
         self.cwd = cwd or FRAMEWORK_ROOT
         self.pythonpath = pythonpath
-        self.sock = _bound_socket()
+        self.sock = _restartable_socket() if restartable else _bound_socket()
         self.port = self.sock.getsockname()[1]
         self.url = f"http://127.0.0.1:{self.port}"
         self.app = app
         self.environment = environment
         self.log_path = log_dir / f"{name}.log"
         self.process: subprocess.Popen[bytes] | None = None
+        #: The settings of the first start, which :meth:`restart` starts with again.
+        self.extra: dict[str, str] = {}
 
     def start(self, extra: dict[str, str]) -> None:
         env = {name: os.environ[name] for name in KEPT_VARIABLES if name in os.environ}
@@ -150,7 +229,9 @@ class _Process:
         )
         env.update(self.environment)
         env.update(extra)
-        with self.log_path.open("wb") as log:
+        self.extra = dict(extra)
+        # Appended to, so a process started again keeps the log of its first run.
+        with self.log_path.open("ab") as log:
             self.process = subprocess.Popen(
                 [sys.executable, "-c", SERVE, self.app, str(self.sock.fileno())],
                 cwd=str(self.cwd),
@@ -164,6 +245,20 @@ class _Process:
 
     def log(self) -> str:
         return self.log_path.read_text(encoding="utf-8", errors="replace") if self.log_path.exists() else ""
+
+    def started_environment(self) -> dict[str, str] | None:
+        """The environment the running process started with, read from Linux's ``/proc``.
+
+        It is ``None`` where ``/proc`` cannot be read. It holds what the
+        process received, not what this test meant to give it.
+        """
+        assert self.process is not None
+        try:
+            raw = Path(f"/proc/{self.process.pid}/environ").read_bytes()
+        except OSError:
+            return None
+        pairs = (item.split(b"=", 1) for item in raw.split(b"\0") if b"=" in item)
+        return {name.decode(errors="replace"): value.decode(errors="replace") for name, value in pairs}
 
     def wait_healthy(self) -> None:
         deadline = time.monotonic() + START_SECONDS
@@ -180,6 +275,7 @@ class _Process:
         raise AssertionError(f"{self.name} did not answer its health check:\n{self.log()[-3000:]}")
 
     def stop(self) -> None:
+        """Stop the process with SIGTERM, and with SIGKILL after :data:`STOP_SECONDS`."""
         self.sock.close()
         if self.process is None or self.process.poll() is not None:
             return
@@ -190,9 +286,51 @@ class _Process:
             self.process.kill()
             self.process.wait(timeout=STOP_SECONDS)
 
+    def kill(self) -> None:
+        """Stop the process at once with SIGKILL, as a crash would: it runs no shutdown code."""
+        self.sock.close()
+        if self.process is None or self.process.poll() is not None:
+            return
+        self.process.kill()
+        self.process.wait(timeout=STOP_SECONDS)
+
+    def restart(self) -> None:
+        """Start the stopped process again on the same port, with the same settings, and wait for its health check."""
+        if self.process is None or self.process.poll() is None:
+            raise AssertionError(f"{self.name} must be stopped before it starts again")
+        self.sock = _bind_again(self.port, self.name)
+        self.start(self.extra)
+        self.wait_healthy()
+
 
 #: Calls this test makes go straight to loopback, never through a proxy.
 _OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+
+
+def http_exchange(
+    method: str,
+    url: str,
+    body: Any = None,
+    *,
+    headers: dict[str, str] | None = None,
+    timeout: float = REQUEST_SECONDS,
+) -> tuple[int, Any, dict[str, str]]:
+    """One HTTP request. Returns ``(status, parsed JSON body or text, headers)``; header names are lower case."""
+    data = json.dumps(body).encode() if body is not None else None
+    request = urllib.request.Request(url, data=data, method=method, headers={"Content-Type": "application/json"})
+    for name, value in (headers or {}).items():
+        request.add_header(name, value)
+    try:
+        with _OPENER.open(request, timeout=timeout) as response:
+            status, raw, received = response.status, response.read(), response.headers
+    except urllib.error.HTTPError as error:
+        status, raw, received = error.code, error.read(), error.headers
+    text = raw.decode("utf-8", errors="replace")
+    answer_headers = {name.lower(): value for name, value in received.items()}
+    try:
+        return status, json.loads(text) if text else None, answer_headers
+    except json.JSONDecodeError:
+        return status, text, answer_headers
 
 
 def http_call(
@@ -204,20 +342,8 @@ def http_call(
     timeout: float = REQUEST_SECONDS,
 ) -> tuple[int, Any]:
     """One HTTP request. Returns ``(status, parsed JSON body or text)``."""
-    data = json.dumps(body).encode() if body is not None else None
-    request = urllib.request.Request(url, data=data, method=method, headers={"Content-Type": "application/json"})
-    for name, value in (headers or {}).items():
-        request.add_header(name, value)
-    try:
-        with _OPENER.open(request, timeout=timeout) as response:
-            status, raw = response.status, response.read()
-    except urllib.error.HTTPError as error:
-        status, raw = error.code, error.read()
-    text = raw.decode("utf-8", errors="replace")
-    try:
-        return status, json.loads(text) if text else None
-    except json.JSONDecodeError:
-        return status, text
+    status, answer, _ = http_exchange(method, url, body, headers=headers, timeout=timeout)
+    return status, answer
 
 
 class _AgentProcesses:
@@ -233,8 +359,12 @@ class _AgentProcesses:
     hospital's one address and holds its tokens, the new LMA's env file is in
     a folder only this user can enter, and the API runs with
     ``HEALTHCARE_DEMO_DEPLOYER=process``. The API starts the new LMA itself.
+
+    ``restartable`` names the processes (``gma``, ``lma-<site_id>``) that a
+    test stops and starts again, so their ports can be bound again.
     """
 
+    restartable: frozenset[str] = frozenset()
     core: _Process | None = None
     joining_port: int = 0
     deploy_dir: Path | None = None
@@ -284,15 +414,22 @@ class _AgentProcesses:
         cls.tokens.update({f"gma site {site_id}": value for site_id, value in gma_site.items()})
 
         cls.gma = _Process(
-            "gma", "dagents.gma.main:app", {**gma_environment(database=True), **agent_settings}, log_dir, paths
+            "gma",
+            "dagents.gma.main:app",
+            {**gma_environment(database=True), **agent_settings},
+            log_dir,
+            paths,
+            restartable="gma" in cls.restartable,
         )
         for site in SITES:
+            name = f"lma-{site.site_id}"
             cls.lmas[site.site_id] = _Process(
-                f"lma-{site.site_id}",
+                name,
                 "dagents.lma.main:app",
                 {**lma_environment(site, database=True), **agent_settings},
                 log_dir,
                 paths,
+                restartable=name in cls.restartable,
             )
         cls.api = _Process(
             "api",
@@ -363,9 +500,10 @@ class _AgentProcesses:
             "core-service", "app.main:app", {}, log_dir, cwd=core_dir, pythonpath=(FRAMEWORK_ROOT, core_dir)
         )
         cls.core.start({})
-        # The API starts the new LMA itself, on this port, so no socket is held for it.
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
-            probe.bind(("127.0.0.1", 0))
+        # The API starts the new LMA itself, on this port, so no socket is held
+        # for it. A test stops that LMA and has the API start it again on the
+        # same port, so the port is one no outgoing connection takes.
+        with _restartable_socket() as probe:
             cls.joining_port = probe.getsockname()[1]
         joining_url = f"http://127.0.0.1:{cls.joining_port}"
         cls.deploy_dir = log_dir / "deploy"
@@ -396,10 +534,16 @@ class _AgentProcesses:
         return api
 
     @classmethod
+    def exchange(cls, method: str, path: str, body: Any = None) -> tuple[int, Any, dict[str, str]]:
+        """A call to the demo API, with the answer's headers. Every answer is kept for the token and address checks."""
+        status, answer, headers = http_exchange(method, cls.api.url + path, body)
+        cls.responses.append(answer)
+        return status, answer, headers
+
+    @classmethod
     def public(cls, method: str, path: str, body: Any = None) -> tuple[int, Any]:
         """A call to the demo API. Every answer is kept for the token and address checks."""
-        status, answer = http_call(method, cls.api.url + path, body)
-        cls.responses.append(answer)
+        status, answer, _ = cls.exchange(method, path, body)
         return status, answer
 
     @classmethod
@@ -412,10 +556,41 @@ class _AgentProcesses:
         ):
             if process is not None:
                 process.stop()
+        cls._stop_joined_lmas()
         if getattr(cls, "db", None) is not None:
             cls.db.stop()
         if getattr(cls, "log_dir", None) is not None:
             cls.log_dir.cleanup()
+
+    @classmethod
+    def _stop_joined_lmas(cls) -> None:
+        """Kill a new LMA the API started and did not stop, as when the API died or a test failed first.
+
+        The API starts it in a session of its own and keeps its process id in
+        a pid file in the deploy folder while it runs. A pid file outlives its
+        process when the API dies first, and the system can give that id to
+        another process, such as another job's server. So the process group is
+        killed only when the process leads it and serves the LMA app on this
+        class's joining port.
+        """
+        if cls.deploy_dir is None or not cls.deploy_dir.is_dir():
+            return
+        serves_the_new_lma = (b"\0dagents.lma.main:app\0", f"\0--port\0{cls.joining_port}\0".encode())
+        for pid_file in cls.deploy_dir.glob("*.pid"):
+            try:
+                pid = int(pid_file.read_text(encoding="utf-8").strip())
+                command = Path(f"/proc/{pid}/cmdline").read_bytes()
+                stat = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8", errors="replace")
+                # After the command name in parentheses: state, parent id, group id.
+                group = int(stat.rsplit(")", 1)[1].split()[2])
+            except (OSError, ValueError, IndexError):
+                continue
+            if group != pid or not all(part in command for part in serves_the_new_lma):
+                continue
+            try:
+                os.killpg(pid, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError):
+                pass
 
     def processes(self) -> list[_Process]:
         return [self.api, self.gma, *self.lmas.values()]
@@ -595,6 +770,61 @@ class NetworkModeTests(_AgentProcesses, unittest.TestCase):
         self.assertEqual(200, status, body)
         return body["encounters"]
 
+    def overview_row(self, site_id: str) -> dict[str, Any]:
+        status, overview = self.public("GET", "/api/v1/overview")
+        self.assertEqual(200, status, overview)
+        return next(row for row in overview["hospitals"] if row["site_id"] == site_id)
+
+    def test_an_entry_and_its_outcome_reach_the_consortium_counts_and_the_next_pilot(self) -> None:
+        """A labelled entry reaches the GMA's site report at once, and the next pilot uses it in every round.
+
+        The overview reads each hospital's counts from the GMA. The GMA asks
+        the hospital's LMA on every call, because it keeps no summary
+        (``GMA_SUMMARY_TTL_SECONDS=0``). The entry goes to the first hospital
+        and the other entry test writes to the third, so the pilot of
+        ``setUpClass`` holds this hospital's counts from before the entry.
+        """
+        self.assertEqual("0", gma_environment(database=True)["GMA_SUMMARY_TTL_SECONDS"])
+        running = self.gma.started_environment()
+        if running is not None:
+            self.assertEqual("0", running.get("GMA_SUMMARY_TTL_SECONDS"), "the GMA process keeps site summaries")
+        site_id = SITES[0].site_id
+        before = self.overview_row(site_id)
+
+        status, entry = self.public("POST", f"/api/v1/hospitals/{site_id}/encounters", HIGH_RISK_ENTRY)
+        self.assertEqual(201, status, entry)
+        encounter_id = entry["record"]["encounter_id"]
+        status, outcome = self.public(
+            "POST", f"/api/v1/hospitals/{site_id}/encounters/{encounter_id}/outcome", {"poor_outcome_6m": True}
+        )
+        self.assertEqual(200, status, outcome)
+
+        after = self.overview_row(site_id)
+        for count in ("record_count", "entered_count", "labelled_count"):
+            with self.subTest(count=count):
+                self.assertEqual(before[count] + 1, after[count])
+
+        status, report = self.public("POST", "/api/v1/pilot:run", {"round_prefix": "api"})
+        self.assertEqual(200, status, str(report)[:500])
+
+        def examples(pilot: dict[str, Any], name: str) -> list[int]:
+            rounds = pilot["rounds"]
+            reports = rounds[name] if name == "training" else [rounds[name]]
+            return [
+                result["contributed_examples"]
+                for item in reports
+                for result in item["results"]
+                if result["site_id"] == site_id and result["participation"] == "completed"
+            ]
+
+        # Analytics profiles every record; the other rounds use the labelled ones.
+        for name in ("analytics", "evaluation", "training", "candidate_validation"):
+            with self.subTest(round=name):
+                old, new = examples(self.report, name), examples(report, name)
+                self.assertTrue(old, f"{site_id} completed no {name} round in the first pilot")
+                self.assertEqual(len(old), len(new), f"{site_id} completed another number of {name} rounds")
+                self.assertEqual([count + 1 for count in old], new)
+
     def test_a_rejected_candidate_cannot_be_approved(self) -> None:
         candidate = self.report["candidate"]
         self.assertEqual("rejected", candidate["status"])
@@ -716,6 +946,200 @@ class NetworkApprovalTests(_AgentProcesses, unittest.TestCase):
         self.assertEqual(409, status, again)
 
     def test_no_response_or_log_holds_a_token_or_an_agent_address(self) -> None:
+        for index, answer in enumerate(self.responses):
+            self.assertNoAddressOrToken(json.dumps(answer), f"response {index}")
+        for process in self.processes():
+            self.assertNoAddressOrToken(process.log(), f"the log of {process.name}")
+
+
+#: The hospital whose LMA process :class:`NetworkOutageTests` stops.
+STOPPED = SITES[1]
+
+
+def pilot_rounds(report: dict[str, Any]) -> list[dict[str, Any]]:
+    """Every round a pilot report holds, in the order it ran."""
+    rounds = report["rounds"]
+    found = [rounds["analytics"], rounds["evaluation"], *rounds["training"], rounds["candidate_validation"]]
+    return [item for item in found if item is not None]
+
+
+def _in_words(text: Any) -> bool:
+    """Whether ``text`` is a sentence or a phrase for people, not a code such as ``quorum_not_met``."""
+    return isinstance(text, str) and " " in text.strip()
+
+
+@unittest.skipUnless(dagentsc_available(), "dagentsc binary is not available")
+class NetworkOutageTests(_AgentProcesses, unittest.TestCase):
+    """One hospital's LMA process is killed while the demo runs, then starts again on its port.
+
+    ``setUpClass`` runs a pilot with every hospital, kills the second
+    hospital's LMA with SIGKILL, as a crash would, and reads the pages the
+    demo shows: the hospital's page, the other hospitals' pages, the status
+    report, the overview and a pilot. Then it starts the LMA again on the same
+    port with the same settings and database, and reads them again. The tests
+    check what each answer says.
+    """
+
+    restartable = frozenset({f"lma-{STOPPED.site_id}"})
+
+    first: dict[str, Any]
+    down: dict[str, tuple[int, Any, dict[str, str]]]
+    restored: dict[str, tuple[int, Any, dict[str, str]]]
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        try:
+            cls.start_cluster()
+            status, cls.first = cls.public("POST", "/api/v1/pilot:run", {"round_prefix": "api"})
+            if status != 200:
+                raise AssertionError(f"the pilot with every hospital failed with {status}: {str(cls.first)[:500]}")
+            lma = cls.lmas[STOPPED.site_id]
+            lma.kill()
+            cls.down = cls._read_pages()
+            lma.restart()
+            cls.restored = cls._read_pages()
+            cls.restored["status"] = cls._status_once_services_answer()
+        except BaseException:
+            cls.tearDownClass()
+            raise
+
+    @classmethod
+    def _read_pages(cls) -> dict[str, tuple[int, Any, dict[str, str]]]:
+        pages = {f"hospital {site.site_id}": cls.exchange("GET", f"/api/v1/hospitals/{site.site_id}") for site in SITES}
+        pages["status"] = cls.exchange("GET", "/api/v1/framework/status")
+        pages["overview"] = cls.exchange("GET", "/api/v1/overview")
+        pages["pilot"] = cls.exchange("POST", "/api/v1/pilot:run", {"round_prefix": "api"})
+        return pages
+
+    @classmethod
+    def _status_once_services_answer(cls) -> tuple[int, Any, dict[str, str]]:
+        """The status report once its health checks are new again: the API reuses them for STATUS_CACHE_SECONDS (15 s)."""
+        deadline = time.monotonic() + STATUS_CACHE_SECONDS + 10
+        while True:
+            answer = cls.exchange("GET", "/api/v1/framework/status")
+            body = answer[1]
+            services = body.get("services", []) if isinstance(body, dict) else []
+            if all(service["status"] == "ok" for service in services) or time.monotonic() > deadline:
+                return answer
+            time.sleep(1)
+
+    def page(self, pages: dict[str, tuple[int, Any, dict[str, str]]], site_id: str) -> tuple[int, Any, dict[str, str]]:
+        return pages[f"hospital {site_id}"]
+
+    def assertAppsUnavailableAnswer(self, answer: tuple[int, Any, dict[str, str]], where: str) -> None:
+        """The app's own 503, which the page shows at once, with the app's words and nothing else."""
+        from app.main import AGENT_UNAVAILABLE_MESSAGE
+
+        status, body, headers = answer
+        self.assertEqual(503, status, f"{where}: {str(body)[:500]}")
+        self.assertEqual(APP_HEADER_VALUE, headers.get(APP_HEADER.lower()), f"{where} lacks {APP_HEADER}")
+        self.assertEqual({"detail": AGENT_UNAVAILABLE_MESSAGE}, body, where)
+
+    # --- While the LMA is stopped ------------------------------------------------------
+
+    def test_while_the_lma_is_stopped_its_hospital_page_answers_the_apps_503_in_words(self) -> None:
+        self.assertAppsUnavailableAnswer(self.page(self.down, STOPPED.site_id), f"the page of {STOPPED.site_id}")
+
+    def test_while_the_lma_is_stopped_the_other_hospitals_pages_answer(self) -> None:
+        for site in SITES:
+            if site is STOPPED:
+                continue
+            with self.subTest(site_id=site.site_id):
+                status, page, _ = self.page(self.down, site.site_id)
+                self.assertEqual(200, status, str(page)[:500])
+                agents = {(call["service"], call["site_id"]) for call in page["framework_calls"]}
+                self.assertEqual({("lma", site.site_id)}, agents)
+
+    def test_while_the_lma_is_stopped_the_status_report_says_it_does_not_answer(self) -> None:
+        status, report, _ = self.down["status"]
+        self.assertEqual(200, status, str(report)[:500])
+        self.assertFalse(report["ready"])
+        self.assertIsNone(report["hospitals"])
+        reachable = {lma["site_id"]: lma["reachable"] for lma in report["agents"]["lmas"]}
+        self.assertEqual({site.site_id: site is not STOPPED for site in SITES}, reachable)
+        services = {service["name"]: service["status"] for service in report["services"]}
+        expected = {"gma": "ok", **{f"lma-{site.site_id}": "ok" for site in SITES}}
+        expected[f"lma-{STOPPED.site_id}"] = "unavailable"
+        self.assertEqual(expected, services)
+
+    def test_while_the_lma_is_stopped_the_overview_answers_the_apps_503_in_words(self) -> None:
+        """The overview shows every hospital's report, so it cannot be built without one of them."""
+        self.assertAppsUnavailableAnswer(self.down["overview"], "the overview")
+
+    def test_while_the_lma_is_stopped_the_pilot_says_in_words_what_the_planner_decided(self) -> None:
+        """The planner leaves the hospital out of each round or refuses its failed run, and no round meets its quorum.
+
+        Which one depends on the GMA. A hospital it enrolled before stays
+        selected, and its run fails. A hospital it never enrolled is left out.
+        """
+        status, report, _ = self.down["pilot"]
+        self.assertEqual(200, status, str(report)[:500])
+        rounds = pilot_rounds(report)
+        self.assertTrue(rounds)
+        for item in rounds:
+            with self.subTest(round=item["round_id"]):
+                plan = item["plan"]
+                excluded = {entry["site_id"]: entry["reason"] for entry in plan["excluded_sites"]}
+                if STOPPED.site_id in excluded:
+                    self.assertNotIn(STOPPED.site_id, plan["selected_sites"])
+                    self.assertTrue(_in_words(excluded[STOPPED.site_id]), excluded)
+                else:
+                    self.assertIn(STOPPED.site_id, plan["selected_sites"])
+                    result = next(row for row in item["results"] if row["site_id"] == STOPPED.site_id)
+                    self.assertEqual("failed", result["participation"], result)
+                    self.assertTrue(_in_words(result["refusal_reason"]), result)
+                    refused = {row["site_id"]: row["reason"] for row in item["readiness"]["rejected_contributions"]}
+                    self.assertTrue(_in_words(refused.get(STOPPED.site_id)), item["readiness"])
+                readiness = item["readiness"] or {}
+                self.assertFalse(readiness.get("aggregation_permitted", False))
+                self.assertEqual("quorum_not_met", readiness.get("stop_reason") or plan["stop_reason"])
+        # The words are written out here, so a change to the app's wording fails this test.
+        expected = "training round 1 could not be aggregated: fewer hospitals took part than the round needs"
+        self.assertEqual(expected, report["stop_reason"])
+        self.assertIsNone(report["candidate"])
+        self.assertIsNone(report["release"])
+        self.assertIsNone(report["site_audits"][STOPPED.site_id])
+        self.assertEqual(self.first["model_in_use"]["version"], report["model_in_use"]["version"])
+
+    # --- After the LMA started again ---------------------------------------------------
+
+    def test_after_the_restart_every_hospital_page_answers_again(self) -> None:
+        for site in SITES:
+            with self.subTest(site_id=site.site_id):
+                status, page, _ = self.page(self.restored, site.site_id)
+                self.assertEqual(200, status, str(page)[:500])
+                self.assertEqual(self.first["model_in_use"]["version"], page["current_model"]["version"])
+                self.assertTrue(page["contributions"], "the hospital page lists no job")
+        status, overview, _ = self.restored["overview"]
+        self.assertEqual(200, status, str(overview)[:500])
+        self.assertEqual([site.site_id for site in SITES], [row["site_id"] for row in overview["hospitals"]])
+
+    def test_after_the_restart_the_status_report_says_every_agent_answers(self) -> None:
+        status, report, _ = self.restored["status"]
+        self.assertEqual(200, status, str(report)[:500])
+        self.assertTrue(report["ready"], report)
+        self.assertEqual([site.site_id for site in SITES], [row["site_id"] for row in report["hospitals"]])
+        reachable = {lma["site_id"]: lma["reachable"] for lma in report["agents"]["lmas"]}
+        self.assertEqual({site.site_id: True for site in SITES}, reachable)
+        self.assertEqual(
+            {"gma": "ok", **{f"lma-{site.site_id}": "ok" for site in SITES}},
+            {service["name"]: service["status"] for service in report["services"]},
+        )
+
+    def test_after_the_restart_the_next_pilot_includes_the_hospital_and_equals_the_recorded_pilot(self) -> None:
+        status, report, _ = self.restored["pilot"]
+        self.assertEqual(200, status, str(report)[:500])
+        for item in pilot_rounds(report):
+            with self.subTest(round=item["round_id"]):
+                results = {result["site_id"]: result["participation"] for result in item["results"]}
+                self.assertEqual({site.site_id: "completed" for site in SITES}, results, item["plan"])
+        audit = report["site_audits"][STOPPED.site_id]
+        self.assertTrue(audit["chain_intact"], audit)
+        self.assertGreater(audit["record_count"], 0)
+        found = parity.differences(parity.load_fixture(), parity.parity_view(report))
+        self.assertEqual([], found[:20], f"{len(found)} values differ from the recorded pilot")
+
+    def test_no_answer_or_log_holds_a_token_or_an_agent_address(self) -> None:
         for index, answer in enumerate(self.responses):
             self.assertNoAddressOrToken(json.dumps(answer), f"response {index}")
         for process in self.processes():
