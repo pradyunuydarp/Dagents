@@ -372,6 +372,64 @@ jobs:
           npm ci
           npm run build
 
+      - name: Build a replay copy of the healthcare demo
+        # The step above may build the demo live, against the deployed API.
+        # The replay is what this workflow publishes when that API fails its
+        # probe, so every run also builds the demo as a replay and drives it
+        # in a browser below, before anything is uploaded. The copy goes to a
+        # scratch folder and is never published.
+        env:
+          DEMO_BASE_PATH: ${{ env.BASE_PATH }}/healthcare-demo/
+          VITE_DAGENTS_STATIC: "1"
+          VITE_HEALTHCARE_API_BASE: ""
+          REPLAY_DIST: ${{ runner.temp }}/healthcare-replay
+        working-directory: apps/healthcare-demo/frontend
+        run: |
+          npx vite build --outDir "$REPLAY_DIST" --emptyOutDir
+
+      - name: Install a browser for the checks below
+        # This job can deploy to Pages. `npx --no` runs the playwright-core
+        # command that npm ci installed from the lockfile, and downloads
+        # nothing. `npx playwright` would fetch the newest playwright from the
+        # registry. The pinned command also installs the browser build that
+        # the drive's playwright-core expects.
+        working-directory: apps/healthcare-demo/frontend
+        run: npx --no playwright-core install --with-deps chromium
+
+      - name: Locate the browser
+        # replay-smoke.mjs searches CHROMIUM_PATH first, then paths that do not
+        # exist on a GitHub runner. Without a browser it would report SKIP, so
+        # a missing browser fails here instead.
+        working-directory: apps/healthcare-demo/frontend
+        run: |
+          browser="$(node -e \
+            "console.log(require('playwright-core').chromium.executablePath())" \
+            2>/dev/null || true)"
+          if [ ! -x "${browser}" ]; then
+            browser="$(find "${HOME}/.cache/ms-playwright" -type f -name 'chrome' \
+              -perm -u+x 2>/dev/null | head -1)"
+          fi
+          if [ ! -x "${browser}" ]; then
+            echo "No browser found. The replay check would report SKIP, which is not a pass." >&2
+            exit 1
+          fi
+          echo "Using ${browser}"
+          echo "CHROMIUM_PATH=${browser}" >> "$GITHUB_ENV"
+
+      - name: Drive the healthcare replay in a browser
+        # Stops the deploy when the replay would not work: a Guard answer, the
+        # pilot, a chart or a turned-off action that differs from the
+        # recording, an API request, or a console error. The drive exits 2
+        # when it finds no browser, and this step runs it alone, so exit 2
+        # fails the step. apps/healthcare-demo/frontend/README.md lists every
+        # check.
+        env:
+          REPLAY_DIST: ${{ runner.temp }}/healthcare-replay
+          REPLAY_BASE: ${{ env.BASE_PATH }}/healthcare-demo/
+        working-directory: apps/healthcare-demo/frontend
+        run: |
+          node replay-smoke.mjs "$REPLAY_DIST" --base "$REPLAY_BASE"
+
       - name: Build the NL2SQL demo
         env:
           DEMO_BASE_PATH: ${{ env.BASE_PATH }}/nl2sql-demo/

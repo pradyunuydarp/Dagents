@@ -752,6 +752,48 @@ jobs:
             exit 1
           }
 
+      - name: Capture a recording for the healthcare replay
+        # The Pages workflow publishes the stroke demo as a replay of a
+        # recording whenever it cannot use the deployed API. This records one
+        # the same way: the backend runs with the planner, on a port the system
+        # picks, and the capture writes
+        # apps/healthcare-demo/frontend/public/recording.json.
+        env:
+          DAGENTSC_BIN: ${{ env.PLANNER_DIR }}/dagentsc.exe
+        run: |
+          port="$(python -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()')"
+          python scripts/capture_demo_recordings.py --demo healthcare --port "${port}"
+
+      - name: Check the recording for the healthcare replay
+        run: python scripts/check_demo_recordings.py healthcare
+
+      - name: Build the healthcare replay
+        # The build Pages publishes when its probe of the API fails: a replay
+        # under /Dagents/healthcare-demo/ with no API address. It goes to a
+        # scratch folder, so the dist built above stays as it is.
+        working-directory: apps/healthcare-demo/frontend
+        env:
+          DEMO_BASE_PATH: /Dagents/healthcare-demo/
+          VITE_DAGENTS_STATIC: "1"
+          VITE_HEALTHCARE_API_BASE: ""
+          REPLAY_DIST: ${{ runner.temp }}/healthcare-replay
+        run: |
+          npx vite build --outDir "$REPLAY_DIST" --emptyOutDir
+
+      - name: Drive the healthcare replay in a browser
+        # replay-smoke.mjs serves the build as Pages does and checks every
+        # Guard answer, the pilot, the answers recorded before and after it,
+        # the charts in both themes and the turned-off actions, and that the
+        # page sends no API request. The smoke test above drives the live
+        # transport only. The drive exits 2 when it finds no browser, and this
+        # step runs it alone, so exit 2 fails the step.
+        working-directory: apps/healthcare-demo/frontend
+        env:
+          REPLAY_DIST: ${{ runner.temp }}/healthcare-replay
+          REPLAY_BASE: /Dagents/healthcare-demo/
+        run: |
+          node replay-smoke.mjs "$REPLAY_DIST" --base "$REPLAY_BASE"
+
   # ---------------------------------------------------------------------------
   # Adding a hospital while the stroke demo runs. The frontends job drives the
   # UI with the agents inside the API, where the panel offers no button. This

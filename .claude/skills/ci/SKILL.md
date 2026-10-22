@@ -445,6 +445,101 @@ the smoke test with `--agents-from openai-agents`. That option fails unless
 `tests/test_packaging.py` runs the file check and the option on synthetic
 distributions.
 
+### r. A replay nobody had opened
+
+`pages.yml` publishes the stroke demo as a replay of `recording.json`
+whenever its probe of the deployed API fails (failure g).
+`check_demo_recordings.py` checks the recording's content (failure f), and the
+smoke test drives the live UI through the dev server. No job opened the replay
+build in a browser, so its code ran first for visitors: the transport that
+finds each answer by method, path and exact body, the switch to the answers
+recorded after the pilot, the charts in both themes, and the actions a replay
+turns off. The page matches a Guard probe by its exact body, and only a person
+kept the body in `GuardProbe.tsx` equal to the one the capture records. A key
+added on one side would have turned every Guard answer into "Not recorded".
+
+Defence:
+
+- `apps/healthcare-demo/frontend/replay-smoke.mjs` serves a replay build with
+  `serve-dist.mjs` under the base path, where a missing file answers 404, as
+  on Pages. It asks the Guard every combination the page offers, with the
+  cohort sizes read from the recording. It changes one control between two
+  asks and checks that the chosen hospital's Guard answered, so a page that
+  sends an old value of a control, or picks another hospital's answer, fails.
+  It runs the pilot, opens every hospital page before and after it, and
+  compares each chart with the recorded SVG in both themes. It checks that
+  the entry form and the panel to add a hospital are turned off and say why,
+  and that each hospital page lists the entered records the recording holds
+  and says the replay cannot store an outcome. It fails on any API request,
+  any request to another origin except the web fonts, and any console error.
+  When a check stops the run, it prints the console errors and requests
+  collected so far, which usually name the cause. Without a browser it
+  prints `SKIP` and exits 2, like the smoke test.
+  `apps/healthcare-demo/frontend/README.md` lists every check.
+- The `frontends` job captures a recording on a port the system picks, checks
+  it, builds a replay copy into `$RUNNER_TEMP`, and runs the drive in a step
+  that runs nothing else, so exit 2 fails the step. `pages.yml` builds a
+  replay copy after the published build in every run, whichever mode the probe
+  chose, and drives it before the upload. That copy goes to a scratch folder
+  and is never published. That job can deploy to Pages, so it installs the
+  browser with `npx --no playwright-core install --with-deps chromium`: the
+  playwright-core version the lockfile pins, with no download from npm.
+  `npx playwright` would fetch the newest playwright from the registry,
+  because no lockfile holds that package.
+- The capture posts through `capture_demo_recordings.probe_body` and
+  `PILOT_BODY`. `tests/test_replay_wiring.py` (in the `contracts` job)
+  compares them with the bodies in `GuardProbe.tsx` and `PilotPanel.tsx`,
+  checks that each granularity the panel offers is recorded and that the
+  controls start on recorded values, and checks the steps in both workflows:
+  their order, a drive step that runs only the drive, no `${{ }}` in their
+  `run:` scripts, and a Pages browser install, found by its command, that runs
+  the locked playwright-core.
+
+The drive itself once failed in CI with a race. It opened each hospital page
+from the header and waited for the record count and the audit log, but the
+previous hospital's page has both. A click changes the address at once. The
+page re-renders for the new address only when the browser delivers the
+`hashchange` event, in a later task, and React draws the new route in a
+microtask at the end of that task. On the runner the drive read the page
+before it re-rendered: the check for Hospital 2 read Hospital 134's 524
+records, 38 ms after the previous check. The CI log does not show when the
+event arrived. A drive command runs between tasks, so it cannot read the page
+between the event and React's render. In 24 local route changes, 12 of them
+with the CPU throttled 6 times, a scratch drive sent a read every millisecond
+without waiting for the previous one. 748 reads saw the previous page under
+the new address, all before the event, and none came between the event and
+the render. So the read on the runner came before the event. The page never
+showed one hospital's numbers under another's name.
+
+Now the drive waits until the address, the heading and the LMA heading name
+the hospital it asked for, and checks that every "Dagents API calls" strip
+names that hospital's LMA. It records the page once just before the click and
+again after every change, so a single render that shows one hospital's
+heading over another hospital's answers fails. The failure line says whether
+that render came before the click, on the page the drive was leaving, or
+while the route changed. `--hold-hashchange 300` holds every `hashchange`
+event for 300 ms, which widens the gap before the event on every route
+change. The drive before the fix failed with it three times in three runs,
+and passed without it. Throttling the CPU through the DevTools protocol at 4,
+10 and 20 times did not reproduce the race in 21 route changes. Run the drive
+with the option after a change to how it moves between pages.
+
+The approve button is checked only when the recorded gates allow a release:
+it must be turned off and say why. When they do not, the drive checks that no
+approve panel is shown. Outcome buttons are checked only when the recording
+holds an entered record without an outcome, and the capture enters none. To
+run the drive locally:
+
+```bash
+DAGENTSC_BIN=$PWD/bindings/ocaml/_build/default/bin/dagentsc.exe \
+  .venv/bin/python scripts/capture_demo_recordings.py --demo healthcare
+.venv/bin/python scripts/check_demo_recordings.py healthcare
+cd apps/healthcare-demo/frontend
+DEMO_BASE_PATH=/Dagents/healthcare-demo/ VITE_DAGENTS_STATIC=1 VITE_HEALTHCARE_API_BASE= \
+  npx vite build --outDir /tmp/healthcare-replay --emptyOutDir
+node replay-smoke.mjs /tmp/healthcare-replay --base /Dagents/healthcare-demo/
+```
+
 ## 3. The test loop
 
 CI runs the same commands a contributor runs. Write the failing test first,
