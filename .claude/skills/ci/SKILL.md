@@ -182,14 +182,43 @@ with no report at all.
 
 ### d. A skipped browser test reported as a pass
 
-Both browser checks (`apps/healthcare-demo/frontend/smoke.mjs` and
-`site/check.mjs`) exit **2** and print `SKIP` when no browser is available. The
-demo script turns that into a friendly message and exits 0. That is right for a
-developer and wrong for CI.
+The browser checks (`apps/healthcare-demo/frontend/smoke.mjs`,
+`services/nl2sql-demo/frontend/smoke.mjs` and `site/check.mjs`) exit **2** and
+print `SKIP` when no browser is available. The demo scripts turn that into a
+friendly message and exit 0. That is right for a developer and wrong for CI.
 
 Defence: the `frontends` job installs a browser, sets `CHROMIUM_PATH`, and fails
 if the smoke log contains a skip or no passing assertions. `npm run check`
 returns exit 2 to the step directly, which fails it.
+
+The NL2SQL demo had only a bundle check, and its suite replaces the framework
+calls with stubs: three wrong routes in the orchestrator turned four trace
+steps into warnings, the backend still returned SQL, and the suite stayed
+green. The `nl2sql-e2e` job installs torch from the PyTorch CPU index (a failed
+install fails the job) and runs three checks against real processes:
+
+- `tests.test_nl2sql_stack_e2e` starts core-service, pipeline-service,
+  model-service, the LMA, the GMA and the backend with the planner, and needs
+  every sample's 22 trace steps to be ok, and only pipeline-service's step to
+  turn into a warning when that service stops. core-service's Python fallback
+  renders the same plan as the planner for this request, so core-service runs
+  the planner through a script that records each command, and the test needs
+  one successful `manifest compile` per sample. It skips without the planner or
+  torch, so the guard runs with `--forbid planner --require-ran
+  tests.test_nl2sql_stack_e2e.Nl2SqlStackTests`. The contracts job runs it
+  too, in its root suite.
+- `run_local_demo.sh --check` drives the built UI in Chromium against the same
+  stack. The step after it fails on "smoke test skipped" or `SKIP`, and unless
+  the log holds `ok  with pipeline-service stopped`.
+- The job records a run with `capture_demo_recordings.py --demo nl2sql`, checks
+  it, builds the replay under `/Dagents/nl2sql-demo/` and runs `smoke.mjs
+  --replay`, which exits 2 into the step. `check_demo_recordings.py` refuses a
+  trace warning that the recording's note does not explain
+  (`tests/test_nl2sql_recording_check.py`).
+
+`pages.yml` installs a browser before the upload and runs the same replay check
+on `_site/nl2sql-demo` under `${BASE_PATH}/nl2sql-demo/`, so a replay that
+does not work in a browser stops the deploy.
 
 Never let a job accept exit 2, and never report a skipped browser test as a pass.
 
@@ -640,8 +669,6 @@ are in the "Releasing" section of `CLAUDE.md`.
   isolation and the role scoping do run in CI: the `demo-apps` job has a
   PostgreSQL 16 service container, emulates Supabase's roles with a
   non-superuser, and fails if any database test skipped.
-- **The NL2SQL frontend has no browser test.** Its job builds the bundle, which
-  only proves that it compiles.
 - **CI does not test the deployed healthcare API.** `tests/test_deployed_api.py`
   runs only when `HEALTHCARE_DEPLOYED_API` is set, so it skips in the
   `demo-apps` job and runs in `healthcare-api-check.yml`. This keeps CI from

@@ -18,7 +18,7 @@ code change must update, and how to regenerate them, is in the `docs-sync` skill
 | NL2SQL demo | `services/nl2sql-demo/frontend/` | 5173 | Prompt UI, schema editor, SQL display | An app can use the framework's validation, planning and checks |
 
 All three are React 19 + Vite 7 + TypeScript, built with `tsc -b && vite build`.
-The healthcare demo and the site use `playwright-core` for browser checks.
+All three use `playwright-core` for browser checks.
 
 `apps/healthcare-demo/` can be extracted into its own repository with
 `scripts/extract_repo.sh`. So its frontend must **never** import from `dagents/`,
@@ -195,7 +195,10 @@ backend and replays.
 - **Never record without the planner.** The Guard fails closed, so a recording
   made without `dagentsc` holds only denials. `capture_demo_recordings.py`
   refuses to run without it, and `check_demo_recordings.py` refuses a recording
-  whose controls change nothing, or whose healthcare answers do not list the
+  whose controls change nothing, whose NL2SQL trace has a warning step that
+  the recording's note does not explain (only a service the capture could not
+  start, such as model-service without torch, explains one), or whose
+  healthcare answers do not list the
   agent calls behind them (`framework_calls` on the status, the overview, each
   probe and each dashboard; the GMA's round call and a `jobs:run` call (or
   `jobs:execute`) to each hospital's LMA in the pilot; `agents.mode` in the
@@ -351,7 +354,7 @@ when a link preview tag is missing, the tags do not name `social-preview.png`
 under the build's address, or the card (a 1200 x 630 PNG under 300 KB), the
 favicons, the touch icon or a manifest icon does not load.
 
-Both scripts use the same exit codes:
+All three scripts use the same exit codes:
 
 | Exit | Meaning |
 |---|---|
@@ -362,17 +365,43 @@ Both scripts use the same exit codes:
 **Exit 2 is not a pass.** Report it as "skipped".
 
 Web fonts load from Google Fonts, and some sandboxes block that host. The fonts
-are optional (the tokens list fallbacks), so both checks ignore failed font
+are optional (the tokens list fallbacks), so all three checks ignore failed font
 requests. Every other failed request or console error fails the check.
 
-The NL2SQL demo has no browser test yet:
+The NL2SQL `smoke.mjs` has two modes:
 
 ```bash
-services/nl2sql-demo/scripts/run_local_demo.sh   # the app, no Docker
-cd services/nl2sql-demo/frontend && npm install && npm run build
+# Live: starts core-service, pipeline-service, model-service, the LMA, the GMA
+# and the backend on free ports, serves the built UI with `vite preview`, runs
+# the smoke test, exits. Needs the planner and torch.
+services/nl2sql-demo/scripts/run_local_demo.sh --check
+
+# Replay: the static build Pages publishes, served under its base path.
+cd services/nl2sql-demo/frontend
+DEMO_BASE_PATH=/Dagents/nl2sql-demo/ VITE_DAGENTS_STATIC=1 npm run build
+node smoke.mjs --replay dist --base /Dagents/nl2sql-demo/
 ```
 
-If you change behaviour there that a bundle cannot prove, add the assertion.
+Live, it checks that the status strip reads 5/5 reachable, that each sample
+shows `SELECT` SQL, its DDL, its prompt and "22 steps · 0 warnings" with a
+payload that opens, that an edited question reaches the backend, that schema
+JSON that does not parse shows an error, and that the theme toggle works. Its
+last check stops pipeline-service (the script passes its process id with
+`--pipeline-service-pid`) and needs "4/5 reachable" and exactly one warning
+step. The replay mode needs the recorded commit in the banner, every sample
+and model to replay its SQL and trace, "Not recorded" for an edited question,
+and no request to `/api/`. It serves `dist` with a server that answers 404 for
+a missing file, as Pages does, so a wrong base path fails. It finds controls by
+their labels ("Sample", "Model adapter", "Natural language question", "Schema
+tables (JSON)") and the button by its class `run-btn`; change them only
+together with the test. A replay build is a recording plus a bundle; record it
+with `scripts/capture_demo_recordings.py --demo nl2sql` first (it uses ports
+8000 to 8070).
+
+Neither mode tests an adapter loaded from a model zip file. `--check` points
+`NL2SQL_MODELS_DIR` at an empty folder, so the backend offers only the
+rule-based fallback adapter (`heuristic_demo`), and the capture records the
+adapters in `./models`, which the repository does not ship.
 
 ### Both demos need `dagentsc`
 
@@ -387,6 +416,7 @@ the binary, because without it every governed panel shows a denial.
 
 ```bash
 cd apps/healthcare-demo/frontend && npm run build && npm run smoke   # or the site/NL2SQL equivalent
+services/nl2sql-demo/scripts/run_local_demo.sh --check               # the NL2SQL demo, live
 python scripts/sync_design_system.py --check                         # no copy differs
 python -m unittest discover -s tests -t .                            # publishing guards
 ```
