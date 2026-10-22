@@ -18,6 +18,7 @@ import json
 import threading
 import os
 import re
+import shlex
 import struct
 import subprocess
 import sys
@@ -996,6 +997,384 @@ class SmokeScriptTests(unittest.TestCase):
         result = self.other_agents(owner="agents")
         self.assertEqual(1, result.returncode, result.stdout + result.stderr)
         self.assertIn("comes from agents, not openai-agents", result.stdout)
+
+
+def write_command(folder: Path, name: str, source: str) -> Path:
+    """An executable Python script named ``name`` in ``folder``, run by this interpreter."""
+    path = folder / name
+    path.write_text(f"#!{sys.executable}\n" + source, encoding="utf-8")
+    path.chmod(0o755)
+    return path
+
+
+#: A stand-in for dagents-lma and dagents-gma that stops at once. FAKE_COMMAND_MODE chooses how.
+FAKE_COMMAND = """\
+import os, sys
+mode = os.environ.get("FAKE_COMMAND_MODE", "good")
+if os.environ.get("DAGENTSC_TIMEOUT_SECONDS") == "0":
+    if mode == "ignores":
+        sys.exit(0)
+    if mode == "traceback":
+        print("Traceback (most recent call last):", file=sys.stderr)
+    print("DAGENTSC_TIMEOUT_SECONDS must be a number of seconds above 0", file=sys.stderr)
+    sys.exit(1)
+if os.environ.get("GMA_ENGINE") == "bogus":
+    print("Traceback (most recent call last):", file=sys.stderr)
+    print("ValueError: GMA_ENGINE must be one of in-process, http", file=sys.stderr)
+    sys.exit(1)
+if mode in ("no-extras", "no-extras-status-1"):
+    print("The agent needs uvicorn and FastAPI. Install them with: pip install 'dagents[EXTRA]'", file=sys.stderr)
+    sys.exit(2 if mode == "no-extras" else 1)
+sys.exit(3)
+"""
+
+#: A stand-in for the agent commands that serves /health and /api/v1/extensions on --port
+#: until it is stopped. It logs no planner warning, as an agent that found a planner.
+#: FAKE_AGENT_BEHAVIOUR makes it stop as an agent whose port was taken, or one that cannot start.
+FAKE_AGENT = """\
+import http.server, json, os, sys
+from pathlib import Path
+port = int(sys.argv[sys.argv.index("--port") + 1])
+state = Path(os.environ["FAKE_AGENT_STATE"])
+behaviour = os.environ.get("FAKE_AGENT_BEHAVIOUR", "serve")
+name = os.environ.get("LMA_SITE_ID", "gma")
+seen = {k: v for k, v in os.environ.items() if k.startswith(("LMA_", "GMA_")) or k in ("PATH", "PYTHONPATH", "DAGENTSC_BIN")}
+seen["cwd"] = os.getcwd()
+(state / f"{name}-{port}.json").write_text(json.dumps(seen))
+if behaviour == "broken":
+    print("ExtensionError: extension spec 'toy_extension:ToyExtension': cannot import module", file=sys.stderr)
+    sys.exit(1)
+if behaviour == "busy" or (behaviour == "busy-once" and name == "gma" and not (state / "busy").exists()):
+    (state / "busy").touch()
+    print(f"ERROR:    [Errno 98] error while attempting to bind on address ('127.0.0.1', {port}): address already in use", file=sys.stderr)
+    sys.exit(1)
+
+ANSWERS = {
+    "/health": {"status": "ok"},
+    "/api/v1/extensions": {"extensions": [{"extension_id": "example-retail-returns"}]},
+}
+
+class Health(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        body = json.dumps(ANSWERS.get(self.path, {})).encode()
+        self.send_response(200 if self.path in ANSWERS else 404)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, *args):
+        pass
+
+http.server.HTTPServer(("127.0.0.1", port), Health).serve_forever()
+"""
+
+
+class SmokeChecksTests(unittest.TestCase):
+    """The checks ``scripts/smoke_installed_package.py`` runs against the installed commands, on stand-ins.
+
+    The packaging job in ci.yml and the release workflow run the real checks
+    in clean environments. These tests show that each check fails when the
+    behaviour it reads is wrong, and that the parts the checks read from the
+    repository (the toy extension, the install guide) are still there.
+    """
+
+    def setUp(self) -> None:
+        import smoke_installed_package
+
+        self.smoke = smoke_installed_package
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        self.folder = Path(folder.name)
+        self.bin = self.folder / "bin"
+        self.bin.mkdir()
+        loopback = {"NO_PROXY": "127.0.0.1,localhost", "no_proxy": "127.0.0.1,localhost"}
+        patcher = mock.patch.dict(os.environ, loopback)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def quietly(self, call, *args, **kwargs):
+        with contextlib.redirect_stdout(io.StringIO()) as printed:
+            result = call(*args, **kwargs)
+        return result, printed.getvalue()
+
+    # --- the toy extension the study loads ---------------------------------------
+
+    def test_the_toy_extension_imports_only_the_standard_library_and_dagents_common(self) -> None:
+        """The wheel has no dagents/tests, so the smoke test copies the file out of the repository.
+
+        A copy keeps working only while the file imports nothing else from the
+        repository or from outside the package's base dependencies.
+        """
+        import ast
+
+        tree = ast.parse((REPO_ROOT / self.smoke.TOY_EXTENSION).read_text(encoding="utf-8"))
+        imported = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                imported.update(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom):
+                self.assertEqual(0, node.level, "a relative import breaks the copy")
+                imported.add(node.module or "")
+        outside = sorted(
+            name
+            for name in imported
+            if name.split(".")[0] not in sys.stdlib_module_names and not (name + ".").startswith("dagents.common.")
+        )
+        self.assertEqual([], outside)
+        self.assertIn("dagents.common.extensions", imported)
+
+    def test_the_toy_extension_loads_from_a_folder_outside_the_repository(self) -> None:
+        toy = self.smoke.load_toy_extension(REPO_ROOT, self.folder / "ext")
+        self.assertEqual(self.folder / "ext" / "toy_extension.py", Path(toy.__file__))
+        self.assertEqual("toy_extension", toy.__name__)
+        extension = toy.ToyExtension()
+        self.assertIn("toy_static", extension.site_sources())
+        self.assertEqual({"toy_linear", "toy_threshold"}, {kind.kind for kind in extension.model_kinds()})
+        self.assertEqual(toy.TOY_CONDITION_ID, extension.condition_packs()[0].condition_id)
+
+    # --- the install guide's command ------------------------------------------------
+
+    def test_the_install_guide_has_the_command_the_smoke_test_runs(self) -> None:
+        command = self.smoke.guide_extension_command((REPO_ROOT / self.smoke.INSTALL_GUIDE).read_text(encoding="utf-8"))
+        self.assertEqual(
+            {"LMA_EXTENSIONS": "shop.extension:ReturnsExtension", "PYTHONPATH": "examples/getting-started"},
+            command.settings,
+        )
+        self.assertEqual("dagents-lma", Path(command.program).name)
+        self.assertIn("--port", command.arguments)
+        self.assertTrue((REPO_ROOT / "examples" / "getting-started" / "shop" / "extension.py").is_file())
+
+    def test_a_continued_line_is_one_command_and_other_blocks_are_ignored(self) -> None:
+        text = (
+            "```text\nLMA_EXTENSIONS=x:Y dagents-lma --port 1\n```\n\n"
+            "```bash\nLMA_EXTENSIONS=a.b:C PYTHONPATH=src \\\n  .venv/bin/dagents-lma --port 8010   # the LMA\n```\n"
+        )
+        command = self.smoke.guide_extension_command(text)
+        self.assertEqual({"LMA_EXTENSIONS": "a.b:C", "PYTHONPATH": "src"}, command.settings)
+        self.assertEqual((".venv/bin/dagents-lma", ["--port", "8010"]), (command.program, command.arguments))
+
+    def test_a_guide_without_the_command_or_with_two_fails(self) -> None:
+        one = "```bash\nLMA_EXTENSIONS=a:B dagents-lma --port 1\n```\n"
+        cases = {
+            "0 commands": "```bash\n.venv/bin/dagents-lma --port 8010\n```\n",
+            "2 commands": one + one,
+        }
+        for message, text in cases.items():
+            with self.subTest(message=message), self.assertRaisesRegex(self.smoke.SmokeFailure, message):
+                self.smoke.guide_extension_command(text)
+
+    # --- running the install guide's command ----------------------------------------
+
+    def fake_clone(self, python_path: str) -> Path:
+        """A clone that holds a ``dagents`` package and whose install guide sets ``PYTHONPATH=python_path``."""
+        clone = self.folder / "clone"
+        (clone / "docs" / "guide").mkdir(parents=True)
+        (clone / "examples" / "getting-started").mkdir(parents=True)
+        (clone / "dagents").mkdir()
+        (clone / "dagents" / "__init__.py").write_text('__version__ = "0+clone"\n', encoding="utf-8")
+        (clone / self.smoke.INSTALL_GUIDE).write_text(
+            "```bash\n"
+            f"LMA_EXTENSIONS=shop.extension:ReturnsExtension PYTHONPATH={shlex.quote(python_path)} \\\n"
+            "  .venv/bin/dagents-lma --port 8010\n"
+            "```\n",
+            encoding="utf-8",
+        )
+        return clone
+
+    def run_guide_check(self, clone: Path) -> tuple[str, dict, Path]:
+        """Run the guide check with a stand-in LMA and a stand-in ``dagentsc`` on PATH.
+
+        The stand-in LMA logs no planner warning, as a real one does when it
+        finds a planner on PATH although it imported ``dagents`` from the clone.
+        Returns what the check printed, the environment the LMA saw, and the
+        folder of the stand-in planner.
+        """
+        write_command(self.bin, "dagents-lma", FAKE_AGENT)
+        planners = self.folder / "planners"
+        planners.mkdir()
+        write_command(planners, "dagentsc", "import sys\nsys.exit(0)\n")
+        state = self.folder / "state"
+        state.mkdir()
+        work = self.folder / "work"
+        work.mkdir()
+        settings = {"FAKE_AGENT_STATE": str(state), "PATH": f"{planners}{os.pathsep}{os.environ.get('PATH', '')}"}
+        with mock.patch.dict(os.environ, settings), mock.patch.object(self.smoke, "commands_folder", return_value=self.bin):
+            _, printed = self.quietly(self.smoke.check_guide_extension_command, clone, work, "bundled")
+        seen = [json.loads(path.read_text()) for path in state.glob("*.json")]
+        self.assertEqual(1, len(seen), "the check started the guide's LMA once")
+        return printed, seen[0], planners
+
+    def test_a_guide_command_that_imports_dagents_from_the_clone_fails_although_a_planner_is_on_path(self) -> None:
+        clone = self.fake_clone(".:examples/getting-started")
+        with self.assertRaisesRegex(self.smoke.SmokeFailure, r"imports dagents from the repository \(.*clone/dagents/__init__\.py\)"):
+            self.run_guide_check(clone)
+
+    def test_a_guide_command_that_imports_the_environments_dagents_passes(self) -> None:
+        # The test process imported dagents from this checkout; here it stands in for the environment's package.
+        clone = self.fake_clone(f"examples/getting-started{os.pathsep}{REPO_ROOT}")
+        printed, seen, planners = self.run_guide_check(clone)
+        installed = Path(dagents.__file__).resolve()
+        self.assertIn(f"dagents-lma imports dagents from {installed.parent}, not from the repository", printed)
+        self.assertIn("GET /api/v1/extensions lists example-retail-returns", printed)
+        self.assertEqual(str(clone), seen["cwd"])
+        self.assertEqual(f"examples/getting-started{os.pathsep}{REPO_ROOT}", seen["PYTHONPATH"])
+        self.assertEqual("shop.extension:ReturnsExtension", seen["LMA_EXTENSIONS"])
+        self.assertNotIn(str(planners), seen["PATH"].split(os.pathsep))
+
+    def test_no_other_planner_on_path_reaches_the_commands(self) -> None:
+        """A ``dagentsc`` on PATH would let an agent that imported the clone's ``dagents`` find a planner."""
+        planners = self.folder / "planners"
+        planners.mkdir()
+        write_command(planners, "dagentsc", "import sys\nsys.exit(0)\n")
+        other = self.folder / "other"
+        other.mkdir()
+        path = os.pathsep.join([str(other), str(planners), str(self.bin)])
+        with mock.patch.dict(os.environ, {"PATH": path}):
+            environment = self.smoke.clean_environment()
+        self.assertEqual(os.pathsep.join([str(other), str(self.bin)]), environment["PATH"])
+
+    # --- the example without the extras ---------------------------------------------
+
+    def test_the_scripts_left_out_without_extras_are_the_ones_the_guide_says_need_them(self) -> None:
+        # The guide wraps its lines; compare the words.
+        guide = " ".join((REPO_ROOT / self.smoke.INSTALL_GUIDE).read_text(encoding="utf-8").split())
+        recorded = {Path(script).name for script in self.smoke.guide_outputs(REPO_ROOT)}
+        for name in sorted(self.smoke.NEEDS_AGENT_EXTRAS):
+            with self.subTest(script=name):
+                self.assertIn(name, recorded)
+                sentence = f"`{name}` also needs the `lma` and `gma` extras"
+                self.assertTrue(sentence in guide, f"{self.smoke.INSTALL_GUIDE} no longer says {sentence!r}")
+
+    def test_leaving_out_a_script_the_guide_does_not_record_fails(self) -> None:
+        with self.assertRaisesRegex(self.smoke.SmokeFailure, "no_such_step.py"):
+            self.smoke.check_example(REPO_ROOT, self.folder, skip=frozenset({"no_such_step.py"}))
+
+    # --- the commands' exit statuses ------------------------------------------------
+
+    def fake_commands(self) -> None:
+        for name, extra in (("dagents-lma", "lma"), ("dagents-gma", "gma")):
+            write_command(self.bin, name, FAKE_COMMAND.replace("EXTRA", extra))
+
+    def test_one_line_and_status_one_for_a_wrong_setting_pass(self) -> None:
+        self.fake_commands()
+        _, printed = self.quietly(self.smoke.check_command_statuses, self.folder, self.bin)
+        self.assertIn("dagents-lma with DAGENTSC_TIMEOUT_SECONDS=0: exit 1", printed)
+        self.assertIn("dagents-gma with GMA_ENGINE=bogus: exit 1", printed)
+
+    def test_a_traceback_or_a_command_that_ignores_the_setting_fails(self) -> None:
+        self.fake_commands()
+        cases = {"traceback": "more than the one line", "ignores": "exited 0, not 1"}
+        for mode, message in cases.items():
+            with self.subTest(mode=mode), mock.patch.dict(os.environ, {"FAKE_COMMAND_MODE": mode}):
+                with self.assertRaisesRegex(self.smoke.SmokeFailure, message):
+                    self.quietly(self.smoke.check_command_statuses, self.folder, self.bin)
+
+    def test_without_the_extras_each_command_names_its_extra_and_exits_with_status_two(self) -> None:
+        self.fake_commands()
+        with mock.patch.object(self.smoke, "AGENT_EXTRA_MODULES", ("dagents_smoke_no_such_module",)):
+            with mock.patch.dict(os.environ, {"FAKE_COMMAND_MODE": "no-extras"}):
+                _, printed = self.quietly(self.smoke.check_commands_need_extras, self.bin)
+            self.assertIn("pip install 'dagents[gma]'", printed)
+            # The right message with the wrong status, and the wrong message.
+            with mock.patch.dict(os.environ, {"FAKE_COMMAND_MODE": "no-extras-status-1"}):
+                with self.assertRaisesRegex(self.smoke.SmokeFailure, "exited 1"):
+                    self.quietly(self.smoke.check_commands_need_extras, self.bin)
+            with self.assertRaisesRegex(self.smoke.SmokeFailure, "exited 3"):
+                self.quietly(self.smoke.check_commands_need_extras, self.bin)
+
+    def test_an_environment_with_the_extras_cannot_check_the_message(self) -> None:
+        with mock.patch.object(self.smoke, "AGENT_EXTRA_MODULES", ("json",)):
+            with self.assertRaisesRegex(self.smoke.SmokeFailure, "json is installed"):
+                self.smoke.check_commands_need_extras(self.bin)
+
+    def test_ci_installs_the_wheel_without_extras_and_runs_the_smoke_test(self) -> None:
+        """Only this step of the packaging job installs the wheel as ``pip install dagents`` does."""
+        import yaml
+
+        workflow = yaml.safe_load((REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8"))
+        runs = [step.get("run", "") for step in workflow["jobs"]["packaging"]["steps"]]
+        smoke = [run for run in runs if "smoke_installed_package.py" in run]
+        without = [run for run in smoke if "--no-extras" in run]
+        self.assertEqual(1, len(without), "one packaging step runs the smoke test with --no-extras")
+        self.assertRegex(without[0], r'pip install --quiet "\$\(ls [^)]*/dist/\*\.whl\)"\n', "the wheel, with no extra")
+        for text in ("--expect-planner bundled", "env -u PYTHONPATH -u DAGENTSC_BIN", '/bin/python" -I '):
+            self.assertIn(text, without[0])
+        # Every other smoke step installs the agents' extras, so it runs the commands and the study.
+        for run in smoke:
+            if run is not without[0]:
+                self.assertIn("[lma,gma]", run)
+
+    # --- starting the study's agents ------------------------------------------------
+
+    def start_fake_study(self, behaviour: str):
+        """Start the study's agents with stand-in commands; return the result and what each command saw."""
+        for name in ("dagents-lma", "dagents-gma"):
+            write_command(self.bin, name, FAKE_AGENT)
+        state = self.folder / "state"
+        state.mkdir(exist_ok=True)
+        work = self.folder / "work"
+        work.mkdir(exist_ok=True)
+        toy = self.smoke.load_toy_extension(REPO_ROOT, self.folder / "ext")
+        settings = {"FAKE_AGENT_STATE": str(state), "FAKE_AGENT_BEHAVIOUR": behaviour, "DAGENTSC_BIN": "/nowhere/dagentsc"}
+        with mock.patch.dict(os.environ, settings):
+            agents, printed = self.quietly(self.smoke.start_study_agents, toy, self.folder / "ext", work, self.bin)
+        self.addCleanup(agents.stop)
+        seen = {path.stem: json.loads(path.read_text()) for path in state.glob("*.json")}
+        return agents, printed, seen, work
+
+    def test_the_agents_get_matching_settings_and_tokens(self) -> None:
+        agents, _, seen, _ = self.start_fake_study("serve")
+        sites = self.smoke.ROUND_SITES
+        self.assertEqual(["gma", *sites], list(agents.processes))
+        # Each stand-in wrote NAME-PORT.json; one attempt, so one file per agent.
+        by_name = {key.rsplit("-", 1)[0]: value for key, value in seen.items()}
+        self.assertEqual(sorted(["gma", *sites]), sorted(by_name))
+        gma = by_name["gma"]
+        for name, environment in by_name.items():
+            with self.subTest(agent=name):
+                self.assertEqual(str(self.folder / "ext"), environment["PYTHONPATH"])
+                self.assertNotIn("DAGENTSC_BIN", environment)
+        self.assertEqual(
+            ("http", "1", "toy_extension:ToyExtension", agents.admin_token),
+            (gma["GMA_ENGINE"], gma["GMA_REQUIRE_TOKENS"], gma["GMA_EXTENSIONS"], gma["GMA_ADMIN_TOKEN"]),
+        )
+        lma_tokens = dict(item.split("=", 1) for item in gma["GMA_LMA_TOKENS"].split(","))
+        site_tokens = dict(item.split("=", 1) for item in gma["GMA_SITE_TOKENS"].split(","))
+        endpoints = dict(item.split("=", 1) for item in gma["GMA_SITE_ENDPOINTS"].split(","))
+        self.assertEqual(sorted(sites), sorted(endpoints))
+        for site in sites:
+            with self.subTest(site=site):
+                lma = by_name[site]
+                self.assertEqual(lma_tokens[site], lma["LMA_COORDINATOR_TOKEN"])
+                self.assertEqual(site_tokens[site], lma["LMA_GMA_TOKEN"])
+                self.assertEqual(agents.staff_tokens[site], lma["LMA_SITE_TOKEN"])
+                self.assertEqual(
+                    ("toy_static", "1", site, "toy_extension:ToyExtension"),
+                    (lma["LMA_SITE_SOURCE"], lma["LMA_REQUIRE_TOKENS"], lma["LMA_SITE_ID"], lma["LMA_EXTENSIONS"]),
+                )
+                self.assertEqual(f"http://127.0.0.1:{agents.commands[site].rsplit(' ', 1)[1]}", endpoints[site])
+                self.assertEqual(f"http://127.0.0.1:{agents.commands['gma'].rsplit(' ', 1)[1]}", lma["LMA_GMA_ENDPOINT"])
+        processes = list(agents.processes.values())
+        agents.stop()
+        self.assertTrue(all(process.poll() is not None for process in processes))
+
+    def test_a_port_another_process_took_starts_every_agent_again(self) -> None:
+        agents, printed, _, work = self.start_fake_study("busy-once")
+        self.assertIn("another process took the port of gma", printed)
+        self.assertEqual(2, len(list(work.glob("study-gma-*.log"))))
+        self.assertTrue(all(process.poll() is None for process in agents.processes.values()))
+
+    def test_an_agent_that_cannot_start_fails_at_once(self) -> None:
+        with self.assertRaisesRegex(self.smoke.SmokeFailure, "ExtensionError"):
+            self.start_fake_study("broken")
+        self.assertEqual(1, len(list((self.folder / "work").glob("study-gma-*.log"))))
+
+    def test_ports_that_stay_taken_fail_after_the_last_attempt(self) -> None:
+        with self.assertRaisesRegex(self.smoke.SmokeFailure, "address already in use"):
+            self.start_fake_study("busy")
+        attempts = len(list((self.folder / "work").glob("study-gma-*.log")))
+        self.assertEqual(self.smoke.START_ATTEMPTS, attempts)
 
 
 if __name__ == "__main__":
