@@ -4,12 +4,12 @@ from dagents.common.domain.federation import AggregationMethod, ModelVersionRegi
 from dagents.common.infrastructure.agent_client import AgentError, CallLog
 
 from shop import rule
-from shop.agents import build_agents
+from shop.agents import open_agents
 from shop.contract import CLASSIFICATION, CONDITION, CONTRACT_VERSION
 from shop.coordinator import STUDY_ID
 from shop.store import SITE_IDS
 
-agents = build_agents()
+agents = open_agents()
 print(f"Agents: {', '.join(agents.network.agents)}, called {agents.network.mode}")
 gma = agents.gma()
 with CallLog() as calls:

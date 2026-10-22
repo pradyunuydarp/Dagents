@@ -14,7 +14,8 @@ A training round follows the same steps and adds a model update (section 7).
 The page runs the round twice. Sections 1 to 5 build it from framework classes
 in your own process (`step4_federated_round.py`), so you see each part.
 Section 6 runs the same round through the Dagents agents: one LMA per store
-and one GMA, called through their HTTP APIs (`step5_agents_over_http.py`).
+and one GMA, called through their HTTP APIs (`step5_agents_over_http.py`),
+first inside the script's process and then as separate processes.
 
 ## The round from your application's point of view
 
@@ -605,9 +606,9 @@ An LMA reads its site's records through a **site source**: an object with
 `records()`, `count()`, `version()`, `location()` and `close()` (the
 `SiteRecordSource` protocol in `dagents/common/application/ports.py`). The LMA
 keeps the records it read until `version()` changes. The example wraps each
-store:
+store (`shop/site_source.py`):
 
-<!-- source: examples/getting-started/shop/agents.py -->
+<!-- source: examples/getting-started/shop/site_source.py -->
 ```python
 class OrderStoreSource:
     """One store's orders, in the form an LMA reads them (a ``SiteRecordSource``)."""
@@ -714,7 +715,9 @@ def build_agents() -> Agents:
 ### Run it
 
 The script registers the rule with the GMA, enrols the stores, runs the round
-of section 5 under a new round id, and reads what the stores report:
+of section 5 under a new round id, and reads what the stores report.
+`open_agents()` returns the agents `build_agents` builds, unless `SHOP_GMA_URL`
+is set ([Run the agents as separate processes](#run-the-agents-as-separate-processes)):
 
 <!-- source: examples/getting-started/step5_agents_over_http.py -->
 ```python
@@ -724,12 +727,12 @@ from dagents.common.domain.federation import AggregationMethod, ModelVersionRegi
 from dagents.common.infrastructure.agent_client import AgentError, CallLog
 
 from shop import rule
-from shop.agents import build_agents
+from shop.agents import open_agents
 from shop.contract import CLASSIFICATION, CONDITION, CONTRACT_VERSION
 from shop.coordinator import STUDY_ID
 from shop.store import SITE_IDS
 
-agents = build_agents()
+agents = open_agents()
 print(f"Agents: {', '.join(agents.network.agents)}, called {agents.network.mode}")
 gma = agents.gma()
 with CallLog() as calls:
@@ -906,12 +909,174 @@ accepted, once, and only the same job it accepted.
 
 ### Run the agents as separate processes
 
-Start each agent with uvicorn and its settings, and build the network with
-`AgentNetwork.over_http({name: base_url, ...})` instead. The calls stay the
-same. An LMA started from settings needs an extension that contributes a site
-source (`LMA_SITE_SOURCE`), because it cannot be handed a Python object.
+In a deployment each agent runs as a process of its own, usually on its own
+machine. Step 5 can reach agents started that way. The calls stay the same.
+Only the network changes.
+
+**The site source.** An LMA started from its settings cannot be handed a
+Python object, so it builds its site source with a factory that an extension
+contributes. `LMA_SITE_SOURCE` names the factory. The example's factory reads
+the store's CSV file:
+
+<!-- source: examples/getting-started/shop/site_source.py -->
+```python
+def shop_orders(lease: Any, role: str | None, site_id: str) -> OrderStoreSource:
+    """The ``shop_orders`` site source: the orders of ``site_id``, from its CSV file.
+
+    An LMA calls this once, when it starts. It passes a database lease when
+    ``LMA_DATABASE_URL`` is set, and ``None`` otherwise. It passes the value
+    of ``LMA_SITE_ROLE`` as ``role``, with or without a database, and
+    ``None`` when that is not set. An LMA with ``LMA_DATABASE_URL`` but no
+    ``LMA_SITE_ROLE`` stops before it calls this. This example keeps its
+    orders in files, so it uses neither.
+    """
+    if site_id not in SITE_IDS:
+        raise ValueError(f"the example has no orders for {site_id!r}; LMA_SITE_ID must be one of {', '.join(SITE_IDS)}")
+    return OrderStoreSource(load_store(site_id))
+```
+
+The extension contributes the factory under the name `shop_orders`
+([Step 2, section 4](02-describe-your-data.md#4-write-the-extension) shows the
+whole extension):
+
+<!-- source: examples/getting-started/shop/extension.py -->
+```python
+    def site_sources(self) -> dict[str, SiteSourceFactory]:
+        # An LMA started from its settings reads a store's orders through
+        # this factory, named by LMA_SITE_SOURCE=shop_orders (step 5).
+        return {"shop_orders": shop_orders}
+```
+
+**The network.** `connect_agents` builds no agent. It builds an
+`AgentNetwork.over_http` from the agents' addresses, and keeps the tokens the
+script calls them with. `open_agents` calls it when `SHOP_GMA_URL` is set:
+
+<!-- source: examples/getting-started/shop/agents.py -->
+```python
+def connect_agents(environ: Mapping[str, str]) -> Agents:
+    """Reach a GMA and one LMA per store that run as separate processes.
+
+    The addresses and the caller's tokens come from ``environ``. Each token
+    is the one the agent was started with:
+
+    | Variable | Holds | The agent's setting |
+    |---|---|---|
+    | `SHOP_GMA_URL` | The GMA's address | |
+    | `SHOP_LMA_URLS` | Each store's LMA: `store-north=URL,store-south=URL` | The GMA's `GMA_SITE_ENDPOINTS` |
+    | `SHOP_ADMIN_TOKEN` | The study operator's token | The GMA's `GMA_ADMIN_TOKEN` |
+    | `SHOP_STORE_TOKENS` | Each store's staff token: `store-north=TOKEN,...` | Each LMA's `LMA_SITE_TOKEN` |
+    """
+    lma_urls = parse_site_map(environ.get("SHOP_LMA_URLS"), setting="SHOP_LMA_URLS")
+    store_tokens = parse_site_map(environ.get("SHOP_STORE_TOKENS"), setting="SHOP_STORE_TOKENS")
+    for setting, values in (("SHOP_LMA_URLS", lma_urls), ("SHOP_STORE_TOKENS", store_tokens)):
+        if sorted(values) != sorted(SITE_IDS):
+            raise ValueError(f"{setting} must name each store once: {', '.join(SITE_IDS)}")
+    admin_token = environ.get("SHOP_ADMIN_TOKEN", "").strip()
+    if not admin_token:
+        raise ValueError("SHOP_ADMIN_TOKEN must hold the GMA's admin token")
+    network = AgentNetwork.over_http(
+        {GMA_AGENT: environ["SHOP_GMA_URL"], **{lma_agent(site_id): lma_urls[site_id] for site_id in SITE_IDS}}
+    )
+    return Agents(network=network, admin_token=admin_token, store_tokens=store_tokens)
+
+
+def open_agents(environ: Mapping[str, str] | None = None) -> Agents:
+    """The agents step 5 calls: separate processes when ``SHOP_GMA_URL`` is set, otherwise built here."""
+    environ = os.environ if environ is None else environ
+    if environ.get("SHOP_GMA_URL"):
+        return connect_agents(environ)
+    return build_agents()
+```
+
+**Start the agents.** Run these commands from the repository root, in one
+terminal. Each agent needs the planner, and loads the example's extension
+from `PYTHONPATH`. The tokens are the four kinds the docstring of
+`build_agents` lists. Make new ones for each run and keep them out of every
+file you commit. A token needs at least 16 characters, and an agent started
+with `LMA_REQUIRE_TOKENS=1` or `GMA_REQUIRE_TOKENS=1` refuses to start without
+one.
+
+```bash
+export DAGENTSC_BIN=$PWD/bindings/ocaml/_build/default/bin/dagentsc.exe
+export PYTHONPATH=.:examples/getting-started
+token() { .venv/bin/python -c 'import secrets; print(secrets.token_urlsafe(24))'; }
+ADMIN=$(token)
+NORTH_STAFF=$(token) NORTH_COORDINATOR=$(token) NORTH_UPLOAD=$(token)
+SOUTH_STAFF=$(token) SOUTH_COORDINATOR=$(token) SOUTH_UPLOAD=$(token)
+
+# The GMA, on port 8020. It calls each store's LMA only at the address listed here.
+GMA_ENGINE=http GMA_EXTENSIONS=shop.extension:ReturnsExtension \
+GMA_ALLOW_SOURCE_READS=0 GMA_REQUIRE_TOKENS=1 \
+GMA_SITE_ENDPOINTS=store-north=http://127.0.0.1:8011,store-south=http://127.0.0.1:8012 \
+GMA_ADMIN_TOKEN=$ADMIN \
+GMA_LMA_TOKENS=store-north=$NORTH_COORDINATOR,store-south=$SOUTH_COORDINATOR \
+GMA_SITE_TOKENS=store-north=$NORTH_UPLOAD,store-south=$SOUTH_UPLOAD \
+  .venv/bin/uvicorn dagents.gma.main:app --port 8020 --log-level warning &
+
+# One LMA per store: the store, its port, then its staff, coordinator and upload tokens.
+lma() {
+  LMA_SITE_ID=$1 LMA_CONDITION_ID=order_returns LMA_STUDY_ID=returns-pilot \
+  LMA_CAPABILITIES=evaluate LMA_EXTENSIONS=shop.extension:ReturnsExtension \
+  LMA_SITE_SOURCE=shop_orders LMA_REQUIRE_TOKENS=1 \
+  LMA_SITE_TOKEN=$3 LMA_COORDINATOR_TOKEN=$4 \
+  LMA_GMA_ENDPOINT=http://127.0.0.1:8020 LMA_GMA_TOKEN=$5 \
+    .venv/bin/uvicorn dagents.lma.main:app --port $2 --log-level warning &
+}
+lma store-north 8011 "$NORTH_STAFF" "$NORTH_COORDINATOR" "$NORTH_UPLOAD"
+lma store-south 8012 "$SOUTH_STAFF" "$SOUTH_COORDINATOR" "$SOUTH_UPLOAD"
+```
+
+The settings repeat what `build_agents` passes in code. `LMA_SITE_ID`,
+`LMA_CONDITION_ID`, `LMA_STUDY_ID` and `LMA_CAPABILITIES` make the
+`SiteConfig`, and `GMA_SITE_ENDPOINTS` takes the place of `network.add_app`.
+
+With the package installed from PyPI in the clone's `.venv`
+([Install the package, section 5](00-install.md#5-run-the-worked-example-on-the-package)),
+change three things:
+
+- Run `.venv/bin/dagents-gma` and `.venv/bin/dagents-lma`, with the same
+  `--port` and `--log-level`, in place of
+  `.venv/bin/uvicorn dagents.gma.main:app` and `dagents.lma.main:app`.
+- Set `PYTHONPATH=examples/getting-started`, without the clone's root.
+- Leave out the `DAGENTSC_BIN` line on a platform whose wheel includes the
+  planner.
+
+**Run step 5 against them.** Each agent answers `GET /health` when it is
+ready, about a second after it starts. `SHOP_LMA_URLS` holds the addresses of
+`GMA_SITE_ENDPOINTS`, and `SHOP_STORE_TOKENS` each LMA's staff token:
+
+```bash
+curl -s http://127.0.0.1:8020/health    # repeat for 8011 and 8012 until each answers {"status":"ok",...}
+SHOP_GMA_URL=http://127.0.0.1:8020 \
+SHOP_LMA_URLS=store-north=http://127.0.0.1:8011,store-south=http://127.0.0.1:8012 \
+SHOP_ADMIN_TOKEN=$ADMIN SHOP_STORE_TOKENS=store-north=$NORTH_STAFF,store-south=$SOUTH_STAFF \
+  .venv/bin/python examples/getting-started/step5_agents_over_http.py
+```
+
+The script prints the output of [Run it](#run-it), line for line, except the
+first line, which names how the agents are called:
+
+```text
+Agents: gma, lma:store-north, lma:store-south, called network
+```
+
+The GMA reached each LMA over HTTP, and each LMA read its store's orders
+through `shop_orders`. The call log lists the same 9 calls, because it records
+only the calls the script made.
+
+Step 5 uses the round id `returns-eval-http-1`, and the GMA refuses a round id
+it has stored. So run step 5 once each time you start the agents. To run it
+again, stop the agents with `kill $(jobs -p)` and start them again.
+
+`tests/test_getting_started_example.py` checks this section in two ways. It
+starts the three processes with the same settings, on free ports, and checks
+every line step 5 prints. It also runs the commands above with bash, with
+stand-ins that record each process instead of starting it, and checks that
+each port and token reaches the right setting. No test starts agents on the
+ports above, or runs the `dagents-gma` and `dagents-lma` commands.
+
 [Step 8](08-deploy.md#7-run-the-agents-in-your-process-or-as-separate-processes)
-compares the two ways, and the settings are in
+compares the two ways, and every setting is in
 [`dagents/lma/README.md`](../../dagents/lma/README.md) and
 [`dagents/gma/README.md`](../../dagents/gma/README.md).
 
@@ -1279,5 +1444,12 @@ second evaluation of the round both answer `409`. The round endpoints are in the
 | `409` with the code `conflict` and "model version ... is already registered with different contents" from `:aggregate` | The candidate's name `<version_prefix>+<round_id>` holds another model. With the default round store in memory, a GMA restart frees every round id, while a model store in Postgres keeps the candidates of the rounds before it. The GMA deleted the round's updates | Use a new round id for every round, also after a restart |
 | `409` with the refusal `decision_differs` on a release evaluation | An earlier request stored its decision with the version but not on the round, and the decision computed now differs, for example in `baseline_version` | Run a new training round and evaluate its candidate |
 | `503` with the code `store_unavailable` from `:aggregate` or `:evaluate-release` | A store did not answer while the GMA wrote the candidate, the round or the decision | Send the same request again. A retried aggregate gives the same candidate, and a retried release evaluation saves the decision the version holds |
+| An agent process stops with `ExtensionError: extension spec 'shop.extension:ReturnsExtension': cannot import module shop.extension: No module named 'shop'` | `PYTHONPATH` does not hold `examples/getting-started` (section 6) | `export PYTHONPATH=.:examples/getting-started` before you start the agents |
+| An LMA process stops with `ExtensionError: unknown site source: shop_orders` | No extension in `LMA_EXTENSIONS` contributes a site source with that name | Name the extension that contributes it, and check the name it returns from `site_sources()` |
+| An agent process stops with `AccessConfigurationError: ... a token must have at least 16 characters`, or `... requires tokens, but no token is configured` | A token is shorter than 16 characters, or `LMA_REQUIRE_TOKENS=1` or `GMA_REQUIRE_TOKENS=1` is set without a token | Make each token with `secrets.token_urlsafe(24)` |
+| `AgentUnavailableError: the GMA is unavailable: the connection failed` from step 5 | No GMA answers at `SHOP_GMA_URL`, or the agents have not finished starting | Start the agents, and wait until each answers `GET /health` |
+| `AgentError: the GMA answered 401 (unauthorized): the token is not valid` from step 5 | `SHOP_ADMIN_TOKEN` differs from the GMA's `GMA_ADMIN_TOKEN`. The script stops at its first call, before the round starts | Pass the GMA's `GMA_ADMIN_TOKEN` in `SHOP_ADMIN_TOKEN` and run step 5 again |
+| `AgentError: the LMA of site store-north answered 401 (unauthorized): the token is not valid` from step 5 | That store's token in `SHOP_STORE_TOKENS` differs from its LMA's `LMA_SITE_TOKEN`. The script uses the store tokens last, after the round ran | Pass each LMA's `LMA_SITE_TOKEN` in `SHOP_STORE_TOKENS`. Then stop the agents and start them again, because the GMA has stored the round id |
+| `AgentError: the GMA answered 409 (conflict): round returns-eval-http-1 already exists; a new round needs a new round id` from step 5 | Step 5 already ran against these agents, including a run that failed after the round started | Stop the agents with `kill $(jobs -p)` and start them again with the commands of section 6 |
 
 Next: [Step 7: Call the framework services](07-framework-services.md).

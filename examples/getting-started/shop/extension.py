@@ -10,11 +10,13 @@ from dagents.common.extensions import (
     ExtensionRegistry,
     FeatureContract,
     ModelKind,
+    SiteSourceFactory,
     default_registry,
 )
 
 from shop import rule
 from shop.contract import CLASSIFICATION, CONDITION, FEATURE_CONTRACT
+from shop.site_source import shop_orders
 
 
 class ReturnsExtension:
@@ -42,6 +44,11 @@ class ReturnsExtension:
     def model_kinds(self) -> list[ModelKind]:
         # An LMA runs the rule in a round through this kind (step 5).
         return [rule.RuleKind()]
+
+    def site_sources(self) -> dict[str, SiteSourceFactory]:
+        # An LMA started from its settings reads a store's orders through
+        # this factory, named by LMA_SITE_SOURCE=shop_orders (step 5).
+        return {"shop_orders": shop_orders}
 
 
 def install(registry: ExtensionRegistry | None = None) -> ReturnsExtension:

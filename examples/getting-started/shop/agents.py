@@ -8,20 +8,23 @@ code. Here the Dagents agents do that work:
 - one GMA (global agent) enrols the stores, plans each round, sends each store
   its job over the LMA's API, and combines the results the stores return.
 
-The agents run in this process, and every call goes through
-``AgentNetwork.in_process``: the request passes through the agent's real
-routes, request checks and token checks, without a socket. To run the agents
-as separate processes, start each one with uvicorn and build the network with
-``AgentNetwork.over_http`` instead. The calls stay the same.
+:func:`build_agents` runs the agents in this process, and every call goes
+through ``AgentNetwork.in_process``: the request passes through the agent's
+real routes, request checks and token checks, without a socket.
+:func:`connect_agents` reaches agents that run as separate processes, started
+with uvicorn from their settings, through ``AgentNetwork.over_http``. The calls
+stay the same. :func:`open_agents` chooses between the two.
 """
 
 from __future__ import annotations
 
+import os
 import secrets
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Mapping
 
 from dagents.common.extensions import ExtensionRegistry
+from dagents.common.infrastructure.agent_auth import parse_site_map
 from dagents.common.infrastructure.agent_client import GMA_AGENT, AgentNetwork, GmaClient, LmaClient, lma_agent
 from dagents.gma.app_factory import GmaDeps
 from dagents.gma.app_factory import create_app as create_gma
@@ -34,32 +37,8 @@ from dagents.lma.domain.site_config import SiteConfig
 from shop.contract import CONDITION
 from shop.coordinator import STUDY_ID
 from shop.extension import install
-from shop.store import SITE_IDS, OrderStore, load_store
-
-
-class OrderStoreSource:
-    """One store's orders, in the form an LMA reads them (a ``SiteRecordSource``)."""
-
-    def __init__(self, store: OrderStore) -> None:
-        self._store = store
-
-    def records(self) -> list[dict[str, Any]]:
-        return self._store.orders()
-
-    def count(self) -> int:
-        return self._store.count()
-
-    def version(self) -> str:
-        # Orders are only added, so the count changes whenever the orders do.
-        # The LMA reads the orders again when the version changes.
-        return str(self._store.count())
-
-    def location(self) -> dict[str, str]:
-        # The LMA shows this to its callers, so it names the store, never a host.
-        return {"store": self._store.site_id}
-
-    def close(self) -> None:
-        pass
+from shop.site_source import OrderStoreSource
+from shop.store import SITE_IDS, load_store
 
 
 def _token() -> str:
@@ -150,3 +129,38 @@ def build_agents() -> Agents:
         network.close()
         raise
     return Agents(network=network, admin_token=admin_token, store_tokens=store_tokens)
+
+
+def connect_agents(environ: Mapping[str, str]) -> Agents:
+    """Reach a GMA and one LMA per store that run as separate processes.
+
+    The addresses and the caller's tokens come from ``environ``. Each token
+    is the one the agent was started with:
+
+    | Variable | Holds | The agent's setting |
+    |---|---|---|
+    | `SHOP_GMA_URL` | The GMA's address | |
+    | `SHOP_LMA_URLS` | Each store's LMA: `store-north=URL,store-south=URL` | The GMA's `GMA_SITE_ENDPOINTS` |
+    | `SHOP_ADMIN_TOKEN` | The study operator's token | The GMA's `GMA_ADMIN_TOKEN` |
+    | `SHOP_STORE_TOKENS` | Each store's staff token: `store-north=TOKEN,...` | Each LMA's `LMA_SITE_TOKEN` |
+    """
+    lma_urls = parse_site_map(environ.get("SHOP_LMA_URLS"), setting="SHOP_LMA_URLS")
+    store_tokens = parse_site_map(environ.get("SHOP_STORE_TOKENS"), setting="SHOP_STORE_TOKENS")
+    for setting, values in (("SHOP_LMA_URLS", lma_urls), ("SHOP_STORE_TOKENS", store_tokens)):
+        if sorted(values) != sorted(SITE_IDS):
+            raise ValueError(f"{setting} must name each store once: {', '.join(SITE_IDS)}")
+    admin_token = environ.get("SHOP_ADMIN_TOKEN", "").strip()
+    if not admin_token:
+        raise ValueError("SHOP_ADMIN_TOKEN must hold the GMA's admin token")
+    network = AgentNetwork.over_http(
+        {GMA_AGENT: environ["SHOP_GMA_URL"], **{lma_agent(site_id): lma_urls[site_id] for site_id in SITE_IDS}}
+    )
+    return Agents(network=network, admin_token=admin_token, store_tokens=store_tokens)
+
+
+def open_agents(environ: Mapping[str, str] | None = None) -> Agents:
+    """The agents step 5 calls: separate processes when ``SHOP_GMA_URL`` is set, otherwise built here."""
+    environ = os.environ if environ is None else environ
+    if environ.get("SHOP_GMA_URL"):
+        return connect_agents(environ)
+    return build_agents()
