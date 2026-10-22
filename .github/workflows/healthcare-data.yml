@@ -151,7 +151,8 @@ jobs:
         # it. They also check that each hospital's LMA uses only its own store
         # and role, run a pilot while records are written, run the GMA,
         # one LMA per hospital and the API as separate processes, and add
-        # Hospital 290 to those processes through core-service.
+        # Hospital 290 to those processes through core-service. The restart
+        # test stops the API process after an approval and starts it again.
         working-directory: apps/healthcare-demo
         env:
           PYTHONPATH: ${{ github.workspace }}:${{ github.workspace }}/apps/healthcare-demo/backend
@@ -172,6 +173,7 @@ jobs:
             tests.test_concurrency \
             tests.test_network_mode \
             tests.test_network_deploy \
+            tests.test_restart_processes \
             2>&1 | tee database-suite.log
 
       - name: Test the framework's database code on the scratch PostgreSQL 16
@@ -231,6 +233,7 @@ jobs:
             --require-ran tests.test_network_mode.NetworkModeTests \
             --require-ran tests.test_network_mode.NetworkApprovalTests \
             --require-ran tests.test_network_deploy.NetworkDeployTests \
+            --require-ran tests.test_restart_processes.ApiRestartTests \
             apps/healthcare-demo/database-suite.log || status=1
           python scripts/ci_no_skipped_tests.py \
             --forbid planner \

@@ -496,7 +496,8 @@ jobs:
         # picks, against the service container, and checks that their pilot
         # equals the in-process pilot. tests/test_network_deploy.py also starts
         # core-service from services/core-service and adds Hospital 290 to the
-        # running processes.
+        # running processes. tests/test_restart_processes.py stops the API
+        # process after an approval and starts it again on the same database.
         working-directory: apps/healthcare-demo
         env:
           DAGENTSC_BIN: ${{ env.PLANNER_DIR }}/dagentsc.exe
@@ -585,6 +586,7 @@ jobs:
             --require-ran tests.test_network_mode.NetworkModeTests \
             --require-ran tests.test_network_mode.NetworkApprovalTests \
             --require-ran tests.test_network_deploy.NetworkDeployTests \
+            --require-ran tests.test_restart_processes.ApiRestartTests \
             apps/healthcare-demo/healthcare-suite.log || status=1
           python scripts/ci_no_skipped_tests.py \
             --forbid database \
@@ -749,6 +751,38 @@ jobs:
           fi
           grep -q "ok  " smoke.log || {
             echo "The smoke test produced no passing assertions." >&2
+            exit 1
+          }
+
+      - name: Approve a release from the pilot panel in a browser
+        # The demo's own release gates decide whatever the records say, so the
+        # smoke test cannot count on an enabled "Approve release" button.
+        # run_approval_check.sh starts the API with one gate a trained
+        # candidate passes (tests/lenient_gates_server.py, which only tests
+        # start) and the Vite dev server, and runs frontend/approve.mjs: two
+        # pages run a pilot, one approves, the other's approval is refused with
+        # the backend's 409, and every hospital page then scores with the
+        # released model. It runs after the smoke test, so Vite's dependency
+        # bundle and the chart font cache already exist. The script passes
+        # exit 2 (no browser) through, which fails this step.
+        timeout-minutes: 15
+        env:
+          DAGENTSC_BIN: ${{ env.PLANNER_DIR }}/dagentsc.exe
+          PYTHON: python
+        run: |
+          set -o pipefail
+          apps/healthcare-demo/tests/run_approval_check.sh 2>&1 | tee approval.log
+
+      - name: Fail if the approval check skipped
+        # The step above already fails on exit 2. This also fails a run whose
+        # log shows a skip or no passing approval check.
+        run: |
+          if grep -qi "check skipped\|^SKIP" approval.log; then
+            echo "The approval check skipped instead of running." >&2
+            exit 1
+          fi
+          grep -q "ok  approve:" approval.log || {
+            echo "The approval check produced no passing assertions." >&2
             exit 1
           }
 
