@@ -180,7 +180,9 @@ jobs:
         # enrolment and update store tests build theirs from the package's DDL
         # constants and run the controller tests on them, and a GMA builds
         # those stores from its table settings, is restarted, and as a process
-        # is killed with SIGKILL and started again on its port. Each test
+        # is killed with SIGKILL and started again on its port. The LMA
+        # restart test kills an LMA process and starts it again on the tables
+        # dagents/lma/README.md tells an operator to create. Each test
         # creates its own scratch database in the service container and drops
         # it afterwards. The job installs only the demo's requirements, as the
         # deployed image does.
@@ -200,6 +202,7 @@ jobs:
             dagents.tests.test_gma_settings \
             dagents.tests.test_gma_restart \
             dagents.tests.test_gma_process_restart \
+            dagents.tests.test_lma_restart_postgres \
             2>&1 | tee framework-database.log
 
       - name: Fail if the database tests skipped
@@ -262,6 +265,7 @@ jobs:
             --require-ran dagents.tests.test_gma_restart.RecoveryRestartTests \
             --require-ran dagents.tests.test_gma_restart.PostgresUploadThreadTests \
             --require-ran dagents.tests.test_gma_process_restart.GmaProcessRestartTests \
+            --require-ran dagents.tests.test_lma_restart_postgres.LmaCrashPostgresTests \
             framework-database.log || status=1
           exit "${status}"
 
