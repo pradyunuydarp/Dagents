@@ -177,7 +177,7 @@ admin login:
 
 ```bash
 export HEALTHCARE_DEMO_TEST_DATABASE_URL=postgresql://admin:pw@127.0.0.1:5432/postgres  # healthcare suite
-export DAGENTS_TEST_DATABASE_URL=postgresql://admin:pw@127.0.0.1:5432/postgres          # dagents/tests: role scoping, the lease, the model store, the round stores, the job log, the GMA's Postgres wiring, the GMA restart tests
+export DAGENTS_TEST_DATABASE_URL=postgresql://admin:pw@127.0.0.1:5432/postgres          # dagents/tests: role scoping, the lease, the model store, the round stores, the job log, the GMA's Postgres wiring, the GMA and LMA restart tests
 ```
 
 Without them these tests skip with a message that starts `database test
@@ -195,7 +195,10 @@ a statically linked `dagentsc-static` for `packaging`), `agents`,
 `framework-services` (core-service twice, with and without `DAGENTSC_BIN`),
 `contracts`, `spring`, `demo-apps`, `frontends`, `deploy-smoke` (the
 healthcare UI in network mode with `--deploy` against PostgreSQL 16, where the
-smoke test adds Hospital 290 from the page), `packaging` (builds the sdist and
+smoke test adds Hospital 290 from the page), `published-layout` (the healthcare
+UI's production build on another origin than its API, against PostgreSQL 16:
+an unmigrated database, an empty one, a cold start and the full smoke test;
+`apps/healthcare-demo/scripts/run_published_check.sh`), `packaging` (builds the sdist and
 a Linux wheel with the planner, installs the wheel into clean environments,
 one of them with openai-agents, and runs the agent suite on the newest
 versions the package's extras allow; see **Releasing**), `docs-impact`, and a

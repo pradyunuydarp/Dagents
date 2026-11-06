@@ -150,8 +150,10 @@ jobs:
         # stores, the pilot, data entry, the API and the status report against
         # it. They also check that each hospital's LMA uses only its own store
         # and role, run a pilot while records are written, run the GMA,
-        # one LMA per hospital and the API as separate processes, and add
-        # Hospital 290 to those processes through core-service.
+        # one LMA per hospital and the API as separate processes, kill one of
+        # those processes and start it again, and add Hospital 290 to those
+        # processes through core-service. The restart test stops the API
+        # process after an approval and starts it again.
         working-directory: apps/healthcare-demo
         env:
           PYTHONPATH: ${{ github.workspace }}:${{ github.workspace }}/apps/healthcare-demo/backend
@@ -172,6 +174,7 @@ jobs:
             tests.test_concurrency \
             tests.test_network_mode \
             tests.test_network_deploy \
+            tests.test_restart_processes \
             2>&1 | tee database-suite.log
 
       - name: Test the framework's database code on the scratch PostgreSQL 16
@@ -180,7 +183,9 @@ jobs:
         # enrolment and update store tests build theirs from the package's DDL
         # constants and run the controller tests on them, and a GMA builds
         # those stores from its table settings, is restarted, and as a process
-        # is killed with SIGKILL and started again on its port. Each test
+        # is killed with SIGKILL and started again on its port. The LMA
+        # restart test kills an LMA process and starts it again on the tables
+        # dagents/lma/README.md tells an operator to create. Each test
         # creates its own scratch database in the service container and drops
         # it afterwards. The job installs only the demo's requirements, as the
         # deployed image does.
@@ -200,6 +205,7 @@ jobs:
             dagents.tests.test_gma_settings \
             dagents.tests.test_gma_restart \
             dagents.tests.test_gma_process_restart \
+            dagents.tests.test_lma_restart_postgres \
             2>&1 | tee framework-database.log
 
       - name: Fail if the database tests skipped
@@ -231,6 +237,8 @@ jobs:
             --require-ran tests.test_network_mode.NetworkModeTests \
             --require-ran tests.test_network_mode.NetworkApprovalTests \
             --require-ran tests.test_network_deploy.NetworkDeployTests \
+            --require-ran tests.test_network_mode.NetworkOutageTests \
+            --require-ran tests.test_restart_processes.ApiRestartTests \
             apps/healthcare-demo/database-suite.log || status=1
           python scripts/ci_no_skipped_tests.py \
             --forbid planner \
@@ -262,6 +270,7 @@ jobs:
             --require-ran dagents.tests.test_gma_restart.RecoveryRestartTests \
             --require-ran dagents.tests.test_gma_restart.PostgresUploadThreadTests \
             --require-ran dagents.tests.test_gma_process_restart.GmaProcessRestartTests \
+            --require-ran dagents.tests.test_lma_restart_postgres.LmaCrashPostgresTests \
             framework-database.log || status=1
           exit "${status}"
 
