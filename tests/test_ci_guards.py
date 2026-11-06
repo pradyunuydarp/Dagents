@@ -11,7 +11,8 @@ makes them skip.
 The last part checks the workflows: every step that pipes into `tee` sets
 `pipefail`, the jobs call the guard with the categories they must check, and
 every test class that needs a database is in a `--require-ran` list whose step
-runs its module.
+runs its module. That covers the agents' tests, the healthcare demo's and the
+framework services' (`services/*/tests`).
 """
 
 from __future__ import annotations
@@ -45,9 +46,17 @@ DATA_WORKFLOW = WORKFLOWS / "healthcare-data.yml"
 #: the healthcare suite, and the framework's database tests from dagents/tests.
 HEALTHCARE_LOG = "healthcare-suite.log"
 FRAMEWORK_DATABASE_LOG = "framework-database.log"
+#: Every service's own suite. Each runs with its tests folder as the top level
+#: (`-t services/<name>/tests`), so its test ids have no package:
+#: `test_postgres_source_e2e.PostgresPipelineSourceTests`.
+SERVICE_TEST_DIRS = tuple(sorted(path for path in (REPO_ROOT / "services").glob("*/tests") if path.is_dir()))
+#: The service suites the framework-services job runs. A suite with database
+#: tests writes its verbose log to `<service>.log`, and the job checks that log.
+FRAMEWORK_SERVICE_SUITES = ("core-service", "pipeline-service", "model-service")
 #: Where a module named in `--require-ran` can live: the suites run from the
-#: repository root, except the healthcare suite, which runs from its app.
-TEST_ROOTS = (REPO_ROOT, REPO_ROOT / "apps" / "healthcare-demo")
+#: repository root, except the healthcare suite, which runs from its app, and
+#: the service suites, which run from their tests folders.
+TEST_ROOTS = (REPO_ROOT, REPO_ROOT / "apps" / "healthcare-demo", *SERVICE_TEST_DIRS)
 
 
 # ---------------------------------------------------------------------------
@@ -741,6 +750,82 @@ class WorkflowGuardTests(unittest.TestCase):
             f"{FRAMEWORK_DATABASE_LOG}; the agents job has no database, so they run only there. "
             "Add them there and in healthcare-data.yml",
         )
+
+    def framework_services_call(self, log: str) -> Any:
+        """The one framework-services call that checks `log` for database skips with `--require-ran`."""
+        calls = [
+            call for call in guard_calls(jobs(self.CI)["framework-services"])
+            if Path(call.log).name == log and call.require_ran and "database" in call.forbid
+        ]
+        self.assertEqual(
+            1,
+            len(calls),
+            f"the framework-services job should check {log} for database skips with --require-ran exactly once",
+        )
+        return calls[0]
+
+    def test_the_framework_services_job_runs_a_database_and_forbids_its_skips(self) -> None:
+        job = jobs(self.CI)["framework-services"]
+        self.assertIn("image: postgres:16", job)
+        self.assertIn("DAGENTS_TEST_DATABASE_URL:", job)
+        self.assertIn("database", self.forbidden_in("framework-services"))
+
+    def test_every_framework_service_database_class_is_required_to_run(self) -> None:
+        """The pipeline and model services read a Postgres source in a uvicorn process.
+
+        Those tests skip without a test database. Only the framework-services
+        job runs these suites, so each class must be in its --require-ran list
+        for the log of the suite that defines it.
+        """
+        needed = {
+            service: database_test_classes(REPO_ROOT / "services" / service / "tests", "")
+            for service in FRAMEWORK_SERVICE_SUITES
+        }
+        self.assertIn(
+            "test_postgres_source_e2e.PostgresPipelineSourceTests",
+            needed["pipeline-service"],
+            "the class finder found nothing",
+        )
+        for service, classes in needed.items():
+            if not classes:
+                continue
+            with self.subTest(service=service):
+                call = self.framework_services_call(f"{service}.log")
+                missing = sorted(classes - set(call.require_ran))
+                self.assertEqual(
+                    [],
+                    missing,
+                    f"these {service} classes need a database and are not in the framework-services "
+                    f"--require-ran list for {service}.log in ci.yml",
+                )
+                # A class listed for this log must come from this suite. The two
+                # suites share module names, so the existence check alone would
+                # accept a class listed under the other service's log.
+                tests = REPO_ROOT / "services" / service / "tests"
+                for name in call.require_ran:
+                    module, _, class_ = name.rpartition(".")
+                    path = tests / f"{module}.py"
+                    self.assertTrue(
+                        path.is_file()
+                        and re.search(rf"^class {class_}\(", path.read_text(encoding="utf-8"), re.MULTILINE),
+                        f"{name} is required for {service}.log but is not a class of {service}'s suite",
+                    )
+
+    def test_no_other_service_suite_needs_a_database(self) -> None:
+        """Only the framework-services job checks a service suite for database skips.
+
+        `services/nl2sql-demo/tests` runs in the demo-apps job without a log.
+        A database class there would skip unseen, so this fails until a job
+        runs it against a database and requires it.
+        """
+        others = [path for path in SERVICE_TEST_DIRS if path.parent.name not in FRAMEWORK_SERVICE_SUITES]
+        for test_dir in others:
+            with self.subTest(service=test_dir.parent.name):
+                self.assertEqual(
+                    set(),
+                    database_test_classes(test_dir, ""),
+                    "this service suite has database tests that no CI step requires to run",
+                )
 
     def test_every_database_log_is_also_checked_for_planner_skips(self) -> None:
         """The database steps have the planner, and some database classes need it.

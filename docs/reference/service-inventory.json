@@ -1749,7 +1749,7 @@
           "path": "/api/v1/sources",
           "handler": "list_sources",
           "status_code": null,
-          "summary": "List all source definitions registered with the model service.",
+          "summary": "List all source definitions registered with the model service, with their connection options redacted.",
           "alias_of": null
         },
         {
@@ -1765,7 +1765,7 @@
           "path": "/api/v1/sources/{source_id}",
           "handler": "get_source",
           "status_code": null,
-          "summary": "Fetch one stored source definition by id.",
+          "summary": "Fetch one stored source definition by id, with its connection options redacted.",
           "alias_of": null
         },
         {
@@ -1953,7 +1953,7 @@
           "path": "/api/v1/sources",
           "handler": "list_sources",
           "status_code": null,
-          "summary": "List every stored source definition, sorted by `source_id`.",
+          "summary": "List every stored source definition, sorted by `source_id`, with its connection options redacted.",
           "alias_of": null
         },
         {
@@ -1969,7 +1969,7 @@
           "path": "/api/v1/sources/{source_id}",
           "handler": "get_source",
           "status_code": null,
-          "summary": "Fetch one stored source definition by `source_id`.",
+          "summary": "Fetch one stored source definition by `source_id`, with its connection options redacted.",
           "alias_of": null
         },
         {
