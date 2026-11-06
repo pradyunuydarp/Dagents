@@ -173,11 +173,13 @@ from dagents.common.extensions import (
     ExtensionRegistry,
     FeatureContract,
     ModelKind,
+    SiteSourceFactory,
     default_registry,
 )
 
 from shop import rule
 from shop.contract import CLASSIFICATION, CONDITION, FEATURE_CONTRACT
+from shop.site_source import shop_orders
 
 
 class ReturnsExtension:
@@ -205,6 +207,11 @@ class ReturnsExtension:
     def model_kinds(self) -> list[ModelKind]:
         # An LMA runs the rule in a round through this kind (step 5).
         return [rule.RuleKind()]
+
+    def site_sources(self) -> dict[str, SiteSourceFactory]:
+        # An LMA started from its settings reads a store's orders through
+        # this factory, named by LMA_SITE_SOURCE=shop_orders (step 5).
+        return {"shop_orders": shop_orders}
 
 
 def install(registry: ExtensionRegistry | None = None) -> ReturnsExtension:
@@ -235,7 +242,7 @@ before they existed still registers.
 | `pipeline_steps()` | Named functions | Your own code, through `registry.pipeline_step(name)` |
 | `model_adapters()` | Named functions | Your own code, through `registry.model_adapter(name)` |
 | `model_kinds()` | `ModelKind` objects | The LMA, to run a round's model; the GMA, to check, combine and register model versions |
-| `site_sources()` | Named factories that build a source's record reader | An LMA started from settings, through `LMA_SITE_SOURCE` |
+| `site_sources()` | Named factories that build a source's record reader | An LMA started from settings, through `LMA_SITE_SOURCE` ([Step 6](06-federated-rounds.md#run-the-agents-as-separate-processes)) |
 
 No framework service calls a contributed pipeline step or model adapter today.
 The pipeline service runs only its six built-in step kinds. The registry keeps
@@ -381,7 +388,7 @@ curl -s http://127.0.0.1:8010/api/v1/extensions
 The LMA lists what the extension contributes:
 
 ```json
-{"extensions":[{"extension_id":"example-retail-returns","version":"1.0.0"}],"feature_contracts":[{"contract_id":"retail-orders","version":"retail-orders-v1"}],"classifications":["retail-orders"],"condition_packs":[{"condition_id":"order_returns","display_name":"Orders likely to be returned"}],"pipeline_steps":[],"model_adapters":["return-check-rule-v2"],"model_kinds":["return_check_rule"],"site_sources":[]}
+{"extensions":[{"extension_id":"example-retail-returns","version":"1.0.0"}],"feature_contracts":[{"contract_id":"retail-orders","version":"retail-orders-v1"}],"classifications":["retail-orders"],"condition_packs":[{"condition_id":"order_returns","display_name":"Orders likely to be returned"}],"pipeline_steps":[],"model_adapters":["return-check-rule-v2"],"model_kinds":["return_check_rule"],"site_sources":["shop_orders"]}
 ```
 
 A classification an extension contributes cannot be replaced at runtime. A
