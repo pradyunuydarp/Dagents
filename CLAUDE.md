@@ -177,7 +177,7 @@ admin login:
 
 ```bash
 export HEALTHCARE_DEMO_TEST_DATABASE_URL=postgresql://admin:pw@127.0.0.1:5432/postgres  # healthcare suite
-export DAGENTS_TEST_DATABASE_URL=postgresql://admin:pw@127.0.0.1:5432/postgres          # dagents/tests: role scoping, the lease, the model store, the round stores, the job log, the GMA's Postgres wiring, the GMA restart tests
+export DAGENTS_TEST_DATABASE_URL=postgresql://admin:pw@127.0.0.1:5432/postgres          # dagents/tests: role scoping, the lease, the model store, the round stores, the job log, the GMA's Postgres wiring, the GMA and LMA restart tests
 ```
 
 Without them these tests skip with a message that starts `database test
