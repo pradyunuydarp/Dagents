@@ -701,6 +701,7 @@ HEALTHCARE_DEMO_TEST_DATABASE_URL=postgresql://admin:pw@127.0.0.1:5432/postgres 
   DAGENTSC_BIN=$PWD/bindings/ocaml/_build/default/bin/dagentsc.exe \
   apps/healthcare-demo/scripts/run_published_check.sh
 ```
+
 ## 3. The test loop
 
 CI runs the same commands a contributor runs. Write the failing test first,
