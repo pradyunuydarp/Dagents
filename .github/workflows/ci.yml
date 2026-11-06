@@ -166,9 +166,10 @@ jobs:
         # while every GMA thread token is held, the refused approval on the
         # simulator, a whole study through the GMA and three LMAs, in process
         # and as separate uvicorn processes, a site that joins the GMA while
-        # it runs (its job reaches an LMA served by uvicorn), and the appliers
+        # it runs (its job reaches an LMA served by uvicorn), the appliers
         # that start one rendered Compose service as a process or with docker
-        # compose.
+        # compose, and the agent processes while a planner hangs or is missing
+        # and while an LMA process is killed.
         run: |
           python scripts/ci_no_skipped_tests.py \
             --forbid planner \
@@ -192,6 +193,7 @@ jobs:
             --require-ran dagents.tests.test_compose_apply.LocalProcessApplierTests \
             --require-ran dagents.tests.test_compose_apply.LocalProcessEnvFileTests \
             --require-ran dagents.tests.test_compose_apply.DockerComposeApplierTests \
+            --require-ran dagents.tests.test_agent_failures_over_http.PlannerFailureOverHttpTests \
             agents-suite.log
 
       - name: Run the getting-started example and check the guide
@@ -214,12 +216,28 @@ jobs:
             example-suite.log
 
   # ---------------------------------------------------------------------------
-  # core / pipeline / model. core-service runs twice on purpose.
+  # core / pipeline / model. core-service runs twice on purpose. The pipeline
+  # and model services also read a Postgres source in a uvicorn process, so
+  # the job runs a PostgreSQL 16 service and fails if those tests skip.
   # ---------------------------------------------------------------------------
   framework-services:
     name: Framework services
     runs-on: ubuntu-latest
     needs: planners
+    services:
+      # A throwaway database. Each Postgres source test creates a scratch
+      # database and a login role in it, and drops both afterwards.
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v4
 
@@ -264,13 +282,25 @@ jobs:
         run: python -m unittest discover -s services/core-service/tests -t services/core-service/tests
 
       - name: pipeline-service
+        # Its test_postgres_source_e2e.py starts the service with uvicorn on a
+        # loopback port the system picks, registers a Postgres source on the
+        # service container and runs an asynchronous pipeline on it.
+        timeout-minutes: 10
         env:
           PYTHONPATH: .:services/pipeline-service
-        run: python -m unittest discover -s services/pipeline-service/tests -t services/pipeline-service/tests
+          DAGENTS_TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
+        run: |
+          set -o pipefail
+          python -m unittest discover -s services/pipeline-service/tests \
+            -t services/pipeline-service/tests -v 2>&1 | tee pipeline-service.log
 
       - name: model-service
+        # Its test_postgres_source_e2e.py starts the service the same way, then
+        # runs a model job and the three checks on a Postgres source.
+        timeout-minutes: 20
         env:
           PYTHONPATH: .:services/model-service
+          DAGENTS_TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
         run: |
           set -o pipefail
           python -m unittest discover -s services/model-service/tests \
@@ -286,6 +316,24 @@ jobs:
             echo "services/model-service/requirements-optional-models.txt." >&2
             exit 1
           fi
+
+      - name: Fail if the Postgres source tests skipped
+        # Their skip reason starts with "database test skipped", so a skip here
+        # means the service container or the connection string is wrong.
+        # --require-ran also catches a class that stopped running for another
+        # reason. tests/test_ci_guards.py checks that every database class in
+        # the service suites is listed here, under its own suite's log.
+        run: |
+          status=0
+          python scripts/ci_no_skipped_tests.py \
+            --forbid database \
+            --require-ran test_postgres_source_e2e.PostgresPipelineSourceTests \
+            pipeline-service.log || status=1
+          python scripts/ci_no_skipped_tests.py \
+            --forbid database \
+            --require-ran test_postgres_source_e2e.PostgresModelSourceTests \
+            model-service.log || status=1
+          exit "${status}"
 
   # ---------------------------------------------------------------------------
   # Cross-service contracts: the endpoint inventory, and the conventions the
@@ -492,11 +540,14 @@ jobs:
         # The demo calls the LMAs and the GMA only through their HTTP APIs.
         # Most tests build the agents inside the API process.
         # tests/test_network_mode.py starts the GMA, one LMA per hospital and
-        # the API as separate uvicorn processes on loopback ports the system
-        # picks, against the service container, and checks that their pilot
-        # equals the in-process pilot. tests/test_network_deploy.py also starts
-        # core-service from services/core-service and adds Hospital 290 to the
-        # running processes.
+        # the API as separate uvicorn processes on free loopback ports,
+        # against the service container, and checks that their pilot equals
+        # the in-process pilot. It also kills one LMA process and starts it
+        # again on its port. tests/test_network_deploy.py also starts
+        # core-service from services/core-service, adds Hospital 290 to the
+        # running processes, and kills and starts again its LMA and the GMA.
+        # tests/test_restart_processes.py stops the API process after an
+        # approval and starts it again on the same database.
         working-directory: apps/healthcare-demo
         env:
           DAGENTSC_BIN: ${{ env.PLANNER_DIR }}/dagentsc.exe
@@ -529,12 +580,14 @@ jobs:
         # GMA's coordinator wiring, the GMA's round, enrolment and update
         # stores with the controller tests run on them, a GMA that builds
         # those stores from its table settings and is restarted inside the
-        # test process, and a GMA process killed with SIGKILL and started
+        # test process, a GMA process killed with SIGKILL and started
         # again on its port (it starts the GMA and three LMAs on loopback
-        # ports 9800-9899). The registry, the GMA
-        # and the controller tests also need the planner. The job installs
-        # only the healthcare demo's requirements, the set its image installs,
-        # so a framework dependency the demo lacks fails here.
+        # ports 9800-9899), and an LMA process killed with SIGKILL and
+        # started again on the tables its README creates. The registry, the
+        # GMA, the controller and the LMA restart tests also need the
+        # planner. The job installs only the healthcare demo's requirements,
+        # the set its image installs, so a framework dependency the demo
+        # lacks fails here.
         env:
           DAGENTSC_BIN: ${{ env.PLANNER_DIR }}/dagentsc.exe
           DAGENTS_TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
@@ -550,6 +603,7 @@ jobs:
             dagents.tests.test_gma_settings \
             dagents.tests.test_gma_restart \
             dagents.tests.test_gma_process_restart \
+            dagents.tests.test_lma_restart_postgres \
             2>&1 | tee framework-database.log
 
       - name: Fail if the database tests skipped
@@ -585,6 +639,8 @@ jobs:
             --require-ran tests.test_network_mode.NetworkModeTests \
             --require-ran tests.test_network_mode.NetworkApprovalTests \
             --require-ran tests.test_network_deploy.NetworkDeployTests \
+            --require-ran tests.test_network_mode.NetworkOutageTests \
+            --require-ran tests.test_restart_processes.ApiRestartTests \
             apps/healthcare-demo/healthcare-suite.log || status=1
           python scripts/ci_no_skipped_tests.py \
             --forbid database \
@@ -616,6 +672,7 @@ jobs:
             --require-ran dagents.tests.test_gma_restart.RecoveryRestartTests \
             --require-ran dagents.tests.test_gma_restart.PostgresUploadThreadTests \
             --require-ran dagents.tests.test_gma_process_restart.GmaProcessRestartTests \
+            --require-ran dagents.tests.test_lma_restart_postgres.LmaCrashPostgresTests \
             framework-database.log || status=1
           exit "${status}"
 
@@ -752,6 +809,38 @@ jobs:
             exit 1
           }
 
+      - name: Approve a release from the pilot panel in a browser
+        # The demo's own release gates decide whatever the records say, so the
+        # smoke test cannot count on an enabled "Approve release" button.
+        # run_approval_check.sh starts the API with one gate a trained
+        # candidate passes (tests/lenient_gates_server.py, which only tests
+        # start) and the Vite dev server, and runs frontend/approve.mjs: two
+        # pages run a pilot, one approves, the other's approval is refused with
+        # the backend's 409, and every hospital page then scores with the
+        # released model. It runs after the smoke test, so Vite's dependency
+        # bundle and the chart font cache already exist. The script passes
+        # exit 2 (no browser) through, which fails this step.
+        timeout-minutes: 15
+        env:
+          DAGENTSC_BIN: ${{ env.PLANNER_DIR }}/dagentsc.exe
+          PYTHON: python
+        run: |
+          set -o pipefail
+          apps/healthcare-demo/tests/run_approval_check.sh 2>&1 | tee approval.log
+
+      - name: Fail if the approval check skipped
+        # The step above already fails on exit 2. This also fails a run whose
+        # log shows a skip or no passing approval check.
+        run: |
+          if grep -qi "check skipped\|^SKIP" approval.log; then
+            echo "The approval check skipped instead of running." >&2
+            exit 1
+          fi
+          grep -q "ok  approve:" approval.log || {
+            echo "The approval check produced no passing assertions." >&2
+            exit 1
+          }
+
   # ---------------------------------------------------------------------------
   # Adding a hospital while the stroke demo runs. The frontends job drives the
   # UI with the agents inside the API, where the panel offers no button. This
@@ -862,6 +951,127 @@ jobs:
           }
 
   # ---------------------------------------------------------------------------
+  # The stroke demo as it is published: a production build under
+  # /Dagents/healthcare-demo/ on one origin, calling the API on another, with
+  # the agents in the API's process and the records in PostgreSQL 16, as
+  # render.yaml runs it. The frontends job drives the Vite dev server, whose
+  # proxy puts the API on the page's origin, so CORS, a cold start and a
+  # database that is not ready never reach it. run_published_check.sh drives
+  # the page against an unmigrated database, an empty one and a seeded one,
+  # opens the page before the API starts, and then runs the full smoke test
+  # across origins.
+  # ---------------------------------------------------------------------------
+  published-layout:
+    name: Stroke demo as published
+    runs-on: ubuntu-latest
+    needs: planners
+    # The check took 172 to 200 seconds on a busy development machine with 4
+    # CPUs.
+    # The limit leaves room for a cold runner and the installs, and stops a
+    # page that waits forever.
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: apps/healthcare-demo/frontend/package-lock.json
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: apps/healthcare-demo/requirements.txt
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: dagentsc
+          path: ${{ env.PLANNER_DIR }}
+
+      - name: Make the planner executable
+        run: chmod +x "${PLANNER_DIR}/dagentsc.exe"
+
+      - name: Install the demo and the frontend
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r apps/healthcare-demo/requirements.txt
+          cd apps/healthcare-demo/frontend && npm ci
+
+      - name: Install a browser for the smoke test
+        working-directory: apps/healthcare-demo/frontend
+        run: npx playwright install --with-deps chromium
+
+      - name: Locate the browser
+        # As in the frontends job: a smoke test without a browser reports SKIP,
+        # which is not a pass.
+        working-directory: apps/healthcare-demo/frontend
+        run: |
+          browser="$(node -e \
+            "console.log(require('playwright-core').chromium.executablePath())" \
+            2>/dev/null || true)"
+          if [ ! -x "${browser}" ]; then
+            browser="$(find "${HOME}/.cache/ms-playwright" -type f -name 'chrome' \
+              -perm -u+x 2>/dev/null | head -1)"
+          fi
+          if [ ! -x "${browser}" ]; then
+            echo "No browser found. The smoke test would report SKIP, which is not a pass." >&2
+            exit 1
+          fi
+          echo "CHROMIUM_PATH=${browser}" >> "$GITHUB_ENV"
+
+      - name: Check the published layout in a browser
+        # The script makes three scratch databases with the service's
+        # superuser login and adds Supabase's roles to each. The migrations,
+        # the seed and the API log in as supa_like, which is not a superuser,
+        # as on Supabase. It builds the page for /Dagents/healthcare-demo/,
+        # serves it on localhost and starts the API on 127.0.0.1, both on free
+        # ports. It exits 2 when the smoke test could not start a browser,
+        # which fails this step. The checkout has no .venv, so the script runs
+        # python3 from PATH, the interpreter setup-python installed.
+        env:
+          HEALTHCARE_DEMO_TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
+          DAGENTSC_BIN: ${{ env.PLANNER_DIR }}/dagentsc.exe
+        run: |
+          set -o pipefail
+          apps/healthcare-demo/scripts/run_published_check.sh 2>&1 | tee published-layout.log
+
+      - name: Fail unless every phase passed
+        # A phase that never ran prints none of its lines, so each phase's
+        # lines are required, not only the absence of FAIL.
+        run: |
+          if grep -q "^SKIP\|  FAIL  " published-layout.log; then
+            echo "A published-layout check skipped or failed." >&2
+            exit 1
+          fi
+          for line in \
+            "ok  unmigrated: the data-entry page shows the API's sentence once" \
+            "ok  empty: each hospital chart without data shows the backend's reason" \
+            "ok  cold start: once the API answers, the banner goes and the hospitals table loads" \
+            "ok  published layout: the page reads X-Dagents-App from the API on another origin" \
+            "ok  published layout: a POST with Content-Type and Idempotency-Key passes the browser's CORS preflight" \
+            "ok  no console errors or failed requests" \
+            "The published layout passed: unmigrated, empty and seeded."; do
+            grep -qF "${line}" published-layout.log || {
+              echo "Missing from the log: ${line}" >&2
+              exit 1
+            }
+          done
+
+  # ---------------------------------------------------------------------------
   # The framework site publishes docs/ from main, so a code change and the docs
   # it feeds land together. This fails when a change touches a code area that
   # scripts/check_docs_impact.py maps and none of that area's docs, unless a
@@ -957,7 +1167,10 @@ jobs:
       - name: Install the wheel into clean environments and run the smoke test
         # Outside the checkout, with no PYTHONPATH and no DAGENTSC_BIN, so the
         # runner must find the planner inside the wheel. The wheel built
-        # without a planner must make the Guard deny.
+        # without a planner must make the Guard deny. In each environment the
+        # smoke test also starts the installed dagents-gma and two dagents-lma
+        # processes and runs a federated study between them over HTTP. Without
+        # a planner, the GMA must refuse the round and each Guard must deny.
         run: |
           wheel=$(ls "${GITHUB_WORKSPACE}"/dist/*.whl)
           for version in 3.11 3.12 3.13; do
@@ -974,6 +1187,19 @@ jobs:
           (cd "${RUNNER_TEMP}" && env -u PYTHONPATH -u DAGENTSC_BIN "${venv}/bin/python" -I \
             "${GITHUB_WORKSPACE}/scripts/smoke_installed_package.py" \
             --repo "${GITHUB_WORKSPACE}" --expect-planner none)
+
+      - name: Install the wheel without extras and run the smoke test
+        # pip install dagents installs pydantic only. The Guard and steps 1 to
+        # 4 of the getting-started example must work with it, and
+        # dagents-lma and dagents-gma must exit with status 2 and print the
+        # pip install command for their extra.
+        run: |
+          venv="${RUNNER_TEMP}/smoke-no-extras"
+          python -m venv "${venv}"
+          "${venv}/bin/python" -m pip install --quiet "$(ls "${GITHUB_WORKSPACE}"/dist/*.whl)"
+          (cd "${RUNNER_TEMP}" && env -u PYTHONPATH -u DAGENTSC_BIN "${venv}/bin/python" -I \
+            "${GITHUB_WORKSPACE}/scripts/smoke_installed_package.py" \
+            --repo "${GITHUB_WORKSPACE}" --expect-planner bundled --no-extras)
 
       - name: Install the wheel next to openai-agents and run the smoke test
         # openai-agents installs a top-level module named agents, the old name
@@ -1015,6 +1241,7 @@ jobs:
             --require-ran dagents.tests.test_agent_api.RoutePairConventionTests \
             --require-ran dagents.tests.test_gma_http_engine.RouteTokenTests \
             --require-ran dagents.tests.test_agent_network_flow.OverHttpStudyTests \
+            --require-ran dagents.tests.test_agent_failures_over_http.PlannerFailureOverHttpTests \
             newest-suite.log
 
   # ---------------------------------------------------------------------------
@@ -1034,6 +1261,7 @@ jobs:
       - demo-apps
       - frontends
       - deploy-smoke
+      - published-layout
       - packaging
       - docs-impact
     steps:
@@ -1052,6 +1280,7 @@ jobs:
           echo "demo-apps:          ${{ needs.demo-apps.result }}"
           echo "frontends:          ${{ needs.frontends.result }}"
           echo "deploy-smoke:       ${{ needs.deploy-smoke.result }}"
+          echo "published-layout:   ${{ needs.published-layout.result }}"
           echo "packaging:          ${PACKAGING}"
           echo "docs-impact:        ${DOCS_IMPACT}"
           if [ "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}" = "true" ]; then

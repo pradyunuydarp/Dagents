@@ -18,7 +18,7 @@ Each layer of Dagents has its own job and its own test loop:
 |---|---|---|---|
 | **OCaml planners**: pure validate, compile, route, render | `bindings/ocaml/` | opam + OCaml 5.1 | `dune test` |
 | **Python agents**: LMA, GMA, control plane, governance, federation | `dagents/` | Python 3.11 + `dagentsc` | `dagents/tests` |
-| **Framework services**: core, pipeline, model | `services/` | Python 3.11 (+ torch for model) | `services/<name>/tests` |
+| **Framework services**: core, pipeline, model | `services/` | Python 3.11 (+ torch for model) + `dagentsc` + a PostgreSQL 16 service | `services/<name>/tests` |
 | **Spring services**: JVM control and core APIs | `services/spring-services/` | JDK 21 + Maven + `dagentsc` | `mvn verify` |
 | **Demo apps**: healthcare, NL2SQL | `apps/`, `services/nl2sql-demo/` | Python 3.11 + `dagentsc` + a PostgreSQL 16 service | their own suites |
 | **Frontends**: the site and the two demo UIs | `site/`, `*/frontend/` | Node 22 + a browser | `npm run build`, `npm run check`, `npm run smoke` |
@@ -28,7 +28,7 @@ Each layer of Dagents has its own job and its own test loop:
 Python calls the planners through `dagentsc`, so the planner binary is a **build
 artifact that most jobs need**. The `planners` job builds it once and uploads
 it as `dagentsc`; `agents`, `framework-services`, `contracts`, `spring`,
-`demo-apps`, `frontends` and `deploy-smoke` download it.
+`demo-apps`, `frontends`, `deploy-smoke` and `published-layout` download it.
 It also builds the planner with `--profile static` and uploads it as
 `dagentsc-static`, which the `packaging` job puts into a Linux wheel.
 
@@ -53,13 +53,13 @@ treats a log without verbose output as a failure.
 | `--forbid` | Fails on | Where CI forbids it |
 |---|---|---|
 | `planner` | a skip because `dagentsc` is missing | `agents`, `demo-apps` |
-| `database` | a skip whose reason starts `database test skipped` | `demo-apps` (it has a Postgres 16 service) |
+| `database` | a skip whose reason starts `database test skipped` | `demo-apps` and `framework-services` (each has a Postgres 16 service) |
 | `charts` | a skip because matplotlib is not installed | `agents` |
 
 `--require-ran MODULE.CLASS` fails unless that test class finished at least one
 test. It catches a class that skipped in `setUpClass` or stopped running for a
 reason no pattern matches. On success the guard prints each allowed skip reason
-with a count (the pagila suites and the deployed-API tests).
+with a count (the agents' two pagila tests and the deployed-API tests).
 
 ```bash
 python -m unittest discover -s dagents/tests -t . -v 2>&1 | tee agents-suite.log
@@ -73,9 +73,12 @@ the test files and checks the guard against the four shapes unittest prints
 them in, so the guard cannot stop matching without a test failing. It also
 checks that every `--require-ran` class in a workflow exists, that every test
 class needing a database (found by reading the test files) is in the
-`demo-apps` `--require-ran` lists, and that each required module runs in the
-step that writes the log. **A new database test class goes in both
-`ci.yml` and `healthcare-data.yml`**, which must list the same classes.
+`demo-apps` `--require-ran` lists, or for a service suite in the
+`framework-services` lists (§2u), and that each required module runs in the
+step that writes the log. **A new database test class in `dagents/tests` or
+the healthcare suite goes in both `ci.yml` and `healthcare-data.yml`**, which
+must list the same classes. One in a service suite goes only in `ci.yml`
+(§2u).
 
 ### b. Two implementations of one behaviour, only one tested
 
@@ -94,9 +97,28 @@ compose). The `demo-apps` job runs the suite in process, and
 `apps/healthcare-demo/tests/test_network_mode.py` starts the GMA, three LMAs
 and the API as uvicorn processes against the job's PostgreSQL 16 service and
 checks that their pilot equals an in-process pilot on the same database, and
-that an approval reaches every LMA process.
-`tests.test_network_mode.NetworkModeTests` and
-`tests.test_network_mode.NetworkApprovalTests` are in the `--require-ran` lists
+that an approval reaches every LMA process. It also checks that an entry and
+its outcome reach the overview's counts through the GMA at once, and that the
+next pilot uses the record in every round. That holds only while the GMA keeps
+no site summary (`GMA_SUMMARY_TTL_SECONDS=0`), so the test checks that setting
+too.
+
+`tests.test_network_mode.NetworkOutageTests` kills one LMA process with
+SIGKILL while the demo runs, then starts it again on the same port. While the
+LMA is down, its hospital page and the overview answer the app's 503, with
+`X-Dagents-App` and the app's words. The other hospital pages answer, the
+status report says the LMA does not answer, and the pilot answers 200 and says
+in words why no round met its quorum. After the restart, every page and the
+status report answer again, and the next pilot includes the hospital and
+equals the recorded pilot. A process that a test starts again gets a port
+below the range Linux gives outgoing connections
+(`/proc/sys/net/ipv4/ip_local_port_range`). A port in that range can be taken
+by any outgoing connection while the process is stopped, and the restart then
+cannot bind it.
+
+`tests.test_network_mode.NetworkModeTests`,
+`tests.test_network_mode.NetworkApprovalTests` and
+`tests.test_network_mode.NetworkOutageTests` are in the `--require-ran` lists
 of both `ci.yml` and `healthcare-data.yml`, with
 `tests.test_agents_wiring.PostgresWiringTests` and
 `tests.test_concurrency.PostgresPilotWhileWritingTests`.
@@ -105,8 +127,27 @@ with a fixture recorded before the demo used the agents.
 
 Adding a hospital while the demo runs starts real processes, so its tests do
 too. `tests.test_network_deploy.NetworkDeployTests` starts core-service, the
-GMA, three LMAs and the API with the deployer on, adds Hospital 290 and runs a
-pilot with it; both workflows require it to run. `tests/test_ci_guards.py`
+GMA, three LMAs and the API with the deployer on, then takes these steps in
+order:
+
+1. It adds Hospital 290 and runs a pilot with it.
+2. It kills the new LMA. `GET /api/v1/deployments` reports it `stopped`, and
+   the same `POST /api/v1/deployments` starts it again.
+3. It kills the GMA and starts it again on its port. The GMA has forgotten the
+   new LMA's address. The next pilot sends the address again, includes the
+   hospital and keeps the model in use.
+4. It kills and starts the GMA a second time. This time the overview sends the
+   address.
+
+`NetworkOutageTests` and `NetworkDeployTests` stop a process between two
+requests, never during a round. The GMA starts again with no round in
+progress, and the demo keeps its rounds in memory, so these tests do not check
+round recovery. They post no entry while an LMA is down. The overview's 503
+gives the app's general message and does not name the hospital. The deploy
+panel's restart button is driven in a browser only against a stopped LMA that
+`smoke.mjs` simulates.
+
+Both workflows require `NetworkDeployTests` to run. `tests/test_ci_guards.py`
 finds it although its database fixture is a base class imported from
 `test_network_mode`. Three classes skip when something the runner has is
 missing, so the demo-apps job's planner step requires them to run:
@@ -413,18 +454,76 @@ runs `scripts/smoke_installed_package.py --expect-planner bundled`: the
 runner must find the bundled planner, the installed package must read no
 `env/` file, the Guard must get real decisions, the getting-started example
 must print the guide's outputs, and the LMA and GMA must answer `/health`
-without a planner warning. The smoke test's first check reads the `dagents`
-distribution's `RECORD`: it may list only `dagents/`, its `.dist-info`, its
-two commands and the bytecode pip compiled. With `PYTHONPYCACHEPREFIX` set,
-pip writes that bytecode outside site-packages, so the check allows `.pyc`
-files there and in `__pycache__` folders. Python never imports such a file as
-a module of its own. A wheel built from the sdist without a planner must
-make the Guard deny and each agent log that it has no planner
-(`--expect-planner none`). Last, the job installs the wheel with all its
-extras on Python 3.13, removes the package, and runs
-`dagents/tests` from the checkout on those newest versions, with the planner
-and chart skips forbidden. The release workflow runs the build and smoke
-checks on each platform before it publishes.
+without a planner warning. Then the smoke test runs the installed commands
+the way the guide does:
+
+- **Exit statuses.** With `DAGENTSC_TIMEOUT_SECONDS=0`, `dagents-lma` and
+  `dagents-gma` must exit with status 1 and print one line that names the
+  variable, as `docs/guide/08-deploy.md` states. With `GMA_ENGINE=bogus`,
+  `dagents-gma` must exit with status 1 and name `GMA_ENGINE`. That case
+  prints uvicorn's traceback, because the GMA reads its settings when uvicorn
+  imports the app, so the check allows one there.
+- **The guide's section 5 command.** The script reads the command that
+  starts `dagents-lma` with the example's extension from
+  `docs/guide/00-install.md` and runs it in the repository's root. Before it
+  starts the LMA, it runs the environment's Python with the guide's settings
+  and a command's import path (`-P`, then the commands' folder first), and
+  `import dagents` must load the installed package, not the clone's. Then
+  `GET /api/v1/extensions` must list the extension, and the LMA must log no
+  planner warning. The processes the script starts get no folder on `PATH`
+  that holds a `dagentsc`. Without that, an LMA that imported `dagents` from
+  the clone would still find a planner on `PATH`, log no warning, and pass.
+- **A federated study over HTTP.** `dagents-gma` with `GMA_ENGINE=http` and
+  two `dagents-lma` processes start from their environment variables, require
+  tokens and load the toy extension (`dagents/tests/fixtures/toy_extension.py`,
+  copied out of the repository because the wheel has no tests) from
+  `PYTHONPATH`. Through the installed `AgentNetwork.over_http`, the script
+  runs an evaluation round, a training round whose updates go to the GMA, a
+  validation round, the release evaluation and the approval. Each LMA must
+  then use the released version, each site's job log must hold its three
+  jobs, every audit chain must verify, a call without a token must answer
+  401, and no agent may log that it has no planner. The commands bind their
+  own ports, so the script chooses free ports first. When another process
+  takes one of them, the script starts all three agents again, up to three
+  times. Before this check, a study between agent processes ran only from the
+  checkout (`OverHttpStudyTests`), with `dagents` imported from the source
+  tree.
+
+These checks add about 7 seconds to each environment. The smoke test's first
+check reads the `dagents` distribution's `RECORD`: it may list only
+`dagents/`, its `.dist-info`, its two commands and the bytecode pip compiled.
+With `PYTHONPYCACHEPREFIX` set, pip writes that bytecode outside
+site-packages, so the check allows `.pyc` files there and in `__pycache__`
+folders. Python never imports such a file as a module of its own. A wheel
+built from the sdist without a planner must make the Guard deny, and the LMA
+and GMA that answer `/health` and each agent of the study must log that they
+have no planner (`--expect-planner none`). In that study, a round dispatch
+must answer `503` with the code `planner_unavailable`, and each site's Guard
+probe over HTTP must be denied. In that mode the guide check reads only the
+import source and the extensions. It does not read the LMA's log for the
+warning. One more environment
+installs the wheel without extras, as `pip install dagents` does
+(`--no-extras`): steps 1 to 4 of the example must print the guide's outputs
+with pydantic alone, and each command must exit with status 2 and print the
+`pip install` command for its extra.
+`tests/test_packaging.py` (`SmokeChecksTests`) runs these checks against
+stand-in commands. It shows that a check fails on a wrong exit status, a
+traceback, an agent that cannot start, a port that stays taken, or a guide
+command that imports the clone's `dagents` while a `dagentsc` is on `PATH`,
+and that the three agents get matching tokens and addresses. It also checks
+that the toy extension imports only the standard library and
+`dagents.common`, and that the `packaging` job keeps the step without
+extras. Last, the job installs the wheel with all its extras on Python 3.13,
+removes the package, and runs `dagents/tests` from the checkout on those
+newest versions, with the planner and chart skips forbidden. The release
+workflow runs the build and the smoke checks with the extras, the study
+included, on each platform and on Python 3.11 and 3.13 before it publishes.
+
+What these checks leave out: the study keeps every store in memory, and no
+check starts the installed agents with the `postgres` extra or a database.
+So the Postgres stores are tested only from the checkout (`dagents/tests`).
+The study without a planner and the environment without extras run on Linux
+x86_64 only.
 
 The same step caught a missing extra. `compose_apply.py` imports PyYAML only
 when it parses a Compose file, and the agents job installs PyYAML by hand, so
@@ -444,6 +543,238 @@ the smoke test with `--agents-from openai-agents`. That option fails unless
 `dagents`. `tests/test_release_workflow.py` checks that the step exists, and
 `tests/test_packaging.py` runs the file check and the option on synthetic
 distributions.
+
+### o. A planner failure inside a running agent
+
+Unit tests check that the Guard denies when its planner raises. They call the
+Guard in the test process. In a deployment the planner is a separate process
+that the runner must stop at `DAGENTSC_TIMEOUT_SECONDS`, and a GMA, an LMA and
+an HTTP call sit between the failure and the answer a caller sees.
+
+Defence: `dagents/tests/test_agent_failures_over_http.py`, class
+`PlannerFailureOverHttpTests`. It starts the GMA and three LMAs as uvicorn
+processes with `start_over_http` (`dagents/tests/test_agent_network_flow.py`)
+and gives one agent a stand-in planner, or kills one LMA:
+
+| Case | What fails | What must happen |
+|---|---|---|
+| (a) | Site A's planner hangs on every call; `DAGENTSC_TIMEOUT_SECONDS=1` | Site A refuses the round because it cannot compute the round digest. The round meets quorum with the other two sites and aggregates. Site A's job log records the refusal, its probe is denied with the fail-closed message within 5 seconds, `/health` answers within 1 second while no other request waits on the planner, and no stand-in process is left running |
+| (b) | Site A's planner hangs only on `governance restrict` | The digest check passes, the `before_train` Guard denies the job, and site A's audit chain holds the denial with the stand-in's SHA-256 |
+| (c) | The GMA registers its models while it has a planner; then its `DAGENTSC_BIN` names a missing file | `rounds:plan` and dispatch answer `503` `planner_unavailable`, no LMA logs a job, and `/health` answers `200` |
+| (e) | Site C's LMA process is killed with SIGKILL | Its dispatch row has no status code and the outcome `failed`, the round meets quorum with the other two sites, and the directory reports the site unreachable |
+
+The class needs the planner and skips without it, so the `agents` job and the
+`packaging` job's step on the newest versions require it to run
+(`--require-ran`). Two cases have no test. With many requests waiting on a
+hanging planner, `/health` slows down: it took 3.55 seconds with 60 probes
+waiting. And a site that refuses a job because its planner could not compute
+the round digest writes a job-log entry and no audit record, so the audit
+chain does not show that refusal. The test does not assert either way about
+that record.
+
+`AgentProcessStopTests` in the same file checks that stopping the agents
+signals only processes that still run, because the system can give the id of
+a reaped process to another process group. It needs neither the planner nor a
+database.
+
+`dagents/tests/test_lma_restart_postgres.py`, class `LmaCrashPostgresTests`,
+covers an LMA that keeps its job log and audit chain in Postgres. It creates
+the tables from the SQL in `dagents/lma/README.md` ("Postgres tables"), so a
+README that drifts from the code fails it. It kills site A's LMA with SIGKILL
+after a round and starts it again on the same port and tables. The job log and
+the audit chain must survive, and the next round must complete with both
+sites. It needs a database, so the `demo-apps` step "Framework database tests
+against PostgreSQL" and `healthcare-data.yml` run it and require it;
+`tests/test_ci_guards.py` checks both lists. The LMA is killed between rounds,
+not while it runs a job. The GMA keeps its state in memory, and both rounds
+are evaluation rounds, so an update upload after the restart is not tested.
+
+A restarted LMA binds its old port again. `_bind_loopback_ports` sets
+`SO_REUSEADDR` on every socket it binds when the agents start, because on
+Linux the killed process's connections block the port for up to 60 seconds
+unless they inherited that option from it.
+
+### p. An approval button no run had ever enabled
+
+The stroke demo's pilot panel shows **Approve release** only when the release
+gates decide `release`. The demo's own gates decide whatever the records say,
+and the smoke test must not assume a decision, so no CI run had clicked the
+button. The approval route had API tests, but nothing checked that the page
+sends it, names the released model, disables the button, shows the new model
+in use on every page, or shows a refusal in words.
+
+Defence: the `frontends` job runs `apps/healthcare-demo/tests/run_approval_check.sh`
+after the smoke test, when Vite's dependency bundle and the chart font cache
+already exist. The script serves the API with one gate a trained candidate
+passes (`tests/lenient_gates_server.py`; no app setting chooses the gates) and
+runs `frontend/approve.mjs` against the Vite dev server. The check opens every
+hospital page, runs a pilot on two pages and approves on the first. Then it
+clicks **Approve release** on the second page, whose candidate was compared
+with the model the approval replaced, and reads the backend's 409 reason on
+the page. Last, it opens every hospital page again and checks the model panel
+and the worklist the page loaded. The first version opened the hospital pages
+only after the approval, and it passed with an LMA that never reads the model
+again. The script passes exit 2 (no browser) through, which fails the step,
+and the next step fails unless the log has an `ok  approve:` line and no skip.
+The release it approves passed only the test gate, so the script clears the
+shell's database settings, and the server refuses any database whose name does
+not start with `dagents_scratch_` (`LenientServerDatabaseTests`). A first
+version passed the shell's `HEALTHCARE_DEMO_DATABASE_URL` through and left the
+release in that database. Before each reload the check waits until the page
+has no request in flight. A reload cancels the chart fetches still loading,
+and on a busy machine one run failed on those cancelled requests.
+
+```bash
+DAGENTSC_BIN=$PWD/bindings/ocaml/_build/default/bin/dagentsc.exe \
+  apps/healthcare-demo/tests/run_approval_check.sh
+```
+
+The same server runs as a process in
+`tests.test_restart_processes.ApiRestartTests`, the published layout on
+PostgreSQL 16: it approves a candidate, stops the API process with SIGTERM,
+starts a new one on the same database, and checks the model in use, the last
+pilot's charts, a second approval's 409 and a new pilot. Both workflows
+require the class to run. It cannot see whether the lifespan closed the
+database connections, because the operating system closes them when the
+process exits; a lifespan that hangs or logs an error fails it.
+
+### s. A published page that only fails across origins
+
+The published stroke demo is a production build on GitHub Pages that calls
+the API on another origin. The `frontends` and `deploy-smoke` jobs drive the
+Vite dev server, whose proxy puts the API on the page's own origin. So no job
+saw a CORS setting that blocks the page (an `expose_headers` without
+`X-Dagents-App`, an `allow_headers` without `Idempotency-Key`), a cold start
+whose connections are refused, or a database that is not migrated or holds no
+records. Section 10 of `smoke.mjs` rewrites answers to show empty stores, and
+rewritten answers drift from the backend without a failure.
+
+Defence: the `published-layout` job runs
+`apps/healthcare-demo/scripts/run_published_check.sh` against a PostgreSQL 16
+service container. The script builds the page for `/Dagents/healthcare-demo/`
+with `VITE_HEALTHCARE_API_BASE`, serves it with `vite preview` on `localhost`,
+and starts the API in process on `127.0.0.1` with the settings `render.yaml`
+sets and `HEALTHCARE_DEMO_CORS_ORIGINS` set to the page's exact origin. The
+service's superuser login only creates and drops the databases and adds
+Supabase's roles to each (`supabase/emulate_supabase_roles.sql`). The
+migrations, the seed and the API log in as `supa_like`, which is not a
+superuser, as Supabase's `postgres` role is not. A superuser passes every
+grant check. The script then runs `smoke.mjs` in three phases, each on a new
+database: `--expect-unmigrated`, `--expect-empty`, and, with the records
+loaded, `--expect-cold-start` (the page opens before the API starts) followed
+by the full run with `--api-base`.
+
+- The full run's first checks read `X-Dagents-App` and send a POST with
+  `Content-Type` and `Idempotency-Key` from the main page, which rewrites no
+  route. On a page with a rewritten route, Playwright answers the CORS
+  preflight itself, so the API's own answer is never tested there.
+- With `--api-base`, every answer the test rewrites gets the CORS headers the
+  API sends, so the simulated cases still run across origins. Without it, the
+  rewritten answers are unchanged.
+- The script exits 2 when the smoke test could not start a browser, which
+  fails the step. The next step fails on a `SKIP` or `FAIL` line, and when a
+  phase's passing lines are missing from the log.
+- Removing `X-Dagents-App` from `expose_headers` fails phase 1: the page
+  cannot read the header on the API's own 503, so it waits behind the
+  connecting banner. It also fails the full run's header check. Narrowing
+  `allow_headers` to `Content-Type` fails the preflight check.
+- An `acting_as` that skips `SET LOCAL ROLE` passed all 120 checks when the
+  API logged in as a superuser. As `supa_like` it fails phase 2 with
+  `permission denied for schema site_uk_134`.
+- The consortium-count check compares each count on its own and fails when a
+  count is not an integer. It once compared the counts through
+  `JSON.stringify`, which writes `NaN` as `null`, so after a column heading
+  was renamed the unread counts matched and the check passed.
+
+`smoke.mjs` runs in the `frontends`, `deploy-smoke` and `published-layout`
+jobs, so a change to it must pass `run_frontend_demo.sh --check`,
+`run_frontend_demo.sh --deploy --check` and the published check. Without
+`--api-base`, the cross-origin code changes nothing: the rewritten answers and
+the requests a script sends from the page stay as they were.
+
+What the job does not cover: it runs no proxy in front of the API and no CDN
+in front of the page, it connects to Postgres directly instead of through
+Supabase's pooler, and `supa_like` lacks the `pg_read_all_data` grant that
+Supabase gives its `postgres` role. So a green `published-layout` job says
+nothing about Render's or GitHub's configuration. The **Healthcare API check**
+workflow tests the deployed API (§6).
+
+```bash
+HEALTHCARE_DEMO_TEST_DATABASE_URL=postgresql://admin:pw@127.0.0.1:5432/postgres \
+  DAGENTSC_BIN=$PWD/bindings/ocaml/_build/default/bin/dagentsc.exe \
+  apps/healthcare-demo/scripts/run_published_check.sh
+```
+
+### u. Source adapter tests that only ran on one laptop
+
+The pipeline and model services read Postgres sources through the shared
+adapter, and five tests in three files covered that path. They connected to a
+`pagila` database as one developer's login, so they skipped on every other
+machine and in every CI run. The guard allowed the skip. Nothing in CI read a Postgres
+source through a service, and nobody saw that the services' source answers
+returned the password from `connection_ref.options`. The LMA and the GMA
+already redacted it.
+
+Defence: `services/pipeline-service/tests/test_postgres_source_e2e.py` and
+`services/model-service/tests/test_postgres_source_e2e.py` replace them. Each
+creates a scratch database with `ScratchDatabase` from
+`dagents/tests/test_postgres_roles.py`, starts its service with uvicorn on a
+loopback port the system picks (`--fd`), registers a Postgres source with the
+scratch login and password, and calls the service over HTTP:
+
+- Every source answer (register, fetch, list) shows the options as
+  `[redacted]`, and no answer contains the password, the login or the
+  database name. The services now use `redact_source`, as the agents do.
+- The pipeline test runs an asynchronous `profile_dataset` and
+  `random_forest` pipeline to `completed` with 512 records, the source's
+  `max_records`, from a 600-row table. A second pipeline carries the source
+  in a step's `dataset_input.source`: none of the six pipeline answers shows
+  the login, and a run of it still reads the 512 records, so the answers are
+  redacted copies and the stored step keeps the password.
+- The model test runs an asynchronous `autoencoder` job and the three checks.
+  The table makes each result known: the class label is a threshold on
+  `amount` (accuracy at least 0.95), the regression label is linear in two
+  fields (R² above 0.99), and the forecast series is a sine wave (R² above 0.5
+  for `gru` and `lstm`). The requests set no `max_rows`, so their row counts
+  depend on the source's limit.
+
+The tests do not cover the Postgres `role` connection option, a source sent
+in a model service request (`dataset.source`), a request's own `max_rows`
+limit, the MongoDB and object storage adapters, or the Spring control
+service's source catalog, which returns `options` as sent and never connects.
+The pipeline's `run_model_job` step estimates its metrics and trains nothing,
+so the pipeline test checks only counts and names.
+
+The `framework-services` job runs a `postgres:16` service container, sets
+`DAGENTS_TEST_DATABASE_URL` on the two suites, runs them with `-v` into
+`pipeline-service.log` and `model-service.log`, and runs the guard with
+`--forbid database` and `--require-ran` for each class.
+`tests/test_ci_guards.py` finds the database classes in `services/*/tests`
+and fails unless each is required under the log of its own suite, because both
+suites have a module named `test_postgres_source_e2e`. It also fails if a
+service suite that no step checks, such as `services/nl2sql-demo/tests`, gains
+a database class. A database class in a service suite goes only in `ci.yml`'s
+`framework-services` step; `healthcare-data.yml` does not run the service
+suites.
+
+Run them locally with a superuser login on a PostgreSQL 16 server:
+
+```bash
+export DAGENTS_TEST_DATABASE_URL=postgresql://admin:pw@127.0.0.1:5432/postgres
+PYTHONPATH=.:services/pipeline-service .venv/bin/python -m unittest discover \
+  -s services/pipeline-service/tests -t services/pipeline-service/tests -v
+PYTHONPATH=.:services/model-service .venv/bin/python -m unittest discover \
+  -s services/model-service/tests -t services/model-service/tests -v
+```
+
+On an idle 4-CPU machine the pipeline class takes about 2 seconds and the model
+class 8 to 11. Starting the model service takes 5 to 6 of those seconds,
+mostly to import torch and scikit-learn. The forecasting checks take under a
+second there, but they slow down the most when other processes use the CPUs.
+With four model suites started at the same time on that machine, the model
+class took 54 to 56 seconds, 44 to 48 of them in the forecasting checks, and
+each whole suite took 75 to 84 seconds. The `model-service` step in CI has a
+20-minute timeout.
 
 ## 3. The test loop
 
@@ -634,11 +965,13 @@ are in the "Releasing" section of `CLAUDE.md`.
   the main item in `TODO.md`, blocked on local disk space (see `CHANGES.md`). CI
   tests the code and the contracts, not the deployment. The one check on the
   images is static: they contain the planner when their service calls it (§2l).
-- **The pagila suites skip in CI**, because CI has no Postgres with the pagila
-  dataset. These skips are expected, and the guard allows them. A change to
-  source adapters is not fully tested by CI. The healthcare stores, the site
-  isolation and the role scoping do run in CI: the `demo-apps` job has a
-  PostgreSQL 16 service container, emulates Supabase's roles with a
+- **The agents' pagila tests skip in CI**, because no job has the pagila
+  sample database (`dagents/tests/test_postgres_api.py`, one through the LMA
+  and one through the GMA). The guard allows that skip. The Postgres source
+  adapter itself is tested in CI: the `framework-services` job reads a scratch
+  table through the pipeline and model services (§2u). The healthcare stores,
+  the site isolation and the role scoping run in the `demo-apps` job, which
+  has a PostgreSQL 16 service container, emulates Supabase's roles with a
   non-superuser, and fails if any database test skipped.
 - **The NL2SQL frontend has no browser test.** Its job builds the bundle, which
   only proves that it compiles.

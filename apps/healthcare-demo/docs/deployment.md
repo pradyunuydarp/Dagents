@@ -368,6 +368,92 @@ To diagnose the API, run the **Healthcare API check** workflow. It fails when th
 API has a problem, and its annotations name the status, the header, the origins
 the API allows, whether the stores are ready and each hospital's record count.
 
+## Run the published layout on one machine
+
+The published page is a production build on another origin than the API.
+`scripts/run_frontend_demo.sh` serves the page through the Vite dev server,
+whose proxy sends `/api` to the API on the page's own origin. That run cannot
+show a CORS setting that blocks the page, a cold start, or a database that is
+not ready. `scripts/run_published_check.sh` runs the published layout on one
+machine and drives it with `frontend/smoke.mjs` in Chromium:
+
+| Part | Published | In the check |
+|---|---|---|
+| Page | the build under `/Dagents/healthcare-demo/` on GitHub Pages | the same build (`DEMO_BASE_PATH`, `VITE_HEALTHCARE_API_BASE`), served by `vite preview` at `http://localhost:<port>/Dagents/healthcare-demo/` |
+| API | Render, with the agents in its process | `scripts/run_local_demo.sh` at `http://127.0.0.1:<port>`, with the agents in its process and the settings `render.yaml` sets, except the bind address and the two settings for Render's proxy (`HEALTHCARE_DEMO_TRUST_FORWARDED_FOR`, `HEALTHCARE_DEMO_FORWARDED_FOR_HOPS`) |
+| `HEALTHCARE_DEMO_CORS_ORIGINS` | the Pages origin | the page's origin, exactly |
+| Records | Supabase Postgres | a new PostgreSQL 16 database for each phase |
+| Database login | Supabase's `postgres` role, which is not a superuser | `supa_like`, the stand-in for that role from `supabase/emulate_supabase_roles.sql`, as in the healthcare suite. The migrations, the seed and the API all use it. |
+
+The page and the API are on different hosts and ports, so the browser treats
+them as two origins and sends a CORS preflight before each POST, as it does on
+the published site. The check runs three phases:
+
+1. **Unmigrated.** The API's database has none of the app's tables. The
+   consortium page, a hospital page and the data-entry page must each show the
+   API's own 503 sentence ("The demo database is not set up for this version of
+   the app yet …") once, never show the connecting banner, and send no request
+   twice. The page can only tell the API's 503 from the platform's if it can
+   read `X-Dagents-App` across origins.
+2. **Empty.** `scripts/apply_migrations.py` has run and no records are loaded.
+   The consortium page and a hospital page must each show the not-ready banner
+   once, say that the store holds no records instead of showing zeros or empty
+   tables, and show the reason the API gives for each chart.
+3. **Seeded.** `scripts/seed_supabase.py` has loaded the records. The page
+   opens before the API starts, so the browser's connections are refused and
+   the page must show the "Connecting to the demo server" banner. The script
+   then starts the API, and the banner must go and the hospitals table load
+   within the page's 90-second wait. Then the full smoke test runs against the
+   page with `--api-base`. It also checks that the page reads `X-Dagents-App`
+   from the API, that a POST with `Content-Type` and `Idempotency-Key` passes
+   the browser's CORS preflight, that the guard's probe and a data entry go to
+   the API's origin, that the agents run in the API's process, and that the
+   records are in Postgres.
+
+To run it, give it a superuser login to a PostgreSQL 16 server, the one the
+healthcare suite uses, and the planner:
+
+```bash
+export HEALTHCARE_DEMO_TEST_DATABASE_URL=postgresql://admin:pw@127.0.0.1:5432/postgres
+DAGENTSC_BIN=$PWD/bindings/ocaml/_build/default/bin/dagentsc.exe \
+  apps/healthcare-demo/scripts/run_published_check.sh
+```
+
+- It creates three databases with new names and drops them when it exits. The
+  superuser login only creates, prepares and drops them. In each one the script
+  adds Supabase's roles and gives `supa_like` the password the healthcare suite
+  gives it, so the two can run at the same time.
+- `supa_like`, the API roles and the hospitals' `NOLOGIN` roles belong to the
+  whole server, so the script leaves them.
+- It picks free ports for the page and the API, and never builds the planner.
+- It runs `npm ci` in `frontend/` when `node_modules` is missing, and needs
+  Chromium (`CHROMIUM_PATH`, as for the smoke test).
+- Three runs took 172 to 200 seconds on a development machine with 4 CPUs
+  that was running other test suites at the same time.
+- It exits 0 when every phase passed, 1 when a check failed, and 2 when the
+  smoke test could not start a browser. Exit 2 is a skip, not a pass.
+
+The `published-layout` job in `.github/workflows/ci.yml` runs the same script
+against a PostgreSQL 16 service container on every pull request. It fails
+unless each phase printed its passing lines.
+
+A failure in phase 1 or in the first checks of phase 3 usually means the API's
+CORS settings in `backend/app/main.py` changed. The page needs
+`X-Dagents-App` in `expose_headers`, and `Content-Type` and `Idempotency-Key`
+allowed by `allow_headers`. A failure whose API log says `permission denied`
+means a query ran without switching to the hospital's role, or a migration
+left out a grant. A superuser login would hide both.
+
+What the check does not cover:
+
+- It runs no proxy in front of the API and no CDN in front of the page, so it
+  cannot see a fault in Render's or GitHub's configuration. The **Healthcare
+  API check** workflow tests the deployed API.
+- It connects to Postgres directly, not through Supabase's pooler.
+- `supa_like` does not hold `pg_read_all_data`, which Supabase also grants its
+  `postgres` role (see "One credential on Supabase"). The healthcare suite
+  tests the isolation with that grant.
+
 ## Testing the deployed API
 
 The same workflow runs `tests/test_deployed_api.py` against the deployment. It

@@ -382,6 +382,13 @@ their `POST` handlers. Fetching and checking one pipeline exist only under
 `/api/v1/pipeline-definitions/{pipeline_id}`, and running one only under
 `/api/v1/pipelines/{pipeline_id}/runs` ([Pipeline runs](#pipeline-runs)).
 
+A `profile_dataset` or `run_model_job` step can carry its own source in
+`config.dataset_input.source` instead of naming a registered one. Every answer
+that returns a pipeline (register, list, fetch and check again) shows that
+source with its connection options redacted, as
+[the source endpoints](#pipeline-service-sources) do. The stored pipeline
+keeps the real values, so a run still connects with them.
+
 **How a graph is checked.** `PipelineExecutionEngine.validate` runs when a
 pipeline is registered and when it is checked again:
 
@@ -514,10 +521,10 @@ POST /api/v1/pipeline-definitions/{pipeline_id}:validate
 ```
 
 Runs the same check as registering on the stored pipeline, including
-`dagentsc pipeline compile`, and returns the pipeline unchanged. Nothing is
-stored and `registered_at` keeps its value. A stored pipeline passed this check
-when it was registered, so the answer is `200` unless the checking code has
-changed since.
+`dagentsc pipeline compile`, and returns the pipeline as registering it
+returned it. Nothing is stored and `registered_at` keeps its value. A stored
+pipeline passed this check when it was registered, so the answer is `200`
+unless the checking code has changed since.
 
 **Errors.** `404` when no pipeline has this id.
 
@@ -723,6 +730,14 @@ When a pipeline runs, a `profile_dataset` or `run_model_job` step whose
 Unlike the LMA, the service answers `404` for an unknown id, both when fetching
 and when validating.
 
+As on the LMA, these endpoints show a source with its connection options
+redacted: the value of each `connection_ref.options` key except `role`,
+`sslmode` and `connect_timeout` is replaced with `[redacted]`. The keys stay,
+so a reader can see which settings a source has. The stored definition keeps
+the real values, so a run still connects with them. The pipeline endpoints do
+the same for a source sent inside a step
+([Pipeline definitions](#pipeline-definitions)).
+
 These endpoints have no authentication. A caller that can reach port 8030 can
 register a Postgres source with its own host, login and SQL, and a later run
 that reads the source makes the service connect and run that SQL. Run the
@@ -734,8 +749,9 @@ service on a private network.
 GET /api/v1/sources
 ```
 
-Returns every stored source definition, sorted by `source_id`. It reads memory
-only and calls no adapter. With nothing registered it returns `[]`.
+Returns every stored source definition, sorted by `source_id`, with its
+connection options redacted. It reads memory only and calls no adapter. With
+nothing registered it returns `[]`.
 
 **Errors.** None of its own.
 
@@ -749,9 +765,9 @@ POST /api/v1/sources
 ```
 
 Checks that the body is one of the four source definitions, stores it under its
-`source_id` and returns it with every default filled in. A source with the same
-id is replaced. Registration reads no records, opens no connection and calls no
-planner command.
+`source_id` and returns it with every default filled in and its connection
+options redacted. A source with the same id is replaced. Registration reads no
+records, opens no connection and calls no planner command.
 
 The handler takes the body as a plain JSON object and validates it itself, with
 pydantic's `TypeAdapter`. So a JSON object that is not a valid definition, such
@@ -772,7 +788,8 @@ with `500` and the plain-text body `Internal Server Error`, not with `422`.
 GET /api/v1/sources/{source_id}
 ```
 
-Returns the stored definition with this `source_id`. It reads memory only.
+Returns the stored definition with this `source_id`, with its connection
+options redacted. It reads memory only.
 
 **Errors.** `404` when no source has this id.
 
@@ -1190,6 +1207,15 @@ checks). Training, the checks and model jobs read a source from this catalog
 when their `dataset.source_id` names it. The catalog is separate from the LMA's
 and the pipeline service's, and the service answers `404` for an unknown id.
 
+These endpoints show a source with its connection options redacted, as the
+pipeline service's do: each `connection_ref.options` value except `role`,
+`sslmode` and `connect_timeout` is replaced with `[redacted]`. Training, the
+checks and model jobs read the stored definition, which keeps the real values.
+Their successful answers do not include the source, even one sent in the
+request as `dataset.source`. A `422` answer can: FastAPI shows the value that
+failed validation, so a request whose inline source is not valid gets that
+source back as sent, password included.
+
 There is no authentication. A caller that can reach port 8000 can register a
 Postgres source with its own host, login and SQL, and a later training request
 that names it makes the service connect and run that SQL. Run the service on a
@@ -1201,8 +1227,9 @@ private network.
 GET /api/v1/sources
 ```
 
-Returns every stored source definition, sorted by `source_id`. It reads memory
-only and calls no adapter. With nothing registered it returns `[]`.
+Returns every stored source definition, sorted by `source_id`, with its
+connection options redacted. It reads memory only and calls no adapter. With
+nothing registered it returns `[]`.
 
 **Errors.** None of its own.
 
@@ -1216,10 +1243,10 @@ POST /api/v1/sources
 ```
 
 Checks that the body is one of the four source definitions, stores it under its
-`source_id` and returns it with every default filled in. A source with the same
-id is replaced. Registration reads no records, opens no connection and calls no
-planner command. The example registers the 20 orders that the training and
-check examples read.
+`source_id` and returns it with every default filled in and its connection
+options redacted. A source with the same id is replaced. Registration reads no
+records, opens no connection and calls no planner command. The example
+registers the 20 orders that the training and check examples read.
 
 The handler validates the body itself, with pydantic's `TypeAdapter`, so a
 JSON object that is not a valid definition fails with `500` and the plain-text
@@ -1238,7 +1265,8 @@ body `Internal Server Error`, not with `422`.
 GET /api/v1/sources/{source_id}
 ```
 
-Returns the stored definition with this `source_id`. It reads memory only.
+Returns the stored definition with this `source_id`, with its connection
+options redacted. It reads memory only.
 
 **Errors.** `404` when no source has this id.
 

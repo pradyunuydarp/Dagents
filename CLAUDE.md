@@ -177,7 +177,7 @@ admin login:
 
 ```bash
 export HEALTHCARE_DEMO_TEST_DATABASE_URL=postgresql://admin:pw@127.0.0.1:5432/postgres  # healthcare suite
-export DAGENTS_TEST_DATABASE_URL=postgresql://admin:pw@127.0.0.1:5432/postgres          # dagents/tests: role scoping, the lease, the model store, the round stores, the job log, the GMA's Postgres wiring, the GMA restart tests
+export DAGENTS_TEST_DATABASE_URL=postgresql://admin:pw@127.0.0.1:5432/postgres          # dagents/tests: role scoping, the lease, the model store, the round stores, the job log, the GMA's Postgres wiring, the GMA and LMA restart tests; the pipeline and model service suites: their Postgres source tests
 ```
 
 Without them these tests skip with a message that starts `database test
@@ -192,10 +192,15 @@ both store implementations are tested. The same holds for the agents' twins:
 `.github/workflows/ci.yml` runs the same commands, one job per layer: `planners`
 (builds OCaml, runs `dune test`, and uploads `dagentsc` for the other jobs and
 a statically linked `dagentsc-static` for `packaging`), `agents`,
-`framework-services` (core-service twice, with and without `DAGENTSC_BIN`),
+`framework-services` (core-service twice, with and without `DAGENTSC_BIN`,
+and the pipeline and model service suites, whose Postgres source tests run
+against PostgreSQL 16),
 `contracts`, `spring`, `demo-apps`, `frontends`, `deploy-smoke` (the
 healthcare UI in network mode with `--deploy` against PostgreSQL 16, where the
-smoke test adds Hospital 290 from the page), `packaging` (builds the sdist and
+smoke test adds Hospital 290 from the page), `published-layout` (the healthcare
+UI's production build on another origin than its API, against PostgreSQL 16:
+an unmigrated database, an empty one, a cold start and the full smoke test;
+`apps/healthcare-demo/scripts/run_published_check.sh`), `packaging` (builds the sdist and
 a Linux wheel with the planner, installs the wheel into clean environments,
 one of them with openai-agents, and runs the agent suite on the newest
 versions the package's extras allow; see **Releasing**), `docs-impact`, and a
@@ -232,9 +237,12 @@ test database URL) or `charts` (no matplotlib). `--require-ran MODULE.CLASS`
 fails unless that test class ran at least one test, which also catches a class
 that skipped in `setUpClass`. The `demo-apps` job runs a Postgres 16 service
 container, so it forbids database skips and requires each Postgres test class
-to have run. `tests/test_ci_guards.py` finds every test class that needs a
-database and fails if one is missing from that list; a new class goes in both
-`ci.yml` and `healthcare-data.yml`. `scripts/ci_no_skipped_planner_tests.py
+to have run. So does the `framework-services` job, for the pipeline and model
+service suites. `tests/test_ci_guards.py` finds every test class that needs a
+database and fails if one is missing from those lists. A new class in
+`dagents/tests` or the healthcare suite goes in both `ci.yml` and
+`healthcare-data.yml`; a new class in a service suite goes only in the
+`framework-services` step of `ci.yml`. `scripts/ci_no_skipped_planner_tests.py
 LOG` still works; it runs the guard with `--forbid planner`.
 
 CI starts no container and runs no Minikube; it uses the Docker command line

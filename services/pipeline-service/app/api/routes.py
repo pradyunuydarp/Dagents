@@ -7,6 +7,7 @@ from pydantic import TypeAdapter
 
 from dagents.common.domain.models import SourceSpec
 from dagents.common.domain.sources import SourceValidationResult
+from dagents.common.infrastructure.sources import REDACTED, SHOWN_CONNECTION_OPTIONS, redact_source
 from app.core.config import Settings, settings
 from app.models import (
     ErrorResponse,
@@ -16,6 +17,7 @@ from app.models import (
     PipelineRunCatalogResponse,
     PipelineRunRequest,
     PipelineRunResponse,
+    PipelineStep,
 )
 from app.services.pipeline_service import PipelineService, pipeline_service
 
@@ -69,6 +71,39 @@ _SOURCE_SPEC_SCHEMA = TypeAdapter(SourceSpec).json_schema(ref_template="#/compon
 _SOURCE_SPEC_SCHEMA.pop("$defs", None)
 
 
+def _redact_step(step: PipelineStep) -> PipelineStep:
+    """Return `step` with the connection options of its inline source redacted.
+
+    A `profile_dataset` or `run_model_job` step can carry its own source in
+    `config.dataset_input.source` instead of naming a registered one. Its
+    `connection_ref.options` are shown the way `redact_source` shows a
+    registered source's: each value becomes `[redacted]`, except the keys in
+    `SHOWN_CONNECTION_OPTIONS`. A step's config is checked only when the step
+    runs, so this reads the JSON as sent and does not validate it.
+    """
+    dataset_input = step.config.get("dataset_input")
+    source = dataset_input.get("source") if isinstance(dataset_input, dict) else None
+    connection_ref = source.get("connection_ref") if isinstance(source, dict) else None
+    options = connection_ref.get("options") if isinstance(connection_ref, dict) else None
+    if not isinstance(options, dict) or not options:
+        return step
+    shown = {key: value if key in SHOWN_CONNECTION_OPTIONS else REDACTED for key, value in options.items()}
+    redacted_source = {**source, "connection_ref": {**connection_ref, "options": shown}}
+    config = {**step.config, "dataset_input": {**dataset_input, "source": redacted_source}}
+    return step.model_copy(update={"config": config})
+
+
+def _redact_definition(definition: PipelineDefinition) -> PipelineDefinition:
+    """Return a copy of `definition` that is safe to send back, or the same one when nothing is hidden.
+
+    The stored definition is not changed, so a run still connects with the real values.
+    """
+    steps = [_redact_step(step) for step in definition.steps]
+    if all(new is old for new, old in zip(steps, definition.steps)):
+        return definition
+    return definition.model_copy(update={"steps": steps})
+
+
 @router.get("/health", response_model=HealthResponse)
 def health(runtime_settings: Settings = Depends(get_settings)) -> HealthResponse:
     """Report that the pipeline service is running.
@@ -80,8 +115,12 @@ def health(runtime_settings: Settings = Depends(get_settings)) -> HealthResponse
 
 @router.get("/pipelines", response_model=PipelineCatalogResponse)
 def list_pipelines(service: PipelineService = Depends(get_pipeline_service)) -> PipelineCatalogResponse:
-    """List every stored pipeline, sorted by `pipeline_id`."""
-    return service.list_pipelines()
+    """List every stored pipeline, sorted by `pipeline_id`.
+
+    A step's inline source (`config.dataset_input.source`) is shown with its
+    connection options redacted.
+    """
+    return PipelineCatalogResponse(pipelines=[_redact_definition(item) for item in service.list_pipelines().pipelines])
 
 
 @router.get("/pipeline-definitions", response_model=PipelineCatalogResponse)
@@ -98,9 +137,11 @@ def register_pipeline(
     """Check a pipeline's graph and store it.
 
     The graph is sent to `dagentsc pipeline compile` and then ordered in Python.
-    A pipeline with the same `pipeline_id` is replaced.
+    A pipeline with the same `pipeline_id` is replaced. The answer shows a
+    step's inline source (`config.dataset_input.source`) with its connection
+    options redacted; the stored pipeline keeps the real values.
     """
-    return service.register_pipeline(definition)
+    return _redact_definition(service.register_pipeline(definition))
 
 
 @router.post("/pipeline-definitions", response_model=PipelineDefinition, responses={500: _INVALID_GRAPH})
@@ -121,11 +162,15 @@ def get_pipeline_definition(
     pipeline_id: Annotated[str, _PIPELINE_ID],
     service: PipelineService = Depends(get_pipeline_service),
 ) -> PipelineDefinition:
-    """Fetch one stored pipeline by `pipeline_id`."""
+    """Fetch one stored pipeline by `pipeline_id`.
+
+    A step's inline source (`config.dataset_input.source`) is shown with its
+    connection options redacted.
+    """
     definition = service._definitions.get(pipeline_id)
     if definition is None:
         raise HTTPException(status_code=404, detail=f"Unknown pipeline: {pipeline_id}")
-    return definition
+    return _redact_definition(definition)
 
 
 @router.post(
@@ -143,13 +188,14 @@ def validate_pipeline_definition(
     """Check a stored pipeline's graph again and return the pipeline.
 
     It runs the same checks as registering, including `dagentsc pipeline compile`,
-    and stores nothing.
+    and stores nothing. A step's inline source is shown with its connection
+    options redacted.
     """
     definition = service._definitions.get(pipeline_id)
     if definition is None:
         raise HTTPException(status_code=404, detail=f"Unknown pipeline: {pipeline_id}")
     service._engine.validate(definition)
-    return definition
+    return _redact_definition(definition)
 
 
 @router.post(
@@ -245,7 +291,10 @@ def get_pipeline_run(
 @router.post(
     "/sources",
     responses={
-        200: {"model": SourceSpec, "description": "The stored source definition, with its defaults filled in."},
+        200: {
+            "model": SourceSpec,
+            "description": "The stored source definition, with its defaults filled in and its connection options redacted.",
+        },
         500: _server_error("The body is not a valid source definition. The handler validates it itself."),
     },
     # The handler takes a plain dict and validates it with TypeAdapter, so
@@ -255,34 +304,41 @@ def get_pipeline_run(
 def register_source(payload: dict[str, Any], service: PipelineService = Depends(get_pipeline_service)):
     """Store a source definition in the pipeline service's catalog.
 
-    A source with the same `source_id` is replaced. No records are read.
+    A source with the same `source_id` is replaced. No records are read. The
+    answer shows each connection option's value as `[redacted]`, except
+    `role`, `sslmode` and `connect_timeout`, so a password is never sent back.
     """
     source = TypeAdapter(SourceSpec).validate_python(payload)
-    return service._source_resolver.register(source)
+    return redact_source(service._source_resolver.register(source))
 
 
 @router.get(
     "/sources",
-    responses={200: {"model": list[SourceSpec], "description": "Every stored source, sorted by `source_id`."}},
+    responses={
+        200: {
+            "model": list[SourceSpec],
+            "description": "Every stored source, sorted by `source_id`, with its connection options redacted.",
+        }
+    },
 )
 def list_sources(service: PipelineService = Depends(get_pipeline_service)):
-    """List every stored source definition, sorted by `source_id`."""
-    return service._source_resolver.list()
+    """List every stored source definition, sorted by `source_id`, with its connection options redacted."""
+    return [redact_source(source) for source in service._source_resolver.list()]
 
 
 @router.get(
     "/sources/{source_id}",
     responses={
-        200: {"model": SourceSpec, "description": "The stored source definition."},
+        200: {"model": SourceSpec, "description": "The stored source definition, with its connection options redacted."},
         404: _not_found("No source is stored under this id."),
     },
 )
 def get_source(source_id: Annotated[str, _SOURCE_ID], service: PipelineService = Depends(get_pipeline_service)):
-    """Fetch one stored source definition by `source_id`."""
+    """Fetch one stored source definition by `source_id`, with its connection options redacted."""
     source = service._source_resolver.get(source_id)
     if source is None:
         raise HTTPException(status_code=404, detail=f"Unknown source: {source_id}")
-    return source
+    return redact_source(source)
 
 
 @router.post(
