@@ -18,7 +18,7 @@ Each layer of Dagents has its own job and its own test loop:
 |---|---|---|---|
 | **OCaml planners**: pure validate, compile, route, render | `bindings/ocaml/` | opam + OCaml 5.1 | `dune test` |
 | **Python agents**: LMA, GMA, control plane, governance, federation | `dagents/` | Python 3.11 + `dagentsc` | `dagents/tests` |
-| **Framework services**: core, pipeline, model | `services/` | Python 3.11 (+ torch for model) | `services/<name>/tests` |
+| **Framework services**: core, pipeline, model | `services/` | Python 3.11 (+ torch for model) + `dagentsc` + a PostgreSQL 16 service | `services/<name>/tests` |
 | **Spring services**: JVM control and core APIs | `services/spring-services/` | JDK 21 + Maven + `dagentsc` | `mvn verify` |
 | **Demo apps**: healthcare, NL2SQL | `apps/`, `services/nl2sql-demo/` | Python 3.11 + `dagentsc` + a PostgreSQL 16 service | their own suites |
 | **Frontends**: the site and the two demo UIs | `site/`, `*/frontend/` | Node 22 + a browser | `npm run build`, `npm run check`, `npm run smoke` |
@@ -28,7 +28,7 @@ Each layer of Dagents has its own job and its own test loop:
 Python calls the planners through `dagentsc`, so the planner binary is a **build
 artifact that most jobs need**. The `planners` job builds it once and uploads
 it as `dagentsc`; `agents`, `framework-services`, `contracts`, `spring`,
-`demo-apps`, `frontends` and `deploy-smoke` download it.
+`demo-apps`, `frontends`, `deploy-smoke` and `published-layout` download it.
 It also builds the planner with `--profile static` and uploads it as
 `dagentsc-static`, which the `packaging` job puts into a Linux wheel.
 
