@@ -13,8 +13,10 @@ starts while the joining port answers, and that no token is printed.
 the API as real processes against a scratch PostgreSQL 16 database, with the
 settings the script gives them, and calls only the API, as the frontend does.
 ``POST /api/v1/deployments`` then starts Hospital 290's LMA as a child process
-of the API, from the Compose file core-service's planner rendered. The tests
-run in name order, which is the order of the scenario. It needs
+of the API, from the Compose file core-service's planner rendered. Later, the
+new LMA is killed and started again through the same route, and the GMA
+process is killed and started again on its port. The tests run in name
+order, which is the order of the scenario. It needs
 ``HEALTHCARE_DEMO_TEST_DATABASE_URL`` and the planner.
 """
 
@@ -44,10 +46,11 @@ sys.path.insert(0, str(FRAMEWORK_ROOT))
 
 from dagents.common.infrastructure.compose_apply import parse_env_file  # noqa: E402
 
+from app.api.app_header import APP_HEADER, APP_HEADER_VALUE  # noqa: E402
 from app.core.config import lma_token_variable, lma_url_variable  # noqa: E402
 from app.domain.dataset import JOINING_SITES, SITES  # noqa: E402
 from tests.support import dagentsc_available  # noqa: E402
-from tests.test_network_mode import _AgentProcesses, http_call  # noqa: E402
+from tests.test_network_mode import _AgentProcesses, http_call, pilot_rounds  # noqa: E402
 
 SCRIPT = APP_ROOT / "scripts" / "run_local_demo.sh"
 FRONTEND_SCRIPT = APP_ROOT / "scripts" / "run_frontend_demo.sh"
@@ -478,11 +481,22 @@ def _port_answers(port: int) -> bool:
 class NetworkDeployTests(_AgentProcesses, unittest.TestCase):
     """core-service, the GMA, three LMAs and the API with the deployer on, started once for the class.
 
-    The tests run in name order: a held port fails the ``start`` step; the
-    hospital joins and the next pilot includes it; a second request is
-    refused; no answer or log holds a token or an agent's address; the new LMA
-    stops when the API stops.
+    The tests run in name order:
+
+    1. A held port fails the ``start`` step.
+    2. The hospital joins, and the next pilot includes it.
+    3. A second request is refused.
+    4. The new LMA is killed. The overview answers the app's 503, and the
+       same request starts the LMA again.
+    5. The GMA is killed and started again. The next pilot sends it the new
+       LMA's address again.
+    6. The GMA is killed and started again a second time. The overview sends
+       it the address.
+    7. No answer or log holds a token or an agent's address.
+    8. The new LMA stops when the API stops.
     """
+
+    restartable = frozenset({"gma"})
 
     @classmethod
     def setUpClass(cls) -> None:
@@ -506,6 +520,21 @@ class NetworkDeployTests(_AgentProcesses, unittest.TestCase):
 
     def deploy(self) -> tuple[int, Any]:
         return self.public("POST", "/api/v1/deployments", {"site_id": JOINING.site_id})
+
+    def joined_addresses(self) -> list[dict[str, Any]]:
+        """The addresses the GMA holds as ones that joined, from its own listing."""
+        admin = {"Authorization": f"Bearer {self.tokens['gma admin']}"}
+        url = f"{self.gma.url}/api/v1/federation/site-addresses"
+        status, listing = http_call("GET", url, headers=admin, timeout=10)
+        self.assertEqual(200, status, listing)
+        return [row for row in listing["sites"] if row["source"] == "joined"]
+
+    def assert_pilot_includes_every_hospital(self, report: dict[str, Any]) -> None:
+        expected = {site_id: "completed" for site_id in [*SITE_IDS, JOINING.site_id]}
+        for item in pilot_rounds(report):
+            with self.subTest(round=item["round_id"]):
+                participation = {result["site_id"]: result["participation"] for result in item["results"]}
+                self.assertEqual(expected, participation, item["plan"])
 
     def test_1_a_held_port_fails_the_start_step_and_nothing_after_it_runs(self) -> None:
         view = self.get("/api/v1/deployments")
@@ -591,7 +620,84 @@ class NetworkDeployTests(_AgentProcesses, unittest.TestCase):
         self.assertEqual(409, status, body)
         self.assertEqual(f"{JOINING.display_name} is already in the consortium.", body["detail"])
 
-    def test_4_no_answer_or_log_holds_a_token_or_an_agent_address(self) -> None:
+    def test_4_a_killed_lma_is_reported_stopped_and_started_again_by_the_same_request(self) -> None:
+        pid_file = self.deploy_dir / f"lma-{JOINING.site_id}.pid"
+        killed = int(pid_file.read_text(encoding="utf-8"))
+        # The API started it in a session of its own, so its group id is its pid.
+        os.killpg(killed, signal.SIGKILL)
+        deadline = time.monotonic() + STOP_SECONDS
+        while _port_answers(self.joining_port) and time.monotonic() < deadline:
+            time.sleep(0.25)
+        self.assertFalse(_port_answers(self.joining_port), "the killed LMA still answers")
+
+        # The overview needs every hospital's report, so it answers the app's 503, in words.
+        from app.main import AGENT_UNAVAILABLE_MESSAGE
+
+        status, body, headers = self.exchange("GET", "/api/v1/overview")
+        self.assertEqual(503, status, f"{str(body)[:500]}{self.logs()}")
+        self.assertEqual(APP_HEADER_VALUE, headers.get(APP_HEADER.lower()))
+        self.assertEqual({"detail": AGENT_UNAVAILABLE_MESSAGE}, body)
+        view = self.get("/api/v1/deployments")
+        self.assertTrue(view["available"], view["reason"])
+        self.assertEqual([(True, "stopped")], [(h["in_consortium"], h["service"]) for h in view["hospitals"]])
+
+        status, deployment = self.deploy()
+        self.assertEqual(200, status, f"{str(deployment)[:1000]}{self.logs()}")
+        self.assertEqual("joined", deployment["status"], f"{deployment['steps']}{self.logs()}")
+        steps = _steps(deployment)
+        for name in STEPS:
+            with self.subTest(step=name):
+                expected = "skipped" if name == "join" else "done"
+                self.assertEqual(expected, steps[name]["status"], f"{steps[name]['detail']}{self.logs()}")
+        self.assertEqual(f"{JOINING.display_name} is already in the consortium.", steps["join"]["detail"])
+        self.assertEqual({"selected": True, "reason": None}, deployment["next_round"])
+        started = int(pid_file.read_text(encoding="utf-8"))
+        self.assertNotEqual(killed, started)
+        self.assertTrue(_port_answers(self.joining_port))
+
+        view = self.get("/api/v1/deployments")
+        self.assertEqual([(True, "running")], [(h["in_consortium"], h["service"]) for h in view["hospitals"]])
+        hospitals = self.get("/api/v1/overview")["hospitals"]
+        self.assertEqual([*SITE_IDS, JOINING.site_id], [row["site_id"] for row in hospitals])
+        status, report = self.public("POST", "/api/v1/pilot:run", {"round_prefix": "api"})
+        self.assertEqual(200, status, f"{str(report)[:1000]}{self.logs()}")
+        self.assert_pilot_includes_every_hospital(report)
+        audit = report["site_audits"][JOINING.site_id]
+        self.assertTrue(audit["chain_intact"], audit)
+
+    def restart_gma(self) -> None:
+        """Kill the GMA and start it again on its port, and check that it forgot the new LMA's address."""
+        self.assertIn(JOINING.site_id, [row["site_id"] for row in self.joined_addresses()])
+        self.gma.kill()
+        self.gma.restart()
+        self.assertEqual([], self.joined_addresses(), "the GMA kept a joined address after a restart")
+
+    def test_5_after_the_gma_restarts_the_next_pilot_sends_it_the_joined_address_again(self) -> None:
+        """A GMA keeps the addresses it accepted in memory. Its model registry is in Postgres."""
+        model = self.get("/api/v1/models")["model_in_use"]["version"]
+        self.restart_gma()
+
+        status, report = self.public("POST", "/api/v1/pilot:run", {"round_prefix": "api"})
+        self.assertEqual(200, status, f"{str(report)[:1000]}{self.logs()}")
+        calls = {(call["service"], call["method"], call["path"]) for call in report["framework_calls"]}
+        self.assertIn(("gma", "PUT", "/api/v1/federation/sites/{site_id}/address"), calls)
+        self.assertEqual([{"site_id": JOINING.site_id, "source": "joined"}], self.joined_addresses())
+        self.assert_pilot_includes_every_hospital(report)
+        self.assertEqual(model, report["model_in_use"]["version"])
+        self.assertTrue(report["coordinator_audit"]["chain_intact"], report["coordinator_audit"])
+        self.assertEqual(model, self.get("/api/v1/models")["model_in_use"]["version"])
+
+    def test_6_after_the_gma_restarts_again_the_overview_sends_it_the_joined_address_again(self) -> None:
+        """The overview, the first page a visitor opens, sends the address when the GMA's report lacks the hospital."""
+        self.restart_gma()
+
+        overview = self.get("/api/v1/overview")
+        self.assertEqual([*SITE_IDS, JOINING.site_id], [row["site_id"] for row in overview["hospitals"]])
+        calls = {(call["service"], call["method"], call["path"]) for call in overview["framework_calls"]}
+        self.assertIn(("gma", "PUT", "/api/v1/federation/sites/{site_id}/address"), calls)
+        self.assertEqual([{"site_id": JOINING.site_id, "source": "joined"}], self.joined_addresses())
+
+    def test_7_no_answer_or_log_holds_a_token_or_an_agent_address(self) -> None:
         texts = [(f"response {index}", json.dumps(answer)) for index, answer in enumerate(self.responses)]
         texts += [(f"the log of {process.name}", process.log()) for process in (*self.processes(), self.core)]
         for path in sorted(self.deploy_dir.glob("*.log")):
@@ -603,7 +709,7 @@ class NetworkDeployTests(_AgentProcesses, unittest.TestCase):
                 self.assertNotIn(f"127.0.0.1:{self.joining_port}", text, f"{where} names the new LMA's address")
                 self.assertNotIn(f"127.0.0.1:{self.core.port}", text, f"{where} names core-service's address")
 
-    def test_5_the_new_lma_stops_when_the_api_stops(self) -> None:
+    def test_8_the_new_lma_stops_when_the_api_stops(self) -> None:
         self.assertTrue(_port_answers(self.joining_port), f"the new LMA does not answer{self.logs()}")
         self.api.stop()
         deadline = time.monotonic() + STOP_SECONDS
