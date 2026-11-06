@@ -751,6 +751,45 @@ against agents in their own processes. `scripts/run_frontend_demo.sh --deploy
 its page, runs a pilot with it, and prints `ok  deploy: hospital pl-290
 joined`; CI's `deploy-smoke` job requires that line.
 
+The smoke test does not assume which decision the pilot reaches, so it cannot
+count on an enabled **Approve release** button. A second browser check covers
+the approval:
+
+```bash
+tests/run_approval_check.sh
+```
+
+It starts the API with one release gate that a trained candidate passes
+(`tests/lenient_gates_server.py`) and the Vite dev server, both on free loopback
+ports, and runs `frontend/approve.mjs`. The check opens every hospital page,
+runs a pilot on two pages and approves the first page's candidate. It checks
+that the page names the released model and the model it replaces, that the
+"Dagents API calls" table lists the GMA's approval route, that the button is
+then disabled, and that the consortium page and every hospital page use the new
+model. The second page's candidate was compared with the model the approval
+replaced, so the backend refuses it with a 409, and the check reads the
+backend's reason on the page. Each passing line starts `ok  approve:`. Without
+a browser it exits 2 and prints `SKIP`, and CI's `frontends` job fails on that.
+On a 4-CPU machine it took 20 to 42 seconds. It needs the planner, like every
+other check, and uses `DAGENTSC_BIN` when it is set.
+
+The check covers one layout: in-memory stores, the agents inside the API
+process, and the Vite dev server. It does not cover Postgres, network mode or
+the production bundle. It also reloads the refused page before it reads that
+page's model in use. The pilot panel refreshes the overview only after an
+approval succeeds, so after a 409 the page shows the replaced model until it
+reloads, and the check does not catch that.
+
+The lenient gate is set only in the test folder. No app setting chooses the
+release gates, so a caller of a running demo cannot change the policy a
+candidate is checked against. The planner still makes every decision: the
+gates, the release Guard and the approval. A release approved under the
+lenient gate must not reach a database the demo uses. So the script clears
+`HEALTHCARE_DEMO_DATABASE_URL` and every `HEALTHCARE_DEMO_SITE_<SITE>_DATABASE_URL`
+for the API it starts, and `tests/lenient_gates_server.py` refuses to start
+when any of them names a database whose name does not start with
+`dagents_scratch_`, the prefix of the scratch databases the tests make.
+
 `tests/test_network_mode.py` starts the GMA, the three LMAs and the API as five
 uvicorn processes on free loopback ports against a scratch PostgreSQL 16
 database. It checks that a pilot over HTTP gives the same numbers as one in
@@ -766,6 +805,19 @@ what the script refuses. `tests/test_compose_override.py` reads the merged
 Compose files with `docker compose config` (no daemon is needed) and checks
 that only the API gets the Docker socket and that the API and the UI are
 published on 127.0.0.1 only; it skips without Docker.
+
+`tests/test_restart_processes.py` starts the lenient API as a process on a
+scratch PostgreSQL 16 database, with the agents inside it as on the published
+demo. It runs a pilot, approves the candidate, stops the process with SIGTERM
+and starts a new process on the same database. It checks that the approved
+model is still the model in use on the overview, on every hospital page and in
+every worklist, that the last pilot's charts still draw, that a second approval
+of the same candidate gets a 409, and that a new pilot compares its candidate
+with the approved model and finds the release audit chain intact. It needs the
+database URL above and the planner. The first process must stop within 30
+seconds of SIGTERM with no error in its log. A lifespan that skips closing the
+database connections still passes, because the operating system closes them
+when the process exits.
 
 Good tests to read first:
 
@@ -822,6 +874,7 @@ frontend/
                          the recording capture also writes recording.json here
   social-meta.mjs        writes the published address (PUBLIC_SITE_URL) into the link preview tags
   smoke.mjs              drives the UI against a live backend
+  approve.mjs            approves a release in the UI (tests/run_approval_check.sh runs it)
 docs/screenshots/        screenshots of the UI
 scripts/                 run the demo, run the pilot, extract the data, seed a database, write the
                          agents' settings files, move into its own repository
