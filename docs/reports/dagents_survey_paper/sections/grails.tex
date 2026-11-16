@@ -1,0 +1,135 @@
+\section{Starting point: GRAILS}
+\label{sec:grails}
+
+This section summarises GRAILS~\citep{kulkarni2025grails} and the argument it
+makes, because the rest of the paper follows the same argument into a setting
+with several data sources.
+
+\subsection{The problem GRAILS states}
+
+GRAILS observes that ethical compliance in software is usually reached by
+people who follow guidelines, regulations and other documents by hand, and
+that there are few software architectures or tools that automate compliance
+inside an application. It describes two existing routes and the cost of each:
+\begin{itemize}
+  \item \textbf{Privacy by Design}~\citep{cavoukian2010privacy} and related
+        design methods, such as Value Sensitive Design, embed privacy early in
+        the development life cycle. GRAILS finds them suited to new systems and
+        notes that they increase design complexity.
+  \item \textbf{Retrofitting} adds privacy to an existing system, by
+        redevelopment, by modification, or by \emph{co-existence}: adding
+        measures without changing the core functions. GRAILS notes that the
+        first two need large changes and that retrofits can add technical debt
+        and performance overhead.
+\end{itemize}
+It also argues that privacy impact assessments, data loss prevention systems
+and access-control models such as role-based access control mostly reduce
+privacy risk after the software is built, that model-view-controller designs
+and the usual development life cycle have no place for ethical constraints,
+and that specialised privacy tools are often specific to one domain.
+
+\subsection{The framework}
+
+GRAILS has two parts (\cref{fig:grails}):
+\begin{itemize}
+  \item The \textbf{Ethical-Restriction Rails} decide. A user request is a tuple of the user, the data request and its
+        context.
+        A \emph{Know Your User} (KYU) service turns user attributes (user type,
+        operation, information classification, data ownership and compliance
+        history) into a trust score, using fuzzy inference in the proof of
+        concept. A \emph{Data Protection Service} builds a data protection
+        profile from file-level and item-level metadata and from a knowledge
+        base of regulations; the proof of concept uses a large language model
+        fine-tuned on Indian regulatory frameworks and healthcare data. A
+        \emph{Restriction Planner}, which GRAILS compares to a database query
+        processor, maps the KYU profile and the data protection profile to
+        restriction strategies taken from a \emph{Strategy Knowledge Base}.
+  \item The \textbf{Ethical Guard} enforces. Its \emph{Strategy Engine} turns
+        the restriction plan into an execution plan, and its \emph{Execution
+        Engine} applies the plan to data held in a \emph{Privacy Vault}, through
+        built-in implementations, external services or plug-ins, and returns
+        the filtered data.
+\end{itemize}
+
+Formally, GRAILS writes the filtered output as
+\begin{equation}
+  D_{\text{out}} = \bigcup_{g \in G} T_g(D_g, \lambda, \nu),
+  \qquad G = \{\text{cell}, \text{row}, \text{column}, \text{table}\},
+\end{equation}
+where \(D_g\) is the projection of the dataset at granularity \(g\),
+\(\lambda \in \{\text{low}, \text{moderate}, \text{high}\}\) is the privacy level
+and \(\nu \in \{\text{low}, \text{moderate}, \text{high}\}\) is the user's trust
+level. Its Table~1 gives the strategies for each of the 36 combinations of
+granularity, sensitivity and trust, drawn from statistical disclosure control:
+cell suppression, top and bottom coding, microaggregation, generalisation,
+binning, full and partial masking, noise injection and differential privacy.
+
+GRAILS measures how much a response was filtered with a \emph{Filtering Score},
+the mean over all cells of a penalty \(\delta \in [0,1]\) between the original
+and the filtered value. It evaluates the framework on the \emph{Karnataka At a
+Glance} open government dataset, which covers 30 districts and 17 domains with
+more than 1,200 attributes. It reports that filtering is highest where
+sensitivity is high and trust is low, and lowest where sensitivity is low and
+trust is high. The proof of concept is written in Java and uses the Facade,
+Decorator and Strategy design patterns over tabular data in an SQL database.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[
+  node distance=4mm and 6mm,
+  box/.style={draw=dgInk, rounded corners=2pt, align=center, font=\footnotesize, inner sep=4pt},
+  part/.style={draw=dgRule, dashed, rounded corners=3pt, inner sep=5pt},
+  arr/.style={-{Stealth[length=2mm]}, draw=dgInk},
+  lbl/.style={font=\scriptsize\itshape, text=dgInk}
+]
+\node[box] (app) {Application\\software};
+\node[box, right=10mm of app] (exec) {Execution\\Engine};
+\node[box, below=of exec] (strat) {Strategy\\Engine};
+\node[box, right=of exec] (vault) {Privacy\\Vault};
+\node[box, right=14mm of vault] (kyu) {KYU\\service};
+\node[box, right=of kyu] (dps) {Data Protection\\service};
+\node[box, below=8mm of $(kyu)!0.5!(dps)$] (rp) {Restriction\\Planner};
+\node[part, fit=(exec)(strat)(vault), label={[lbl]above:Ethical Guard (runtime)}] (guard) {};
+\node[part, fit=(kyu)(dps)(rp), label={[lbl]above:Ethical-Restriction Rails}] (rails) {};
+\draw[arr] (app) -- node[lbl, above] {request} (exec);
+\draw[arr] (exec.east) -- (vault.west);
+\draw[arr] (guard.east |- kyu) -- node[lbl, above] {request} (kyu.west);
+\draw[arr] (kyu) -- (rp);
+\draw[arr] (dps) -- (rp);
+\draw[arr] (rp.west) -- node[lbl, below] {restriction plan} (strat.east);
+\draw[arr] (strat) -- node[lbl, left] {execution plan} (exec);
+\end{tikzpicture}
+\caption{The two parts of GRAILS, simplified from Figure~1 of
+\citet{kulkarni2025grails}. The Rails decide; the Guard enforces, on data held
+in one Privacy Vault.}
+\label{fig:grails}
+\end{figure}
+
+\subsection{What GRAILS leaves open}
+\label{sec:grails-open}
+
+GRAILS states its own next steps: other ethical dimensions such as fairness and
+transparency, learned models for the KYU profile and the data protection level,
+and retrieval over ontologies of regulations. Reading the paper for the setting
+of this survey, where data sits at several sources and models are trained
+across them, we see five further open points. They are not defects of GRAILS,
+which addresses one application and one store.
+\begin{enumerate}[label=O\arabic*.]
+  \item \textbf{One boundary.} The Guard filters the response to a request. In
+        a federated study, data also leaves a site as a model update, a metric
+        or a count, and a model trained on it may be released. These are
+        further boundaries.
+  \item \textbf{One store.} The Guard reads a central Privacy Vault. When each
+        source must keep its records, the Guard has to run at each source.
+  \item \textbf{Reproducible decisions.} The proof of concept derives the data
+        protection profile with a fine-tuned language model. A decision that a
+        learned model makes may differ between two runs or two model versions,
+        which makes it harder to replay during an audit.
+  \item \textbf{Failure behaviour.} The paper does not state what the Guard does
+        when the Rails cannot answer.
+  \item \textbf{Utility.} The Filtering Score measures how much was changed. It
+        does not measure how much an analysis or a model loses because of the
+        change.
+\end{enumerate}
+\Cref{sec:design} describes how Dagents addresses O1 to O4, and
+\cref{sec:case-study} measures O5 on one study.

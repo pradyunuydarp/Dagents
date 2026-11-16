@@ -1,0 +1,104 @@
+\subsection{F7. Release governance and regulation}
+\label{sec:survey-reg}
+
+\paragraph{Release in machine-learning practice.} Machine-learning systems carry
+hidden technical debt~\citep{sculley2015hidden}, and the ML Test Score lists the
+tests a production system should pass~\citep{breck2017ml}. TFX validates a
+candidate against a baseline before it is pushed~\citep{baylor2017tfx}, and
+studies of practice describe the steps teams take to deploy a
+model~\citep{amershi2019software,paleyes2022challenges,kreuzberger2023machine,shankar2024we}.
+Model registries such as MLflow, SageMaker and Vertex AI store a version's stage
+or approval status~\citep{zaharia2018accelerating,mlflow2026registry,aws2026sagemakerapproval,google2026vertexalias}.
+The registry stores the state; a pipeline step the team writes, or a person who
+changes a status field, decides whether a transition is allowed.
+
+\paragraph{Controlled change in banking and medicine.} Banks add independent
+model validation~\citep{fed2011sr117,pra2023ss123}. For medical devices,
+regulators approve in advance an envelope of allowed changes: the FDA's Good
+Machine Learning Practice principles~\citep{fda2021gmlp}, its final guidance on
+Predetermined Change Control Plans~\citep{fda2024pccp,fda2023pccpprinciples},
+which rests on section 515C of the Federal Food, Drug, and Cosmetic
+Act~\citep{usc2022pccp}, and Article 43(4) of the EU AI
+Act~\citep{eu2024aiact}. A change inside the envelope needs no new submission.
+This is the closest regulatory analogue to a release gate written as a function.
+AEGIS turns these plans into four fixed outcomes (approve, conditional approval,
+clinical review, reject)~\citep{afdideh2026aegis}. Feng et al.\ show that
+repeated approval of small changes can let accuracy drift
+down~\citep{feng2021approval}.
+
+\paragraph{What the law asks for.} \Cref{tab:obligations} lists obligations
+that bear on the questions in \cref{sec:introduction}, and whether a program can
+check each one per request or per release. Privacy law states principles as
+standards of reasonableness: purpose limitation and data minimisation in the
+GDPR~\citep{eu2016gdpr} and in India's Digital Personal Data Protection
+Act~\citep{india2023dpdp,india2025dpdprules}, and the minimum necessary standard
+of HIPAA~\citep{ecfr2026part164,hhs2026minimum}. HIPAA shows the split: for
+routine disclosures it allows standard protocols, a field set decided in advance
+that a program can apply; for other requests it requires review of each
+request by a person. The European Health Data Space issues permits that name the
+purpose and the data, and lets only non-personal data leave a secure processing
+environment~\citep{eu2025ehds}. The AI Act requires automatic logs (Article 12),
+testing against ``prior defined metrics and probabilistic thresholds''
+(Article 9(8)) and human oversight (Article 14)~\citep{eu2024aiact}; an
+amending regulation adopted in 2026 moved the dates of its high-risk
+obligations~\citep{eu2026omnibus}. The NIST AI Risk Management Framework and
+ISO/IEC 42001 organise these duties for an
+organisation~\citep{tabassi2023nist,iso2023iec42001}.
+
+\begin{table}[t]
+\centering
+\small
+\begin{tabularx}{\linewidth}{@{}p{0.22\linewidth} p{0.24\linewidth} p{0.12\linewidth} Y@{}}
+\toprule
+Obligation & Provisions & Automatic? & What a program can check \\
+\midrule
+Purpose limitation & GDPR 5(1)(b); EHDS permits; DPDP s.5 & Partly & The
+  request names an approved purpose; the data asked for is in the permit \\
+Minimum necessary & GDPR 5(1)(c), 25(2); HIPAA 164.502(b), 164.514(d) & Partly &
+  Only the fields of the approved protocol leave; unrequested fields are dropped \\
+De-identified output & HIPAA 164.514(b); EHDS & Partly & Small-cell suppression,
+  minimum cohort, noise or clipping with stated parameters \\
+Automatic logs & AI Act 12; HIPAA 164.312(b) & Yes & A record for every decision,
+  with its inputs, plan and outcome, and tamper evidence \\
+Version of the deciding logic & AI Act 12(2)(a) and Annex IV (supports) & Yes &
+  The hash or version of the code that decided, in each record \\
+Testing against fixed thresholds & AI Act 9(8); FDA PCCP & Yes, once set & Each
+  metric is present and meets its threshold; a missing metric blocks \\
+Controlled model change & AI Act 43(4); FD\&C Act 515C; FDA PCCP & Partly & The
+  candidate stays inside the authorised envelope; every status change is recorded \\
+Human oversight & AI Act 14; GDPR 22(3) & Partly & An approval exists; the approver
+  is named and is not the requester \\
+Fail-safe behaviour & AI Act 15(4) & Partly & Deny when a dependency fails \\
+Impact assessment & GDPR 35; AI Act 27 & No & Only that one is on file \\
+\bottomrule
+\end{tabularx}
+\caption{Obligations, where they are written, and what a program can check per
+request or per release. ``Partly'' means a program can enforce a decision a
+person made in advance.}
+\label{tab:obligations}
+\end{table}
+
+\paragraph{What stays with people.} Formal work on HIPAA and the GDPR shows that
+part of each law can be checked mechanically from logs and process models, while
+predicates about purpose, belief or necessity stay with a
+person~\citep{deyoung2010experiences,garg2011policy,basin2018purpose}. A program
+cannot check that a stated purpose is the real one, that a new purpose is
+compatible with the old, that thresholds are clinically right, or that human
+oversight works; studies of oversight find it
+unreliable~\citep{green2022flaws,laux2024institutionalised,sterz2024quest}. A
+2026 study of twelve AI Act compliance checkers found that they ``may foster a
+false sense of compliance''~\citep{tao2026empirical}. No regulation says how a
+per-request decision is computed, how its logic is versioned, or how to show
+that the code that decided is the code that was reviewed.
+
+\paragraph{Relation to Dagents.} Dagents's \code{before\_read} plan supports
+minimum necessary and data minimisation; its minimum cohort and
+\code{before\_send} support de-identified output; its release gates, missing-metric
+rule and planner-decided status changes support testing against fixed
+thresholds and controlled change; its audit records, which name the planner's
+hash, support automatic logs and traceable logic; and failing closed supports
+fail-safe behaviour. The family points to gaps. Dagents has no route for
+non-routine requests that need review by a person, no shadow or canary
+deployment, no monitoring after release, no control of accuracy drift across a
+sequence of releases, and its approval route records no named approver
+(\cref{sec:limitations}).

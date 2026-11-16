@@ -1,0 +1,90 @@
+\section{Introduction}
+\label{sec:introduction}
+
+Many organisations hold data that they may not pool. Hospitals hold patient
+records, banks hold transactions, public agencies hold census and survey data,
+and a software service keeps each tenant's data apart from the others.
+Analytics and machine learning across such data have to answer the same
+questions many times a day:
+\begin{itemize}
+  \item What may this requester see from this source, and in what form?
+  \item May this result, or this model update, leave this site?
+  \item May this site take part in this study?
+  \item May this new model replace the one in use?
+\end{itemize}
+
+Law and professional practice set the rules for these answers. The General
+Data Protection Regulation (GDPR) requires purpose limitation and data
+minimisation~\citep{eu2016gdpr}. The HIPAA Privacy Rule asks covered entities to
+use and disclose only the minimum necessary information~\citep{hhs2026minimum}.
+The EU Artificial Intelligence Act requires high-risk systems to keep logs and
+to allow human oversight~\citep{eu2024aiact}. Regulators of medical devices ask
+manufacturers to plan and control how a learning model may change after it is
+cleared~\citep{fda2024pccp}. Each of these rules is checked per request or per
+release, not once at design time.
+
+Existing work answers parts of these questions. Statements of responsible-AI
+principles and documentation such as model cards describe what a system should
+do, but they do not act on a request~\citep{jobin2019global,mitchell2019model}.
+Access-control and policy engines decide whether a request is permitted, but
+most of them do not decide how much of the data to return or in what
+form~\citep{hu2014guide}. Privacy-enhancing technologies provide mechanisms, such
+as \(k\)-anonymity and differential privacy, but a person or a separate system
+still chooses which mechanism applies to which
+request~\citep{sweeney2002kanonymity,dwork2014algorithmic}. Federated learning
+frameworks keep raw data at each site and implement the training
+protocol~\citep{mcmahan2017communication,kairouz2021advances}, while the
+decision about what else may leave a site, and whether the resulting model may
+be released, is often left to each project.
+
+GRAILS~\citep{kulkarni2025grails} takes a different route. It separates ethical
+restrictions from the functional code of an application. A planner, the
+\emph{Ethical-Restriction Rails}, chooses a transformation for each requested
+data item from three inputs: the sensitivity of the data, the trust the system
+places in the requester, and the granularity of the request (cell, row, column
+or table). A runtime component, the \emph{Ethical Guard}, applies that plan to
+the data and returns a filtered response. GRAILS compares its planner to the
+query planner of a database.
+
+This paper uses GRAILS as its starting point and asks one question of every
+approach it surveys: \emph{where do the governance decisions live?} We split
+the question into four parts:
+\begin{enumerate}
+  \item Where is the decision made, and in what form: application code,
+        configuration, a policy language, a person, a learned model or a typed
+        function?
+  \item What does it decide: permit or deny, a transformation, a privacy
+        mechanism and its parameters, who may take part, or whether a result
+        may be released?
+  \item Where is it enforced: at a central store, at each data source, at the
+        point where data leaves, or at model release?
+  \item What evidence does it leave, and can the decision be replayed later?
+\end{enumerate}
+
+We then describe the design idea behind Dagents, an open-source framework that
+extends the GRAILS split from one request boundary in one application to every
+boundary of a study that runs across several data sources. Dagents runs a local
+agent at each source and a global agent that coordinates them. It makes every
+governance and federation decision with pure functions written in OCaml, over
+algebraic data types, and enforces each decision at four boundaries: before a
+site accepts a training job, before it reads its records, before anything
+leaves it, and before the coordinator releases a model.
+
+This paper makes four contributions:
+\begin{enumerate}
+  \item A survey of \SurveyWorks{} works and industry systems in seven families,
+        each described by the four questions above (\cref{sec:survey}).
+  \item A synthesis that shows which parts of the lifecycle of a multi-source
+        study each family governs, and which parts no family governs as a whole
+        (\cref{sec:synthesis}).
+  \item A statement of the Dagents design as ten principles, each tied to code
+        that implements it (\cref{sec:design}).
+  \item A comparison of that design with GRAILS and with each surveyed family,
+        a case study on 1,014 real patient records from three hospitals in the
+        International Stroke Trial, and the limits of the design
+        (\cref{sec:comparison,sec:case-study,sec:limitations}).
+\end{enumerate}
+
+We built Dagents, so we are not neutral judges of it. To reduce this bias, the
+survey records, for every family, what it does that Dagents does not, and
+\cref{sec:limitations} lists the claims this paper does not make.

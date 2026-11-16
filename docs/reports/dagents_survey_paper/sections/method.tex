@@ -1,0 +1,58 @@
+\section{How we surveyed}
+\label{sec:method}
+
+\paragraph{Type of review.} This is a structured narrative review, not a
+systematic review. We chose the families and the seed works from the
+questions in \cref{sec:introduction}, then followed citations and searched for
+recent work. We did not follow a registered protocol such as PRISMA, and we did
+not compute inter-rater agreement.
+
+\paragraph{Families.} We grouped approaches into seven families, by the problem
+each was built to solve:
+\begin{enumerate}[label=F\arabic*.]
+  \item Responsible-AI practice: principles, design methods, documentation,
+        audits, toolkits and runtime guardrails.
+  \item Access control, policy engines and privacy compliance in data systems.
+  \item Privacy-enhancing technologies for releasing data and statistics.
+  \item Federated learning: algorithms, attacks, defences, frameworks and
+        deployments.
+  \item Bringing code to the data: federated analytics, distributed research
+        networks, trusted research environments, data spaces, data clean rooms
+        and privacy-preserving query compilers.
+  \item Architectural precedents: moving computation to data, federated data
+        architectures, separating decisions from effects, and declarative
+        deployment.
+  \item Release governance for machine learning, and the regulations and
+        standards that set the requirements.
+\end{enumerate}
+
+\paragraph{Sources.} We searched the web and the publishers' indexes in
+November 2026 and checked the authors, title, venue and year of every academic
+work against Crossref or arXiv. For products and standards without a paper we
+cite the vendor's or publisher's documentation and give the date we read it.
+We include \SurveyWorks{} works in total.
+
+\paragraph{Dimensions.} For each work we recorded seven dimensions, which refine
+the four questions of \cref{sec:introduction}:
+\begin{description}[font=\normalfont\bfseries, leftmargin=1.2em, style=nextline]
+  \item[D1 What is decided] Permit or deny; a transformation (how much, in
+        what form); a privacy mechanism and its parameters; who may take part;
+        whether a result or model may be released.
+  \item[D2 How the decision is expressed] Code in the application,
+        configuration, a policy language, a person, a learned model, or a typed
+        function; and whether it can be analysed or verified.
+  \item[D3 Where it is enforced] A central store, each data source, the point
+        of egress, or model release.
+  \item[D4 Lifecycle stages covered] Reading data, computing or training,
+        sending results, releasing a model, deploying a workload.
+  \item[D5 Evidence] Audit logs, attestations, documentation, provenance.
+  \item[D6 Failure behaviour] What happens when the decision point cannot
+        answer: deny (fail closed) or allow (fail open).
+  \item[D7 Coupling] To a domain, to application code, or to one vendor.
+\end{description}
+
+\paragraph{Threats to validity.} The review covers work in English that web
+search and the publishers' indexes return. Industry products change often; we
+describe each product as its documentation stood on the date we read it.
+Because we built Dagents, we may read other work in its terms. To reduce this,
+each family's section records what that family does that Dagents does not.

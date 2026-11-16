@@ -136,7 +136,7 @@ extract:
 | Effect | Exact values | Guarded values |
 |---|---|---|
 | Candidate AUC at each site | 0.7594 / 0.8117 / 0.8185 | 0.7593 / 0.8115 / 0.8184 |
-| Size-weighted AUC of a candidate trained on them | 0.7864 | 0.7860 |
+| Size-weighted AUC of a candidate trained on them | 0.7864 | 0.7859 |
 
 If a consortium finds the cost too high, it changes the classification, not the
 code. Lower `systolic_bp`'s sensitivity to medium and the planner returns it in

@@ -1,0 +1,70 @@
+\subsection{F4. Federated learning}
+\label{sec:survey-fl}
+
+\paragraph{Keeping raw data local is not enough.} Federated learning moves
+training to the data. Clients send ``focused updates intended for immediate
+aggregation'' and a coordinator combines them, across millions of phones
+(cross-device) or across a few organisations
+(cross-silo)~\citep{mcmahan2017communication,kairouz2021advances,li2020federated,huang2022crosssilo}.
+Updates and models leak training data: gradients can be inverted into
+inputs~\citep{zhu2019deep,geiping2020inverting}, and membership can be
+inferred~\citep{shokri2017membership,nasr2019comprehensive}. One participant can
+implant a backdoor~\citep{bagdasaryan2020backdoor}, and Byzantine-robust
+aggregation can be broken~\citep{fang2020local}.
+
+\paragraph{Defences are mechanisms inside the protocol.} Secure aggregation
+hides each client's update from the server~\citep{bonawitz2017practical,bell2020secure};
+user-level and distributed differential privacy bound what a model reveals about
+one participant~\citep{mcmahan2018learning,kairouz2021distributed}; norm
+clipping limits backdoors~\citep{sun2019really}; and robust aggregators limit
+poisoning~\citep{blanchard2017machine,yin2018byzantine}. The model engineer
+selects these in code, through a Flower strategy, a TensorFlow Federated
+aggregator or a FLARE filter~\citep{beutel2020flower,google2026tff,roth2023nvidia}.
+
+\paragraph{Governance lives outside the learning code, in five places.}
+\begin{enumerate}
+  \item \emph{Provisioning and roles}: NVIDIA FLARE's startup kits and an
+        authorisation file for each organisation~\citep{nvidia2023flareauthz},
+        OpenFL's certificates and plan~\citep{foley2022openfl}, Flower's node
+        registration~\citep{flower2026supernodeauth}.
+  \item \emph{Site policy files}: FLARE's site privacy file forces filters on
+        every job at a site~\citep{nvidia2026flaresitepolicy,nvidia2026flareprivacy};
+        Apheris's signed asset policies name allowed models and privacy
+        controls~\citep{apheris2026assetpolicies}.
+  \item \emph{People}: PySyft's data owner approves each
+        request~\citep{ziller2021pysyft}; Fed-BioMed runs a training plan only
+        if a node approved its hash, in an optional mode~\citep{cremonesi2025fedbiomed};
+        MedPerf supervises federated evaluation~\citep{karargyris2023federated}.
+  \item \emph{Ledgers}: Substra's per-asset permissions, under which a trained
+        model inherits the intersection of its inputs'
+        permissions~\citep{galtier2019substra}, and Swarm Learning's
+        blockchain~\citep{warnatherresthal2021swarm}.
+  \item \emph{A policy language}: FLA3 evaluates XACML policies when a node joins,
+        when it joins a study and in every round before aggregation, fails
+        closed, and signs its audit records~\citep{zhang2026building}.
+\end{enumerate}
+
+\paragraph{Model release is the least covered stage.} Release rules are
+organisational. Google states that ``all future launches of Gboard neural
+network LMs will require DP guarantees''~\citep{xu2023federated}, and the FeTS
+study, with data from 71 sites on six continents, released its consensus
+model~\citep{pati2022federated}. Clinical studies
+such as EXAM~\citep{dayan2021federated} and MELLODDY~\citep{heyndrickx2024melloddy}
+show federated learning at hospital and pharmaceutical scale, with governance
+handled by agreements and committees around the
+software~\citep{sheller2020federated,rieke2020future}. Substra is the one
+framework where release follows from coded rules. Baracaldo et al.\ propose
+FactSheets for accountable federated studies~\citep{baracaldo2022towards}.
+
+\paragraph{Relation to Dagents.} FLA3 is the closest prior art: it decides
+participation per round outside the learning code, fails closed and logs every
+decision. So gating participation outside the learning code is not new with
+Dagents. Less common is the combination of a per-field protection plan,
+participation, quorum, release gates and model-version status in one typed
+planner, with the planner's hash in each audit record. The family is stronger
+in mechanisms and scale: cryptographic secure aggregation (Dagents's
+\code{secure\_aggregation} profile only raises the participant floor and
+requires a clip bound), calibrated privacy accounting, robust aggregation,
+signed records, code-hash approval, hardware attestation, and deployments
+across dozens of sites. Dagents's design leaves the learning protocol to such a
+runtime (P2).

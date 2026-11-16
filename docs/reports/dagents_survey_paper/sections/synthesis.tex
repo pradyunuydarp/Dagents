@@ -1,0 +1,72 @@
+\section{Synthesis: what no family governs as a whole}
+\label{sec:synthesis}
+
+\Cref{tab:matrix} summarises where each family decides and enforces across the
+stages of a multi-source study. A cell names the usual practice in the family,
+not every system in it.
+
+\begin{table}[t]
+\centering
+\footnotesize
+\setlength{\tabcolsep}{3pt}
+\begin{tabularx}{\linewidth}{@{}p{0.14\linewidth} Y Y Y Y Y p{0.13\linewidth}@{}}
+\toprule
+Family & Decision made by & Read & Train or compute & Send a result & Release a model & Planner fails \\
+\midrule
+F1 Responsible-AI practice & people; classifiers for LLM text & LLM input and output only & design time, by people & -- & audit and documentation, by people & often open (Guardrails AI: \code{noop}) \\
+F2 Policy engines & policy language or engine; some analysable & permit or deny; transformations inside one warehouse & IFC in a runtime & egress checks in IFC systems & -- & varies by product \\
+F3 Privacy techniques & a person sets \(\varepsilon\); software derives the mechanism & mechanism at output, central & DP training & local DP on devices & budget management & budget spent: refuse \\
+F4 Federated learning & code, site files, people, ledgers, XACML & site filters (FLARE) & mechanisms in the protocol & site filters; secure aggregation & organisational, by people & rarely stated (FLA3: closed) \\
+F5 Code to data & function libraries, checkers, vendor engines, compilers & function library at each site & site review of code & thresholds; output checkers & separate, later (GRAIMatter) & some closed (DataSHIELD) \\
+F6 Architecture & planners and declarative specifications & mediators; sidecars & -- & -- & deployment, not models & varies (Envoy closed, Gatekeeper open) \\
+F7 Release and regulation & pipeline steps, people, law & law states principles & -- & -- & gates in pipelines; people approve & not stated \\
+\midrule
+GRAILS & a planner over three inputs & per item, one vault & -- & -- & -- & not stated \\
+Dagents & a total, typed planner & per field, at each site & \code{before\_train}; guarded payload & \code{before\_send}: clip or noise & gates; release Guard; a person & closed, recorded \\
+\bottomrule
+\end{tabularx}
+\caption{Where each family decides and enforces across the stages of a
+multi-source study. ``--'' means the family does not usually address the stage.}
+\label{tab:matrix}
+\end{table}
+
+Five gaps follow. None of them means that no system does the thing; each
+subsection of \cref{sec:survey} names systems that do part of it. The gaps are
+in the combination.
+
+\begin{description}[font=\normalfont\bfseries, leftmargin=1.2em, style=nextline]
+  \item[G1. The form of the data, decided outside the store]
+        Most decision points answer permit or deny. Where a system decides how
+        much of the data to return and in what form, it usually decides inside
+        the engine that already holds the pooled data: a warehouse, a clean room
+        or a trusted research environment (F2, F3, F5).
+  \item[G2. Enforcement at independent sources]
+        Systems that compute at the source control what leaves through function
+        libraries, people or vendor engines (F4, F5). Few apply one decision
+        model at each source under a coordinator that may not read the source's
+        rows.
+  \item[G3. One rule set across the lifecycle]
+        Reading, training, sending and releasing are governed by different
+        mechanisms and often different people. Model release is the stage
+        covered least, and it is usually governed by organisational rules
+        (F4, F5, F7). DataSHIELD and Confidential Federated Computations are the
+        exceptions we found.
+  \item[G4. Decisions that can be read, tested and replayed]
+        The rule about what leaves is often spread across server options,
+        function code, checker guidance and vendor defaults (F5). Cedar's
+        authorisation decisions and Conclave's and SMCQL's query plans are
+        analysable (F2, F5), but they do not cover the form of the data, model
+        updates or release together.
+  \item[G5. Failure behaviour and evidence]
+        What happens when the decision point is unreachable is rarely
+        documented, and defaults differ: some products deny, others admit
+        (F1, F2, F6). Logs record decisions, but they rarely name the logic that
+        decided, and no regulation asks for that per record, although the AI
+        Act's record-keeping duty supports it (F7).
+\end{description}
+
+GRAILS addresses G1 for one application with one store. The design described in
+the next section is one answer to G1 to G5 together. It is built from known
+primitives: the PDP/PEP split, purpose binding, minimum-frequency rules,
+clipping, release gates and hash chains. What it adds is their combination in
+one typed decision function, enforced at four boundaries at each source.

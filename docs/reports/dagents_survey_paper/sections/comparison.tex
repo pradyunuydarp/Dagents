@@ -1,0 +1,137 @@
+\section{How the design compares}
+\label{sec:comparison}
+
+\subsection{Dagents and GRAILS}
+
+\Cref{tab:grails-dagents} compares the two designs point by point. Dagents keeps
+the GRAILS split and its three inputs. It replaces the learned components with
+declared data and a fixed formula, so that a plan can be computed again from its
+request, and it moves the Guard to each source and to every boundary.
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabularx}{\linewidth}{@{}p{0.17\linewidth} Y Y@{}}
+\toprule
+ & GRAILS & Dagents \\
+\midrule
+Inputs & sensitivity \(\times\) trust \(\times\) granularity & the same, with
+  approved purpose and minimum cohort as request-level checks \\
+Granularities & cell, row, column, table & the same, and model update \\
+Strategies & one or more SDC techniques per case & exactly one of seven
+  strategies per case (\cref{app:rules}) \\
+Trust & fuzzy inference over user attributes & 0.7 \(\times\) weighted share of
+  verified attributes + 0.3 \(\times\) compliance history \\
+Protection profile & a language model fine-tuned on regulations & a
+  classification the application declares; a caller cannot replace it \\
+Where the data is & one Privacy Vault & each source's own store \\
+Boundaries & the response to a request & \code{before\_train},
+  \code{before\_read}, \code{before\_send}, \code{before\_release} \\
+Planner & Java, in process, design patterns & OCaml, separate process, one
+  total match \\
+When the planner fails & not stated & deny, and record the denial \\
+Evidence & Filtering Score; plan stored in a rule base & filtering score;
+  hash-chained record naming the planner \\
+Evaluation & open government data; Filtering Score & 1,014 trial records; AUC
+  cost and release gates \\
+\bottomrule
+\end{tabularx}
+\caption{GRAILS and Dagents compared.}
+\label{tab:grails-dagents}
+\end{table}
+
+GRAILS keeps two things that Dagents gives up. A learned or fuzzy trust model can
+weigh attributes that a fixed formula cannot, and a language model can read new
+regulations without a person writing a classification. Dagents trades these for
+plans that are reproducible and reviewable, on the view that an audit needs to
+compute the same plan again from the same request.
+
+\subsection{Dagents and the surveyed families}
+
+\Cref{tab:families} condenses the ``relation to Dagents'' paragraphs of
+\cref{sec:survey}.
+
+\begin{table}[h]
+\centering
+\footnotesize
+\begin{tabularx}{\linewidth}{@{}p{0.13\linewidth} Y Y Y@{}}
+\toprule
+Family & Dagents takes & Dagents differs & The family is stronger at \\
+\midrule
+F1 Responsible AI & GRAILS's table; deterministic allow or deny with a reason
+  (CaMeL, AgentSpec); append-only evidence & enforces per request on typed data
+  at each source & fairness measurement, documentation, external review, free
+  text \\
+F2 Policy engines & the PDP/PEP split; a deny-biased enforcement point; purpose
+  binding & decides a per-field transformation outside the store; enforces at
+  independent sources & formal analysis (Cedar), staged roll-out of rules,
+  tamper-proof logs \\
+F3 Privacy techniques & generalisation, suppression, minimum-frequency rules,
+  clipping, noise & chooses the strategy from trust, purpose and granularity &
+  provable bounds, privacy accounting, unpredictable noise \\
+F4 Federated learning & rounds, quorum, clipping; delegates the protocol &
+  one typed planner for fields, participation and release & secure aggregation,
+  robust aggregation, attestation, scale \\
+F5 Code to data & site enforcement (DataSHIELD); typed planning (SMCQL,
+  Conclave); minimum counts & one rule set for reads, updates and release &
+  output checking by people, model attack tests, cross-query budgets, MPC and
+  trusted hardware, permits \\
+F6 Architecture & code to data; plan before acting; functional core;
+  out-of-process engines & applies them to disclosure and release across
+  organisations & formal semantics (NetKAT), reproducible builds (Nix),
+  reconciliation (Kubernetes) \\
+F7 Release and regulation & gates against fixed thresholds; a missing metric
+  blocks; logs & the planner decides every status change and names itself in
+  each record & monitoring after release, staged deployment, drift control,
+  named approvers \\
+\bottomrule
+\end{tabularx}
+\caption{What Dagents takes from each family, how it differs, and where the
+family is stronger.}
+\label{tab:families}
+\end{table}
+
+\subsection{Who needs this design}
+
+The design fits a setting with four properties: several organisations hold data
+they may not pool; a study needs both statistics and trained models from that
+data; the rules about what may leave differ by field, requester and purpose; and
+an auditor must be able to see, later, why each thing that left was allowed to
+leave. Hospital consortia and research networks have all four. So does a
+software service whose tenants agree to a shared model but not to shared rows,
+and a public data portal whose custodians keep their own stores, which is
+GRAILS's setting extended to several custodians.
+
+Other settings need less. Data that already sits in one warehouse can use the
+warehouse's masking and aggregation policies (F2). A release that must carry a
+differential privacy guarantee needs a DP library and an accountant (F3),
+which Dagents does not provide. A consortium that governs participation and
+release through agreements and committees, and needs only a learning runtime,
+can use FLARE or Flower directly (F4).
+
+\subsection{Why not assemble existing parts}
+
+A team could assemble most of this from mature parts: Cedar or OPA for
+participation, FLARE's site filters for what leaves, a DP library for noise, and
+a model registry with a reviewer for release. Each part is stronger than its
+counterpart in Dagents. What the team would still write is the glue that the
+gaps in \cref{sec:synthesis} describe: a per-field transformation chosen from
+trust, purpose and granularity; the same rule applied at four boundaries; the
+rules that turn a candidate into a release; a deny default at every boundary;
+and records that name the logic that decided. Dagents packages that glue, and
+its interfaces let the mature parts sit behind it: a learning runtime behind
+\code{FederationEngine}, and a DP mechanism as a strategy the Guard applies.
+Against this, Dagents is an alpha release with one worked study. Where a team
+has the mature parts and the staff to integrate them, assembling them may be the
+better choice.
+
+\subsection{Why a typed planner instead of a policy language}
+
+Policy languages such as Rego and Cedar decide authorisation, and Cedar's
+analysis is stronger than anything Dagents offers. Dagents's planners return
+structured results: a strategy and a reason for each field, obligations, round
+plans with exclusion reasons, lifecycle status changes, and deployment
+manifests. One typed language for all of these gives one exhaustiveness check
+and one test loop. The cost is that a reviewer must read OCaml, and that the
+planner has no formal semantics. Compiling the strategy table to an analysable
+form, or checking its properties with an SMT solver, is future work.

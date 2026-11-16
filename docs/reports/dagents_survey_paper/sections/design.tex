@@ -1,0 +1,244 @@
+\section{The design idea behind Dagents}
+\label{sec:design}
+
+Dagents is an open-source framework for analytics and machine learning across
+data sources that keep their data~\citep{dagents2026repo}. It started as code
+shared by other products, such as Watchdog, and the Python package
+\code{dagents} was first published to PyPI as version 0.1.0a1, an alpha
+release. This section states the idea behind its design as ten principles in
+three groups. Each principle names the code that implements it, so that a
+reader can check the claim.
+
+\subsection{The parts}
+
+\Cref{tab:layers} lists the layers. One rule decides where code goes:
+decisions go in the OCaml planners, and anything with side effects goes in
+Python or Java.
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabularx}{\linewidth}{@{}l l Y Y@{}}
+\toprule
+Layer & Language & Does & Does not \\
+\midrule
+Planners & OCaml & Validate, plan, route and render: governance, federated
+  rounds, pipeline order, model families, Kubernetes and Compose files &
+  Open connections, train models, serve HTTP \\
+Agents and services & Python & The local agent (LMA) at each source, the
+  global agent (GMA), the core, pipeline and model services; data access,
+  training, state & Contain decision rules \\
+Orchestration & Java & Control and core APIs for JVM consumers & Machine
+  learning \\
+\bottomrule
+\end{tabularx}
+\caption{The three layers of Dagents and what each one owns.}
+\label{tab:layers}
+\end{table}
+
+A \textbf{local monitoring agent} (LMA) runs at each data source, such as a
+hospital, a database or a tenant. It profiles the local data, runs local jobs,
+reports summaries, and enforces governance at three boundaries. A
+\textbf{global monitoring agent} (GMA) registers the LMAs, plans federated
+rounds, sends each site its job, combines results and decides, with a person,
+whether a candidate model may be released. The two agents call each other only
+through their HTTP APIs, with bearer tokens of fixed scopes.
+\Cref{fig:dagents} shows where each decision is made and enforced.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[
+  node distance=3mm and 4mm,
+  box/.style={draw=dgInk, rounded corners=2pt, align=center, font=\footnotesize, inner sep=3pt, minimum height=7mm},
+  store/.style={draw=dgInk, cylinder, shape border rotate=90, aspect=0.18, align=center, font=\scriptsize, minimum height=9mm, minimum width=12mm},
+  gate/.style={draw=dgInk, fill=dgSoft, font=\scriptsize\ttfamily, inner sep=2pt},
+  part/.style={draw=dgRule, rounded corners=3pt, inner sep=4pt},
+  arr/.style={-{Stealth[length=1.8mm]}, draw=dgInk},
+  ask/.style={-{Stealth[length=1.6mm]}, draw=dgRule, dashed},
+  lbl/.style={font=\scriptsize\itshape, text=dgInk}
+]
+% one site
+\node[store] (st) {site\\records};
+\node[gate, right=4mm of st] (read) {before\_read};
+\node[box, right=4mm of read] (job) {local job on\\guarded data};
+\node[gate, above=3mm of job] (train) {before\_train};
+\node[gate, right=4mm of job] (send) {before\_send};
+\node[part, fit=(st)(read)(job)(train)(send), label={[lbl]below:Site \(i\): its LMA and Guard (one per source)}] (site) {};
+% coordinator
+\node[box, right=14mm of send] (gma) {GMA: round plan,\\readiness, registry};
+\node[gate, below=3mm of gma] (rel) {before\_release};
+\node[box, below=3mm of rel] (cand) {candidate \(\rightarrow\) gates\\\(\rightarrow\) person approves};
+\node[part, fit=(gma)(rel)(cand), label={[lbl]below:Coordinator (GMA)}] (coord) {};
+% planner
+\node[box, below=20mm of job, minimum width=60mm, fill=dgSoft] (plan) {\code{dagentsc}: pure OCaml planners (governance, federation)};
+\draw[arr] (st) -- (read);
+\draw[arr] (read) -- (job);
+\draw[arr] (train) -- (job);
+\draw[arr] (job) -- (send);
+\draw[arr] (send) -- node[lbl, above] {counts,} node[lbl, below] {metrics} (gma.west);
+\draw[arr] (gma.north) to[bend right=30] node[lbl, above] {job + manifest digest} (train.north);
+\draw[arr] (rel) -- (cand);
+\draw[ask] (read.south) -- (read.south |- plan.north);
+\draw[ask] (send.south) -- (send.south |- plan.north);
+\draw[ask] (rel.west) -| ($(plan.north east)+(-3mm,0)$);
+\node[lbl, below=1mm of plan] {dashed: the Guard asks for a plan (JSON on standard input); no plan means deny};
+\end{tikzpicture}
+\caption{Where Dagents decides and where it enforces. The LMA at each site
+enforces three boundaries, the GMA enforces the fourth, and every Guard asks the
+same planner. The clipped model update goes from \code{before\_send} to a
+write-only update store in the GMA, which is not drawn.}
+\label{fig:dagents}
+\end{figure}
+
+\subsection{Where computation runs}
+
+\paragraph{P1. Compute at the source.} Each source runs its own LMA and keeps
+its records in its own store. In the healthcare demo, each hospital has one
+PostgreSQL schema and one role that cannot log in. Every database operation runs
+in a single transaction that starts with \code{SET LOCAL ROLE} and checks
+\code{current\_user}, so a query for one hospital cannot read another hospital's
+rows. The coordinator's role has no grant on any hospital schema. What crosses
+to the coordinator is listed in \cref{tab:crosses}.
+
+\paragraph{P2. Delegate the learning protocol.} Dagents does not implement a
+federated optimiser. The GMA runs rounds through a \code{FederationEngine}
+interface; the in-process engine is a simulator for tests, and the HTTP engine
+moves jobs to the LMAs and holds clipped updates until aggregation. How updates
+are combined comes from a \emph{model kind} that the application contributes,
+so no averaging rule lives in the framework. A specialist runtime such as
+Flower or NVIDIA FLARE can sit behind the same interface. Dagents decides who
+takes part and whether a result may be released.
+
+\subsection{How decisions are made}
+
+\paragraph{P3. Separate deciding from doing.} This is the GRAILS split. The
+planner chooses a strategy for each requested field and never sees a record.
+The Guard, in Python, applies the plan to the records, drops every field the
+request did not ask for, and writes an audit record. A change of policy is a
+change to a classification; the code that reads records does not change.
+
+\paragraph{P4. Make every decision a total, typed function.} Sensitivity, trust,
+granularity, strategy, decision, guard boundary and model status are algebraic
+data types. The strategy table is one \code{match} over the triple
+(sensitivity, trust, granularity), with 27 arms that cover all 45 combinations
+and no wildcard (\cref{lst:select}). Adding a sensitivity level or a
+granularity makes the match non-exhaustive. The OCaml compiler reports that as a
+warning, and dune's default development profile, which the repository's CI
+builds on every change, treats it as an error. So the change cannot pass CI
+until every combination has a strategy. A build in dune's release profile would
+only warn; we checked both behaviours on a small example.
+The planner modules contain no input or output, no clock and no randomness, so
+a plan can be computed again from its request during an audit. Where a decision
+depends on time, such as whether a stored update is too old, the caller passes
+the age in. Tests check three properties of the table: raising trust never
+makes the protection stricter, a model update is never released unchanged, and
+high-sensitivity data is refused to a low-trust requester at every granularity.
+The table is also monotone in sensitivity; we checked this with a copy of the
+table, and the repository has no test for it yet.
+
+\begin{lstlisting}[language=OCaml, float=t, caption={Part of the strategy table in the governance planner. The full match has 27 arms and no wildcard.}, label={lst:select}]
+let select_strategy sensitivity trust granularity minimum_cohort =
+  match (sensitivity, trust, granularity) with
+  | HighSensitivity, LowTrust, (CellGrain | RowGrain | ColumnGrain
+                                | TableGrain | ModelUpdateGrain) -> Refuse
+  | HighSensitivity, ModerateTrust, (CellGrain | RowGrain) -> Redact
+  | HighSensitivity, ModerateTrust, (ColumnGrain | TableGrain) ->
+      AggregateOnly minimum_cohort
+  | HighSensitivity, ModerateTrust, ModelUpdateGrain -> AddNoise noise_scale
+  (* ... 22 more arms ... *)
+  (* An update is never released unprotected, because it is derived
+     from records rather than being one. *)
+  | LowSensitivity, HighTrust, ModelUpdateGrain -> ClipContribution clip_bound
+\end{lstlisting}
+
+\paragraph{P5. Put the planner behind a process boundary.} Services call the
+planners by running the \code{dagentsc} program with JSON on standard input,
+never through a foreign-function interface. Each call has limits: 10 seconds by
+default, and 16 MiB for the input and for the output. The runner kills a planner
+that exceeds them, together with its process group. An operator can pin the
+SHA-256 of the planner binary; with another hash the runner starts nothing. A
+separate process isolates failures, lets each side be upgraded on its own, and
+means the decision logic can be replaced by any program that honours the same
+JSON contract.
+
+\paragraph{P6. Deny when there is no decision.} The Guard fails closed. If the
+planner cannot be started, runs past its limits, prints something that is not a
+plan, returns a strategy the Guard cannot apply, or if applying the plan to the
+records fails, the Guard denies the request and records the denial. The
+repository's rules forbid a fallback that permits a request when the planner
+fails.
+
+\paragraph{P7. Keep policy as declared data.} Field sensitivities, approved
+purposes and the minimum cohort size are a \emph{data classification}, which an
+application contributes through an extension or registers at runtime. A runtime
+registration cannot replace a classification that an extension contributed (the
+API answers \code{409}), and an agent started for one site refuses a request
+whose inline classification differs from the registered one. A caller therefore
+cannot choose the policy its own request is checked against. The framework
+itself contains no domain words: nothing in the \code{dagents} package knows
+what a stroke is. The healthcare demo's whole integration is one declarative
+extension file of 136 lines.
+
+\subsection{What decisions cover, and what they leave behind}
+
+\paragraph{P8. Govern every boundary that data crosses, with one decision
+model.} The same planner and Guard serve four boundaries:
+\begin{itemize}
+  \item \code{before\_train} (LMA): may the site train on the requested fields
+        for this round? Checked when the job is offered.
+  \item \code{before\_read} (LMA): which records and fields may the job read?
+        The job runs on the guarded data, not on the raw records.
+  \item \code{before\_send} (LMA): may the round's result, with its counts,
+        metrics and bounded model update, leave the site for the number of
+        records the round used?
+  \item \code{before\_release} (GMA): may the candidate model be released?
+\end{itemize}
+To govern what a federated round sends, Dagents adds a fifth granularity to the
+four of GRAILS: the \emph{model update}, whose strategies are clipping to a
+norm bound and adding noise. A model update always gets some protection,
+because it is derived from the records. The update vector never appears in a
+site's result, because results are shown to the coordinator: it goes through
+\code{before\_send}, which clips it, to a write-only update store. The result
+carries only the update's norm and digest. Two request-level checks apply
+before any per-field lookup: the declared purpose must be one the
+classification approves, and a column, table or model-update request must cover
+at least the minimum cohort. If either fails, every field is refused.
+
+\paragraph{P9. Separate a candidate from a release.} Aggregation produces a
+candidate model, never a release. A release gate whose metric is missing blocks
+the release instead of passing. Every change of a model version's status
+(candidate, released, rejected, superseded, with at most one released) comes
+from the planner, and the model registry applies the answer without a status
+rule of its own. A person's approval releases a candidate only when the stored
+decision says release, the Guard permitted it, the metrics came from the
+study's own rounds, and the model it was compared with is still the one in use.
+The round controller also refuses a reused round identifier, a result from a
+site the plan did not select, and a second aggregation of the same round.
+
+\paragraph{P10. Leave evidence with every decision.} Every Guard decision,
+permitted or not, writes an audit record. Each record holds the SHA-256 digest
+of its own content and of the previous record, so editing or deleting a record
+breaks every digest after it. Each record names the planner that decided: the
+package version and the SHA-256 of the planner binary. A plan carries the
+obligations the Guard must discharge and a filtering score in the sense of
+GRAILS. A round manifest has a content digest, each excluded site has a recorded
+reason, and noise is seeded from the request, so an auditor can reproduce every
+value; \cref{sec:limitations} explains why this choice also weakens the noise. In the healthcare demo, every successful JSON answer lists the agent
+calls behind it.
+
+\subsection{What the principles add up to}
+
+Taken together, the principles do two things. First, they move the decisions
+that the rules in \cref{sec:introduction} call for into one place, the
+planners, where they can be read as a table, tested exhaustively and computed
+again from a stored request. Second, they move enforcement to where the data
+is, and apply it at every boundary that data or something derived from it
+crosses, not only at the response to a query. GRAILS showed the first for one
+application; Dagents applies it to a study that spans several organisations.
+
+\paragraph{What Dagents does not do.} It does not prove a differential privacy
+bound: clipping and noise bound each update, but there is no privacy accountant
+or tracked budget. Round digests detect changes but are not signatures. The
+audit chain detects tampering in a test but is not an append-only audit store.
+The trust score is computed from attributes the caller supplies; Dagents does
+not verify identities. These limits are discussed in \cref{sec:limitations}.

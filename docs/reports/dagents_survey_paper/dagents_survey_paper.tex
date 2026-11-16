@@ -1,0 +1,94 @@
+% Where governance decisions live: a survey, and the Dagents design.
+% Build: latexmk -pdf dagents_survey_paper.tex   (from docs/reports/)
+% Author list: confirm before submission.
+\documentclass[11pt]{article}
+
+\usepackage[a4paper,margin=2.4cm]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{array}
+\usepackage{longtable}
+\usepackage{multirow}
+\usepackage{graphicx}
+\usepackage{xcolor}
+\usepackage{enumitem}
+\usepackage{listings}
+\usepackage{tikz}
+\usetikzlibrary{positioning,arrows.meta,fit,backgrounds,calc,shapes.geometric}
+\usepackage[authoryear,round]{natbib}
+\usepackage{xurl}
+\usepackage[hidelinks]{hyperref}
+\usepackage[capitalise,noabbrev]{cleveref}
+\hypersetup{pdftitle={Where Governance Decisions Live: A Survey of Governed Analytics and Learning across Data Sources, and the Design of Dagents},pdfauthor={Pradyun Devarakonda}}
+
+\definecolor{dgInk}{HTML}{1F2933}
+\definecolor{dgRule}{HTML}{9AA5B1}
+\definecolor{dgSoft}{HTML}{F2F4F7}
+\definecolor{dgPermit}{HTML}{1A7F37}
+\definecolor{dgNarrow}{HTML}{9A6700}
+\definecolor{dgDeny}{HTML}{CF222E}
+
+\lstdefinelanguage{OCaml}{
+  morekeywords={let,in,match,with,function,fun,type,of,if,then,else,open,and,rec},
+  sensitive=true,
+  morecomment=[s]{(*}{*)},
+  morestring=[b]",
+}
+\lstset{
+  basicstyle=\ttfamily\footnotesize,
+  keywordstyle=\bfseries,
+  commentstyle=\itshape\color{dgRule!60!black},
+  columns=fullflexible,
+  breaklines=true,
+  frame=single,
+  rulecolor=\color{dgRule},
+  backgroundcolor=\color{dgSoft},
+  xleftmargin=2pt,
+  xrightmargin=2pt,
+}
+
+\newcolumntype{Y}{>{\raggedright\arraybackslash}X}
+\newcommand{\code}[1]{\texttt{#1}}
+\setlist{itemsep=2pt,topsep=4pt}
+\setlength{\emergencystretch}{2em}
+\newcommand{\SurveyWorks}{293}
+
+\title{Where Governance Decisions Live:\\
+A Survey of Governed Analytics and Learning across Data Sources,\\
+and the Design of Dagents}
+
+\author{Pradyun Devarakonda\\
+\small International Institute of Information Technology Bangalore}
+
+\date{Draft of 16 November 2026}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+\input{sections/abstract}
+\end{abstract}
+
+\input{sections/introduction}
+\input{sections/grails}
+\input{sections/method}
+\input{sections/survey}
+\input{sections/synthesis}
+\input{sections/design}
+\input{sections/comparison}
+\input{sections/case_study}
+\input{sections/limitations}
+\input{sections/conclusion}
+
+\bibliographystyle{plainnat}
+\bibliography{dagents_survey_paper}
+
+\appendix
+\input{sections/appendix_rules}
+
+\end{document}

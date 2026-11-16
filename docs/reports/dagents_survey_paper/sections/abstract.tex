@@ -1,0 +1,21 @@
+Analytics and machine learning across data that several organisations hold, and
+may not pool, must decide many times a day what a request may see and in what
+form, what may leave a site, who may take part in a study, and whether a new
+model may be released. We survey \SurveyWorks{} research works, products and
+regulations in seven families: responsible-AI practice, policy engines,
+privacy-enhancing technologies, federated learning, systems that bring code to
+the data, architectural precedents, and release governance. For each, we ask
+where the decision is made, what it decides, where it is enforced, and what
+evidence it leaves. We start from GRAILS, which separates ethical restrictions
+from application code with a planner and a guard. We find that most families
+govern one part of a multi-source study well, and that few decide the form of
+the data outside the store that holds it, enforce at each independent source,
+apply one rule set to reading, training, sending and release, fail closed, and
+record which logic decided. We then state the design of Dagents, an open-source
+framework that extends GRAILS to such studies, as ten principles tied to code:
+every decision is a total function over algebraic data types in a separate
+process, enforced at four boundaries, denied when no decision is available, and
+recorded with the identity of the planner. In a study on 1,014 real patient
+records from three hospitals in the International Stroke Trial, the guard cost
+0.0005 AUC, and the release gates rejected a better model that missed the
+required margin. We state the limits of the design and of this survey.

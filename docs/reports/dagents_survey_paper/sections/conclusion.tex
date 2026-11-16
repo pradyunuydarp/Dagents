@@ -1,0 +1,37 @@
+\section{Conclusion and future work}
+\label{sec:conclusion}
+
+We asked one question of \SurveyWorks{} works and industry systems: where do
+the decisions about what a request may see, what may leave a site, who may take
+part and what may be released get made, and where are they enforced? Each
+family we surveyed answers part of it well. Policy engines make fast,
+analysable permit-or-deny decisions. Privacy-enhancing technologies provide
+mechanisms with proofs. Federated learning frameworks run the training
+protocol across sites. Trusted research environments and research networks
+control what leaves a site. Regulations and release practices say what evidence
+is needed. Few approaches decide the form of the data, enforce it at each
+source, cover training, sending and release with the same rules, fail closed,
+and leave a record that names the decision maker.
+
+GRAILS showed that ethical restrictions can be decided outside the application
+and enforced by a guard. Dagents applies that split to a study that runs across
+several organisations. It makes every governance and federation decision with a
+total, typed function in a separate process, enforces the decision at four
+boundaries at each source and at the coordinator, denies when there is no
+decision, and records each decision with the identity of the planner that made
+it. In one study on 1,014 real patient records from three hospitals, the Guard
+cost 0.0005 AUC, and the release gates rejected a candidate that was better
+than the model in use but not by the margin the consortium required.
+
+Future work follows from the limits in \cref{sec:limitations}:
+\begin{itemize}
+  \item a privacy accountant and a tracked budget for model updates, so that
+        clipping and noise can support a differential privacy claim;
+  \item signed round manifests and audit records, kept in append-only storage;
+  \item a test that the strategy table is monotone in sensitivity, and a
+        machine-checked statement of the table's properties;
+  \item other ethical dimensions that GRAILS names, such as fairness, as
+        planner rules rather than only as release gates;
+  \item a study with an independent team, measuring adoption effort and the
+        planner's latency at scale against an assembly of existing parts.
+\end{itemize}

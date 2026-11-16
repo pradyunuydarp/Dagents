@@ -1,0 +1,93 @@
+\subsection{F2. Access control, policy engines and privacy compliance}
+\label{sec:survey-policy}
+
+\paragraph{The split between deciding and enforcing is old.} Samarati and De
+Capitani di Vimercati separate access-control policies from the mechanisms
+that enforce them~\citep{samarati2001access}. The IETF named the two sides in
+2000: a \emph{policy decision point} (PDP) answers, and a \emph{policy
+enforcement point} (PEP) applies the answer~\citep{yavatkar2000framework}.
+XACML~\citep{oasis2013xacml}, the NIST guide to attribute-based access control
+(ABAC)~\citep{hu2014guide} and the OpenID AuthZEN API~\citep{openid2026authzen}
+keep the split. GRAILS's Rails and Guard, and Dagents's planner and Guard, are
+instances of it. We credit the pattern to this line of work.
+
+\paragraph{The decision is usually yes or no.} Role-based access control
+(RBAC)~\citep{sandhu1996role,ferraiolo2001proposed}, ABAC and usage
+control~\citep{park2004ucon} decide whether an action is permitted. XACML adds
+\emph{NotApplicable} and \emph{Indeterminate}, AuthZEN~1.0 returns a boolean, and
+Cedar returns Allow or Deny~\citep{cutler2024cedar}. How much of the data to
+return, and in what form, travels beside that answer: as XACML obligations and
+advice, as the mask types of Apache Ranger~\citep{ranger2026integrating}, or as
+the residual SQL filters that Open Policy Agent (OPA) produces by partial
+evaluation~\citep{opa2026filtering}. Purpose is also old: purpose-based access
+control~\citep{byun2008purpose}, Hippocratic databases, which hide cells by
+purpose~\citep{agrawal2002hippocratic,lefevre2004limiting}, and the policy
+languages EPAL and P3P~\citep{powers2003epal,w3c2002p3p} bind data to the
+purpose of its use. Blockaid argues against changing results at all: query
+modification ``can alter query semantics in unexpected ways and return
+misleading results'', so it only blocks~\citep[\S2]{zhang2022blockaid}.
+
+\paragraph{Where a transformation is the product, deciding and enforcing are
+fused in one engine.} Snowflake applies masking policies, row access policies,
+aggregation policies with a minimum group size, and differential privacy
+budgets inside its query
+engine~\citep{snowflake2026masking,snowflake2026rowaccess,snowflake2026aggregation,snowflake2026dp}.
+Databricks Unity Catalog, BigQuery and AWS Lake Formation apply row filters and
+column masks in the same
+way~\citep{databricks2026filters,google2026bqmasking,aws2026lakeformation}.
+Ranger, Privacera and Immuta administer policy centrally and push it into each
+engine~\citep{privacera2026ranger,immuta2026purposes}. These systems decide the
+form of the data per request. They enforce it where the data has already been
+gathered: one warehouse or one lake.
+
+\paragraph{Some decisions are analysable.} Cedar is the strongest case. Its
+authors prove properties of the language in Lean (an explicit forbid overrides a
+permit; the default is deny), encode policies in SMT soundly and completely so
+that a change can be checked for who it affects, and test the production engine
+against the formal model~\citep{cutler2024cedar,disselkoen2024how}. Zelkova
+analyses AWS access policies with SMT~\citep{backes2018semantic}, and Margrave
+and FACPL analyse XACML-style policies~\citep{fisler2005verification,margheri2019rigorous}.
+Zanzibar answers relationship checks for many Google services at low latency
+but is not analysed in this sense~\citep{pang2019zanzibar}. Policies written as
+SQL functions in a warehouse cannot be analysed as a whole.
+
+\paragraph{Compliance at company scale and information flow.} Legalease and
+Grok encoded Bing's privacy policies and checked data flows in its big-data
+pipelines~\citep{sen2014bootstrapping}. Meta's Policy Zones attach purpose
+labels to data and follow them through its infrastructure, first in a logging
+mode that measures what a rule would block and then
+enforcing~\citep{meta2024purpose,meta2025policyzones}. Information-flow systems
+enforce policy in a runtime, a kernel, a database proxy or storage: Resin,
+Jeeves, Hails, Thoth, Qapla, Riverbed, Blockaid, K9db, RuleKeeper and
+Sesame~\citep{yip2009improving,yang2012language,giffin2012hails,elnikety2016thoth,mehta2017qapla,wang2019riverbed,zhang2022blockaid,albab2023k9db,ferreira2023rulekeeper,albab2024sesame}.
+Jeeves shows a viewer a policy-chosen view of a value instead of refusing it,
+which is the closest of these to a ``narrow'' decision.
+
+\paragraph{When the decision point is unreachable, practice varies.} COPS lets a
+local decision point at the PEP decide when the PDP is
+unavailable~\citep{boyle2000cops}; XACML defines deny-biased, permit-biased and
+base PEPs~\citep{oasis2013xacml}. Envoy's external authorisation filter denies
+on error by default, while OPA Gatekeeper admits on error by
+default~\citep{envoy2026extauthz,gatekeeper2026failing}. Ranger plugins keep
+enforcing their last cached policies~\citep{cloudera2026rangerha}. Blockaid
+blocks a query when its solvers time out.
+
+\paragraph{Evidence.} OPA writes decision logs and Ranger writes
+audits~\citep{opa2026decisionlogs}. Tamper evidence is older work: Schneier and
+Kelsey chain log records with evolving keys~\citep{schneier1999secure}, Crosby
+and Wallach give Merkle-tree histories with logarithmic proofs of inclusion and
+consistency~\citep{crosby2009efficient}, and Certificate Transparency publishes
+logs that anyone can audit~\citep{laurie2013certificate,laurie2021certificate}.
+
+\paragraph{Relation to Dagents.} Dagents takes the PDP/PEP split, the
+deny-biased enforcement point and purpose binding from this family. It differs
+in what it decides (a per-field transformation, as warehouse policies do, but
+returned as a plan by a separate process) and where it enforces (at each source,
+under a coordinator that may not read the source's rows). None of the works in
+this family enforces in that setting, and none governs the release of a trained
+model. The family is stronger in three ways. Cedar's proofs, change-impact
+analysis and differential testing go further than Dagents's exhaustive match,
+which proves only that every input has a decision. Meta's logging mode lets an
+operator measure a new rule before enforcing it. And Dagents's audit chain is
+only the linking part of the 1999 design, without forward-secure keys, external
+witnesses or proofs of inclusion.

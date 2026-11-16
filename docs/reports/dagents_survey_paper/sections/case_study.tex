@@ -1,0 +1,135 @@
+\section{Case study: stroke triage across three hospitals}
+\label{sec:case-study}
+
+The healthcare demo in the Dagents repository runs a federated study on real,
+de-identified patient records. It shows the principles of \cref{sec:design} at
+work and measures what the Guard costs in accuracy. The demo's models are not
+clinically validated, and the demo is not a medical device.
+
+\subsection{Data and setting}
+
+The records come from the International Stroke Trial (IST-1), which enrolled
+19,435 patients with acute ischaemic stroke between 1991 and
+1996~\citep{ist1997lancet,sandercock2011ist}. The trial's database is published
+under the Open Data Commons Attribution License~\citep{sandercock2011istdata}.
+The demo uses 1,014 patients from three hospitals: one in the United Kingdom
+(524 patients), one in Italy (292) and one in Switzerland (198). The task is to
+flag, at arrival, patients at high risk of death or dependency six months
+later. The hospitals agree on a feature contract of 13 fields, such as age band,
+level of consciousness, limb weakness, hours since onset and systolic blood
+pressure, and the six-month outcome is the label.
+
+Each hospital has its own store and its own LMA, and the study has one GMA. The
+application contributes one extension: the feature contract, the data
+classification, the condition pack with its approved purposes and release
+gates, and two model kinds (the current points rule and a logistic regression).
+The classification marks four fields as high sensitivity (hours since onset,
+systolic blood pressure, atrial fibrillation and the outcome), nine as medium
+(such as age band and sex) and one as low (whether symptoms were noticed on
+waking). It also marks the model update as high sensitivity and sets the
+minimum cohort to 20.
+
+\subsection{Governance decisions}
+
+\Cref{tab:probe} shows five decisions of one hospital's Guard on the same three
+fields. The verified requester scores 0.97 on the KYU scale (high trust); the
+unverified one scores 0.445 (moderate trust).
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabularx}{\linewidth}{@{}Y l l l l@{}}
+\toprule
+Request & \code{systolic\_bp} (high) & \code{age\_band} (medium) & \code{onset\_on\_waking} (low) & Decision \\
+\midrule
+Verified, row & generalize:1 & allow\_full & allow\_full & narrow \\
+Unverified, row & redact & generalize:1 & allow\_full & narrow \\
+Verified, table, 25 subjects & aggregate\_only:20 & aggregate\_only:20 & allow\_full & narrow \\
+Verified, table, 5 subjects & refuse & refuse & refuse & deny \\
+Verified, model update & clip\_contribution:1 & clip\_contribution:1 & clip\_contribution:1 & narrow \\
+\bottomrule
+\end{tabularx}
+\caption{Decisions of the Guard at one hospital, from the demo's governance
+endpoint. The table request for 5 subjects is denied because 5 is below the
+minimum cohort of 20.}
+\label{tab:probe}
+\end{table}
+
+\subsection{The study}
+
+The demo's study runs eight rounds in order, each sent by the GMA to every
+hospital's LMA: one analytics round, one round that evaluates the model in use,
+five training rounds, and one round in which each site validates the candidate
+on its own records. The five training rounds lower the candidate's loss from
+0.693 to 0.496. The GMA then evaluates five release gates:
+\begin{itemize}
+  \item discrimination: AUC 0.786, required at least 0.7 (pass);
+  \item improvement on the model in use: AUC 0.786, required at least the
+        current 0.777 plus a margin of 0.02 (fail, blocking);
+  \item subgroup fairness: AUC gap 0.022, required at most 0.1 (pass);
+  \item sensitivity at the alert threshold: 0.922, required at least 0.8
+        (pass);
+  \item alert burden: 853 alerts per 1,000 patients, required at most 750
+        (fail).
+\end{itemize}
+The decision is to reject the candidate, and the hospitals keep the model in
+use. The candidate is better than the model in use, but not by the margin the
+consortium set. The run has no randomness, so it repeats exactly on the
+committed data. The candidate is trained and measured on the same three
+hospitals, which raises its AUC by about 0.02 compared with unseen data.
+
+\subsection{What crosses, and what stays}
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabularx}{\linewidth}{@{}Y Y@{}}
+\toprule
+Crosses to the coordinator & Stays at the hospital \\
+\midrule
+Record counts, and an outcome rate when the planner permits a table request
+for the outcome at that many labelled records (at least 20) & The records,
+including every outcome label \\
+Each round's aggregate metrics, such as AUC, when \code{before\_send} permits
+the round's contribution & The guarded records the round's code trains on \\
+The norm and digest of the clipped model update (the update itself goes to a
+write-only store) & The audit chain of the hospital's Guard decisions \\
+Whether the audit chain verifies, and how many decisions it holds & The
+decisions in that chain \\
+\bottomrule
+\end{tabularx}
+\caption{What crosses from a hospital to the coordinator in the demo.}
+\label{tab:crosses}
+\end{table}
+
+\subsection{The cost of the Guard}
+\label{sec:cost}
+
+Two high-sensitivity fields, hours since onset and systolic blood pressure, are
+generalised to the nearest 10 when a site reads its records for a round, so the
+round's code never sees the exact values (P8). We measured the cost in two ways
+on the committed data, with the planner built from the repository:
+\begin{itemize}
+  \item \textbf{Training.} We ran the pilot twice: once with the committed
+        classification, and once with the two fields lowered to medium
+        sensitivity, so that the Guard returns them unchanged to the trusted
+        runner. The candidate trained on exact values reaches a size-weighted
+        AUC of 0.7864; the candidate trained on guarded values reaches 0.7859.
+        The cost is 0.0005 AUC.
+  \item \textbf{Scoring.} The candidate trained on guarded values scores 0.7594,
+        0.8117 and 0.8185 at the three hospitals on their exact records, and
+        0.7593, 0.8115 and 0.8184 on the guarded records it was validated on.
+\end{itemize}
+To change this cost, a consortium changes the classification, as in the first
+run above; no code path changes (P7). These numbers measure one model on one
+dataset and do not show that the cost is small in general.
+
+\subsection{Other consumers}
+
+A second demo, which turns questions in plain English into SQL, uses the same
+planners for source validation, pipeline planning and workload compilation, but
+no federation. A fourth hospital, which is not in the study at the start, can
+join a running study on one machine: the core service renders a Compose file
+for its LMA and the API starts it. These show that the planner and Guard are
+not specific to one application, but they are demos run by the authors, not
+deployments by independent users.

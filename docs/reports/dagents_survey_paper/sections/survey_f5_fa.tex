@@ -1,0 +1,115 @@
+\subsection{F5. Bringing code to the data: federated analytics, research networks and trusted environments}
+\label{sec:survey-fa}
+
+Every system in this family keeps records where they are held and controls the
+boundary where results leave. They differ in who writes the rule about what may
+leave, how it is written, and whether a machine or a person applies it.
+\Cref{tab:fa-styles} groups them into five styles.
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabularx}{\linewidth}{@{}p{0.2\linewidth} Y Y Y@{}}
+\toprule
+Style & Examples & Who decides, in what form & Where enforced \\
+\midrule
+Function library with custodian thresholds & DataSHIELD, i2b2/SHRINE, TriNetX &
+  Library authors write non-disclosive functions; the custodian sets thresholds
+  such as \code{nfilter.subset} & Inside each function, at each site \\
+Distributed program with site review & FDA Sentinel, PCORnet, OHDSI, Personal
+  Health Train, vantage6 & Site staff approve code and sometimes results;
+  study packages set parameters such as \code{minCellCount} & At each site \\
+Trusted research environment with output checking & Five Safes, OpenSAFELY,
+  ACRO/SACRO, GRAIMatter, EHDS & Trained output checkers, written SDC rules,
+  permits & At egress from the environment \\
+Platform analysis rules & AWS Clean Rooms, Snowflake clean rooms, Ads Data Hub
+  & The data owner configures per-table rules; the vendor's engine applies them
+  & In the vendor's engine \\
+Compiler or cryptography & SMCQL, Shrinkwrap, Conclave, Senate, Confidential
+  Federated Computations & Schema annotations or a data access policy; a
+  compiler derives the plan & In MPC protocols or trusted hardware \\
+\bottomrule
+\end{tabularx}
+\caption{Five ways that code-to-data systems decide what may leave a site.}
+\label{tab:fa-styles}
+\end{table}
+
+\paragraph{Function libraries and site review.} DataSHIELD offers only
+non-disclosive functions, whose thresholds the data custodian sets, and a
+function stops when a check fails~\citep{gaye2014datashield,marcon2021orchestrating,datashield2026disclosure}.
+i2b2 and SHRINE return perturbed counts from each
+site~\citep{weber2009shared,murphy2010serving}. OHDSI network studies ship a
+study package that each site runs on its own OMOP database and that suppresses
+small counts~\citep{hripcsak2015observational,ohdsi2026network}. In the FDA
+Sentinel system and PCORnet, each data partner's staff review the query and the
+result~\citep{curtis2012design,platt2018fda,fleurence2014launching}. TriNetX
+returns obfuscated aggregates from more than 220 healthcare
+organisations~\citep{palchuk2023global}. The Personal Health Train and vantage6
+send approved algorithms to stations at each
+site~\citep{beyan2020distributed,moncadatorres2021vantage6,smits2022improved}.
+Google's federated analytics computes aggregates across devices with the same
+infrastructure as federated learning~\citep{ramage2020federated}; surveys
+describe the wider field~\citep{elkordy2023federated,wang2022federated}.
+
+\paragraph{Trusted research environments.} The Five Safes frame access as safe
+projects, people, settings, data and outputs~\citep{desai2016five,green2023present}.
+OpenSAFELY runs analysts' code against records that stay in the providers'
+systems; two trained checkers review every output, and counts of 7 or fewer are
+redacted~\citep{williamson2020factors,opensafely2026release,opensafely2023disclosure}.
+SATRE sets a standard for such environments~\citep{satre2023standard}, and
+ACRO and SACRO support output checking with configured
+tests~\citep{preen2025multi}. The European Health Data Space lets only
+non-personal data leave its secure processing environments~\citep{eu2025ehds}.
+
+\paragraph{Model release came late, and separately.} GRAIMatter states that
+trusted research environments ``do not have mature processes and controls'' for
+trained models, and proposes either model disclosure controls, which test a
+model against attacks with thresholds agreed with the data controller, or
+query controls that keep the model behind a limited
+service~\citep{jefferson2022graimatter,mansouribenssassi2021machine}.
+SACRO-ML implements such tests~\citep{smith2022safe}. AWS Clean Rooms has
+export controls for trained models that are separate from its SQL analysis
+rules~\citep{aws2026mlexport,aws2026analysisrules}. Only two designs put
+training and analytics under one rule set: DataSHIELD, whose model-fitting
+functions pass the same filters as every other function, and Confidential
+Federated Computations, where one data access policy bound to each upload
+governs every server-side step and trusted hardware releases keys only under
+that policy~\citep{eichner2024confidential}.
+
+\paragraph{Platform rules and compilers.} AWS Clean Rooms enforces three types
+of analysis rule, minimum aggregation thresholds and a differential privacy
+budget~\citep{aws2026analysisrules,aws2026minagg,aws2026dp}; Snowflake's clean
+rooms use templates with aggregation and projection
+policies~\citep{snowflake2026policies}; Ads Data Hub enforces a 50-user
+threshold and difference checks~\citep{google2026adh}. SMCQL labels each column
+public, protected or private, and typed rules over the query plan decide which
+steps run in plaintext and which under secure computation~\citep{bater2017smcql}.
+Shrinkwrap pads intermediate results with differentially private
+noise~\citep{bater2018shrinkwrap}. Conclave's compiler runs the same
+deterministic stages at every party, decides which parts of a query run locally
+and which under multi-party computation, and chooses a slower plan when consent
+for a faster one is missing~\citep{volgushev2019conclave}. Senate runs
+decomposed queries under malicious-secure computation~\citep{poddar2021senate}.
+Data spaces enforce usage policies in connectors~\citep{ids2026ram,dam2023policy,edc2026policy},
+and Ocean Protocol's compute-to-data allows no algorithm by
+default~\citep{ocean2026c2d}.
+
+\paragraph{Per-request checks can be combined into an attack.} Huth et al.\
+rebuilt protected records from means and covariances that established federated
+frameworks permit~\citep{huth2023accessibility}, and Vinterbo et al.\ showed that
+repeated noisy count queries average out~\citep{vinterbo2012protecting}. Any
+design that decides one request at a time, including Dagents, is exposed to
+this.
+
+\paragraph{Relation to Dagents.} Dagents combines the first and fifth styles: a
+deterministic planner decides the protection for each field, as SMCQL's typed
+labels and Conclave's compiler do, and each site enforces it, as DataSHIELD
+does. Its minimum cohort plays the role of \code{nfilter.subset} or
+\code{minCellCount}, and its release gate resembles a GRAIMatter model
+disclosure control. The family does several things Dagents does not: human
+output checking, membership-inference tests before a model is released, privacy
+budgets and difference checks across queries, isolation from the operator by
+cryptography or trusted hardware, remote attestation, and legal data permits.
+The rule about what leaves is, however, often spread across server options,
+function code, checker guidance and vendor defaults, and is rarely one artefact
+that can be read and tested as a whole.

@@ -1,0 +1,107 @@
+\subsection{F6. Architectural precedents}
+\label{sec:survey-arch}
+
+Almost every idea in this family separates what should happen from making it
+happen, and puts the first part in a form that can be inspected before anything
+runs. Dagents builds on these ideas, and \cref{tab:arch} credits each.
+
+\paragraph{Moving code to data.} Mobile agents moved code to the host that held
+the data~\citep{chess1997mobile,lange1999seven}; MapReduce schedules work where
+the data is stored~\citep{dean2008mapreduce}; edge computing processes data near
+its source~\citep{shi2016edge}. Federated database systems let each source keep
+its autonomy and choose what it exports~\citep{sheth1990federated}, and
+mediators combine sources behind one interface~\citep{wiederhold1992mediators},
+as Presto/Trino and polystores do today~\citep{sethi2019presto,duggan2015bigdawg}.
+
+\paragraph{Federated computational governance.} Data mesh is the closest
+industry statement of the Dagents idea. A federation of domain and platform
+owners sets global rules, each domain tags its own data, and the platform runs
+the rules automatically in or beside each data
+product~\citep{dehghani2019monolithic,dehghani2020principles,dehghani2022datamesh,machado2022datamesh}.
+Wider et al.\ build this with OPA, a sidecar per data product, global
+sensitivity levels and a deny-all default~\citep{wider2023decentralized}. A
+2024 review in ACM Computing Surveys calls end-to-end governance automated as
+policy code ``largely unexplored''~\citep{goedegebuure2024datamesh}.
+
+\paragraph{Planning before acting.} A query optimiser chooses an access path
+before execution~\citep{selinger1979access}, and GRAILS compares its planner to
+one. The analogy has a limit: every plan an optimiser chooses between returns
+the same answer, while a restriction plan changes the answer on purpose. GRAILS
+itself calls its planner ``a mapping system'', and Dagents's planner is a table
+over a finite product of types, not a cost-based search. Terraform prints a
+plan before it applies it~\citep{hashicorp_terraform_plan}; Kubernetes stores a
+desired state that controllers reconcile~\citep{burns2016borg,kubernetes_controllers};
+GitOps keeps that state in version control~\citep{opengitops_principles}; Nix
+builds are pure functions of their inputs~\citep{dolstra2004nix,dolstra2006purely};
+and NetKAT compiles a network-wide policy, with formal semantics, into tables
+for each switch~\citep{foster2011frenetic,anderson2014netkat}.
+
+\paragraph{Separating decisions from effects.} ``Functional core, imperative
+shell''~\citep{bernhardt2012boundaries} and hexagonal
+architecture~\citep{cockburn2005hexagonal} make the decide-and-do cut inside
+one program. Algebraic data types and exhaustiveness checking make a decision's
+input space finite and checked by the compiler~\citep{maranget2007warnings};
+Minsky describes the practice at Jane Street as making illegal states
+unrepresentable~\citep{minsky2008caml,minsky2011ocaml}. The guarantee holds only
+where a non-exhaustive match stops the build. Policy engines run out of
+process, as OPA sidecars and Envoy's external authoriser
+do~\citep{opa_deploy,envoy_extauthz}, and process isolation limits what a fault
+in one component can do to another~\citep{reis2009isolating}.
+
+\paragraph{``Agent'' now usually means an LLM agent.} In AutoGen and LangGraph,
+an agent is a language model that plans and calls
+tools~\citep{wu2023autogen,langgraph_docs,anthropic2024building}, connected
+through protocols such as the Model Context Protocol and
+Agent2Agent~\citep{mcp2025specification,a2a_protocol}. Dagents's agents are
+not language models; they are services in the older sense of software that acts
+for a site~\citep{wooldridge1995intelligent}. Defences for LLM agents share
+three choices with Dagents: deterministic checks outside the model, a planner
+that never sees untrusted data, and deny by default. The dual-LLM pattern, CaMeL
+and Progent are examples~\citep{willison2023dual,debenedetti2026defeating,shi2025progent,beurerkellner2025design}.
+They gate tool calls inside one user's session and some track information
+flow~\citep{costa2025fides}; Dagents gates reads, training input, outgoing
+updates and releases across institutions, and tracks no flow inside the
+computation.
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabularx}{\linewidth}{@{}p{0.2\linewidth} p{0.26\linewidth} Y@{}}
+\toprule
+Idea & Established by & What changes when it governs distributed data and models \\
+\midrule
+Move code to data & Mobile agents; MapReduce; edge computing & The motive is
+  legal and ethical, not bandwidth. The risk is what the coordinator's code may
+  learn, so the site's job gets the guarded payload, not the raw records. \\
+Source autonomy & Federated databases; mediators & Export becomes a per-request
+  decision that depends on trust and granularity, and covers model updates. \\
+Plan, then execute & System R; Presto; GRAILS's analogy & A query plan keeps the
+  answer and minimises cost; a restriction plan reduces the answer. \\
+Decision point apart from enforcement point & RFC 2753; XACML; OPA & The
+  decision function is replicated at each site, named by its hash in every
+  record, and failing to reach it always denies. \\
+Typed, exhaustive decisions & ML pattern matching; Jane Street practice &
+  ``Every combination is handled'' becomes a governance property: totality, not
+  correctness. \\
+Plan, review, apply & Terraform; Kubernetes; Nix; GitOps & The ``apply'' is a
+  release that others may copy and that cannot be undone, so aggregation yields
+  only a candidate. \\
+Planner that never sees data & Dual LLM; CaMeL & The planner sees only metadata;
+  the threat is over-disclosure to a coordinator, not prompt injection. \\
+\bottomrule
+\end{tabularx}
+\caption{Architectural ideas Dagents builds on, and what changes when they
+govern data and models across organisations.}
+\label{tab:arch}
+\end{table}
+
+\paragraph{Relation to Dagents.} The planner and Guard are an instance of the
+PDP/PEP split with a deny-biased enforcement point; the typed planner applies
+``make illegal states unrepresentable'' to policy; the separate planner process
+follows the out-of-process policy engine, but starts one process per call
+rather than running as a daemon. These are combinations of known primitives,
+not new primitives. The family is stronger in several places: NetKAT and Cedar
+have formal semantics, Nix builds are reproducible bit for bit while the
+planner's hash differs between builds, Kubernetes reconciles continuously, and
+HashiCorp Sentinel offers graded enforcement levels with recorded
+overrides~\citep{hashicorp_sentinel_levels}.

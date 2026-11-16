@@ -40,6 +40,58 @@
       ]
     },
     {
+      "id": "survey-and-design",
+      "title": "Survey and design",
+      "intro": "A survey of research and industry work on governing analytics and learning across data sources, and the design idea behind Dagents. It starts from GRAILS, the framework the governance planner implements.",
+      "items": [
+        {
+          "id": "survey-deck",
+          "kind": "deck",
+          "title": "Where governance decisions live",
+          "description": "The survey and the design as a talk: the questions every multi-source system answers, GRAILS, seven families of related work and the gaps between them, the Dagents design as ten principles, the stroke demo with what to show in a live demo, and the limits.",
+          "audience": "Researchers, reviewers and engineers who know the basics of machine learning",
+          "source": "docs/presentation/survey/dagents-survey-and-design.pptx",
+          "previewSlide": 24,
+          "facts": {
+            "updated": "2026-11-16",
+            "bytes": 186624,
+            "sha256": "6f30823787668bc2e8c175af96205f39f2fd56a8ab4932debecea825109dd315",
+            "slides": 36,
+            "pdf": {
+              "path": "docs/presentation/exports/survey-deck.pdf",
+              "bytes": 407670,
+              "sha256": "89a40042443a5484e1c63e8c5574e02fe286f6f2d27305a80b501afe901102cf",
+              "pages": 36,
+              "settings": "319627d34f00b00b"
+            },
+            "preview": {
+              "path": "docs/presentation/exports/survey-deck.webp",
+              "bytes": 11912,
+              "sha256": "72ec40a2faa8f5d73bba5ea5984b7d9b58fc39e3c2cd2c7ba10ee32b6b0d4ffb",
+              "slide": 24,
+              "width": 480,
+              "height": 270
+            }
+          }
+        },
+        {
+          "id": "survey-paper",
+          "kind": "pdf",
+          "title": "Where governance decisions live: the paper",
+          "description": "The full survey: where existing approaches decide and enforce, a comparison table and the gaps it shows, the Dagents design tied to code, a case study on the stroke demo, and the limits of the design and of the survey. Every reference was checked against Crossref, arXiv or the publisher's page.",
+          "audience": "Researchers and reviewers",
+          "note": "A draft. The author list and the venue are still to be decided.",
+          "source": "docs/reports/dagents_survey_paper.pdf",
+          "facts": {
+            "updated": "2026-11-16",
+            "bytes": 663621,
+            "sha256": "40509cb0a80de8ddc92f8723fe0d92cf8c39ac8de1230e3299dbf3373e990121",
+            "pages": 51
+          }
+        }
+      ]
+    },
+    {
       "id": "healthcare-case-study",
       "title": "Healthcare case study",
       "intro": "Six versions of one case study. Each shows how several hospitals could share an early-warning tool while every hospital keeps its own patient records. Pick the version that fits your audience.",

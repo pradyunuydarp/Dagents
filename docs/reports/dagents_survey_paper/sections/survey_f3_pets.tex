@@ -1,0 +1,75 @@
+\subsection{F3. Privacy-enhancing technologies for releasing data and statistics}
+\label{sec:survey-pets}
+
+\paragraph{Two traditions.} Statistical disclosure control (SDC) treats privacy
+as a property of the released table. A methodologist, or a search over
+transformations, recodes, suppresses, top-codes, microaggregates or adds noise
+until the output meets a target and the loss of utility is
+acceptable~\citep{hundepool2012statistical}. Its syntactic models are
+\(k\)-anonymity~\citep{sweeney2002kanonymity}, \(l\)-diversity~\citep{machanavajjhala2007ldiversity}
+and \(t\)-closeness~\citep{li2007tcloseness}, and its tools include
+microaggregation~\citep{domingoferrer2002practical}, ARX~\citep{prasser2020flexible}
+and sdcMicro~\citep{templ2015statistical}. The strategies of GRAILS come from
+this tradition, and so do Dagents's \emph{generalise}, \emph{redact},
+\emph{aggregate only} (a minimum-frequency rule) and \emph{refuse}.
+Differential privacy (DP) treats privacy as a property of the
+algorithm~\citep{dwork2006calibrating,dwork2014algorithmic}. A DP guarantee
+needs a unit of privacy, a bound on each unit's contribution, noise calibrated to
+that bound and drawn unpredictably, and accounting across every release.
+
+\paragraph{Attacks separate the two.} Linkage~\citep{narayanan2008robust},
+composition of independent releases~\citep{ganta2008composition}, predicate
+singling out~\citep{cohen2020towards}, downcoding of generalisation
+hierarchies~\citep{cohen2022attacks} and reconstruction from many accurate
+statistics~\citep{dinur2003revealing,garfinkel2019understanding} defeat
+syntactic protections. A property of one output table says nothing about an
+attacker's other knowledge or about other releases. The DP guarantee holds
+against any auxiliary information and composes, which is why the 2020 United
+States Census adopted it~\citep{abowd2022topdown}.
+
+\paragraph{Who decides.} In every DP system surveyed, a person chooses the
+privacy-loss parameter and the unit of privacy: a policy committee for the
+Census, the data owner in PINQ and Airavat~\citep{mcsherry2009privacy,roy2010airavat},
+the analyst in Tumult Analytics~\citep{berghel2022tumult}, the pipeline author
+in PipelineDP~\citep{pipelinedp2026}, and the operator in Sage and LinkedIn's
+audience engagements API~\citep{lecuyer2019privacy,rogers2021linkedin}. Software
+then derives the noise scale and keeps the budget. The mechanism is fixed by
+composable operators (PINQ, Ektelo~\citep{zhang2018ektelo},
+OpenDP~\citep{opendp2026library}), by a type system
+(Fuzz~\citep{reed2010distance}), by query rewriting
+(FLEX, Chorus and Google's DP SQL~\citep{johnson2018towards,johnson2020chorus,wilson2020differentially}),
+or by a separate budget service or scheduler (Sage, PrivateKube, DPack and
+Cohere~\citep{lecuyer2019privacy,luo2021privacy,tholoniat2025dpack,kuchler2024cohere}).
+Local DP enforces on the device, as in RAPPOR and in Apple's and Microsoft's
+telemetry~\citep{erlingsson2014rappor,apple2017learning,ding2017collecting}.
+Cohere's resource planner is the closest to a planner that decides: it never
+touches the data and allocates budget among requests by
+optimisation~\citep{kuchler2024cohere}. No surveyed system sets the privacy
+parameter from the requester's trust or purpose, as GRAILS sets a strategy.
+
+\paragraph{A rule that chooses a transformation is not a privacy bound.} A rule
+table, such as those of GRAILS, Dagents or SDC threshold rules, can be total
+and analysable. Its output carries a bound only when the chosen transformation
+is a DP mechanism with a fixed unit, a contribution bound, calibrated noise and
+an accountant. Generalisation, binning, masking, suppression and exact-count
+thresholds give no bound against auxiliary information; at most they give
+\(k\)-anonymity when they are chosen to reach a given \(k\), and fixed-level
+rounding does not do that. The NIST guidelines for evaluating DP guarantees ask
+that the unit of privacy be stated~\citep{near2025guidelines}. Google's DP SQL
+checks its minimum-count threshold on a noisy count, so that the threshold
+decision is itself private~\citep[\S3.5]{wilson2020differentially}, and the
+implementation literature treats the noise source as part of the security of
+the mechanism~\citep{mironov2012significance}.
+
+\paragraph{Relation to Dagents.} Dagents's typed planner proves that every
+combination of inputs has a decision. That is a property of the policy, not of
+privacy loss. Fuzz is the contrast: there the type checker proves the privacy
+bound. Dagents's parameters are constants (generalisation level 1, noise scale
+0.5, clip bound 1.0) rather than values derived from a privacy target. Its
+minimum cohort is an exact-count threshold. Its clipping, which DP needs, has no
+accountant behind it, and it declares no unit of privacy. Its noise is seeded
+from the request so that an auditor can reproduce it, which conflicts with the
+requirement that DP noise be unpredictable (\cref{sec:limitations}). The family
+is stronger in every respect that concerns a provable bound. Dagents adds what
+the family leaves to others: who is asking and why, per-decision evidence, and
+the release of a model.

@@ -1,0 +1,77 @@
+\subsection{F1. Responsible-AI practice}
+\label{sec:survey-rai}
+
+\paragraph{Principles agree on values and say little about application.}
+Jobin et al.\ found five principles that recur across 84 guideline documents,
+and wide disagreement on how to apply them~\citep{jobin2019global}. Mittelstadt
+argues that principles alone cannot guarantee ethical AI, because they lack
+enforcement and shared professional duties~\citep{mittelstadt2019principles};
+Hagendorff makes a similar point~\citep{hagendorff2020ethics}. Morley et al.\
+catalogue tools that translate principles into practice~\citep{morley2020what},
+and later report how far that translation has come~\citep{morley2023operationalising}.
+Studies inside companies find launch pressure, metrics that ethics work cannot
+meet, and personal risk for the people who raise
+issues~\citep{rakova2021where,ali2023walking}, and developers who value
+guidelines more than they follow them~\citep{ximenes2026bridging}.
+
+\paragraph{Most approaches decide through people, at fixed points.}
+\begin{itemize}
+  \item \emph{Design time}: Value Sensitive Design~\citep{friedman1996value,friedman2008value},
+        Privacy by Design~\citep{cavoukian2010privacy}, Ethics by
+        Design~\citep{dignum2018ethics}, privacy engineering and Hoepman's eight
+        privacy design strategies~\citep{spiekermann2009engineering,hoepman2014privacy},
+        and data protection by design and by default under Article 25 of the
+        GDPR~\citep{eu2016gdpr,bygrave2017data}.
+  \item \emph{Documentation}: model cards~\citep{mitchell2019model}, datasheets
+        for datasets~\citep{gebru2021datasheets}, FactSheets~\citep{arnold2019factsheets}
+        and data statements~\citep{bender2018data} record decisions after they
+        are made.
+  \item \emph{Audits and assessments}: internal audit frameworks such as
+        SMACTR~\citep{raji2020closing}, external audits~\citep{raji2019actionable,birhane2024ai},
+        algorithmic impact assessments~\citep{metcalf2021algorithmic} and
+        privacy impact assessments~\citep{wright2012state} are human reviews
+        before release or after the fact.
+  \item \emph{Toolkits}: AIF360, Fairlearn and the What-If
+        Tool~\citep{bellamy2019ai,weerts2023fairlearn,wexler2019what} compute
+        metrics and offer mitigations during development; a data scientist
+        decides which to apply~\citep{holstein2019improving,deng2022exploring}.
+  \item \emph{Governance platforms}: Microsoft's Responsible AI
+        Standard~\citep{microsoft2022responsible}, IBM
+        watsonx.governance~\citep{ibm2026watsonxgov}, Credo
+        AI~\citep{credoai2026platform}, Holistic AI~\citep{holisticai2026enforce}
+        and the NIST AI Risk Management Framework~\citep{tabassi2023nist}
+        organise these into inventories, risk tiers, evidence and approvals.
+\end{itemize}
+
+\paragraph{Per-request enforcement appears only in runtime guardrails.} Most
+guardrails sit at the input and output of a large language model: NeMo
+Guardrails~\citep{rebedea2023nemo}, Llama Guard~\citep{inan2023llama},
+ShieldGemma~\citep{zeng2024shieldgemma}, Granite Guardian~\citep{padhi2024granite}
+and Guardrails AI~\citep{guardrailsai2026onfail}. Dong et al.\ define a
+guardrail as an algorithm that decides ``if and how some enforcement actions can
+be taken''~\citep{dong2024building}, and Hu et al.\ make a guardrail's
+strictness depend on a user trust score, as GRAILS does~\citep{hu2024trust}.
+Newer work enforces at the tool calls of LLM agents: CaMeL checks Python policy
+functions against capabilities attached to values~\citep{debenedetti2026defeating},
+and AgentSpec checks rules in a small language~\citep{wang2026agentspec}.
+GRAILS is the one surveyed design that enforces per request on structured data.
+
+\paragraph{Failure behaviour is rarely stated.} Guardrails AI's default action
+on a failed check is \code{noop}: the output passes and the failure is
+logged~\citep{guardrailsai2026onfail}. CaMeL blocks a call that breaks a policy,
+and suggests asking the user in production. Documentation and governance
+products record rather than block. Lu et al.'s catalogue of responsible-AI
+patterns lists a ``federated learner'' and an ``ethical black box'' as separate
+patterns~\citep{lu2024responsible}.
+
+\paragraph{Relation to Dagents.} Dagents shares GRAILS's strategy table, the
+deterministic allow-or-deny with a reason of CaMeL and AgentSpec, and the
+append-only evidence that FactSheets and the ethical black box propose. Six of
+Hoepman's strategies (minimise, separate, aggregate, hide, enforce and
+demonstrate) map onto its boundaries. The family is stronger at everything a
+runtime cannot do: eliciting stakeholder values, measuring and mitigating
+unfairness, documenting models and datasets, mapping controls to regulations,
+and independent review. Language-model guardrails also handle free text, which
+a rule table over typed fields cannot. As of 16 November 2026 we found no work
+that cites GRAILS; Crossref reports no citing works, and we could not query
+Google Scholar.

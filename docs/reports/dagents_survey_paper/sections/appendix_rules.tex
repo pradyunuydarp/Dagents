@@ -1,0 +1,57 @@
+\section{The two rule tables}
+\label{app:rules}
+
+\Cref{tab:rules} sets the strategies of GRAILS (its Table~1) beside those of the
+Dagents governance planner. GRAILS lists one or more transformations for each
+case; Dagents chooses exactly one strategy. GRAILS's ``moderate'' sensitivity
+corresponds to Dagents's ``medium''. The model-update column exists only in
+Dagents. Strategy names in Dagents: \emph{allow} returns the field unchanged;
+\emph{gen} generalises it (level 1 rounds a number to the nearest 10);
+\emph{redact} removes it; \emph{agg} returns only aggregates over at least the
+minimum cohort; \emph{clip} bounds an update's norm to 1.0; \emph{noise} adds
+Gaussian noise of scale 0.5 to an update; \emph{refuse} withholds it.
+
+{\footnotesize
+\setlength{\tabcolsep}{3pt}
+\begin{longtable}{@{}l l p{0.27\linewidth} p{0.27\linewidth} p{0.27\linewidth}@{}}
+\caption{GRAILS and Dagents strategies by granularity, sensitivity and trust.
+Each cell gives GRAILS / Dagents.}
+\label{tab:rules}\\
+\toprule
+Grain & Sens. & Low trust & Moderate trust & High trust \\
+\midrule
+\endfirsthead
+\toprule
+Grain & Sens. & Low trust & Moderate trust & High trust \\
+\midrule
+\endhead
+Cell & High & suppression, DP, full masking / refuse & top/bottom coding, microaggregation, partial masking / redact & noise injection / gen \\
+ & Mod. & microaggregation / redact & generalisation, partial masking / gen & none / allow \\
+ & Low & noise injection / allow & none / allow & none / allow \\
+\midrule
+Row & High & full masking / refuse & microaggregation, partial masking / redact & microaggregation / gen \\
+ & Mod. & generalisation / redact & microaggregation, partial masking / gen & none / allow \\
+ & Low & microaggregation / allow & none / allow & none / allow \\
+\midrule
+Column & High & generalisation, top/bottom coding, full masking / refuse & suppression, partial masking / agg & noise injection / agg \\
+ & Mod. & binning / agg & binning, partial masking / agg & none / gen \\
+ & Low & generalisation / gen & none / allow & none / allow \\
+\midrule
+Table & High & suppression, DP, full masking / refuse & microaggregation, partial masking / agg & microaggregation / agg \\
+ & Mod. & generalisation / refuse & microaggregation, partial masking / agg & none / agg \\
+ & Low & generalisation / agg & none / gen & none / allow \\
+\midrule
+Model & High & -- / refuse & -- / noise & -- / clip \\
+update & Mod. & -- / refuse & -- / clip & -- / clip \\
+ & Low & -- / noise & -- / clip & -- / clip \\
+\bottomrule
+\end{longtable}
+}
+
+Three differences stand out. First, for high-sensitivity data and a low-trust
+requester, GRAILS returns a masked or suppressed result, while Dagents refuses
+the field at every granularity. Second, for column and table requests Dagents
+returns only aggregates over at least the minimum cohort, where GRAILS uses
+microaggregation or generalisation. Third, GRAILS adds noise to a low-sensitivity
+cell for a low-trust requester, while Dagents returns it unchanged; Dagents
+saves noise for model updates.

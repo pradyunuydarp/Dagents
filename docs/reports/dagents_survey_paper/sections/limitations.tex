@@ -1,0 +1,82 @@
+\section{Limitations}
+\label{sec:limitations}
+
+\subsection{Limits of the design and the implementation}
+
+\begin{itemize}
+  \item \textbf{A strategy is not a privacy proof.} The planner chooses a
+        transformation from a table; it does not prove a bound on what an
+        attacker can learn. Generalisation and minimum cohorts do not prevent
+        every attack on released statistics (\cref{sec:survey-pets}). Clipping
+        and seeded noise bound each model update, but Dagents has no privacy
+        accountant and tracks no privacy budget, so it does not provide
+        differential privacy.
+  \item \textbf{Seeded noise is predictable to the coordinator.} The Guard seeds
+        its noise from the request id, the field and the position, so that an
+        auditor can reproduce it. For an outgoing model update the request id is
+        built from the round id and the site id, which the coordinator knows. A
+        coordinator can therefore compute the noise and remove it, so the
+        \emph{add noise} strategy protects nothing against the coordinator. The
+        stroke study is not affected, because its updates are clipped, not
+        noised. A fix would add a secret held by the site to the seed and
+        disclose it only to an auditor.
+  \item \textbf{Decisions are made one request at a time.} The minimum cohort
+        is checked on an exact count, and nothing tracks what earlier answers
+        revealed. Combining permitted aggregates can rebuild records
+        (\cref{sec:survey-fa}); budgets and difference checks across queries
+        are not implemented.
+  \item \textbf{The table encodes a judgement.} The strategies in
+        \cref{tab:rules}, the trust thresholds (0.4 and 0.75) and the KYU
+        weights (0.7 for attributes, 0.3 for history) are choices, as are the
+        constants for generalisation, noise and clipping. Typing makes the table
+        complete and testable. Whether each choice suits a domain is for a
+        consortium to review, and Dagents gives no method for that review.
+  \item \textbf{Trust depends on its inputs.} The KYU score is computed from
+        attributes the caller passes in, marked as verified or not. Dagents does
+        not verify identities or affiliations.
+  \item \textbf{Approval names no approver.} The GMA's approval route takes the
+        model version and a token with the administrator scope. It does not
+        record who approved, or check that the approver is not the person who
+        asked for the release. There is also no route for a request that needs
+        review by a person, no staged deployment and no monitoring after
+        release (\cref{sec:survey-reg}).
+  \item \textbf{Evidence is tamper-evident, not tamper-proof.} The audit chain
+        detects an edited or deleted record. It is not an append-only store with
+        retention rules and signatures, and round digests are content hashes,
+        not signatures.
+  \item \textbf{Coordination is centralised.} One GMA coordinates a study.
+        Recovery after a restart assumes one GMA process with one worker, and
+        messaging between agents is in memory or over HTTP; a message broker is
+        future work. Live validation on Kubernetes has not been done.
+  \item \textbf{Isolation in the published demo rests on code paths.} The
+        hosted demo connects to its database with one credential that can read
+        every schema. Isolation there holds because every query switches to a
+        hospital's role, not because the login is restricted. A real deployment
+        gives each site's LMA its own login and database.
+  \item \textbf{Architecture is not compliance.} Regulations such as HIPAA also
+        require administrative and physical safeguards, proof that controls
+        work in practice, and independent audits. No codebase provides those.
+\end{itemize}
+
+\subsection{Limits of the evidence}
+
+\begin{itemize}
+  \item The case study is one study, one model and one dataset, run by the
+        authors. Its records are from 1991 to 1996, and the candidate is
+        trained and measured on the same hospitals. The cost of 0.0005 AUC in
+        \cref{sec:cost} does not generalise to other data or models.
+  \item We have not measured the planner's latency at scale, the cost of
+        running one LMA per source, or the effort an application team spends
+        to adopt Dagents compared with assembling the parts itself.
+  \item No independent team has deployed Dagents. The comparison in
+        \cref{sec:comparison} is an analysis of designs, not a controlled
+        study.
+\end{itemize}
+
+\subsection{Limits of the survey}
+
+The survey is a structured narrative review by the authors of one of the
+systems it compares. Its families and dimensions come from the questions this
+paper asks, and another lens, such as cost or usability, would group the same
+work differently. Products change quickly; we describe each as its
+documentation stood on the date we read it.
